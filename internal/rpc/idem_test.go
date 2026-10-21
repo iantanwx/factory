@@ -280,3 +280,44 @@ func waitFor(t *testing.T, cond func() bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// A run's last write is often run finish, which revokes its token. When the
+// answer is lost, the retry with the same key must get the stored answer,
+// not token_revoked. A new key from the settled run is still refused.
+func TestSettledRunReplaysItsLastWrite(t *testing.T) {
+	h := newHarness(t)
+	var calls atomic.Int32
+	h.handle("work note", func(context.Context, *Call) cli.Result {
+		calls.Add(1)
+		return cli.Found(map[string]any{"done": true})
+	})
+	h.start()
+	a := h.issue("run-a", cli.PrincipalRun, "T-A")
+	tf, _ := cli.ReadTokenFile(a)
+	h.proc.setCwd(a)
+	conn, err := grpc.NewClient("unix://"+cli.SocketPath(h.dir), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	req := func(key string) *loopv1.VerbRequest {
+		return &loopv1.VerbRequest{Verb: "work note", Args: []string{"T-A"}, Flags: map[string]string{"body": "b"},
+			IdempotencyKey: key, RunToken: tf.Token, ClientVersion: cli.Version}
+	}
+	if env, _ := rawCall(t, conn, "/loop.v1.WorkService/Note", req("k1-last")); !env.GetOk() {
+		t.Fatalf("first call: %v", env)
+	}
+	if _, err := h.tokens.Revoke(context.Background(), "run-a"); err != nil {
+		t.Fatal(err)
+	}
+	if env, _ := rawCall(t, conn, "/loop.v1.WorkService/Note", req("k1-last")); !env.GetOk() {
+		t.Fatalf("the retry of the last write must replay: %v", env)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("handler ran %d times; a replay must not run it", n)
+	}
+	env, _ := rawCall(t, conn, "/loop.v1.WorkService/Note", req("k1-new"))
+	if env.GetRefusal().GetRule() != "token_revoked" {
+		t.Fatalf("a new write from a settled run: %v", env)
+	}
+}

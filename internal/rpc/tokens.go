@@ -143,7 +143,8 @@ func (t *Tokens) IssueToCheckout(ctx context.Context, r IssueRequest) (cli.Token
 }
 
 // Verify returns the principal a token binds. It returns ErrTokenUnknown
-// or ErrTokenRevoked when the token admits nothing. Release is the run
+// when the token admits nothing. With ErrTokenRevoked it still returns the
+// principal, so the server can replay the settled run's stored answers. Release is the run
 // record's release, or the token's when the run has no record.
 func (t *Tokens) Verify(ctx context.Context, token string) (Principal, error) {
 	if len(token) != len(tokenPrefix)+64 {
@@ -172,7 +173,7 @@ func (t *Tokens) Verify(ctx context.Context, token string) (Principal, error) {
 		return Principal{}, ErrTokenUnknown
 	}
 	if revoked.Valid {
-		return Principal{}, ErrTokenRevoked
+		return p, ErrTokenRevoked
 	}
 	return p, nil
 }

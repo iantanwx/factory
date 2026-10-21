@@ -283,6 +283,9 @@ func (s *Server) decide(ctx context.Context, method string, req *loopv1.VerbRequ
 		return path, *res, p, nil
 	}
 	if fault != nil {
+		if replay := s.replaySettled(ctx, v, req, p, fault); replay != nil {
+			return path, cli.Result{}, p, replay
+		}
 		return path, *fault, p, nil
 	}
 	inv, bad := s.reg.Validate(path, req.GetArgs(), req.GetFlags(), req.GetRequestId())
@@ -312,18 +315,60 @@ func (s *Server) decide(ctx context.Context, method string, req *loopv1.VerbRequ
 	return path, res, p, replay
 }
 
+// replaySettled answers a settled run's retry of a write it already made.
+// A run's last write, such as run finish, revokes its token, so a retry
+// after a lost answer arrives with a revoked token. Only a stored answer
+// for the same key and arguments is returned; anything else keeps fault.
+// Revoke keeps those keys for the CLI wait budget (KTD13).
+func (s *Server) replaySettled(ctx context.Context, v *cli.Verb, req *loopv1.VerbRequest, p Principal, fault *cli.Result) *cli.Envelope {
+	key := req.GetIdempotencyKey()
+	if fault.Refusal == nil || fault.Refusal.Rule != "token_revoked" || !v.Write || key == "" || p.RunID == "" || len(key) > maxKeyLen {
+		return nil
+	}
+	inv, bad := s.reg.Validate(v.Path, req.GetArgs(), req.GetFlags(), req.GetRequestId())
+	if bad != nil {
+		return nil
+	}
+	fp := fingerprint(p.RunID, inv)
+	var (
+		rec   store.IdemRecord
+		found bool
+	)
+	err := s.opts.Store.Write(ctx, func(tx *store.Tx) error {
+		var err error
+		rec, found, err = tx.LookupKey(key, fp)
+		return err
+	})
+	if err != nil || !found || rec.Pending() {
+		return nil
+	}
+	env, err := cli.EnvelopeFromJSON(rec.Result)
+	if err != nil {
+		return nil
+	}
+	env.RequestID = req.GetRequestId()
+	env.ServerVersion = s.opts.Version
+	env.Replayed = true
+	return &env
+}
+
+// fingerprint is what an idempotency key must match on a replay.
+func fingerprint(runID string, inv cli.Invocation) store.Fingerprint {
+	return store.Fingerprint{
+		RunID:       runID,
+		Verb:        inv.Verb.Path,
+		ArgsHash:    cli.ArgsHash(inv.Verb.Path, inv.Args, inv.Flags),
+		ContentHash: inv.Extra[cli.ExtraContentHash],
+	}
+}
+
 // idempotent replays a stored answer for key, or runs the call and stores
 // its answer when the answer is definitive (R18, KTD13).
 func (s *Server) idempotent(ctx context.Context, call *Call, key string) (cli.Result, *cli.Envelope) {
 	unlock := s.lockKey(key)
 	defer unlock()
 	inv := call.Inv
-	fp := store.Fingerprint{
-		RunID:       call.Principal.RunID,
-		Verb:        inv.Verb.Path,
-		ArgsHash:    cli.ArgsHash(inv.Verb.Path, inv.Args, inv.Flags),
-		ContentHash: inv.Extra[cli.ExtraContentHash],
-	}
+	fp := fingerprint(call.Principal.RunID, inv)
 	var (
 		rec   store.IdemRecord
 		found bool
@@ -416,7 +461,8 @@ func (s *Server) resolve(ctx context.Context, req *loopv1.VerbRequest, p Princip
 		tp, err := s.opts.Tokens.Verify(ctx, token)
 		switch {
 		case errors.Is(err, ErrTokenRevoked):
-			return p, denied("token_revoked", "", "this run token's run settled; a settled run calls nothing")
+			tp.Peer = p.Peer
+			return tp, denied("token_revoked", "", "this run token's run settled; a settled run calls nothing")
 		case errors.Is(err, ErrTokenUnknown):
 			return p, denied("token_unknown", "", "the server issued no such run token")
 		case err != nil:
