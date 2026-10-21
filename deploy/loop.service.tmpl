@@ -1,0 +1,22 @@
+# Written by `loop install`. `loop install --check` reports any change to
+# this file. The server runs from the instance directory, never from a
+# project checkout (R42). Agents run in the agent host's processes, outside
+# this unit's cgroup, so a restart kills no run (KTD10). No credential
+# lives in this file: the CLI reads the host-admin credential from its
+# 0600 file in the instance directory (KTD12).
+[Unit]
+Description=loop server ({{.Instance}})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+WorkingDirectory={{.Instance}}
+ExecStart={{.Instance}}/current/loop serve --instance {{.Instance}}
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=90s
+
+[Install]
+WantedBy=default.target

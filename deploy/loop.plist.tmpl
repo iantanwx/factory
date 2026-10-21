@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Written by `loop install`. Its check mode reports any change to this
+     file. The server runs from the instance directory, never from a
+     project checkout (R42). No credential lives in this file (KTD12). -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>{{.Label}}</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{.Instance}}/current/loop</string>
+		<string>serve</string>
+		<string>--instance</string>
+		<string>{{.Instance}}</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>{{.Instance}}</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>5</integer>
+	<key>ExitTimeOut</key>
+	<integer>90</integer>
+	<key>StandardErrorPath</key>
+	<string>{{.Instance}}/log/server.log</string>
+</dict>
+</plist>

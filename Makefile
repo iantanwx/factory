@@ -13,7 +13,8 @@ DESCRIPTOR    := gen/loop.binpb
 # `make gates` is the definition of done. A later unit adds its gate here.
 GATES := lint test race proto-check
 
-.PHONY: build build-all test race lint proto proto-check gates beads-contract beads-contract-race orca-contract $(PLATFORMS)
+.PHONY: build build-all test race lint proto proto-check gates beads-contract beads-contract-race orca-contract \
+	release-dist release-sign release-dry $(PLATFORMS)
 
 build:
 	$(GO) build -trimpath -ldflags '$(LDFLAGS)' -o bin/loop ./cmd/loop
@@ -69,3 +70,46 @@ proto-check:
 		{ echo "gen/ differs from a fresh buf generate; run make proto" >&2; exit 1; }
 
 gates: $(GATES)
+
+# Releases (U16, KTD26). A tag starts .github/workflows/release.yml, which
+# runs release-dist and uploads an unsigned draft. The operator signs on
+# an offline machine with release-sign, which reads the secret key from
+# RELEASE_KEY and never runs in CI. release-dry runs the whole path with a
+# throwaway key in a temporary directory.
+DIST         ?= dist/$(VERSION)
+RELEASE_TOOL := $(GO) run ./internal/release/cmd/loop-release
+TRUSTED_KEYS := internal/release/trusted_keys.pub
+
+release-dist:
+	@case "$(VERSION)" in v*.*.*) ;; *) echo "VERSION=$(VERSION) is not a release version vMAJOR.MINOR.PATCH" >&2; exit 1;; esac
+	rm -rf $(DIST) && mkdir -p $(DIST)
+	for p in $(PLATFORMS); do \
+		GOOS=$${p%/*} GOARCH=$${p#*/} $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-$${p%/*}-$${p#*/} ./cmd/loop || exit 1; \
+	done
+	$(RELEASE_TOOL) dist -dir $(DIST) -version $(VERSION) $(if $(MIN_FROM),-min-from $(MIN_FROM)) $(if $(NO_ROLLBACK),-no-rollback)
+
+release-sign:
+	@test -n "$(RELEASE_KEY)" || { echo "set RELEASE_KEY to the offline secret key file" >&2; exit 1; }
+	$(RELEASE_TOOL) sign -dir $(DIST) -key $(RELEASE_KEY)
+	$(RELEASE_TOOL) verify -dir $(DIST) -pub $(TRUSTED_KEYS)
+
+release-dry:
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && v=v0.0.0-dry && \
+	$(MAKE) --no-print-directory release-dist VERSION=$$v DIST=$$tmp/$$v && \
+	$(RELEASE_TOOL) keygen -pub $$tmp/key.pub -sec $$tmp/key.sec && \
+	$(RELEASE_TOOL) sign -dir $$tmp/$$v -key $$tmp/key.sec && \
+	$(RELEASE_TOOL) verify -dir $$tmp/$$v -pub $$tmp/key.pub && \
+	for p in $(PLATFORMS); do \
+		f=$$tmp/$$v/loop-$${p%/*}-$${p#*/}; file "$$f" 2>/dev/null || ls -l "$$f"; \
+	done && \
+	if [ "$$($(GO) env GOOS)/$$($(GO) env GOARCH)" = linux/amd64 ]; then \
+		$$tmp/$$v/loop-linux-amd64 version | grep -q '"version":"v0.0.0-dry"' && echo "loop-linux-amd64 runs and reports v0.0.0-dry"; \
+	fi && \
+	cp -R $$tmp/$$v $$tmp/tampered && printf x >> $$tmp/tampered/loop-linux-arm64 && \
+	if $(RELEASE_TOOL) verify -dir $$tmp/tampered -pub $$tmp/key.pub 2>/dev/null; then \
+		echo "release-dry: a tampered binary verified" >&2; exit 1; \
+	fi && echo "release-dry: a tampered binary is refused" && \
+	$(RELEASE_TOOL) keygen -pub $$tmp/other.pub -sec $$tmp/other.sec >/dev/null && \
+	if $(RELEASE_TOOL) verify -dir $$tmp/$$v -pub $$tmp/other.pub 2>/dev/null; then \
+		echo "release-dry: another key verified" >&2; exit 1; \
+	fi && echo "release-dry: a signature by another key is refused"

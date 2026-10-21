@@ -1,0 +1,5 @@
+# The minisign public keys that `loop upgrade` trusts (KTD26). One key per
+# line: the base64 line of a minisign public key file. A release may add
+# the next key here before the operator signs with it. No key is embedded
+# yet: the operator generates the signing key offline and adds its public
+# line here (docs/operating.md, "Sign a release").

@@ -8,3 +8,15 @@ import _ "embed" // the templates below
 //
 //go:embed mergify.yml.tmpl
 var MergifyTemplate string
+
+// ServiceTemplate is loop.service.tmpl: the systemd user unit that
+// `loop install` writes on Linux (U16). It takes .Instance.
+//
+//go:embed loop.service.tmpl
+var ServiceTemplate string
+
+// PlistTemplate is loop.plist.tmpl: the launchd agent that `loop install`
+// writes on macOS (U16). It takes .Instance and .Label.
+//
+//go:embed loop.plist.tmpl
+var PlistTemplate string
