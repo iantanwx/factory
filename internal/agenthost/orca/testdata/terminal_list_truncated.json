@@ -1,0 +1,51 @@
+{
+  "id": "00000016-0000-4000-8000-000000000016",
+  "ok": true,
+  "result": {
+    "terminals": [
+      {
+        "handle": "term_00000011-0000-4000-8000-000000000011",
+        "ptyId": "serve-00000012-0000-4000-8000-000000000012",
+        "incarnationId": "00000013-0000-4000-8000-000000000013",
+        "orphaned": false,
+        "worktreeId": "00000006-0000-4000-8000-000000000006::/home/operator/orca/workspaces/example/home-a",
+        "worktreePath": "/home/operator/orca/workspaces/example/home-a",
+        "branch": "refs/heads/example/home",
+        "tabId": "00000014-0000-4000-8000-000000000014",
+        "leafId": "00000015-0000-4000-8000-000000000015",
+        "title": null,
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": null,
+        "executionHostId": "local"
+      },
+      {
+        "handle": "term_00000017-0000-4000-8000-000000000017",
+        "ptyId": "serve-00000018-0000-4000-8000-000000000018",
+        "incarnationId": "00000019-0000-4000-8000-000000000019",
+        "orphaned": false,
+        "worktreeId": "0000000d-0000-4000-8000-00000000000d::/home/operator/orca/workspaces/example/home-b",
+        "worktreePath": "/home/operator/orca/workspaces/example/home-b",
+        "branch": "refs/heads/example/home",
+        "tabId": "0000001a-0000-4000-8000-00000000001a",
+        "leafId": "0000001b-0000-4000-8000-00000000001b",
+        "title": null,
+        "connected": true,
+        "writable": true,
+        "lastOutputAt": null,
+        "executionHostId": "local"
+      }
+    ],
+    "hostScope": {
+      "hostIds": [
+        "local"
+      ],
+      "omittedHostIds": []
+    },
+    "totalCount": 29,
+    "truncated": true
+  },
+  "_meta": {
+    "runtimeId": "00000001-0000-4000-8000-000000000001"
+  }
+}

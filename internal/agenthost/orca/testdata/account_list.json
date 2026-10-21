@@ -1,0 +1,71 @@
+{
+  "id": "x",
+  "ok": true,
+  "result": {
+    "rateLimits": {
+      "claude": {
+        "provider": "claude",
+        "session": {
+          "usedPercent": 10,
+          "windowMinutes": 300,
+          "resetsAt": null,
+          "resetDescription": null
+        },
+        "weekly": {
+          "usedPercent": 50,
+          "windowMinutes": 10080,
+          "resetsAt": 1792800000000,
+          "resetDescription": "Mon 12:00 AM"
+        },
+        "fableWeekly": {
+          "usedPercent": 20,
+          "windowMinutes": 10080,
+          "resetsAt": 1792800000000,
+          "resetDescription": "Mon 12:00 AM"
+        },
+        "extraUsage": null,
+        "updatedAt": 1792560000000,
+        "error": null,
+        "status": "ok",
+        "usageMetadata": {}
+      },
+      "codex": {
+        "provider": "codex",
+        "session": null,
+        "weekly": {
+          "usedPercent": 30,
+          "windowMinutes": 10080,
+          "resetsAt": 1792900000000,
+          "resetDescription": "Tue 12:00 AM"
+        },
+        "rateLimitResetCredits": {
+          "availableCount": 0,
+          "nextExpiresAt": null
+        },
+        "extraUsage": {
+          "balance": 100.0,
+          "unit": "credits",
+          "unlimited": false,
+          "enabled": true,
+          "disabledReason": null,
+          "resetsAt": null
+        },
+        "updatedAt": 1792560000000,
+        "error": null,
+        "status": "ok",
+        "usageMetadata": {}
+      },
+      "gemini": {
+        "provider": "gemini",
+        "session": null,
+        "weekly": null,
+        "updatedAt": 1792560000000,
+        "error": "Gemini CLI OAuth is disabled in settings",
+        "status": "unavailable"
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "00000001-0000-4000-8000-000000000001"
+  }
+}

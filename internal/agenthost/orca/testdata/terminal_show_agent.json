@@ -1,0 +1,29 @@
+{
+  "id": "0000001c-0000-4000-8000-00000000001c",
+  "ok": true,
+  "result": {
+    "terminal": {
+      "handle": "term_0000000c-0000-4000-8000-00000000000c",
+      "ptyId": "0000000d-0000-4000-8000-00000000000d::/home/operator/orca/workspaces/example/agent-run@@0000a002",
+      "incarnationId": "0000000e-0000-4000-8000-00000000000e",
+      "orphaned": false,
+      "worktreeId": "0000000d-0000-4000-8000-00000000000d::/home/operator/orca/workspaces/example/agent-run",
+      "worktreePath": "/home/operator/orca/workspaces/example/agent-run",
+      "branch": "refs/heads/example/agent-run",
+      "tabId": "0000000f-0000-4000-8000-00000000000f",
+      "leafId": "00000010-0000-4000-8000-000000000010",
+      "title": null,
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": null,
+      "executionHostId": "local",
+      "agentIdentity": "claude",
+      "paneRuntimeId": -1,
+      "rendererGraphEpoch": 0,
+      "agentWait": null
+    }
+  },
+  "_meta": {
+    "runtimeId": "00000001-0000-4000-8000-000000000001"
+  }
+}
