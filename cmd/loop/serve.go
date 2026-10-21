@@ -19,6 +19,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/merge"
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
@@ -149,6 +150,12 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		return opts, func() {}, fmt.Errorf("agent host: %w", err)
 	}
 	opts.Agents, opts.Sched.Checkouts = agents, checkouts
+	p, err := pack.Brief()
+	if err != nil {
+		cleanup()
+		return opts, func() {}, fmt.Errorf("pack: %w", err)
+	}
+	opts.Sched.Pack = p
 	if len(cfg.Projects) > 0 {
 		opts.Sched.Coordinator = &sched.CoordinatorConfig{Project: cfg.Projects[0].ID, Harness: agenthost.Claude}
 	}

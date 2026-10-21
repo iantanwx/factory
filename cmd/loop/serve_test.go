@@ -85,6 +85,9 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if _, ok := opts.BaseFiles.(lazyBase); !ok || opts.ManifestReader == nil || opts.Sched.Refs == nil {
 		t.Fatalf("the GitHub readers are not wired: %+v", opts)
 	}
+	if opts.Sched.Pack.FS == nil || opts.Sched.Pack.Version == "" {
+		t.Fatal("the skill pack is not wired")
+	}
 	var srv *server.Server
 	opts.Setup = append(opts.Setup, func(s *server.Server) error { srv = s; return nil })
 	opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))

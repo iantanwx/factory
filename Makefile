@@ -11,9 +11,9 @@ PLATFORMS     := linux/amd64 linux/arm64 darwin/arm64
 DESCRIPTOR    := gen/loop.binpb
 
 # `make gates` is the definition of done. A later unit adds its gate here.
-GATES := lint test race proto-check
+GATES := lint test race proto-check pack-check
 
-.PHONY: build build-all test race lint proto proto-check gates beads-contract beads-contract-race orca-contract \
+.PHONY: build build-all test race lint proto proto-check pack-check gates beads-contract beads-contract-race orca-contract \
 	release-dist release-sign release-dry $(PLATFORMS)
 
 build:
@@ -68,6 +68,21 @@ proto-check:
 		$(BUF) build --exclude-source-info -o "$$tmp/$(DESCRIPTOR)" && \
 		diff -r -x embed.go gen "$$tmp/gen" || \
 		{ echo "gen/ differs from a fresh buf generate; run make proto" >&2; exit 1; }
+
+# The pack gate (U15, R39) checks every command reference in the skill pack
+# against the schema this binary builds, and the vocabulary the pack may
+# hold. Both prose linters then read the pack and the policy template. They
+# run with python3 -I and use the standard library only. The advisory STE
+# rules print nothing here, because they never fail a run.
+PYTHON     ?= python3
+PACK_PROSE  = $(shell find pack docs/project-policy-template -name '*.md' | LC_ALL=C sort)
+
+pack-check:
+	$(GO) run ./internal/pack/cmd/pack-check
+	$(PYTHON) -I tools/prose/ste-lint.py --selftest
+	$(PYTHON) -I tools/prose/unslop-lint.py --selftest
+	$(PYTHON) -I tools/prose/ste-lint.py --disable passive-voice,present-perfect $(PACK_PROSE)
+	$(PYTHON) -I tools/prose/unslop-lint.py $(PACK_PROSE)
 
 gates: $(GATES)
 

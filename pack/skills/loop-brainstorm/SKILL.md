@@ -1,0 +1,102 @@
+---
+name: loop-brainstorm
+description: How an intake room and the operator write one PRD together, from a vague idea to user stories with labels and acceptance criteria. Read this in an intake room before your first message.
+---
+
+# loop-brainstorm
+
+An intake room turns the operator's idea into a PRD. The operator decides. You ask, you draft and
+you check. The PRD then enters the loop, and no person reads it again until the doc-reviewer
+passes it and the operator signs it off by merge. So every question the PRD leaves open reaches an
+agent that cannot ask it.
+
+## 1. The session
+
+Ask one question at a time. Give two to four options for each, with what each option costs and
+what it rules out. Recommend one option, and give its evidence. Then wait for the answer.
+
+Work in this order. Each step needs the answers of the step before it.
+
+1. **The problem.** Who has it, what they do today, and what goes wrong. Ask for an example.
+2. **The users.** Name each kind of user the work serves.
+3. **The stories.** Write each story as "As a <user>, I can <act>, so that <outcome>". Give each
+   story a stable label: US-01, US-02 and so on. A label never changes after you write it, because
+   specs and tickets cite it.
+4. **The scope check** (section 2).
+5. **The acceptance criteria** of each story.
+6. **The boundaries and what stays out.**
+7. **The open questions.** Answer each one in the room when you can.
+
+Read the repository before you ask a question that it answers. Read the PRDs the project already
+holds, its decision records and its code. A question that a file answers wastes the operator's
+time.
+
+## 2. Extract, never invent
+
+Every requirement traces to a story label, or to the operator's own words, quoted. A line with no
+source is a guess. Delete it, or move it to Open questions.
+
+When the operator states a preference as a fact, write it as the operator's statement. Do not
+upgrade it to a finding.
+
+## 3. Check the scope first
+
+Ask two questions before you write requirements:
+
+1. Can each story land on its own?
+2. Can each promise be proven without building the rest?
+
+Stories that must land together are one unit. An epic that fails either question is two PRDs.
+`../loop-sdlc-split/SKILL.md` states where the seam falls. Write each PRD in turn, and submit each
+one.
+
+A decision with no product source is architecture, not a requirement. Record it as a decision, and
+keep it out of the PRD.
+
+## 4. What a PRD holds
+
+1. **Stories**: each story with its label.
+2. **Scope check**: the two questions and their answers.
+3. **Goal**: what a user can do afterwards. Name no technology.
+4. **Requirements**: one testable line each, each one traced to a story label.
+5. **Acceptance criteria**: numbered A1, A2 and so on. One promise each, in product language. Each
+   one can fail. Include what the product must refuse.
+6. **Boundaries with other epics**: each shared thing and its owner, and the PRDs you checked.
+7. **Out of scope**: each item with the owner that holds it.
+8. **Open questions**: only what the session could not answer.
+
+A requirement that names an implementation belongs in the spec. Move it there as a note in Open
+questions, or delete it.
+
+## 5. Conflicts go to a decision
+
+A story can conflict with a decision record or with the code. Never settle the conflict yourself.
+Show both sides to the operator, with each line. When the operator decides, write the decision
+into the PRD with the operator's words. When the operator does not decide now, file the question:
+
+```bash
+loop decision file --title "<the question>" --trigger "<the event that forces the answer>" --body "<both sides>"
+```
+
+Name that decision in Open questions, as a blocker.
+
+## 6. Submit
+
+When the operator says the PRD is ready:
+
+1. Write the PRD where the project keeps its PRDs. The project's agent instructions name the place.
+2. Run the project's document gates.
+3. Commit it.
+4. Run `loop prd submit --path <path> --title "<title>"`.
+
+The server pushes the commit, opens the pull request and creates the epic in `prd_review`. The
+doc-reviewer reads it next.
+
+When the operator leaves before the scope is settled, submit nothing. Tell the coordinator what is
+open. File each open question as a decision with its trigger.
+
+## 7. Never
+
+- Never decide scope, a conflict or a priority for the operator.
+- Never write a requirement with no source.
+- Never submit a PRD that the operator did not call ready.

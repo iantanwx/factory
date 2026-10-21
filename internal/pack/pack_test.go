@@ -1,0 +1,204 @@
+package pack_test
+
+import (
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+	"testing/fstest"
+
+	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/brief"
+	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/escalation"
+	"github.com/iantanwx/loop/internal/pack"
+	"github.com/iantanwx/loop/internal/release"
+	"github.com/iantanwx/loop/internal/room"
+	"github.com/iantanwx/loop/internal/sched"
+)
+
+// registry is the schema the binary prints: the surface plus the refusal
+// codes of the client-side host verbs, as pack-check builds it.
+func registry(t *testing.T) *cli.Registry {
+	t.Helper()
+	reg := cli.Surface()
+	for _, c := range release.Refusals() {
+		if err := reg.RegisterRefusal(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return reg
+}
+
+func TestShippedPackPassesTheGate(t *testing.T) {
+	got, err := pack.Check(pack.Source(), registry(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range got {
+		t.Error(f)
+	}
+}
+
+func read(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := fs.ReadFile(pack.Source(), name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func TestTurnSkillRunsTheSameCommandAgainOnExit4(t *testing.T) {
+	turn := read(t, "skills/loop-sdlc-turn/SKILL.md")
+	if !strings.Contains(turn, "**On exit 4, run the same command again.**") {
+		t.Fatal("the turn skill does not tell a run to repeat the same command on exit 4 (KTD13)")
+	}
+}
+
+// TestEveryStageHasARunbook holds the manifest to the stages the server
+// starts: each run stage, the coordinator and each room kind. The intake
+// stage only counts epics against its cap (KTD30). An intake room serves
+// it.
+func TestEveryStageHasARunbook(t *testing.T) {
+	m, err := pack.ReadManifest(pack.Source())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, s := range config.RunStages() {
+		if s != "intake" {
+			want = append(want, s)
+		}
+	}
+	want = append(want, sched.CoordinatorStage)
+	for _, k := range room.Kinds {
+		want = append(want, room.Stage(k))
+	}
+	var got []string
+	for s := range m.Runbooks {
+		got = append(got, s)
+	}
+	slices.Sort(want)
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Fatalf("runbooks = %v, want one for each stage the server starts: %v", got, want)
+	}
+	for _, k := range room.Kinds {
+		if !m.Runbooks[room.Stage(k)].Attended {
+			t.Errorf("room %s is attended, and its runbook says it is not", k)
+		}
+	}
+	if !m.Runbooks[sched.CoordinatorStage].Attended {
+		t.Error("the coordinator is attended, and its runbook says it is not")
+	}
+}
+
+func TestInjectionWritesEveryRunbookAndSkillForEachHarness(t *testing.T) {
+	p, err := pack.Brief()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := pack.ReadManifest(pack.Source())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []agenthost.Harness{agenthost.Claude, agenthost.Codex} {
+		dir := t.TempDir()
+		if err := p.Write(dir, h); err != nil {
+			t.Fatal(err)
+		}
+		for stage := range m.Runbooks {
+			path := filepath.Join(dir, filepath.FromSlash(brief.Runbook(h, stage)))
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("%s: the runbook of %s is not where the brief names it: %v", h, stage, err)
+			}
+			if !strings.Contains(string(body), "name: loop-"+stage+"\n") {
+				t.Errorf("%s: %s holds another runbook", h, path)
+			}
+		}
+		for _, s := range m.Skills {
+			if _, err := os.Stat(filepath.Join(dir, brief.SkillRoot(h), s, "SKILL.md")); err != nil {
+				t.Errorf("%s: skill %s is missing: %v", h, s, err)
+			}
+		}
+	}
+	want := map[agenthost.Harness]string{agenthost.Claude: ".claude/skills/", agenthost.Codex: ".agents/skills/"}
+	for h, prefix := range want {
+		if !strings.HasPrefix(brief.Runbook(h, "implementer"), prefix+"loop-implementer/") {
+			t.Errorf("%s runbook = %s, want it under %s", h, brief.Runbook(h, "implementer"), prefix)
+		}
+	}
+	if _, err := p.Skills(); err != nil {
+		t.Fatalf("the laid-out pack holds an entry outside the loop- namespace: %v", err)
+	}
+}
+
+// TestTriageRubricMatchesTheServer holds the rubric's tables to the cells
+// the server routes with.
+func TestTriageRubricMatchesTheServer(t *testing.T) {
+	rubric := read(t, "skills/"+escalation.RubricSkill+"/SKILL.md")
+	th, err := escalation.ThresholdsIn(rubric)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if th != escalation.DefaultThresholds {
+		t.Fatalf("rubric thresholds %+v, server %+v", th, escalation.DefaultThresholds)
+	}
+	row := regexp.MustCompile("(?m)^\\| ([0-9]) \\| `([a-z-]+)` \\| ([^|]+) \\|(?: ([a-z]+) \\|)?$")
+	levels, steps := map[string][]string{}, map[string][]string{}
+	for _, m := range row.FindAllStringSubmatch(rubric, -1) {
+		if m[4] != "" {
+			levels[m[1]] = []string{m[2], strings.TrimSpace(m[3]), m[4]}
+		} else {
+			steps[m[1]] = []string{m[2], strings.TrimSpace(m[3])}
+		}
+	}
+	for _, l := range escalation.Levels {
+		got := levels[string(rune('0'+l.Ordinal))]
+		if !slices.Equal(got, []string{l.Name, l.Answers, string(l.Route)}) {
+			t.Errorf("level %d: rubric %v, server %v", l.Ordinal, got, l)
+		}
+	}
+	for _, s := range escalation.ConvergenceSteps {
+		got := steps[string(rune('0'+s.Ordinal))]
+		if !slices.Equal(got, []string{s.Name, s.Looks}) {
+			t.Errorf("convergence %d: rubric %v, server %v", s.Ordinal, got, s)
+		}
+	}
+	if len(levels) != len(escalation.Levels) || len(steps) != len(escalation.ConvergenceSteps) {
+		t.Errorf("the rubric holds %d levels and %d steps, the server %d and %d",
+			len(levels), len(steps), len(escalation.Levels), len(escalation.ConvergenceSteps))
+	}
+}
+
+func TestEachPolicyHasATemplate(t *testing.T) {
+	m, err := pack.ReadManifest(pack.Source())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for stage, rb := range m.Runbooks {
+		if rb.Policy == "" {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join("..", "..", "docs", "project-policy-template", rb.Policy+".md")); err != nil {
+			t.Errorf("runbook %s names policy %s, and docs/project-policy-template holds no template: %v", stage, rb.Policy, err)
+		}
+	}
+}
+
+func TestLayoutRefusesTwoSourcesForOneDirectory(t *testing.T) {
+	src := fstest.MapFS{
+		"manifest.json":                  {Data: []byte(`{"runbooks": {"sdlc-turn": {"skills": []}}, "skills": ["loop-sdlc-turn"]}`)},
+		"runbooks/sdlc-turn.md":          {Data: []byte("x")},
+		"skills/loop-sdlc-turn/SKILL.md": {Data: []byte("y")},
+	}
+	if _, err := pack.Layout(src); err == nil || !strings.Contains(err.Error(), "loop-sdlc-turn") {
+		t.Fatalf("want a refusal that names loop-sdlc-turn, got %v", err)
+	}
+}

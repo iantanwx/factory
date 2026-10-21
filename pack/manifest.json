@@ -1,0 +1,65 @@
+{
+  "runbooks": {
+    "implementer": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage"],
+      "policy": "implementer"
+    },
+    "code-reviewer": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-triage"],
+      "policy": "code-reviewer"
+    },
+    "doc-reviewer": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage"]
+    },
+    "amender": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-encode-lessons"]
+    },
+    "spec-author": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage"]
+    },
+    "decomposer": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage"]
+    },
+    "fixer": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage"]
+    },
+    "reproducer": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage"]
+    },
+    "coordinator": {
+      "attended": true,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-reflect", "loop-encode-lessons"],
+      "policy": "coordinator"
+    },
+    "intake-room": {
+      "attended": true,
+      "skills": ["loop-sdlc-turn", "loop-brainstorm", "loop-sdlc-split", "loop-sdlc-glossary", "loop-reflect"]
+    },
+    "decision-room": {
+      "attended": true,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-triage", "loop-sdlc-glossary", "loop-reflect"]
+    },
+    "review-room": {
+      "attended": true,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-reflect"]
+    }
+  },
+  "skills": [
+    "loop-brainstorm",
+    "loop-encode-lessons",
+    "loop-reflect",
+    "loop-sdlc-glossary",
+    "loop-sdlc-review",
+    "loop-sdlc-split",
+    "loop-sdlc-triage",
+    "loop-sdlc-turn"
+  ]
+}
