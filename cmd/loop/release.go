@@ -224,8 +224,7 @@ func (h *hostVerbs) restore(ctx context.Context, inv cli.Invocation) cli.Result 
 	if err != nil {
 		return fail(err)
 	}
-	// The surface gives restore no argument yet; the newest snapshot is
-	// the default either way.
+	// The optional snapshot argument names one snapshot; the newest when absent.
 	rep, err := (&release.Restore{Host: host}).Run(ctx, inv.Arg("snapshot"))
 	if err != nil {
 		return fail(err)

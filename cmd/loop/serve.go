@@ -77,7 +77,8 @@ var realWiring = wiring{beads: realBeads, agents: realAgents}
 //     admission, the manifest reader of secret import, the project config
 //     source, and the reactor as the github-reactor native job; and the
 //     merge interface (U11) after it, with its hand-off as the
-//     merge-handoff native job.
+//     merge-handoff native job; and the document pipeline (U13) with
+//     prd submit, epic decompose and work create.
 //
 // A host config that names none of them serves the U4 verbs only. The
 // returned cleanup stops what it started.
@@ -100,9 +101,10 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		if w.github != nil {
 			gh = w.github
 		}
-		// The merge setup uses the GitHub service, so it runs after it.
+		// The merge and pipeline setups use the GitHub service, so they
+		// run after it.
 		mg = &server.Merge{GitHub: gh}
-		opts.Setup = append(opts.Setup, gh.Setup, mg.Setup)
+		opts.Setup = append(opts.Setup, gh.Setup, mg.Setup, (&server.Pipeline{GitHub: gh}).Setup)
 		opts.Reconcile = append(opts.Reconcile, gh.Reconcile)
 		// Admission needs its base reader when the server composes, before
 		// Setup builds the service. The wrapper reads through the service.

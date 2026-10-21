@@ -112,10 +112,12 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 }
 
 // openVerbs maps the status an item holds when its run opens or updates
-// its PR to the table verb that hands the item to review.
+// its PR to the table verb that hands the item to review. The amender
+// pushes its revision to the PRD's open PR, and its `pr open` returns the
+// epic to review (U13).
 var openVerbs = map[machine.Kind]map[string]string{
 	machine.KindTicket: {machine.InProgress: "pr_open", machine.Repair: "fix_pushed"},
-	machine.KindEpic:   {machine.SpecDrafting: "pr_open"},
+	machine.KindEpic:   {machine.SpecDrafting: "pr_open", machine.PRDAmending: "prd_amended"},
 }
 
 func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
@@ -143,7 +145,7 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 	p := call.Principal
 	res := s.cfg.Machine.Apply(ctx, machine.Request{
 		Project: prj.ID, Item: item, Verb: verb, ExpectedStatus: it.Status, RequestID: call.Inv.RequestID,
-		Params: map[string]string{"head": pr.Head.SHA},
+		Params: map[string]string{"head": pr.Head.SHA, "pr": strconv.Itoa(pr.Number)},
 		Actor:  machine.Actor{Name: p.Actor(), RunID: p.RunID, Fenced: p.Kind == cli.PrincipalRun, Epoch: p.Epoch},
 	})
 	if res.Refusal != nil {

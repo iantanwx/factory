@@ -94,12 +94,16 @@ func DeriveKey(p KeyParts) string {
 	return fmt.Sprintf("k%d-%s", keyScheme, hex.EncodeToString(sum[:]))
 }
 
+// pushesHead reports whether a verb sends the checkout's HEAD for the
+// server to push: branch push, and prd submit, which pushes the PRD.
+func pushesHead(path string) bool { return path == "branch push" || path == "prd submit" }
+
 // ContentHash is the hash of the content a write carries: the local HEAD
-// sha for branch push, the --body text, or the bytes of the --file file.
-// It is "" for a write that carries no content.
+// sha for a verb that pushes it, the --body text, or the bytes of the
+// --file file. It is "" for a write that carries no content.
 func ContentHash(ctx context.Context, inv Invocation, checkout, cwd string) (string, error) {
 	switch {
-	case inv.Verb.Path == "branch push":
+	case pushesHead(inv.Verb.Path):
 		head, err := CheckoutHead(ctx, checkout)
 		if err != nil {
 			return "", err

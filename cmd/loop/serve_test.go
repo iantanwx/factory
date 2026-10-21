@@ -114,6 +114,11 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "twice") {
 		t.Fatalf("the merge hand-off job is not registered: %v", err)
 	}
+	for _, verb := range []string{"prd submit", "epic decompose", "work create"} {
+		if err := srv.RPC.Handle(verb, nil); err == nil || !strings.Contains(err.Error(), "already has a handler") {
+			t.Fatalf("the pipeline verb %s is not registered: %v", verb, err)
+		}
+	}
 	if _, err := (lazyBase{w.github}).Files(context.Background(), "alpha", nil); err == nil {
 		t.Fatal("the base reader read a project that is not registered")
 	}

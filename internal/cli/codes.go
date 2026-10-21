@@ -68,6 +68,7 @@ const (
 	CodeGitHubRefused        = "GITHUB_REFUSED"
 	CodeRoutedToLoop         = "ROUTED_TO_LOOP"
 	CodeNoOperatorStatement  = "NO_OPERATOR_STATEMENT"
+	CodeStoryUnknown         = "STORY_UNKNOWN"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -111,6 +112,7 @@ var baseRefusals = []RefusalCode{
 	{CodeGitHubRefused, ExitRefused, codes.FailedPrecondition, false, "GitHub refused the request; the hint holds GitHub's answer"},
 	{CodeRoutedToLoop, ExitRefused, codes.FailedPrecondition, false, "the triage rubric routes the finding back to the loop; the hint names the next step, and the item keeps its state"},
 	{CodeNoOperatorStatement, ExitRefused, codes.FailedPrecondition, false, "the room's decision file cites no operator statement; a room applies only what a person decided"},
+	{CodeStoryUnknown, ExitRefused, codes.FailedPrecondition, false, "a ticket cites no story label, or a label its epic's merged PRD does not hold; the whole batch is refused"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

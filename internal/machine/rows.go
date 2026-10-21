@@ -28,6 +28,13 @@ const (
 	FactEscalation   = "escalation"    // the escalation that sent the item to a person (U12)
 	FactAnswer       = "answer"        // the last answer a person gave through the inbox (U12)
 	FactAmendment    = "amendment"     // an answer that amends the task; it enters the inputs (R10)
+	FactDocPR        = "doc_pr"        // the PR number of the epic's current document (U13)
+	FactPRDPath      = "prd_path"      // the PRD's path in the repository (U13)
+	FactPRDMerged    = "prd_merged"    // the merge commit of the epic's PRD: the operator's sign-off (U13)
+	FactADR          = "adr"           // the ADR that replaced the PRD of an architecture epic landed (U13)
+	FactCreateKey    = "create_key"    // the natural key work entry created the item under (U13)
+	FactStories      = "stories"       // the PRD story labels a ticket cites, comma-separated (R45)
+	FactRequest      = "request"       // the operator's request a PRD-less ticket cites (R48)
 )
 
 // Entry values of a todo ticket (R6).

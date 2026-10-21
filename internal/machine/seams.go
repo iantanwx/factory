@@ -11,6 +11,22 @@ import (
 
 // Show reads one item: beads holds its status and facts, SQLite its lease.
 func (m *Machine) Show(ctx context.Context, project, item string) (Item, *cli.Refusal) {
+	it, ref := m.Read(ctx, project, item)
+	if ref != nil {
+		return Item{}, ref
+	}
+	l, err := m.Lease(ctx, project, item)
+	if err != nil {
+		return Item{}, internalRefusal(err)
+	}
+	it.Owner, it.Epoch = l.Owner, max(it.Epoch, l.Epoch)
+	return it, nil
+}
+
+// Read reads one item from beads alone: its status and facts, and no
+// lease. It makes no SQLite read, so a caller inside a store transaction
+// may use it.
+func (m *Machine) Read(ctx context.Context, project, item string) (Item, *cli.Refusal) {
 	bc, err := m.cfg.Beads(project)
 	if err != nil {
 		return Item{}, internalRefusal(err)
@@ -23,11 +39,6 @@ func (m *Machine) Show(ctx context.Context, project, item string) (Item, *cli.Re
 	if err != nil {
 		return Item{}, &cli.Refusal{Code: cli.CodeNotFound, Rule: "not_a_work_item", Item: item, Hint: err.Error()}
 	}
-	l, err := m.Lease(ctx, project, item)
-	if err != nil {
-		return Item{}, internalRefusal(err)
-	}
-	it.Owner, it.Epoch = l.Owner, max(it.Epoch, l.Epoch)
 	return it, nil
 }
 
@@ -35,6 +46,9 @@ func (m *Machine) Show(ctx context.Context, project, item string) (Item, *cli.Re
 type ListFilter struct {
 	Kind   Kind
 	Status string
+	// Facts selects items whose facts hold every value, for example the
+	// create key work entry wrote (U13).
+	Facts map[string]string
 }
 
 // List reads the work items of one project in id order. A bead of a type
@@ -45,6 +59,12 @@ func (m *Machine) List(ctx context.Context, project string, f ListFilter) ([]Ite
 		return nil, internalRefusal(err)
 	}
 	bf := beadsx.Filter{}
+	for k, v := range f.Facts {
+		if bf.Metadata == nil {
+			bf.Metadata = map[string]string{}
+		}
+		bf.Metadata[factPrefix+k] = v
+	}
 	if f.Status != "" {
 		bf.Statuses = []string{f.Status}
 	}
@@ -88,7 +108,8 @@ type CreateRequest struct {
 // Create makes the bead, then applies the create verb from Initial. The
 // bead and the first transition are two writes: a crash between them
 // leaves a bead in Initial, which no table row but create moves. Work entry
-// (U13) makes creation idempotent by the epic and child key.
+// (U13) makes creation idempotent by the epic and child key: it calls
+// CreateBead with a create key, and Apply with the create verb.
 func (m *Machine) Create(ctx context.Context, cr CreateRequest) (string, cli.Result) {
 	t, ok := TableFor(cr.Kind)
 	if !ok {
@@ -98,25 +119,39 @@ func (m *Machine) Create(ctx context.Context, cr CreateRequest) (string, cli.Res
 		return "", refuse(&cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", CurrentStatus: Initial,
 			AllowedNext: t.AllowedNext(Initial), Hint: fmt.Sprintf("a new %s has no %s move", cr.Kind, cr.Verb)})
 	}
+	id, ref := m.CreateBead(ctx, cr)
+	if ref != nil {
+		return "", refuse(ref)
+	}
+	return id, m.Apply(ctx, Request{Project: cr.Project, Item: id, Verb: cr.Verb, Params: cr.Params, Actor: cr.Actor})
+}
+
+// CreateBead makes the bead of a new item in Initial, with its facts, and
+// applies no verb. Verb and Params are unused.
+func (m *Machine) CreateBead(ctx context.Context, cr CreateRequest) (string, *cli.Refusal) {
+	t, ok := TableFor(cr.Kind)
+	if !ok {
+		return "", &cli.Refusal{Code: cli.CodeUsage, Rule: "unknown_kind", Hint: fmt.Sprintf("no kind %q", cr.Kind)}
+	}
 	md := map[string]string{}
 	for k, v := range cr.Facts {
 		md[factPrefix+k] = v
 	}
 	for _, v := range append([]string{cr.Title, cr.Description}, valuesOf(md)...) {
 		if hit, names := m.cfg.Redactor.Find(v); hit {
-			return "", refuse(&cli.Refusal{Code: cli.CodeSecretInOutput, Rule: "secret_in_facts",
-				Hint: fmt.Sprintf("the new item holds the value of %v", names)})
+			return "", &cli.Refusal{Code: cli.CodeSecretInOutput, Rule: "secret_in_facts",
+				Hint: fmt.Sprintf("the new item holds the value of %v", names)}
 		}
 	}
 	bc, err := m.cfg.Beads(cr.Project)
 	if err != nil {
-		return "", refuse(internalRefusal(err))
+		return "", internalRefusal(err)
 	}
 	is, err := bc.Create(ctx, beadsx.CreateSpec{Title: cr.Title, Description: cr.Description, Type: t.BeadType, Priority: 2, Metadata: md})
 	if err != nil {
-		return "", refuse(beadsRefusal("", err))
+		return "", beadsRefusal("", err)
 	}
-	return is.ID, m.Apply(ctx, Request{Project: cr.Project, Item: is.ID, Verb: cr.Verb, Params: cr.Params, Actor: cr.Actor})
+	return is.ID, nil
 }
 
 func valuesOf(m map[string]string) []string {
@@ -173,7 +208,8 @@ const mergeRetries = 5
 // moves to done from any state that is not terminal, and the write bumps
 // the epoch, so the old run's next write gets LEASE_NOT_HELD. An epic's
 // document merge moves it one state. A merge into another branch changes
-// nothing, and an item that is already terminal answers Nothing.
+// nothing, and an item that is already terminal, or an epic with no
+// document row from its state, answers Nothing.
 func (m *Machine) MergeObserved(ctx context.Context, ev MergeEvent) cli.Result {
 	if ev.Into != ev.Base {
 		return cli.Nothing()
@@ -195,7 +231,9 @@ func (m *Machine) MergeObserved(ctx context.Context, ev MergeEvent) cli.Result {
 		}
 	}
 	if r := res.Refusal; r != nil && r.Code == cli.CodeTransitionNotAllowed {
-		if t, ok := TableFor(it.Kind); ok && t.Terminal(r.CurrentStatus) {
+		// A terminal item is finished. An epic in a state with no document
+		// row already counted its document's merge (U13).
+		if t, ok := TableFor(it.Kind); ok && (t.Terminal(r.CurrentStatus) || it.Kind == KindEpic) {
 			return cli.Nothing()
 		}
 	}

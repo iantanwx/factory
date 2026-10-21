@@ -369,3 +369,21 @@ func sha(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
+
+// restore takes an optional snapshot argument, and the handler passes it
+// to the restore: a named snapshot that is not there is NOT_FOUND, and the
+// hint names it.
+func TestRestoreNamesItsSnapshot(t *testing.T) {
+	instance := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rpc.EnsureAdminCredential(instance); err != nil {
+		t.Fatal(err)
+	}
+	h := testHostVerbs(t, instance, &procService{t: t, instance: instance})
+	env := runVerb(t, h, "restore", "nightly-1.db")
+	if env["code"] != cli.CodeNotFound || env["rule"] != "no_snapshot" || !strings.Contains(env["hint"].(string), "nightly-1.db") {
+		t.Fatalf("restore nightly-1.db = %v", env)
+	}
+}

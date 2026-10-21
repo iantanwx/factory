@@ -348,13 +348,24 @@ func (r *Reactor) handle(ctx context.Context, p config.Project, base string, pr 
 	if !ok || (it.Kind != machine.KindTicket && it.Kind != machine.KindEpic) || t.Terminal(it.Status) {
 		return nil
 	}
+	// An epic's branch carries its PRD, then its spec, each in its own PR.
+	// Only the current document's PR moves the epic (U13).
+	if it.Kind == machine.KindEpic && it.Fact(machine.FactDocPR) != strconv.Itoa(pr.Number) {
+		return nil
+	}
 	switch {
 	case pr.Merged():
 		// A merge wins from any state (KTD16). MergeObserved retries a
 		// status miss and answers Nothing for a terminal item. Any other
 		// refusal keeps the cursor, so the merge is read again.
-		res := r.m.MergeObserved(ctx, machine.MergeEvent{Project: p.ID, Item: item, Base: base, Into: pr.Base.Ref,
-			SHA: pr.MergeCommitSHA})
+		ev := machine.MergeEvent{Project: p.ID, Item: item, Base: base, Into: pr.Base.Ref, SHA: pr.MergeCommitSHA}
+		res := r.m.MergeObserved(ctx, ev)
+		if it.Kind == machine.KindEpic && res.Refusal == nil && res.Exit == cli.ExitDone {
+			// A document that outran its review landed on sign-off. The
+			// merge is the operator's sign-off too, so the sign-off row
+			// carries the epic on (document-states.ts:141-145, alpha).
+			res = r.m.MergeObserved(ctx, ev)
+		}
 		if res.Refusal != nil && res.Refusal.Code != cli.CodeNotFound {
 			return fmt.Errorf("%s merged as #%d: %s: %s", item, pr.Number, res.Refusal.Code, res.Refusal.Hint)
 		}

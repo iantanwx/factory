@@ -259,8 +259,9 @@ const (
 	// (AE4), and never applies the write over another actor's move.
 	ExtraExpectedStatus = ReservedPrefix + "expected_status"
 	// ExtraHead is the full sha of the checkout's HEAD that `branch push`
-	// sends. The server fetches that commit from the checkout into its
-	// mirror, and it checks the sha against the content hash.
+	// and `prd submit` send. The server fetches that commit from the
+	// checkout into its mirror, and it checks the sha against the content
+	// hash.
 	ExtraHead = ReservedPrefix + "head"
 	// ExtraFile is the base64 of the file a verb's --file flag names. The
 	// CLI reads it from the caller's working directory, so the server reads

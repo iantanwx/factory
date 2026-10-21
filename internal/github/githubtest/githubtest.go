@@ -324,6 +324,14 @@ func (w *World) Update(pr *PR, fn func(*PR)) {
 	pr.UpdatedAt = w.tick()
 }
 
+// PR returns the stored PR numbered n, or nil. A test passes it to Update,
+// for example to merge a PR the server opened.
+func (w *World) PR(n int) *PR {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.pr(strconv.Itoa(n))
+}
+
 // PRs lists every PR.
 func (w *World) PRs() []PR {
 	w.mu.Lock()

@@ -177,7 +177,7 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 		clear(value)
 	}
 
-	if inv.Verb.Path == "branch push" && cc.checkout != "" {
+	if pushesHead(inv.Verb.Path) && cc.checkout != "" {
 		head, err := CheckoutHead(ctx, cc.checkout)
 		if err != nil {
 			return *usage("head_unreadable", err.Error(), inv.Verb.Path)

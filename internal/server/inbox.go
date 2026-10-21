@@ -11,6 +11,7 @@ import (
 	"github.com/iantanwx/loop/internal/decision"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/inbox"
+	"github.com/iantanwx/loop/internal/pipeline"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
@@ -33,8 +34,9 @@ type HumanOptions struct {
 	RoomModel   string
 	// NewRoomID names a room. A random id when nil.
 	NewRoomID func() string
-	// Link returns the inbox link of a project's item, for example a
-	// sign-off's pull request (U13). A `loop work show` line when nil.
+	// Link returns the inbox link of a project's item. When nil, an epic
+	// links to its current document PR, whose merge is the sign-off (U13),
+	// and every other item to its `loop work show` line.
 	Link func(project, item string) string
 }
 
@@ -60,8 +62,13 @@ func (s *Server) composeHuman() error {
 	}
 	h := &human{pokes: make(chan struct{}, 1)}
 	s.human = h
+	link := o.Link
+	if link == nil {
+		// An epic's entry links to its current document PR (U13).
+		link = pipeline.Link(s.Machine, s.Projects)
+	}
 	s.Inbox = inbox.New(inbox.Config{Store: s.Store, Machine: s.Machine, Projects: s.Projects.List, Redactor: s.Redactor,
-		Link: o.Link, Now: now, PollInterval: o.PollInterval, Logger: s.log})
+		Link: link, Now: now, PollInterval: o.PollInterval, Logger: s.log})
 	changed := func() {
 		s.Inbox.Changed()
 		select {
