@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package loop.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/iantanwx/loop/gen/loop/v1;loopv1";
+
+// VerbRequest carries one CLI invocation to the server. The typed schema of
+// each verb lives in the CLI registry, so the transport stays generic.
+message VerbRequest {
+  string verb = 1;
+  repeated string args = 2;
+  map<string, string> flags = 3;
+  string idempotency_key = 4;
+  string request_id = 5;
+  string run_token = 6;
+  string client_version = 7;
+}
+
+// Envelope is the one answer shape of every verb.
+message Envelope {
+  bool ok = 1;
+  int32 exit = 2;
+  string verb = 3;
+  string request_id = 4;
+  string server_version = 5;
+  google.protobuf.Value data = 6;
+  Refusal refusal = 7;
+}
+
+// Refusal explains a non-zero answer. Clients branch on code, never on hint.
+message Refusal {
+  string code = 1;
+  string rule = 2;
+  string item = 3;
+  string current_status = 4;
+  string expected_status = 5;
+  // Verbs the caller may run next, never states.
+  repeated string allowed_next = 6;
+  string hint = 7;
+  bool retryable = 8;
+  double retry_after_seconds = 9;
+}

@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package loop.v1;
+
+import "loop/v1/envelope.proto";
+
+option go_package = "github.com/iantanwx/loop/gen/loop/v1;loopv1";
+
+// One service for each CLI noun, and one RPC for each server-side verb.
+// Client-side verbs (escalation judge, install, upgrade, rollback, restore,
+// serve, doctor) have no RPC.
+
+service WorkService {
+  rpc Peek(VerbRequest) returns (Envelope);
+  rpc Show(VerbRequest) returns (Envelope);
+  rpc List(VerbRequest) returns (Envelope);
+  rpc Edit(VerbRequest) returns (Envelope);
+  rpc Note(VerbRequest) returns (Envelope);
+  rpc Block(VerbRequest) returns (Envelope);
+  rpc Unblock(VerbRequest) returns (Envelope);
+  rpc Cancel(VerbRequest) returns (Envelope);
+  rpc Create(VerbRequest) returns (Envelope);
+}
+
+service RunService {
+  rpc Finish(VerbRequest) returns (Envelope);
+  rpc Show(VerbRequest) returns (Envelope);
+  rpc List(VerbRequest) returns (Envelope);
+  rpc Events(VerbRequest) returns (Envelope);
+}
+
+service ReviewService {
+  rpc Submit(VerbRequest) returns (Envelope);
+  rpc Threads(VerbRequest) returns (Envelope);
+  rpc Rounds(VerbRequest) returns (Envelope);
+}
+
+service BranchService {
+  rpc Push(VerbRequest) returns (Envelope);
+  rpc Sync(VerbRequest) returns (Envelope);
+}
+
+service PrService {
+  rpc Open(VerbRequest) returns (Envelope);
+  rpc Show(VerbRequest) returns (Envelope);
+  rpc Files(VerbRequest) returns (Envelope);
+  rpc Diff(VerbRequest) returns (Envelope);
+  rpc Threads(VerbRequest) returns (Envelope);
+  rpc Reply(VerbRequest) returns (Envelope);
+  rpc Checks(VerbRequest) returns (Envelope);
+  rpc Logs(VerbRequest) returns (Envelope);
+  rpc Rerun(VerbRequest) returns (Envelope);
+}
+
+service MergeService {
+  rpc Status(VerbRequest) returns (Envelope);
+}
+
+service EscalationService {
+  rpc Raise(VerbRequest) returns (Envelope);
+  rpc Route(VerbRequest) returns (Envelope);
+}
+
+service DecisionService {
+  rpc File(VerbRequest) returns (Envelope);
+  rpc Fire(VerbRequest) returns (Envelope);
+  rpc Defer(VerbRequest) returns (Envelope);
+  rpc Settle(VerbRequest) returns (Envelope);
+  rpc Moot(VerbRequest) returns (Envelope);
+}
+
+service InboxService {
+  rpc List(VerbRequest) returns (Envelope);
+  rpc Answer(VerbRequest) returns (Envelope);
+  rpc Defer(VerbRequest) returns (Envelope);
+  rpc Prepare(VerbRequest) returns (Envelope);
+  rpc Wait(VerbRequest) returns (Envelope);
+}
+
+service RoomService {
+  rpc Open(VerbRequest) returns (Envelope);
+  rpc Apply(VerbRequest) returns (Envelope);
+  rpc Close(VerbRequest) returns (Envelope);
+  rpc List(VerbRequest) returns (Envelope);
+}
+
+service PrdService {
+  rpc Submit(VerbRequest) returns (Envelope);
+}
+
+service EpicService {
+  rpc Decompose(VerbRequest) returns (Envelope);
+}
+
+service StageService {
+  rpc Pause(VerbRequest) returns (Envelope);
+  rpc Resume(VerbRequest) returns (Envelope);
+}
+
+service SecretService {
+  rpc Check(VerbRequest) returns (Envelope);
+  rpc Set(VerbRequest) returns (Envelope);
+  rpc Import(VerbRequest) returns (Envelope);
+}
+
+service ProjectService {
+  rpc Add(VerbRequest) returns (Envelope);
+  rpc List(VerbRequest) returns (Envelope);
+  rpc Show(VerbRequest) returns (Envelope);
+  rpc Remove(VerbRequest) returns (Envelope);
+}
+
+service HostService {
+  rpc Drain(VerbRequest) returns (Envelope);
+}
+
+service MetaService {
+  rpc Schema(VerbRequest) returns (Envelope);
+  rpc Status(VerbRequest) returns (Envelope);
+  rpc Version(VerbRequest) returns (Envelope);
+}
