@@ -253,6 +253,33 @@ func runContract(t *testing.T, c beadsx.Client) {
 		}
 	})
 
+	t.Run("JournalHead", func(t *testing.T) {
+		mustCreate(t, c, "head")
+		head, err := c.Head(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all, err := c.Tail(ctx, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(all) == 0 || head != all[len(all)-1].Seq {
+			t.Fatalf("head = %d, want the seq of the last record of %d", head, len(all))
+		}
+		is := mustCreate(t, c, "head-2")
+		if _, err := c.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: "open", Status: "implementing"}); err != nil {
+			t.Fatal(err)
+		}
+		next, err := c.Head(ctx)
+		if err != nil || next != head+2 {
+			t.Fatalf("head after one create and one update = %d, %v; want %d", next, err, head+2)
+		}
+		after, err := c.Tail(ctx, next, 0)
+		if err != nil || len(after) != 0 {
+			t.Fatalf("the journal holds records after the head: %+v %v", after, err)
+		}
+	})
+
 	t.Run("LookupByIdempotencyKey", func(t *testing.T) {
 		is := mustCreate(t, c, "lookup")
 		if _, err := c.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: "open", Status: "implementing",

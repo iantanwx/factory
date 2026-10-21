@@ -24,7 +24,10 @@ type PendingEntry struct {
 	Flags       map[string]string `json:"flags"`
 	ArgsHash    string            `json:"args_hash"`
 	ContentHash string            `json:"content_hash"`
-	Created     time.Time         `json:"created"`
+	// ExpectedStatus is the status the first send read. A repeat sends it
+	// again, so a retry after another actor's move refuses (AE4).
+	ExpectedStatus string    `json:"expected_status,omitempty"`
+	Created        time.Time `json:"created"`
 }
 
 // Pending is the pending-write log of one checkout: .loop/pending.jsonl.

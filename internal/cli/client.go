@@ -234,6 +234,9 @@ func (c *Client) reserveKey(ctx context.Context, cc *callCtx, inv Invocation, re
 	}
 	for _, e := range entries {
 		if e.Verb == entry.Verb && e.ArgsHash == entry.ArgsHash && e.ContentHash == entry.ContentHash {
+			if e.ExpectedStatus != "" {
+				req.Flags[ExtraExpectedStatus] = e.ExpectedStatus
+			}
 			return pending, e.Key, nil
 		}
 	}
@@ -257,7 +260,11 @@ func (c *Client) reserveKey(ctx context.Context, cc *callCtx, inv Invocation, re
 		ExpectedStatus: st.Status, Seq: st.Seq, ContentHash: content,
 		RequestID: os.Getenv(RequestIDEnv),
 	}
-	key, _, err := pending.Reserve(entry, func() (string, error) { return DeriveKey(parts), nil })
+	entry.ExpectedStatus = st.Status
+	key, reused, err := pending.Reserve(entry, func() (string, error) { return DeriveKey(parts), nil })
+	if err == nil && !reused && st.Status != "" {
+		req.Flags[ExtraExpectedStatus] = st.Status
+	}
 	if err != nil {
 		return nil, "", internal(fmt.Errorf("record the pending write: %w", err))
 	}

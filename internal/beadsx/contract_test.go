@@ -292,3 +292,43 @@ func raw(t *testing.T, b *beadsx.BD, args ...string) {
 		t.Fatalf("bd %v: %v", args, err)
 	}
 }
+
+// TestHeadSurvivesAPruneReal proves Head reads the highest seq ever
+// assigned, not the highest retained record: after every record is pruned,
+// Head still names the last one, and Tail from the head reads nothing.
+func TestHeadSurvivesAPruneReal(t *testing.T) {
+	in := startInstance(t, beadsx.DoltConfig{})
+	b := in.workspace(t, "hp")
+	ctx := context.Background()
+	empty, err := b.Head(ctx)
+	if err != nil {
+		t.Fatalf("head of an empty journal: %v", err)
+	}
+	for range 3 {
+		if _, err := b.Create(ctx, beadsx.CreateSpec{Title: "p"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	head, err := b.Head(ctx)
+	if err != nil || head != empty+3 {
+		t.Fatalf("head after three creates = %d, %v; want %d", head, err, empty+3)
+	}
+	for _, kv := range [][2]string{{"events-journal-retain-days", "0"}, {"events-journal-retain-rows", "0"}} {
+		if _, err := b.RunForTest(ctx, "config", "set", kv[0], kv[1], "--json"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := b.RunForTest(ctx, "events", "prune", "--before", fmt.Sprint(head+1), "--json"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.Tail(ctx, 0, 1); !errors.Is(err, beadsx.ErrJournalTruncated) {
+		t.Fatalf("tail from 0 after the prune: %v, want truncated", err)
+	}
+	pruned, err := b.Head(ctx)
+	if err != nil || pruned != head {
+		t.Fatalf("head after the prune = %d, %v; want %d", pruned, err, head)
+	}
+	if evs, err := b.Tail(ctx, pruned, 0); err != nil || len(evs) != 0 {
+		t.Fatalf("tail from the head after the prune: %+v %v", evs, err)
+	}
+}

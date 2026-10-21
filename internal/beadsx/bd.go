@@ -483,6 +483,32 @@ func (b *BD) Tail(ctx context.Context, since int64, limit int) ([]Event, error) 
 	return parseJournal(out)
 }
 
+// Head implements Client. bd 1.3.1 has no verb that prints the head, so
+// Head reads the journal's counter row with one read-only `bd sql` query.
+// The table and column are bd's own mechanism, and a later bd may rename
+// them: TestHeadSurvivesAPruneReal proves the outcome on the pinned bd. The
+// counter holds the last seq assigned, in spite of its column name, and a
+// prune does not lower it. No row means the journal never recorded.
+func (b *BD) Head(ctx context.Context) (int64, error) {
+	out, err := b.run(ctx, "sql", "--json", "SELECT next_seq AS head FROM bd_events_seq WHERE id = 0")
+	if err != nil {
+		return 0, err
+	}
+	var rows []struct {
+		Head *int64 `json:"head"`
+	}
+	if err := decode("sql", out, &rows); err != nil {
+		return 0, err
+	}
+	switch {
+	case len(rows) == 0:
+		return 0, nil
+	case len(rows) > 1 || rows[0].Head == nil || *rows[0].Head < 0:
+		return 0, &BDError{Op: "sql", Message: "journal head: unexpected rows: " + truncate(out), Kind: ErrMalformed}
+	}
+	return *rows[0].Head, nil
+}
+
 // AddDependency implements Client.
 func (b *BD) AddDependency(ctx context.Context, from, to string, kind DepKind) error {
 	if err := validateID(from); err != nil {

@@ -1,0 +1,218 @@
+package machine
+
+import (
+	"context"
+	"fmt"
+	"slices"
+
+	"github.com/iantanwx/loop/internal/beadsx"
+	"github.com/iantanwx/loop/internal/cli"
+)
+
+// Show reads one item: beads holds its status and facts, SQLite its lease.
+func (m *Machine) Show(ctx context.Context, project, item string) (Item, *cli.Refusal) {
+	bc, err := m.cfg.Beads(project)
+	if err != nil {
+		return Item{}, internalRefusal(err)
+	}
+	is, err := bc.Get(ctx, item)
+	if err != nil {
+		return Item{}, beadsRefusal(item, err)
+	}
+	it, _, err := view(project, is)
+	if err != nil {
+		return Item{}, &cli.Refusal{Code: cli.CodeNotFound, Rule: "not_a_work_item", Item: item, Hint: err.Error()}
+	}
+	l, err := m.Lease(ctx, project, item)
+	if err != nil {
+		return Item{}, internalRefusal(err)
+	}
+	it.Owner, it.Epoch = l.Owner, max(it.Epoch, l.Epoch)
+	return it, nil
+}
+
+// ListFilter selects items. Empty fields select everything.
+type ListFilter struct {
+	Kind   Kind
+	Status string
+}
+
+// List reads the work items of one project in id order. A bead of a type
+// no kind uses is skipped.
+func (m *Machine) List(ctx context.Context, project string, f ListFilter) ([]Item, *cli.Refusal) {
+	bc, err := m.cfg.Beads(project)
+	if err != nil {
+		return nil, internalRefusal(err)
+	}
+	bf := beadsx.Filter{}
+	if f.Status != "" {
+		bf.Statuses = []string{f.Status}
+	}
+	if f.Kind != "" {
+		t, ok := TableFor(f.Kind)
+		if !ok {
+			return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "unknown_kind", Hint: fmt.Sprintf("no kind %q", f.Kind)}
+		}
+		bf.Type = t.BeadType
+	}
+	issues, err := bc.List(ctx, bf)
+	if err != nil {
+		return nil, beadsRefusal("", err)
+	}
+	out := []Item{}
+	for _, is := range issues {
+		it, _, err := view(project, is)
+		if err != nil {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out, nil
+}
+
+// CreateRequest makes one item and applies its create verb.
+type CreateRequest struct {
+	Project     string
+	Kind        Kind
+	Title       string
+	Description string
+	// Verb is the table's create row, for example "create", "file",
+	// "prd_submit" or "create_architecture".
+	Verb   string
+	Params map[string]string
+	Actor  Actor
+	// Facts are written with the new bead, for example "epic" on a child.
+	Facts map[string]string
+}
+
+// Create makes the bead, then applies the create verb from Initial. The
+// bead and the first transition are two writes: a crash between them
+// leaves a bead in Initial, which no table row but create moves. Work entry
+// (U13) makes creation idempotent by the epic and child key.
+func (m *Machine) Create(ctx context.Context, cr CreateRequest) (string, cli.Result) {
+	t, ok := TableFor(cr.Kind)
+	if !ok {
+		return "", refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "unknown_kind", Hint: fmt.Sprintf("no kind %q", cr.Kind)})
+	}
+	if !slices.ContainsFunc(t.Rows, func(r Row) bool { return r.Verb == cr.Verb && slices.Contains(r.From, Initial) }) {
+		return "", refuse(&cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", CurrentStatus: Initial,
+			AllowedNext: t.AllowedNext(Initial), Hint: fmt.Sprintf("a new %s has no %s move", cr.Kind, cr.Verb)})
+	}
+	md := map[string]string{}
+	for k, v := range cr.Facts {
+		md[factPrefix+k] = v
+	}
+	for _, v := range append([]string{cr.Title, cr.Description}, valuesOf(md)...) {
+		if hit, names := m.cfg.Redactor.Find(v); hit {
+			return "", refuse(&cli.Refusal{Code: cli.CodeSecretInOutput, Rule: "secret_in_facts",
+				Hint: fmt.Sprintf("the new item holds the value of %v", names)})
+		}
+	}
+	bc, err := m.cfg.Beads(cr.Project)
+	if err != nil {
+		return "", refuse(internalRefusal(err))
+	}
+	is, err := bc.Create(ctx, beadsx.CreateSpec{Title: cr.Title, Description: cr.Description, Type: t.BeadType, Priority: 2, Metadata: md})
+	if err != nil {
+		return "", refuse(beadsRefusal("", err))
+	}
+	return is.ID, m.Apply(ctx, Request{Project: cr.Project, Item: is.ID, Verb: cr.Verb, Params: cr.Params, Actor: cr.Actor})
+}
+
+func valuesOf(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for _, v := range m {
+		out = append(out, v)
+	}
+	return out
+}
+
+// ClaimRequest is a lease grant at dispatch (KTD7).
+type ClaimRequest struct {
+	Project string
+	Item    string
+	Stage   string
+	RunID   string
+	// ExpectedStatus is the status admission read. Empty means current.
+	ExpectedStatus string
+}
+
+// Claim grants the item's lease to a run: the table's claim row for the
+// stage, the ClaimGuard (U6), and an epoch bump. The scheduler (U8) issues
+// the run's token with the returned epoch.
+func (m *Machine) Claim(ctx context.Context, c ClaimRequest) (Lease, cli.Result) {
+	res := m.Apply(ctx, Request{
+		Project: c.Project, Item: c.Item, Verb: "claim", ExpectedStatus: c.ExpectedStatus,
+		Params: map[string]string{"stage": c.Stage, "run": c.RunID},
+		Actor:  Actor{Name: "server:dispatch", RunID: c.RunID},
+	})
+	if res.Refusal != nil {
+		return Lease{}, res
+	}
+	l, err := m.Lease(ctx, c.Project, c.Item)
+	if err != nil {
+		return Lease{}, refuse(internalRefusal(err))
+	}
+	return l, res
+}
+
+// MergeEvent is a merge the GitHub reactor observed (U10).
+type MergeEvent struct {
+	Project string
+	Item    string
+	Base    string // the project's base branch
+	Into    string // the branch the PR merged into
+	SHA     string
+}
+
+// mergeRetries bounds the re-reads after a status miss. Under the item's
+// lock only a writer outside the server can move the item meanwhile.
+const mergeRetries = 5
+
+// MergeObserved moves the item for a merge into the base (KTD16): a ticket
+// moves to done from any state that is not terminal, and the write bumps
+// the epoch, so the old run's next write gets LEASE_NOT_HELD. An epic's
+// document merge moves it one state. A merge into another branch changes
+// nothing, and an item that is already terminal answers Nothing.
+func (m *Machine) MergeObserved(ctx context.Context, ev MergeEvent) cli.Result {
+	if ev.Into != ev.Base {
+		return cli.Nothing()
+	}
+	it, ref := m.Show(ctx, ev.Project, ev.Item)
+	if ref != nil {
+		return refuse(ref)
+	}
+	verb := "merged"
+	if it.Kind == KindEpic {
+		verb = "doc_merged"
+	}
+	var res cli.Result
+	for range mergeRetries {
+		res = m.Apply(ctx, Request{Project: ev.Project, Item: ev.Item, Verb: verb, Params: map[string]string{"sha": ev.SHA},
+			Actor: Server("reactor")})
+		if res.Refusal == nil || res.Refusal.Code != cli.CodeStatusChanged {
+			break
+		}
+	}
+	if r := res.Refusal; r != nil && r.Code == cli.CodeTransitionNotAllowed {
+		if t, ok := TableFor(it.Kind); ok && t.Terminal(r.CurrentStatus) {
+			return cli.Nothing()
+		}
+	}
+	return res
+}
+
+// HeadChanged returns a ticket whose PR head moved after a review pass to
+// in_review, and clears reviewed_head in the same write (AE1, R8). Any
+// other item, or a head equal to the reviewed head, answers Nothing.
+func (m *Machine) HeadChanged(ctx context.Context, project, item, sha string) cli.Result {
+	it, ref := m.Show(ctx, project, item)
+	if ref != nil {
+		return refuse(ref)
+	}
+	if it.Kind != KindTicket || !slices.Contains([]string{ReadyToMerge, Queued}, it.Status) || it.Fact(FactReviewedHead) == sha {
+		return cli.Nothing()
+	}
+	return m.Apply(ctx, Request{Project: project, Item: item, Verb: "head_changed", ExpectedStatus: it.Status,
+		Params: map[string]string{"head": sha}, Actor: Server("reactor")})
+}

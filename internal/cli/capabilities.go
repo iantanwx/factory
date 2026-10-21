@@ -106,6 +106,9 @@ func DeriveMatrix(r *Registry) (CapabilityMatrix, error) {
 // schema each prints agrees.
 func Surface() *Registry {
 	r := New()
+	for _, t := range surfaceTables {
+		must(r.RegisterTransitionTable(t.kind, t.table))
+	}
 	m, err := DeriveMatrix(r)
 	must(err)
 	must(r.SetCapabilityMatrix(m))

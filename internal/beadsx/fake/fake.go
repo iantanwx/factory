@@ -289,6 +289,16 @@ func (c *Client) Tail(ctx context.Context, since int64, limit int) ([]beadsx.Eve
 	return out, nil
 }
 
+// Head implements beadsx.Client.
+func (c *Client) Head(ctx context.Context) (int64, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.check(ctx); err != nil {
+		return 0, err
+	}
+	return int64(len(c.journal)), nil
+}
+
 func copyEvent(e beadsx.Event) beadsx.Event {
 	if e.Issue != nil {
 		is := clone(e.Issue)

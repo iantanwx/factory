@@ -1,0 +1,313 @@
+package machine
+
+import (
+	"context"
+	"fmt"
+	"maps"
+	"slices"
+	"sort"
+	"testing"
+
+	"github.com/iantanwx/loop/internal/cli"
+)
+
+type edge struct{ from, verb, to string }
+
+func (e edge) String() string { return e.from + " -" + e.verb + "-> " + e.to }
+
+// edgesOf expands every row of a table into its edges.
+func edgesOf(t *Table) map[edge]bool {
+	out := map[edge]bool{}
+	for _, r := range t.Rows {
+		for _, f := range r.From {
+			switch r.To {
+			case ToSame:
+				out[edge{f, r.Verb, f}] = true
+			case ToResume:
+				for _, to := range r.ResumeTo {
+					out[edge{f, r.Verb, to}] = true
+				}
+			default:
+				out[edge{f, r.Verb, r.To}] = true
+			}
+		}
+	}
+	return out
+}
+
+func each(from []string, verb, to string) []edge {
+	var out []edge
+	for _, f := range from {
+		e := edge{f, verb, to}
+		if to == ToSame {
+			e.to = f
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func sameEdges(t *testing.T, kind Kind, want []edge) {
+	t.Helper()
+	tbl, _ := TableFor(kind)
+	got := edgesOf(tbl)
+	w := map[edge]bool{}
+	for _, e := range want {
+		w[e] = true
+	}
+	var missing, extra []string
+	for e := range w {
+		if !got[e] {
+			missing = append(missing, e.String())
+		}
+	}
+	for e := range got {
+		if !w[e] {
+			extra = append(extra, e.String())
+		}
+	}
+	sort.Strings(missing)
+	sort.Strings(extra)
+	if len(missing)+len(extra) > 0 {
+		t.Fatalf("%s table differs from the plan:\nmissing: %v\nextra: %v", kind, missing, extra)
+	}
+}
+
+var ticketLive = []string{Backlog, Todo, InProgress, InReview, Repair, ReadyToMerge, Queued, Escalated}
+
+// The ticket diagram of the plan, edge by edge, then the edges its text
+// adds, then the edges this unit adds with the reason for each.
+func ticketEdges() []edge {
+	e := []edge{
+		{Initial, "create", Backlog}, {Initial, "create", Todo},
+		{Backlog, "unblock", Todo},
+		{Todo, "claim", InProgress},
+		{InProgress, "pr_open", InReview},
+		{InProgress, "release", Todo}, {InProgress, "reclaim", Todo}, // finish failed, or crash
+		{InReview, "ci_red", Repair},
+		{Repair, "fix_pushed", InReview},
+		{InReview, "review_pass", ReadyToMerge},
+		{InReview, "review_reject", Todo},
+		{ReadyToMerge, "head_changed", InReview},
+		{ReadyToMerge, "enqueue", Queued},
+		{Queued, "head_changed", InReview},
+		{Queued, "dequeue_conflict", Todo},
+		{Queued, "dequeue_red", Repair},
+		{Queued, "merged", Done},
+		{InReview, "pr_closed", Escalated},
+		{Escalated, "answer", Todo},
+		{Escalated, "cancel", Canceled},
+	}
+	// Text: escalate moves any non-terminal state to escalated, and an
+	// observed merge moves any non-terminal state to done.
+	e = append(e, each(except(ticketLive, Escalated), "escalate", Escalated)...)
+	e = append(e, each(ticketLive, "merged", Done)...)
+	// Added: a code reviewer and a repairing implementer hold a lease on a
+	// state they do not leave (KTD7 claims at dispatch), and settle it.
+	for _, s := range []string{Repair, InReview} {
+		e = append(e, edge{s, "claim", s}, edge{s, "release", s}, edge{s, "reclaim", s})
+	}
+	// Added: a PR closed unmerged from any state that holds a PR (R8).
+	e = append(e, each([]string{Repair, ReadyToMerge, Queued}, "pr_closed", Escalated)...)
+	// Added: a note changes no status.
+	e = append(e, each(ticketLive, "note", ToSame)...)
+	return e
+}
+
+var epicLive = []string{PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+	SpecSignoff, SpecApproved, Decomposing, Execution, Escalated}
+
+func epicEdges() []edge {
+	e := []edge{
+		{Initial, "prd_submit", PRDReview},
+		{Initial, "create_architecture", Architecture},
+		{PRDReview, "review_pass", PRDSignoff},
+		{PRDReview, "review_reject", PRDAmending},
+		{PRDAmending, "prd_amended", PRDReview},
+		{PRDReview, "review_reject", Escalated},
+		{PRDSignoff, "doc_merged", SpecNeeded},
+		{Architecture, "adr_landed", SpecNeeded},
+		{SpecNeeded, "claim", SpecDrafting},
+		{SpecDrafting, "pr_open", SpecReview},
+		{SpecReview, "review_pass", SpecSignoff},
+		{SpecReview, "review_reject", SpecNeeded},
+		{SpecSignoff, "doc_merged", SpecApproved},
+		{SpecApproved, "claim", Decomposing},
+		{Decomposing, "decomposed", Execution},
+		{Execution, "complete", Done},
+		{Escalated, "answer", PRDReview},
+		// Text: a document merged in review counts as sign-off.
+		{PRDReview, "doc_merged", PRDSignoff},
+		{SpecReview, "doc_merged", SpecSignoff},
+	}
+	// Text: a closed document PR escalates and never cancels.
+	e = append(e, each([]string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff}, "pr_closed", Escalated)...)
+	e = append(e, each(except(epicLive, Escalated), "escalate", Escalated)...)
+	// Added: answer returns to every resume target escalate can store.
+	for _, to := range uniqueValues(epicResume) {
+		if to != PRDReview {
+			e = append(e, edge{Escalated, "answer", to})
+		}
+	}
+	// Added: the stages that claim without a move, and settlement of
+	// every claim (RESUME_TARGETS in scripts/sdlc/handoff.ts, alpha).
+	for _, s := range []string{PRDReview, PRDAmending, SpecReview} {
+		e = append(e, edge{s, "claim", s}, edge{s, "release", s}, edge{s, "reclaim", s})
+	}
+	e = append(e, edge{SpecDrafting, "release", SpecNeeded}, edge{SpecDrafting, "reclaim", SpecNeeded},
+		edge{Decomposing, "release", SpecApproved}, edge{Decomposing, "reclaim", SpecApproved})
+	e = append(e, each(epicLive, "note", ToSame)...)
+	return e
+}
+
+// DECISION_MOVES (scripts/sdlc/decision-states.ts:95, alpha), unchanged.
+func decisionEdges() []edge {
+	return []edge{
+		{Initial, "file", DecisionPending},
+		{DecisionPending, "fire", NeedsHuman},
+		{NeedsHuman, "defer", DecisionPending},
+		{NeedsHuman, "answer", Done},
+		{NeedsHuman, "drop", Canceled},
+		{DecisionPending, "moot", Canceled},
+		{NeedsHuman, "moot", Canceled},
+	}
+}
+
+func bugEdges() []edge {
+	return []edge{
+		{Initial, "file", Reported},
+		{Reported, "claim", Reproducing},
+		{Reproducing, "release", Reported}, {Reproducing, "reclaim", Reported},
+		{Reported, "shape", Shaped}, {Reproducing, "shape", Shaped},
+		{Reported, "duplicate", Duplicate}, {Reproducing, "duplicate", Duplicate},
+		{Reported, "escalate", Escalated}, {Reproducing, "escalate", Escalated},
+		{Escalated, "answer", Reported},
+		{Escalated, "cancel", Canceled},
+		{Reported, "note", Reported}, {Reproducing, "note", Reproducing}, {Escalated, "note", Escalated},
+	}
+}
+
+func TestTablesHoldExactlyThePlannedEdges(t *testing.T) {
+	sameEdges(t, KindTicket, ticketEdges())
+	sameEdges(t, KindEpic, epicEdges())
+	sameEdges(t, KindDecision, decisionEdges())
+	sameEdges(t, KindBug, bugEdges())
+}
+
+// setupFor is the parameters and facts that let one row apply.
+func setupFor(r Row, to string) (map[string]string, map[string]string) {
+	params := map[string]string{"head": "h1", "body": "a note", "run": "r-1", "ticket": "tk-x", "of": "tk-y", "sha": "s1"}
+	facts := map[string]string{FactReviewedHead: "h1"}
+	if r.Stage != "" {
+		params["stage"] = r.Stage
+	}
+	if r.When == "open_dependency" {
+		params["blocked"] = "true"
+	}
+	if r.When == "second_reject" {
+		facts[FactPRDRejects] = "1"
+	}
+	if r.To == ToResume {
+		facts[FactResume] = to
+	}
+	return params, facts
+}
+
+// TestEveryEdgeAppliesAndEveryOtherPairRefuses is AE3 over every table:
+// each edge lands where the table says, and each other pair of state and
+// verb refuses with TRANSITION_NOT_ALLOWED, names allowed_next, and
+// changes nothing.
+func TestEveryEdgeAppliesAndEveryOtherPairRefuses(t *testing.T) {
+	for _, tbl := range Tables() {
+		t.Run(string(tbl.Kind), func(t *testing.T) {
+			w := newWorld(t)
+			ctx := context.Background()
+			edges := edgesOf(tbl)
+			for _, r := range tbl.Rows {
+				for _, from := range r.From {
+					tos := []string{r.To}
+					if r.To == ToResume {
+						tos = r.ResumeTo
+					}
+					for _, to := range tos {
+						if to == ToSame {
+							to = from
+						}
+						params, facts := setupFor(r, to)
+						var id string
+						if from == Initial {
+							var res cli.Result
+							id, res = w.m.Create(ctx, CreateRequest{Project: prj, Kind: tbl.Kind, Title: "x", Verb: r.Verb, Params: params, Actor: Server("test")})
+							mustOK(t, res)
+						} else {
+							id = w.create(tbl.Kind, firstCreate(tbl), nil)
+							w.force(id, from, facts)
+							mustOK(t, w.apply(id, r.Verb, params))
+						}
+						if got := w.show(id).Status; got != to {
+							t.Fatalf("%s: landed on %s", edge{from, r.Verb, to}, got)
+						}
+					}
+				}
+			}
+			verbs := map[string]bool{}
+			for _, r := range tbl.Rows {
+				verbs[r.Verb] = true
+			}
+			for _, s := range tbl.States {
+				for _, v := range slices.Sorted(maps.Keys(verbs)) {
+					if slices.ContainsFunc(slices.Collect(maps.Keys(edges)), func(e edge) bool { return e.from == s.Name && e.verb == v }) {
+						continue
+					}
+					id := w.create(tbl.Kind, firstCreate(tbl), nil)
+					w.force(id, s.Name, map[string]string{FactReviewedHead: "h1", FactResume: s.Name})
+					before := w.show(id)
+					params, _ := setupFor(Row{}, "")
+					params["stage"] = StageImplementer
+					ref := wantCode(t, w.apply(id, v, params), cli.CodeTransitionNotAllowed)
+					if !slices.Equal(ref.AllowedNext, tbl.AllowedNext(s.Name)) || ref.CurrentStatus != s.Name {
+						t.Fatalf("%s from %s: allowed_next %v current %s; want %v", v, s.Name, ref.AllowedNext, ref.CurrentStatus, tbl.AllowedNext(s.Name))
+					}
+					if after := w.show(id); after.Status != s.Name || after.Seq != before.Seq {
+						t.Fatalf("%s from %s changed the item: %+v", v, s.Name, after)
+					}
+				}
+			}
+		})
+	}
+}
+
+func firstCreate(t *Table) string {
+	for _, r := range t.Rows {
+		if slices.Contains(r.From, Initial) && r.when == nil {
+			return r.Verb
+		}
+		if slices.Contains(r.From, Initial) && r.When == "no_open_dependency" {
+			return r.Verb
+		}
+	}
+	panic(fmt.Sprintf("%s has no create row", t.Kind))
+}
+
+func TestStatusesAreConfigurableInBeads(t *testing.T) {
+	for _, s := range Statuses() {
+		if s.Name == Initial {
+			t.Fatal("open is bd's own status")
+		}
+	}
+	if len(Statuses()) == 0 {
+		t.Fatal("no custom statuses")
+	}
+}
+
+func TestSchemaPrintsEveryTable(t *testing.T) {
+	s, err := cli.Surface().Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []Kind{KindTicket, KindEpic, KindDecision, KindBug} {
+		if _, ok := s.TransitionTables[string(k)]; !ok {
+			t.Fatalf("the schema has no %s table", k)
+		}
+	}
+}

@@ -253,6 +253,10 @@ const (
 	ExtraStdin = ReservedPrefix + "stdin"
 	// ExtraContentHash is the hash of the content a write carries (KTD13).
 	ExtraContentHash = ReservedPrefix + "content_hash"
+	// ExtraExpectedStatus is the item status the CLI read for the write's
+	// key. The server answers STATUS_CHANGED when the item moved since
+	// (AE4), and never applies the write over another actor's move.
+	ExtraExpectedStatus = ReservedPrefix + "expected_status"
 )
 
 // Validate checks a call that arrives over the wire against the verb's

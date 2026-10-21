@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sort"
 	"sync"
 	"time"
@@ -15,12 +14,11 @@ import (
 
 // Defaults of Options.
 const (
-	DefaultBatchSize       = 100
-	DefaultCallTimeout     = time.Minute
-	DefaultCooldown        = 30 * time.Second
-	DefaultInterval        = 5 * time.Second
-	DefaultBatchesPerTick  = 50
-	defaultHeadSearchLimit = 128
+	DefaultBatchSize      = 100
+	DefaultCallTimeout    = time.Minute
+	DefaultCooldown       = 30 * time.Second
+	DefaultInterval       = 5 * time.Second
+	DefaultBatchesPerTick = 50
 )
 
 // Project is one project that delivery knows. Adapter is nil when the
@@ -222,50 +220,14 @@ func (d *Delivery) reconcile(ctx context.Context, b *binding, cp int64) (Report,
 }
 
 // findHead returns a journal seq h at or above cp such that every record up
-// to h exists, and the journal held no record after h when it was read.
-// beadsx has no read of the head, so it searches with Tail limited to one
-// record: Tail(s) returns nothing exactly when s is at or above the head,
-// and it returns records or ErrJournalTruncated below the head.
+// to h exists, and the journal held no record after h when it was read. The
+// journal head is the highest seq ever assigned, so a prune never lowers it.
 func findHead(ctx context.Context, j beadsx.Client, cp int64) (int64, error) {
-	atOrAboveHead := func(s int64) (bool, error) {
-		evs, err := j.Tail(ctx, s, 1)
-		if errors.Is(err, beadsx.ErrJournalTruncated) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		return len(evs) == 0, nil
+	head, err := j.Head(ctx)
+	if err != nil {
+		return 0, err
 	}
-	lo, step := cp, int64(1) // the head is above lo
-	var hi int64
-	for i := 0; ; i++ {
-		if i == defaultHeadSearchLimit || lo > math.MaxInt64-step {
-			return 0, errors.New("tracker: no journal head found")
-		}
-		hi = lo + step
-		done, err := atOrAboveHead(hi)
-		if err != nil {
-			return 0, err
-		}
-		if done {
-			break
-		}
-		lo, step = hi, step*2
-	}
-	for hi-lo > 1 {
-		mid := lo + (hi-lo)/2
-		done, err := atOrAboveHead(mid)
-		if err != nil {
-			return 0, err
-		}
-		if done {
-			hi = mid
-		} else {
-			lo = mid
-		}
-	}
-	return hi, nil
+	return max(head, cp), nil
 }
 
 // coolingDown returns ErrCoolingDown while the adapter's cooldown runs.

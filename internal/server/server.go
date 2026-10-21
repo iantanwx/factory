@@ -17,6 +17,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
@@ -67,6 +68,13 @@ type Options struct {
 	ManifestReader ManifestReader
 	// OpPath is the 1Password CLI. "op" on PATH when empty.
 	OpPath string
+	// Beads resolves each project's beads client. When set, the server
+	// composes the state machine (U5): it serves the work, review and
+	// decision verbs, and its reconcile runs first, before the socket
+	// binds. A server without beads answers those verbs NOT_IMPLEMENTED.
+	Beads machine.BeadsResolver
+	// Claims is the admission hook of claims (U6). Optional.
+	Claims machine.ClaimGuard
 }
 
 // Server is one composed instance.
@@ -79,7 +87,9 @@ type Server struct {
 	Tokens   *rpc.Tokens
 	RPC      *rpc.Server
 	Projects *config.Projects
-	Started  time.Time
+	// Machine is the state machine, or nil when Options.Beads is nil.
+	Machine *machine.Machine
+	Started time.Time
 
 	opts Options
 	log  *slog.Logger
@@ -120,8 +130,12 @@ func Run(ctx context.Context, opts Options) (err error) {
 		return err
 	}
 	// Bind only after reconcile: until then a CLI finds no socket and
-	// waits (KTD13).
-	for i, step := range opts.Reconcile {
+	// waits (KTD13). The machine's reconcile runs first (R17).
+	steps := opts.Reconcile
+	if s.Machine != nil {
+		steps = append([]Step{s.Machine.Reconcile}, steps...)
+	}
+	for i, step := range steps {
 		if err := step(ctx); err != nil {
 			return fmt.Errorf("server: start-up reconcile step %d: %w", i+1, err)
 		}
@@ -247,6 +261,16 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	}
 	if err := s.wire(); err != nil {
 		return nil, err
+	}
+	if opts.Beads != nil {
+		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: opts.Claims,
+			Registry: cli.Surface(), Logger: srv.Logger()})
+		if err != nil {
+			return nil, err
+		}
+		if err := s.Machine.Register(srv); err != nil {
+			return nil, err
+		}
 	}
 	ok = true
 	return s, nil

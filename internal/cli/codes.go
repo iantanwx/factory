@@ -60,6 +60,8 @@ const (
 	CodeServerUnavailable    = "SERVER_UNAVAILABLE"
 	CodeAlreadyExists        = "ALREADY_EXISTS"
 	CodeProjectBusy          = "PROJECT_BUSY"
+	CodeLeaseHeld            = "LEASE_HELD"
+	CodeBeadsUnavailable     = "BEADS_UNAVAILABLE"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -95,6 +97,8 @@ var baseRefusals = []RefusalCode{
 	{CodeServerUnavailable, ExitWait, codes.Unavailable, true, "the CLI cannot reach the server"},
 	{CodeAlreadyExists, ExitRefused, codes.AlreadyExists, false, "the named thing is already registered"},
 	{CodeProjectBusy, ExitRefused, codes.FailedPrecondition, false, "the project has a live run"},
+	{CodeLeaseHeld, ExitRefused, codes.FailedPrecondition, false, "another run holds the item's lease"},
+	{CodeBeadsUnavailable, ExitWait, codes.Unavailable, true, "the server recorded the write and cannot reach beads yet; run the same command again"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

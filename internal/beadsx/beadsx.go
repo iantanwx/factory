@@ -56,6 +56,10 @@ type Client interface {
 	// Tail returns the journal records with a seq above since, in seq order.
 	// A limit of 0 means no limit.
 	Tail(ctx context.Context, since int64, limit int) ([]Event, error)
+	// Head returns the highest journal seq ever assigned, or 0 when the
+	// journal holds none. A prune never lowers it, so Tail(Head()) reads
+	// only records committed after the call.
+	Head(ctx context.Context) (int64, error)
 	// AddDependency records that issue `from` depends on issue `to`.
 	AddDependency(ctx context.Context, from, to string, kind DepKind) error
 }

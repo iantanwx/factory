@@ -1,5 +1,7 @@
 package cli
 
+import "fmt"
+
 // The CLI surface: every noun and verb of the plan's surface table. A verb
 // without a handler answers NOT_IMPLEMENTED until its unit lands. Later
 // units add flags and arguments here as they implement each verb.
@@ -55,13 +57,15 @@ var (
 var surface = []Verb{
 	server("work", "peek", "name the next item a stage would take", runOrCoordinator, nil,
 		Flag{Name: "stage", Type: FlagString, Required: true, Description: "the stage whose work query to run"}),
-	server("work", "show", "show one work item", runOrCoordinator, []Arg{itemArg}),
-	server("work", "list", "list work items", runOrCoordinator, nil),
+	server("work", "show", "show one work item", runOrCoordinator, []Arg{itemArg}, projectFlag),
+	server("work", "list", "list work items", runOrCoordinator, nil, projectFlag,
+		Flag{Name: "kind", Type: FlagString, Enum: []string{"ticket", "epic", "decision", "bug"}, Description: "only items of this kind"},
+		Flag{Name: "status", Type: FlagString, Description: "only items in this status"}),
 	write(server("work", "edit", "edit a work item's fields", runOrCoordinator, []Arg{itemArg})),
-	write(server("work", "note", "add a note to a work item", runOrCoordinator, []Arg{itemArg}, bodyFlag)),
+	write(server("work", "note", "add a note to a work item", runOrCoordinator, []Arg{itemArg}, bodyFlag, projectFlag)),
 	write(server("work", "block", "block a work item", runOrCoordinator, []Arg{itemArg})),
-	write(server("work", "unblock", "unblock a work item", runOrCoordinator, []Arg{itemArg})),
-	write(server("work", "cancel", "cancel a work item", runOrCoordinator, []Arg{itemArg})),
+	write(server("work", "unblock", "move a backlog item whose dependencies landed to todo", runOrCoordinator, []Arg{itemArg}, projectFlag)),
+	write(server("work", "cancel", "cancel an escalated work item", runOrCoordinator, []Arg{itemArg}, projectFlag)),
 	write(server("work", "create", "create a work item", runOrCoordinator, nil)),
 
 	write(server("run", "finish", "report the run's outcome and release its lease", runOnly, nil,
@@ -70,7 +74,9 @@ var surface = []Verb{
 	server("run", "list", "list runs", coordinator, nil),
 	server("run", "events", "list one run's events", coordinator, []Arg{runArg}),
 
-	write(server("review", "submit", "submit a review verdict", []string{"reviewer run"}, []Arg{itemArg})),
+	write(server("review", "submit", "submit a review verdict", []string{"reviewer run"}, []Arg{itemArg},
+		Flag{Name: "verdict", Type: FlagString, Required: true, Enum: []string{"pass", "reject"}, Description: "pass or reject"},
+		Flag{Name: "head", Type: FlagString, Description: "the PR head sha the review read; a ticket's pass needs it"})),
 	server("review", "threads", "list review threads", []string{"reviewer run"}, []Arg{itemArg}),
 	server("review", "rounds", "list review rounds", []string{"reviewer run"}, []Arg{itemArg}),
 
@@ -94,10 +100,11 @@ var surface = []Verb{
 	write(server("escalation", "route", "submit the panel's result and route the escalation", []string{"fixer"}, nil)),
 
 	write(server("decision", "file", "file a decision", runOrCoordinator, nil)),
-	write(server("decision", "fire", "fire a decision", runOrCoordinator, []Arg{decisionArg})),
-	write(server("decision", "defer", "defer a decision", runOrCoordinator, []Arg{decisionArg})),
-	write(server("decision", "settle", "settle a decision", runOrCoordinator, []Arg{decisionArg})),
-	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg})),
+	write(server("decision", "fire", "fire a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
+	write(server("decision", "defer", "defer a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
+	write(server("decision", "settle", "settle a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag,
+		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
+	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 
 	server("inbox", "list", "list inbox entries", coordinator, nil),
 	write(server("inbox", "answer", "answer an inbox entry", coordinator, []Arg{entryArg})),
@@ -147,4 +154,25 @@ var surface = []Verb{
 	topLevel(server("meta", "schema", "print the CLI schema", anyone, nil)),
 	topLevel(server("meta", "status", "show the server's status", anyone, nil)),
 	topLevel(server("meta", "version", "print the version", anyone, nil)),
+}
+
+// surfaceTable is one transition table that every Surface registers.
+type surfaceTable struct {
+	kind  string
+	table any
+}
+
+var surfaceTables []surfaceTable
+
+// RegisterSurfaceTable adds the transition table of one item kind to every
+// registry Surface builds, so the server and the CLI print the same schema.
+// The machine package (U5) calls it from init. It panics on a duplicate
+// kind, the same mistake RegisterTransitionTable refuses.
+func RegisterSurfaceTable(kind string, table any) {
+	for _, t := range surfaceTables {
+		if t.kind == kind {
+			panic(fmt.Sprintf("cli: transition table %q is registered twice", kind))
+		}
+	}
+	surfaceTables = append(surfaceTables, surfaceTable{kind, table})
 }
