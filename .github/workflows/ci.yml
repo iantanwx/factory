@@ -23,3 +23,42 @@ jobs:
       - name: Install golangci-lint
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
       - run: make gates
+
+  # The parity suite (U17) on the real server and real beads. It provisions
+  # the bd and dolt that internal/release/provision.go pins for
+  # linux/amd64, and it checks each archive and binary against those
+  # sha256 values. The vendor may move a URL, so the hashes decide. Keep the
+  # values here in step with the pin table.
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BD_URL: https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz
+      BD_ARCHIVE_SHA256: 3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c
+      BD_BINARY_SHA256: a8f48d771b9e11eccfced4aed72923b59eda746f7a9b425e7ca1af7a51251653
+      DOLT_URL: https://github.com/dolthub/dolt/releases/download/v2.2.0/dolt-linux-amd64.tar.gz
+      DOLT_ARCHIVE_SHA256: 1f7ad8c2622995789420a3fb0f2d16b4aa7430000a825dd91d5938f36480cbf6
+      DOLT_BINARY_SHA256: 72352f1d882472a7a8d6124e9c4dc12f80e2c2359ea95f1424c032e9250e35e6
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+      - name: Provision the pinned bd and dolt
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/beads"
+          mkdir -p "$dir/bin"
+          curl -fsSL -o "$dir/bd.tar.gz" "$BD_URL"
+          echo "$BD_ARCHIVE_SHA256  $dir/bd.tar.gz" | sha256sum -c -
+          tar -xzf "$dir/bd.tar.gz" -C "$dir/bin" bd
+          echo "$BD_BINARY_SHA256  $dir/bin/bd" | sha256sum -c -
+          curl -fsSL -o "$dir/dolt.tar.gz" "$DOLT_URL"
+          echo "$DOLT_ARCHIVE_SHA256  $dir/dolt.tar.gz" | sha256sum -c -
+          tar -xzf "$dir/dolt.tar.gz" -C "$dir" dolt-linux-amd64/bin/dolt
+          mv "$dir/dolt-linux-amd64/bin/dolt" "$dir/bin/dolt"
+          echo "$DOLT_BINARY_SHA256  $dir/bin/dolt" | sha256sum -c -
+          chmod 0755 "$dir/bin/bd" "$dir/bin/dolt"
+          echo "LOOP_BD=$dir/bin/bd" >> "$GITHUB_ENV"
+          echo "LOOP_DOLT=$dir/bin/dolt" >> "$GITHUB_ENV"
+      - run: make acceptance

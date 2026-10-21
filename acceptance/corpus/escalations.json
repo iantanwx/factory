@@ -1,0 +1,115 @@
+{
+  "about": "Twenty escalation findings in ten cases, each labelled with the rubric's level, its gate (choice) and the route a person confirmed. The findings are synthetic rewrites of a private corpus from an earlier loop: each keeps the features the rubric routes on (the kind of evidence that answers it, and whether one answer acts outside the repository) and its labelled level, and names no real product, person or vendor. A case routes to a person when any of its findings does. Stage is the stage that raised the case.",
+  "cases": [
+    {
+      "id": "C01",
+      "stage": "doc-reviewer",
+      "route": "loop",
+      "findings": [
+        {"id": "C01-F1", "level": "derived", "gate": "inside", "route": "loop",
+         "finding": "The ADR's split check can never fail on the sample data, and the spec replaces it; the research note's own figures settle it by arithmetic."},
+        {"id": "C01-F2", "level": "derived", "gate": "inside", "route": "loop",
+         "finding": "The spec re-reads the whole catalogue on every run, and the ADR describes a separate pass; the ADR's own call counts pick one reading."}
+      ]
+    },
+    {
+      "id": "C02",
+      "stage": "doc-reviewer",
+      "route": "person",
+      "findings": [
+        {"id": "C02-F1", "level": "measured", "gate": "inside", "route": "loop",
+         "finding": "The ADR puts a counter in a send hook where its own first criterion cannot pass; a read of the pinned library release answers it."},
+        {"id": "C02-F2", "level": "measured", "gate": "inside", "route": "loop",
+         "finding": "The ADR says the library's rate limit guards three endpoints, and the pinned release guards nine; the same read of the same release answers it."},
+        {"id": "C02-F3", "level": "derived", "gate": "inside", "route": "loop",
+         "finding": "The epic defers a validation rule to a later story, and the ADR gives it to this ticket; the ADR's own deferral rule picks one."},
+        {"id": "C02-F4", "level": "owner-only", "gate": "inside", "route": "person",
+         "finding": "The spec leaves open which epic owns five disabled paths and four hand-offs, and no document divides that scope."}
+      ]
+    },
+    {
+      "id": "C03",
+      "stage": "implementer",
+      "route": "person",
+      "findings": [
+        {"id": "C03-F1", "level": "preference", "gate": "outside", "route": "person",
+         "finding": "The ticket requires a mail policy record that does not exist, two values fit every document, and one answer creates a record at the DNS provider."},
+        {"id": "C03-F2", "level": "computed", "gate": "inside", "route": "loop",
+         "finding": "The agent asks whether the mail API key is available to it, and a command in the repository answers that question."},
+        {"id": "C03-F3", "level": "measured", "gate": "inside", "route": "loop",
+         "finding": "The vendor's published record values differ from the ticket's table, and a read-only call reads the outcome the project depends on."}
+      ]
+    },
+    {
+      "id": "C04",
+      "stage": "code-reviewer",
+      "route": "person",
+      "findings": [
+        {"id": "C04-F1", "level": "measured", "gate": "inside", "route": "loop",
+         "finding": "The vendor reports both domains in one region and the spec names another; the measurement exists, and a repository rule picks the answer."},
+        {"id": "C04-F2", "level": "owner-only", "gate": "outside", "route": "person",
+         "finding": "The vendor account holds a domain of another product, a fact no repository document records, and one answer opens a second vendor account."}
+      ]
+    },
+    {
+      "id": "C05",
+      "stage": "implementer",
+      "route": "person",
+      "findings": [
+        {"id": "C05-F1", "level": "derived", "gate": "inside", "route": "loop",
+         "finding": "The dependency audit fails on a critical advisory with two repairs, and the audit baseline's own rule leaves one."},
+        {"id": "C05-F2", "level": "owner-only", "gate": "inside", "route": "person",
+         "finding": "That repair changes three apps the ticket forbids, no ticket owns it, and no document divides the work."},
+        {"id": "C05-F3", "level": "derived", "gate": "inside", "route": "loop",
+         "finding": "A test file is in neither of the ticket's file lists, and the runbook forbids only a file the ticket forbids."}
+      ]
+    },
+    {
+      "id": "C06",
+      "stage": "implementer",
+      "route": "person",
+      "findings": [
+        {"id": "C06-F1", "level": "owner-only", "gate": "outside", "route": "person",
+         "finding": "None of three hosting credentials is stored, no repository command mints one, and one answer creates them at a vendor."}
+      ]
+    },
+    {
+      "id": "C07",
+      "stage": "implementer",
+      "route": "person",
+      "findings": [
+        {"id": "C07-F1", "level": "preference", "gate": "outside", "route": "person",
+         "finding": "The host makes a project's first deployment public, the ticket forbids that, and one of two fitting answers deploys publicly."}
+      ]
+    },
+    {
+      "id": "C08",
+      "stage": "implementer",
+      "route": "loop",
+      "findings": [
+        {"id": "C08-F1", "level": "derived", "gate": "inside", "route": "loop",
+         "finding": "Three contracts need a read of stored rows that the data package does not export, and the spec and an ADR settle where the read goes."},
+        {"id": "C08-F2", "level": "derived", "gate": "inside", "route": "loop",
+         "finding": "No read returns the first stored record, and the spec names the argument that picks the exact read over a lower bound."}
+      ]
+    },
+    {
+      "id": "C09",
+      "stage": "implementer",
+      "route": "loop",
+      "findings": [
+        {"id": "C09-F1", "level": "derived", "gate": "inside", "route": "loop",
+         "finding": "The same read, and the ticket's list of files it must not change still forbids the package; one edit of the ticket settles it."}
+      ]
+    },
+    {
+      "id": "C10",
+      "stage": "code-reviewer",
+      "route": "loop",
+      "findings": [
+        {"id": "C10-F1", "level": "derived", "gate": "inside", "route": "loop",
+         "finding": "A badge differs from its design frame in colour and shape, and an ADR makes the frame set both, so the change adds one colour token."}
+      ]
+    }
+  ]
+}
