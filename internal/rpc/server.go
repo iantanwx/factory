@@ -352,6 +352,20 @@ func (s *Server) replaySettled(ctx context.Context, v *cli.Verb, req *loopv1.Ver
 	return &env
 }
 
+// conditional reports a refusal that depends only on the moment: a full
+// cap, a held mutex or an open dependency. Such a refusal changed nothing,
+// so it is not stored, and the same call later gets a fresh answer.
+func conditional(r *cli.Refusal) bool {
+	if r == nil {
+		return false
+	}
+	switch r.Code {
+	case cli.CodeCapFull, cli.CodeMutexHeld, cli.CodeDependencyOpen:
+		return true
+	}
+	return false
+}
+
 // fingerprint is what an idempotency key must match on a replay.
 func fingerprint(runID string, inv cli.Invocation) store.Fingerprint {
 	return store.Fingerprint{
@@ -398,7 +412,7 @@ func (s *Server) idempotent(ctx context.Context, call *Call, key string) (cli.Re
 	res := s.run(ctx, call)
 	res.ServerVersion = s.opts.Version
 	env := s.redact(s.reg.Seal(inv.Verb.Path, call.Request.GetRequestId(), res))
-	if env.Exit == cli.ExitDone || env.Exit == cli.ExitNothing || env.Exit == cli.ExitRefused {
+	if env.Exit == cli.ExitDone || env.Exit == cli.ExitNothing || (env.Exit == cli.ExitRefused && !conditional(env.Refusal)) {
 		raw, err := json.Marshal(env)
 		if err == nil {
 			// The answer is stored even when the caller went away: its

@@ -321,3 +321,34 @@ func TestSettledRunReplaysItsLastWrite(t *testing.T) {
 		t.Fatalf("a new write from a settled run: %v", env)
 	}
 }
+
+// A refusal that depends on the moment (a full cap, a held mutex, an open
+// dependency) changed nothing, so it is never stored: the same call later
+// gets a fresh answer, not the old refusal.
+func TestConditionalRefusalIsNotReplayed(t *testing.T) {
+	h := newHarness(t)
+	var calls atomic.Int32
+	h.handle("work note", func(context.Context, *Call) cli.Result {
+		if calls.Add(1) == 1 {
+			return cli.Refuse(cli.Refusal{Code: cli.CodeCapFull, Rule: "cap_full"})
+		}
+		return cli.Found(map[string]any{"done": true})
+	})
+	h.start()
+	a := h.issue("run-a", cli.PrincipalRun, "T-A")
+	tf, _ := cli.ReadTokenFile(a)
+	h.proc.setCwd(a)
+	conn, err := grpc.NewClient("unix://"+cli.SocketPath(h.dir), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	req := &loopv1.VerbRequest{Verb: "work note", Args: []string{"T-A"}, Flags: map[string]string{"body": "b"},
+		IdempotencyKey: "k1-cap", RunToken: tf.Token, ClientVersion: cli.Version}
+	if env, _ := rawCall(t, conn, "/loop.v1.WorkService/Note", req); env.GetRefusal().GetCode() != cli.CodeCapFull {
+		t.Fatalf("first call: %v", env)
+	}
+	if env, _ := rawCall(t, conn, "/loop.v1.WorkService/Note", req); !env.GetOk() {
+		t.Fatalf("the retry after the cap freed must run again: %v", env)
+	}
+}
