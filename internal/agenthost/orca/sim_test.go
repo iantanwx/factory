@@ -73,6 +73,9 @@ type sim struct {
 	exited    *int
 	sendReply func() orca.Output
 	override  map[string]func(args []string) (orca.Output, error)
+	// respawned, when set, is the incarnation of a fresh shell that took
+	// term_A and pty-A after the daemon died (docs/evidence/orca-restart.md).
+	respawned string
 }
 
 const (
@@ -89,6 +92,10 @@ func (s *sim) row() map[string]any {
 	}
 	if s.ready {
 		r["agentIdentity"] = s.agent
+	}
+	if s.respawned != "" {
+		r["incarnationId"] = s.respawned
+		delete(r, "agentIdentity")
 	}
 	return r
 }

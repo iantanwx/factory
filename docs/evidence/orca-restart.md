@@ -2,7 +2,7 @@
 
 **Unit:** U7 (agent-host interface and orca implementation)
 **Measured:** 2026-10-21, on the devbox, with orca 1.4.232. The operator approved the restart. The orchestrator ran it.
-**Result:** An orca-serve restart kept a terminal-hosted run's identity, liveness and process. AE2 holds for orca-serve restarts of terminal-hosted runs. An orca daemon restart was not measured.
+**Result:** An orca-serve restart kept a terminal-hosted run's identity, liveness and process. AE2 holds for orca-serve restarts of terminal-hosted runs. An orca daemon restart was not measured. A later read-only review of an earlier daemon death is in "Orca updates and daemon death" below.
 
 ## Question
 
@@ -59,6 +59,26 @@ The restart also had a side effect. It killed the orca native chat session that 
   - no row carries the session's incarnation or its PTY under another handle
 - A session whose epoch changed reads `unknown` until a complete inventory of the new epoch reads its exact identity again. The server then stores the result of `Inventory.Readopted`, and a later absence in that epoch can read `absent`.
 - A row that carries the session's incarnation or PTY under a new handle (`Inventory.Traces`) keeps the session `unknown`. This is the daemon-restart case that nothing has measured. KTD9 then keeps the lease for two run budgets and raises a coordinator-owned alert. Nothing reclaims the run automatically.
+
+## Orca updates and daemon death (read-only review, 2026-10-21)
+
+A read-only review on 2026-10-21 found these facts. Nobody restarted, stopped or updated orca for it. Paths are on the devbox.
+
+| Fact | Source |
+| --- | --- |
+| Orca's own auto-update is off (`orca status --json` reports `automatic: false`). A box cron job, `/etc/cron.d/agentbox-orca-nightly`, runs `~/.dotfiles/bin/orca-update` at 00:01 +08. It stops `orca-serve.service`, swaps the install directory, starts the unit and health-checks it for 30 s. Downtime was about 6 s on 2026-10-21. | The cron file, the update script, `~/.local/state/orca-update/nightly-*.log`, and the `orca-serve` journal. |
+| The terminal daemons (`daemon-entry.js`, one for each protocol version, socket `~/.config/orca/daemon/daemon-v<N>.sock`) run in their own transient systemd scopes, outside the `orca-serve` cgroup. An update never restarts them. A protocol bump starts a new daemon for new terminals, and orcad reconnects to every old daemon. An old daemon exits only when it holds no session. | `systemctl --user status orca-serve`, the scope list, `~/.config/orca/logs/daemon.log*` (`client-hello-accepted` from every daemon after an update, then `session-attached`; `shutdown reason:"idle"`), and a shell that has lived on one daemon since 2026-09-23 through about 15 updates (`orca terminal list`). |
+| Native chat sessions are children of orcad inside the `orca-serve` cgroup, so every update kills them. | `systemctl --user status orca-serve`, and the chat loss in "Observations" above. |
+| On 2026-10-03 the kernel OOM killer killed a terminal daemon twice. Orca then re-created the same PTY ids on a new daemon, each with a fresh, empty shell (`hasCommand:false`). The old processes were gone. | The kernel OOM record and `daemon.log*`. |
+
+Still unknown: whether orca gives a terminal a new incarnation after a daemon death.
+
+What the implementation does with this:
+
+- A row with the same handle and another incarnation is never the run. `Settle`, `Ended`, `Notify` and `Stop` read the handle as stale, so liveness reads `unknown`, nothing reads ended, and no input or close reaches the fresh shell. `Inventory.Lookup` never reads `present`, and `Inventory.Readopted` never re-adopts the row.
+- When the run recorded the PTY, the same PTY under the new incarnation is a trace, so `Lookup` reads `unknown`. When the run recorded no PTY, a complete inventory of the same epoch reads `absent`.
+- If orca keeps the same incarnation on the fresh shell, the identity matches, and the run reads `present` although its process died. Only the transcript and quiet-period rule of KTD8 then ends the run. No measurement covers this case.
+- `TestDaemonDeathNewIncarnationIsNotTheRun` in `internal/agenthost/orca` and in `internal/agenthost/fake` proves the first two points. `fake.Host.DaemonDeath` replays the event.
 
 ## Still unmeasured
 

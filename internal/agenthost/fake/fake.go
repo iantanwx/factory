@@ -78,17 +78,20 @@ type Launch struct {
 }
 
 type session struct {
-	s         agenthost.Session
-	terminal  string // the current handle; differs from s.ID.Terminal after Restart(false)
-	stale     bool
-	closed    bool
-	exited    bool
-	exitCode  *int
-	turn      Turn
-	lastWrite time.Time
-	refuse    bool
-	notes     []string
-	observed  string
+	s        agenthost.Session
+	terminal string // the current handle; differs from s.ID.Terminal after Restart(false)
+	// incarnation is the current incarnation; it differs from
+	// s.ID.Incarnation after DaemonDeath.
+	incarnation string
+	stale       bool
+	closed      bool
+	exited      bool
+	exitCode    *int
+	turn        Turn
+	lastWrite   time.Time
+	refuse      bool
+	notes       []string
+	observed    string
 }
 
 // Host is the fake agent host. The zero value is not usable; call New.
@@ -261,6 +264,25 @@ func (h *Host) Restart(keepHandles bool) {
 	}
 }
 
+// DaemonDeath replays the measured death of the daemon that owns the PTYs
+// (docs/evidence/orca-restart.md): each open session's process dies, and
+// the daemon comes back with the same handle and PTY on a fresh shell. The
+// fresh shell gets a new incarnation, the unmeasured case the real host
+// must never take as the run. The epoch stays, because orca-serve did not
+// restart.
+func (h *Host) DaemonDeath() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, s := range h.sessions {
+		if s.closed {
+			continue
+		}
+		h.next++
+		s.incarnation = fmt.Sprintf("inc_fake_%04d", h.next)
+		s.exited, s.exitCode = false, nil
+	}
+}
+
 // Notifications lists the text each Notify delivered to the session. It
 // serves agenthost.NotifyObserver.
 func (h *Host) Notifications(id agenthost.RunID) []string {
@@ -305,7 +327,7 @@ func (h *Host) Sessions() []agenthost.Session {
 }
 
 // CurrentID is the identity the host lists for the session now. It differs
-// from the start identity only after Restart(false).
+// from the start identity only after Restart(false) or DaemonDeath.
 func (h *Host) CurrentID(id agenthost.RunID) (agenthost.RunID, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -340,6 +362,7 @@ func (h *Host) with(id agenthost.RunID, f func(*session)) {
 func (h *Host) current(s *session) agenthost.RunID {
 	id := s.s.ID
 	id.Terminal = s.terminal
+	id.Incarnation = s.incarnation
 	return id
 }
 
@@ -417,9 +440,10 @@ func (h *Host) Start(_ context.Context, spec agenthost.StartSpec) (agenthost.Ses
 			Model: spec.Model, Effort: spec.Effort, Pty: fmt.Sprintf("pty_fake_%04d", h.next),
 			Epoch: h.epochLocked(), StartedAt: now,
 		},
-		terminal:  id.Terminal,
-		lastWrite: now,
-		observed:  spec.Model,
+		terminal:    id.Terminal,
+		incarnation: id.Incarnation,
+		lastWrite:   now,
+		observed:    spec.Model,
 	}
 	if h.dropModel {
 		s.observed = DroppedModel

@@ -392,6 +392,38 @@ func runContract(t *testing.T, c beadsx.Client) {
 		if err := c.AddDependency(ctx, a.ID, b.ID, beadsx.DepBlocks); err != nil {
 			t.Fatal(err)
 		}
+		got, err := c.Dependencies(ctx, a.ID)
+		if err != nil || len(got) != 1 || got[0] != (beadsx.Dependency{ID: b.ID, Kind: beadsx.DepBlocks, Status: "open"}) {
+			t.Fatalf("dependencies of a = %+v %v", got, err)
+		}
+		if got, err := c.Dependencies(ctx, b.ID); err != nil || len(got) != 0 {
+			t.Fatalf("b depends on nothing, read %+v %v", got, err)
+		}
+		// The read carries the target's current status.
+		if _, err := c.Update(ctx, b.ID, beadsx.UpdateSpec{IfStatus: "open", Status: "merged"}); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := c.Dependencies(ctx, a.ID); err != nil || len(got) != 1 || got[0].Status != "merged" {
+			t.Fatalf("dependencies of a after b merged = %+v %v", got, err)
+		}
+		if _, err := c.Dependencies(ctx, "zz-nope"); !errors.Is(err, beadsx.ErrNotFound) {
+			t.Fatalf("dependencies of an unknown id: %v", err)
+		}
+	})
+
+	// A decompose replay adds the same edge again. bd 1.3.1 keeps one edge
+	// and reports success, and it journals a dep_add for each call.
+	t.Run("DependencyTwice", func(t *testing.T) {
+		a, b := mustCreate(t, c, "twice-a"), mustCreate(t, c, "twice-b")
+		for i := range 2 {
+			if err := c.AddDependency(ctx, a.ID, b.ID, beadsx.DepBlocks); err != nil {
+				t.Fatalf("add %d: %v", i+1, err)
+			}
+		}
+		got, err := c.Dependencies(ctx, a.ID)
+		if err != nil || len(got) != 1 || got[0].ID != b.ID || got[0].Kind != beadsx.DepBlocks {
+			t.Fatalf("after two adds of one edge: %+v %v; want one edge", got, err)
+		}
 	})
 
 	t.Run("RequestValidation", func(t *testing.T) {

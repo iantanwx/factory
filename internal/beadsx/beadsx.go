@@ -60,8 +60,22 @@ type Client interface {
 	// journal holds none. A prune never lowers it, so Tail(Head()) reads
 	// only records committed after the call.
 	Head(ctx context.Context) (int64, error)
-	// AddDependency records that issue `from` depends on issue `to`.
+	// AddDependency records that issue `from` depends on issue `to`. A
+	// second call for the same pair keeps one edge and succeeds, so a
+	// replay is safe.
 	AddDependency(ctx context.Context, from, to string, kind DepKind) error
+	// Dependencies returns the issues that `id` depends on, each with the
+	// edge's kind and the target's current status. An unknown id returns
+	// ErrNotFound.
+	Dependencies(ctx context.Context, id string) ([]Dependency, error)
+}
+
+// Dependency is one edge out of an issue: the issue it depends on, the
+// edge's kind and that issue's status at the read.
+type Dependency struct {
+	ID     string
+	Kind   DepKind
+	Status string
 }
 
 // StatusCategory is the beads category of a custom status.

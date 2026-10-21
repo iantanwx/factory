@@ -526,8 +526,38 @@ func (b *BD) AddDependency(ctx context.Context, from, to string, kind DepKind) e
 	if _, err := b.Get(ctx, to); err != nil {
 		return err
 	}
+	// bd 1.3.1 keeps one edge when the same pair is added again, and it
+	// reports success (TestContractReal, DependencyTwice).
 	_, err := b.run(ctx, "dep", "add", from, to, "--type", string(kind), "--json")
 	return err
+}
+
+// Dependencies implements Client. bd 1.3.1 answers an unknown id with exit
+// 1 and "no issue found", which classify reads as ErrNotFound.
+func (b *BD) Dependencies(ctx context.Context, id string) ([]Dependency, error) {
+	if err := validateID(id); err != nil {
+		return nil, err
+	}
+	out, err := b.run(ctx, "dep", "list", id, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var rows []struct {
+		ID     string `json:"id"`
+		Status string `json:"status"`
+		Kind   string `json:"dependency_type"`
+	}
+	if err := decode("dep", out, &rows); err != nil {
+		return nil, err
+	}
+	deps := make([]Dependency, 0, len(rows))
+	for _, r := range rows {
+		if r.ID == "" || r.Status == "" || r.Kind == "" {
+			return nil, &BDError{Op: "dep", Message: "dependency row lacks an id, a status or a type: " + truncate(out), Kind: ErrMalformed}
+		}
+		deps = append(deps, Dependency{ID: r.ID, Kind: DepKind(r.Kind), Status: r.Status})
+	}
+	return deps, nil
 }
 
 // config reads the effective configuration, as `bd config show` reports it.

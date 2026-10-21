@@ -156,6 +156,42 @@ func TestRestartWithNewHandlesStaysUnknown(t *testing.T) {
 	}
 }
 
+// TestDaemonDeathNewIncarnationIsNotTheRun: after DaemonDeath each open
+// session's handle and PTY name a fresh shell of another incarnation. That
+// row is never the run.
+func TestDaemonDeathNewIncarnationIsNotTheRun(t *testing.T) {
+	ctx := context.Background()
+	h, s := env(t)
+	h.DaemonDeath()
+	cur, ok := h.CurrentID(s.ID)
+	if !ok || cur.Terminal != s.ID.Terminal || cur.Incarnation == s.ID.Incarnation {
+		t.Fatalf("CurrentID = %+v, %v; want the same handle under another incarnation", cur, ok)
+	}
+	st, err := h.Settle(ctx, s.ID)
+	if st.Liveness != agenthost.Unknown || !errors.Is(err, agenthost.ErrStaleHandle) {
+		t.Fatalf("Settle = %+v, %v; want unknown, stale", st, err)
+	}
+	if r, err := h.Ended(ctx, s); r.Ended || err == nil {
+		t.Fatalf("Ended = %+v, %v", r, err)
+	}
+	inv, _ := h.Inventory(ctx)
+	if inv.Epoch != s.Epoch {
+		t.Fatalf("a daemon death moved the epoch: %s -> %s", s.Epoch, inv.Epoch)
+	}
+	if got := inv.Lookup(s); got != agenthost.PresenceUnknown {
+		t.Fatalf("Lookup = %s; want unknown from the PTY trace", got)
+	}
+	if _, ok := inv.Readopted(s); ok {
+		t.Fatal("Readopted took the fresh shell as the run")
+	}
+	if err := h.Notify(ctx, s.ID, "x"); !errors.Is(err, agenthost.ErrNotifyRefused) {
+		t.Fatalf("Notify = %v; want refused", err)
+	}
+	if st, err := h.Stop(ctx, s.ID); st.Liveness == agenthost.Exited || !errors.Is(err, agenthost.ErrExitUnproven) {
+		t.Fatalf("Stop = %+v, %v", st, err)
+	}
+}
+
 func TestDownHostIsUnknownNeverExited(t *testing.T) {
 	ctx := context.Background()
 	h, s := env(t)

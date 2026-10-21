@@ -16,6 +16,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/server"
@@ -288,5 +289,78 @@ func TestRestoreAgainstARealServer(t *testing.T) {
 	v, _ := r.Verb("status")
 	if res := c.Remote(context.Background(), cli.Invocation{Verb: v, Flags: map[string]string{}, RequestID: "restore-test"}); res.Refusal != nil {
 		t.Fatalf("status after restore: %+v", res.Refusal)
+	}
+}
+
+func reportFault(t *testing.T, st *store.Store, text string) string {
+	t.Helper()
+	f, err := (&fault.Service{Store: st, Release: "v1.0.0"}).Report(context.Background(), rpc.Principal{Kind: cli.PrincipalCoordinator}, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f.ID
+}
+
+// TestRestoreNeverReusesAFaultID reports F-1, takes a snapshot, reports
+// F-2 and restores the snapshot. F-2 still shows, and the next report is
+// F-3, so no fault id is given out twice.
+func TestRestoreNeverReusesAFaultID(t *testing.T) {
+	w := &restoreWorld{instanceWorld: newInstance(t)}
+	ctx := context.Background()
+	st, _ := w.openStores(t)
+	if id := reportFault(t, st, "first"); id != "F-1" {
+		t.Fatalf("first fault = %s", id)
+	}
+	w.snapshot = filepath.Join(w.layout.Snapshots(), "loop-20261021T000000.000Z-v1.0.0.db")
+	if err := st.Snapshot(ctx, w.snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if id := reportFault(t, st, "second"); id != "F-2" {
+		t.Fatalf("second fault = %s", id)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := w.restore().Run(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = w.openStores(t)
+	defer func() { _ = st.Close() }()
+	got, err := (&fault.Service{Store: st}).Get(ctx, "F-2")
+	if err != nil || got.Text != "second" {
+		t.Fatalf("F-2 after restore = %+v %v", got, err)
+	}
+	if id := reportFault(t, st, "third"); id != "F-3" {
+		t.Fatalf("the report after restore is %s, want F-3", id)
+	}
+}
+
+// TestRestoreCarriesTheFaultSequence proves the restore carries the
+// AUTOINCREMENT counter and not only the rows: an id above every row
+// that remains is still never given out again.
+func TestRestoreCarriesTheFaultSequence(t *testing.T) {
+	w := &restoreWorld{instanceWorld: newInstance(t)}
+	ctx := context.Background()
+	st, _ := w.openStores(t)
+	reportFault(t, st, "first")
+	w.snapshot = filepath.Join(w.layout.Snapshots(), "loop-20261021T000000.000Z-v1.0.0.db")
+	if err := st.Snapshot(ctx, w.snapshot); err != nil {
+		t.Fatal(err)
+	}
+	reportFault(t, st, "second")
+	reportFault(t, st, "third")
+	execSQL(t, st, `DELETE FROM faults WHERE n = 3`)
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := w.restore().Run(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = w.openStores(t)
+	defer func() { _ = st.Close() }()
+	if id := reportFault(t, st, "fourth"); id != "F-4" {
+		t.Fatalf("the report after restore is %s, want F-4", id)
 	}
 }

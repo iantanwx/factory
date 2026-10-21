@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -307,7 +308,8 @@ func copyEvent(e beadsx.Event) beadsx.Event {
 	return e
 }
 
-// AddDependency implements beadsx.Client.
+// AddDependency implements beadsx.Client. Like bd 1.3.1, a second add of
+// the same pair keeps the one edge, succeeds and journals dep_add again.
 func (c *Client) AddDependency(ctx context.Context, from, to string, kind beadsx.DepKind) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -322,18 +324,26 @@ func (c *Client) AddDependency(ctx context.Context, from, to string, kind beadsx
 	if kind == "" {
 		kind = beadsx.DepBlocks
 	}
-	c.deps[from] = append(c.deps[from], dep{to: to, kind: kind})
+	if !slices.ContainsFunc(c.deps[from], func(d dep) bool { return d.to == to }) {
+		c.deps[from] = append(c.deps[from], dep{to: to, kind: kind})
+	}
 	c.record("dep_add", c.issues[from])
 	return nil
 }
 
-// Dependencies returns the ids issue `from` depends on, for tests.
-func (c *Client) Dependencies(from string) map[string]beadsx.DepKind {
+// Dependencies implements beadsx.Client.
+func (c *Client) Dependencies(ctx context.Context, id string) ([]beadsx.Dependency, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := map[string]beadsx.DepKind{}
-	for _, d := range c.deps[from] {
-		out[d.to] = d.kind
+	if err := c.check(ctx); err != nil {
+		return nil, err
 	}
-	return out
+	if _, ok := c.issues[id]; !ok {
+		return nil, fmt.Errorf("%w: %s", beadsx.ErrNotFound, id)
+	}
+	out := make([]beadsx.Dependency, 0, len(c.deps[id]))
+	for _, d := range c.deps[id] {
+		out = append(out, beadsx.Dependency{ID: d.to, Kind: d.kind, Status: c.issues[d.to].Status})
+	}
+	return out, nil
 }

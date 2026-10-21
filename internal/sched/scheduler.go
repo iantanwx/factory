@@ -83,7 +83,9 @@ type Config struct {
 	ProjectConfig ProjectSource
 	Machine       *machine.Machine
 	Admission     *admission.Admission
-	// Beads reads an item's body for the brief. Optional.
+	// Beads reads an item's body for the brief and the dependency edges of
+	// dependency-advance. Optional. With none, dependency-advance is not
+	// registered.
 	Beads   machine.BeadsResolver
 	Secrets *secrets.Store
 	Tokens  *rpc.Tokens
@@ -172,11 +174,17 @@ func New(cfg Config) (*Scheduler, error) {
 	if cfg.NewRunID == nil {
 		cfg.NewRunID = randomRunID
 	}
-	return &Scheduler{
+	s := &Scheduler{
 		cfg: cfg, log: cfg.Logger,
 		jobs: map[string]JobFunc{}, instanceJobs: map[string]InstanceJobFunc{},
 		inflight: map[string]int{}, lastCall: map[string]time.Time{}, lastClean: cfg.Now(),
-	}, nil
+	}
+	if cfg.Beads != nil {
+		if err := s.RegisterJob(DependencyAdvanceJob, s.advanceDependencies); err != nil {
+			return nil, err
+		}
+	}
+	return s, nil
 }
 
 func randomRunID() string {
@@ -189,7 +197,8 @@ func (s *Scheduler) now() time.Time { return s.cfg.Now() }
 
 // RegisterJob sets the work of one native job for each project. The job
 // ticks on its throughput schedule, or the project's override (KTD30). U11
-// registers merge-handoff and U12 decision-timers here.
+// registers merge-handoff and U12 decision-timers here. New registers
+// dependency-advance itself.
 func (s *Scheduler) RegisterJob(name string, fn JobFunc) error {
 	if !slices.Contains(config.NativeJobs(), name) {
 		return fmt.Errorf("sched: %q is no native job; config.NativeJobs lists them", name)

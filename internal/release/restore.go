@@ -44,9 +44,9 @@ const (
 
 // Run restores the named snapshot, or the newest one when name is empty.
 // It drains a reachable server, stops the service, carries the current
-// secret table, lease epochs and token revocations into the snapshot's
-// copy, keeps the replaced database as loop.db.before-restore, swaps the
-// files and starts the service. The server's start-up reconcile then
+// secret table, lease epochs, token revocations and fault reports into
+// the snapshot's copy, keeps the replaced database as
+// loop.db.before-restore, swaps the files and starts the service. The server's start-up reconcile then
 // raises every epoch to the bead's (KTD6).
 func (r *Restore) Run(ctx context.Context, name string) (RestoreReport, error) {
 	var rep RestoreReport
@@ -217,8 +217,11 @@ func checkpoint(ctx context.Context, path string) string {
 
 // merge carries state that must never go back into the snapshot's copy:
 // the secret table, so a rotated secret keeps its new value under the
-// current key; every lease epoch, so no epoch is reused; and every token
-// revocation, so a settled run's token stays dead.
+// current key; every lease epoch, so no epoch is reused; every token
+// revocation, so a settled run's token stays dead; and the fault table with
+// its AUTOINCREMENT counter, so no fault id is given out twice (KTD31). A
+// snapshot older than the fault table gets no fault rows, and the restored
+// server's migration starts the counter again.
 func merge(ctx context.Context, tmp, current string, now int64) (err error) {
 	db, conn, err := openOne(ctx, tmp)
 	if err != nil {
@@ -234,6 +237,10 @@ func merge(ctx context.Context, tmp, current string, now int64) (err error) {
 		}
 	}()
 	hasTokens, err := bothHave(ctx, conn, "run_tokens")
+	if err != nil {
+		return err
+	}
+	hasFaults, err := bothHave(ctx, conn, "faults")
 	if err != nil {
 		return err
 	}
@@ -267,7 +274,30 @@ func merge(ctx context.Context, tmp, current string, now int64) (err error) {
 			return fmt.Errorf("release: carry token revocations into the restored database: %w", err)
 		}
 	}
+	if hasFaults {
+		for _, q := range carryFaults {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("release: carry fault reports into the restored database: %w", err)
+			}
+		}
+	}
 	return tx.Commit()
+}
+
+// carryFaults replaces the snapshot's fault rows with the current rows and
+// raises the snapshot's counter to the current counter. The counter can be
+// above every row, so the rows alone do not carry it.
+var carryFaults = []string{
+	`DELETE FROM main.faults`,
+	`INSERT INTO main.faults (n, text, reporter_kind, run_id, project, item, stage, release, status, fixed_in, duplicate_of,
+		reason, resolved_by, reported_at, acknowledged_at, resolved_at, updated_at)
+		SELECT n, text, reporter_kind, run_id, project, item, stage, release, status, fixed_in, duplicate_of,
+		reason, resolved_by, reported_at, acknowledged_at, resolved_at, updated_at FROM cur.faults`,
+	`INSERT INTO main.sqlite_sequence (name, seq) SELECT 'faults', 0
+		WHERE NOT EXISTS (SELECT 1 FROM main.sqlite_sequence WHERE name = 'faults')`,
+	`UPDATE main.sqlite_sequence SET seq = max(seq, coalesce((SELECT max(seq) FROM cur.sqlite_sequence WHERE name = 'faults'), 0))
+		WHERE name = 'faults'`,
 }
 
 func bothHave(ctx context.Context, conn *sql.Conn, table string) (bool, error) {

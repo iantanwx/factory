@@ -975,3 +975,65 @@ func TestNewRefusesBadConfig(t *testing.T) {
 		t.Fatalf("relative root = %v", err)
 	}
 }
+
+// ---- Daemon death ----
+
+// TestDaemonDeathNewIncarnationIsNotTheRun replays the measured daemon
+// death (docs/evidence/orca-restart.md): the OOM-killed daemon came back
+// with the same handle and PTY, and a fresh shell. Whether orca then shows
+// another incarnation is unmeasured. A row with the same handle and another
+// incarnation is never the run: liveness reads unknown, the inventory never
+// reads present, the run is never re-adopted, and no input or close reaches
+// the fresh shell.
+func TestDaemonDeathNewIncarnationIsNotTheRun(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	s := w.start(agenthost.Claude)
+	if s.ID != idA || s.Pty != "pty-A" {
+		t.Fatalf("session = %+v", s)
+	}
+	w.sim.respawned = "inc-fresh-shell"
+
+	st, err := w.host.Settle(ctx, s.ID)
+	if st.Liveness != agenthost.Unknown || !errors.Is(err, agenthost.ErrStaleHandle) {
+		t.Fatalf("Settle = %+v, %v; want unknown, stale", st, err)
+	}
+	if r, err := w.host.Ended(ctx, s); r.Ended || err == nil {
+		t.Fatalf("Ended = %+v, %v; want not ended with an error", r, err)
+	}
+
+	inv, err := w.host.Inventory(ctx)
+	if err != nil || !inv.Complete || inv.Epoch != s.Epoch {
+		t.Fatalf("Inventory = %+v, %v", inv, err)
+	}
+	if len(inv.Rows) != 1 || inv.Rows[0].ID.Terminal != s.ID.Terminal || inv.Rows[0].ID == s.ID {
+		t.Fatalf("rows = %+v; want the same handle under another incarnation", inv.Rows)
+	}
+	if got := inv.Lookup(s); got != agenthost.PresenceUnknown {
+		t.Fatalf("Lookup with the same handle and PTY under another incarnation = %s; want unknown", got)
+	}
+	if _, ok := inv.Readopted(s); ok {
+		t.Fatal("Readopted took a row of another incarnation as the run")
+	}
+	if tr := inv.Traces(s); len(tr) != 1 {
+		t.Fatalf("Traces = %+v; want the fresh shell", tr)
+	}
+	// With no recorded PTY nothing ties the fresh shell to the run. The
+	// complete inventory of the same epoch then reads the run absent,
+	// which is the ended reading, and still never present.
+	noPty := s
+	noPty.Pty = ""
+	if got := inv.Lookup(noPty); got != agenthost.Absent {
+		t.Fatalf("Lookup without a PTY = %s; want absent", got)
+	}
+
+	if err := w.host.Notify(ctx, s.ID, "x"); !errors.Is(err, agenthost.ErrNotifyRefused) {
+		t.Fatalf("Notify = %v; want refused", err)
+	}
+	if slices.Contains(w.sim.verbs(), "terminal send") {
+		t.Fatal("input reached the fresh shell")
+	}
+	if st, err := w.host.Stop(ctx, s.ID); st.Liveness == agenthost.Exited || !errors.Is(err, agenthost.ErrExitUnproven) || w.sim.closed {
+		t.Fatalf("Stop = %+v, %v, closed=%v; want unproven and no close", st, err, w.sim.closed)
+	}
+}
