@@ -131,9 +131,7 @@ func (s *Server) ringCoordinator(ctx context.Context, text string) error {
 
 // startHuman starts the watch loop: each interval, and at once after an
 // inbox change, it watches rooms and rings the coordinator. The server
-// runs it after the scheduler starts. It starts no process before the
-// first interval or change: rpc.Bind narrows the process umask while it
-// binds, and a process started then would inherit it.
+// runs it after the scheduler starts.
 func (s *Server) startHuman(ctx context.Context) error {
 	h := s.human
 	every := s.opts.Human.WatchInterval

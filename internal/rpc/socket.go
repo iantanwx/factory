@@ -114,12 +114,16 @@ func PrepareSocket(path string) error {
 	return nil
 }
 
-// Bind listens on path with mode 0600. The umask is set before the bind,
-// so the socket is never open to other users, not even for a moment.
+// Bind listens on path with mode 0600. The socket's directory must be
+// private (0700, this user), so no other user can reach the socket before
+// the chmod. Bind never changes the umask: the umask belongs to the whole
+// process, and a process that another goroutine starts meanwhile would
+// inherit it.
 func Bind(path string) (*net.UnixListener, error) {
-	old := unix.Umask(0o177)
+	if err := ensurePrivateDir(filepath.Dir(path)); err != nil {
+		return nil, err
+	}
 	l, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
-	unix.Umask(old)
 	if err != nil {
 		return nil, fmt.Errorf("rpc: bind %s: %w", path, err)
 	}

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -43,25 +42,6 @@ func (c *testClock) Advance(d time.Duration) {
 	c.mu.Lock()
 	c.now = c.now.Add(d)
 	c.mu.Unlock()
-}
-
-// umaskWorktrees makes each fake checkout a git worktree of repo, with git
-// under umask 022. rpc.Bind sets the process umask to 0177 while it binds,
-// and the scheduler's first tick may start the coordinator's checkout in
-// that window: a git started then makes .git/worktrees unreadable.
-type umaskWorktrees struct{ worktrees }
-
-func (w umaskWorktrees) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec) (agenthost.Checkout, error) {
-	co, err := w.host.CreateCheckout(ctx, spec)
-	if err != nil {
-		return co, err
-	}
-	cmd := exec.Command("sh", "-c", `umask 022 && exec git -C "$0" worktree add -q -b "$1" "$2" origin/main`, w.repo, spec.Name, co.Path)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		w.t.Fatalf("git worktree add: %v\n%s", err, out)
-	}
-	return co, nil
 }
 
 // humanWorld is a server with fake beads, a fake agent host whose
@@ -102,7 +82,7 @@ func newHumanWorld(t *testing.T, manifest string) *humanWorld {
 		Beads:  func(string) (beadsx.Client, error) { return w.bx, nil },
 		Agents: w.host,
 		Sched: SchedOptions{
-			Checkouts:     func(string) sched.CheckoutHost { return umaskWorktrees{worktrees{t: t, host: w.host, repo: repo}} },
+			Checkouts:     func(string) sched.CheckoutHost { return worktrees{t: t, host: w.host, repo: repo} },
 			ProjectConfig: func(context.Context, string) (*config.ProjectSnapshot, error) { return snap, nil },
 			Coordinator:   &sched.CoordinatorConfig{Project: "alpha", Harness: agenthost.Claude},
 			TickInterval:  time.Hour,
