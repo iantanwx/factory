@@ -84,8 +84,12 @@ func (s *Service) branchPush(ctx context.Context, call *rpc.Call) cli.Result {
 	if _, ref := s.fenced(ctx, call); ref != nil {
 		return refuseRef(ref)
 	}
+	branch, ref := s.itemBranch(ctx, prj.ID, item)
+	if ref != nil {
+		return refuseRef(ref)
+	}
 	p := call.Principal
-	res, err := s.Push(ctx, PushRequest{Project: prj.ID, Item: item, Branch: BranchFor(item), Checkout: p.Checkout,
+	res, err := s.Push(ctx, PushRequest{Project: prj.ID, Item: item, Branch: branch, Checkout: p.Checkout,
 		Head: head, RunID: p.RunID})
 	if err != nil {
 		return Refuse(err)
@@ -94,21 +98,19 @@ func (s *Service) branchPush(ctx context.Context, call *rpc.Call) cli.Result {
 }
 
 func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
-	prj, _, ref := s.subject(call)
+	prj, item, ref := s.subject(call)
 	if ref != nil {
 		return refuseRef(ref)
 	}
-	base, sha, err := s.SyncBase(ctx, prj)
+	branch, ref := s.itemBranch(ctx, prj.ID, item)
+	if ref != nil {
+		return refuseRef(ref)
+	}
+	res, err := s.Sync(ctx, prj, item, branch)
 	if err != nil {
 		return Refuse(err)
 	}
-	m := s.Mirror(prj)
-	src := remoteRef(base)
-	return cli.Found(map[string]any{
-		"base": base, "sha": sha, "mirror": m.Dir, "ref": src,
-		// The checkout fetches from the mirror path with no credential.
-		"fetch": []string{"git", "fetch", m.Dir, "+" + src + ":" + src},
-	})
+	return cli.Found(res)
 }
 
 // openVerbs maps the status an item holds when its run opens or updates
@@ -130,7 +132,11 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 		return refuseRef(ref)
 	}
 	title := call.Inv.Flags["title"]
-	pr, created, err := s.OpenPR(ctx, prj, item, title, call.Inv.Flags["body"])
+	branch, ref := s.itemBranch(ctx, prj.ID, item)
+	if ref != nil {
+		return refuseRef(ref)
+	}
+	pr, created, err := s.OpenPR(ctx, prj, branch, title, call.Inv.Flags["body"])
 	if err != nil {
 		return Refuse(err)
 	}
@@ -165,7 +171,12 @@ func (s *Service) itemPR(ctx context.Context, call *rpc.Call, item string) (conf
 	if item == "" {
 		item = own
 	}
-	pr, err := s.FindPR(ctx, prj, BranchFor(item))
+	branch, ref := s.itemBranch(ctx, prj.ID, item)
+	if ref != nil {
+		res := refuseRef(ref)
+		return prj, nil, &res
+	}
+	pr, err := s.FindPR(ctx, prj, branch)
 	if err != nil {
 		res := Refuse(err)
 		return prj, nil, &res
@@ -310,4 +321,34 @@ func (s *Service) prRerun(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Nothing()
 	}
 	return cli.Found(map[string]any{"head_sha": pr.Head.SHA, "reran": ids})
+}
+
+// ReviewComment posts the body of `review submit` on the item's pull
+// request, once by key. The machine calls it after every check of the
+// verdict passed and before it records the verdict (machine.Request.Before),
+// so a comment GitHub refuses records no verdict.
+func (s *Service) ReviewComment(ctx context.Context, project, item, body, key string) *cli.Refusal {
+	prj, err := s.project(project)
+	if err != nil {
+		r := Refusal(err)
+		return &r
+	}
+	branch, ref := s.itemBranch(ctx, project, item)
+	if ref != nil {
+		return ref
+	}
+	pr, err := s.FindPR(ctx, prj, branch)
+	if err != nil {
+		r := Refusal(err)
+		return &r
+	}
+	if pr == nil {
+		return &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_pr", Item: item,
+			Hint: fmt.Sprintf("%s has no pull request on %s to carry the review comment", item, branch)}
+	}
+	if _, _, err := s.Reply(ctx, prj, pr.Number, 0, body, key); err != nil {
+		r := Refusal(err)
+		return &r
+	}
+	return nil
 }

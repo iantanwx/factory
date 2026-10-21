@@ -105,7 +105,7 @@ func (p *Pipeline) prdSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	if err != nil {
 		return github.Refuse(err)
 	}
-	ghpr, _, err := p.cfg.GitHub.OpenPR(ctx, prj, epic.ID, title, body)
+	ghpr, _, err := p.cfg.GitHub.OpenPR(ctx, prj, github.BranchFor(epic.ID), title, body)
 	if err != nil {
 		return github.Refuse(err)
 	}

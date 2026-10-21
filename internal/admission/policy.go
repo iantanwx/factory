@@ -176,13 +176,10 @@ func (a *Admission) task(ctx context.Context, project, item string) (Task, error
 	if err != nil {
 		return Task{}, err
 	}
-	body := is.Description
-	// An answer that amends the task enters its inputs (U12), so a person's
-	// edit through the inbox re-admits a twice-failed item (R10).
-	if a := is.Metadata["loop."+machine.FactAmendment]; a != "" {
-		body += "\n\n" + a
-	}
-	return Task{Title: is.Title, Body: body}, nil
+	// TaskText holds work edit's text and an answer that amends the task
+	// (U12), so either re-admits a twice-failed item (R10).
+	title, body := machine.TaskText(is)
+	return Task{Title: title, Body: body}, nil
 }
 
 func (a *Admission) inputsOf(ctx context.Context, project, item string) (string, error) {

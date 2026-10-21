@@ -20,7 +20,7 @@ var shaRe = regexp.MustCompile(`^[0-9a-f]{40}$`)
 type PushRequest struct {
 	Project  string
 	Item     string
-	Branch   string // the item's assigned branch; BranchFor(Item)
+	Branch   string // the item's assigned branch: BranchFor(Item), or SpecBranchFor(Item) for an epic's spec
 	Checkout string // the run's or the room's checkout, from its token
 	Head     string // the full sha the checkout holds
 	RunID    string
@@ -67,7 +67,7 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	case req.Branch == base:
 		return res, &RefusedError{Code: cli.CodeCapabilityDenied, Rule: "base_branch",
 			Hint: fmt.Sprintf("the loop never pushes the base branch %s; push the item's branch", base)}
-	case req.Branch != BranchFor(req.Item):
+	case req.Branch != BranchFor(req.Item) && req.Branch != SpecBranchFor(req.Item):
 		return res, &RefusedError{Code: cli.CodeCapabilityDenied, Rule: "not_the_item_branch",
 			Hint: fmt.Sprintf("%s pushes only to its branch %s", req.Item, BranchFor(req.Item))}
 	case !shaRe.MatchString(req.Head):
@@ -278,4 +278,80 @@ func (s *Service) ReconcilePushes(ctx context.Context, p config.Project) error {
 		}
 	}
 	return nil
+}
+
+// baseSyncRef is the ref the mirror keeps for the base head that the last
+// `branch sync` read. A checkout fetches it from the mirror path.
+const baseSyncRef = "refs/loop/base"
+
+// itemSyncRef is the ref the mirror keeps for the head of an item's
+// branch that the last `branch sync` read.
+func itemSyncRef(item string) string { return "refs/loop/items/" + item }
+
+// SyncResult is what `branch sync` answers: a contract a checkout uses
+// with no credential and no knowledge of the mirror's layout. Mirror is a
+// path, and a fetch from it needs no token. The server keeps Ref for the
+// base and Item.Ref for the item, and a fetch by SHA or by Item.SHA works
+// too.
+type SyncResult struct {
+	Mirror string `json:"mirror"`
+	Base   string `json:"base"`
+	SHA    string `json:"sha"`
+	Ref    string `json:"ref"`
+	// Fetch brings the base into the checkout as origin/<base>.
+	Fetch []string `json:"fetch"`
+	Item  SyncItem `json:"item"`
+}
+
+// SyncItem is the head of the item's branch. SHA is "" and Fetch is
+// empty while the remote holds no such branch.
+type SyncItem struct {
+	ID     string `json:"id"`
+	Branch string `json:"branch"`
+	SHA    string `json:"sha"`
+	Ref    string `json:"ref"`
+	// Fetch brings the head into the checkout as origin/<branch>.
+	Fetch []string `json:"fetch"`
+}
+
+// Sync runs `branch sync` (KTD14). It fetches the base and the item's
+// branch into the mirror with the token, then points the refs the server
+// keeps at the heads it read. It lets a fetch from the mirror path ask
+// for any object by sha, so a checkout can fetch a head by its sha. The
+// checkout itself is never touched.
+func (s *Service) Sync(ctx context.Context, p config.Project, item, branch string) (SyncResult, error) {
+	base, err := s.DefaultBranch(ctx, p)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	unlock := s.lock(p.ID + "\x00" + branch)
+	defer unlock()
+	m := s.Mirror(p)
+	if err := m.Init(ctx); err != nil {
+		return SyncResult{}, err
+	}
+	tok, err := s.Token(ctx, p, ScopeRead)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	if err := m.Fetch(ctx, tok, base, branch); err != nil {
+		return SyncResult{}, err
+	}
+	if err := m.ServeLocalFetch(ctx); err != nil {
+		return SyncResult{}, err
+	}
+	res := SyncResult{Mirror: m.Dir, Base: base, Ref: baseSyncRef, Item: SyncItem{ID: item, Branch: branch, Ref: itemSyncRef(item), Fetch: []string{}}}
+	res.SHA = m.Resolve(ctx, remoteRef(base))
+	if err := m.Keep(ctx, baseSyncRef, res.SHA); err != nil {
+		return SyncResult{}, err
+	}
+	res.Fetch = []string{"git", "fetch", m.Dir, "+" + baseSyncRef + ":refs/remotes/origin/" + base}
+	res.Item.SHA = m.Resolve(ctx, remoteRef(branch))
+	if err := m.Keep(ctx, res.Item.Ref, res.Item.SHA); err != nil {
+		return SyncResult{}, err
+	}
+	if res.Item.SHA != "" {
+		res.Item.Fetch = []string{"git", "fetch", m.Dir, "+" + res.Item.Ref + ":refs/remotes/origin/" + branch}
+	}
+	return res, nil
 }

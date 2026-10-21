@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/secrets"
@@ -185,17 +186,63 @@ func (s *Service) DefaultBranch(ctx context.Context, p config.Project) (string, 
 	return b, nil
 }
 
-// BranchFor is the one branch an item's work lives on. The reactor finds
-// an item's pull request by this head branch (KTD6).
+// BranchFor is the branch an item's work lives on: a ticket's, and an
+// epic's PRD. The reactor finds an item's pull request by this head branch
+// (KTD6). An epic's spec lives on SpecBranchFor; BranchOf picks one.
 func BranchFor(item string) string { return "loop/" + item }
 
-// ItemOf is the item a head branch belongs to, or "".
+// specSuffix ends the branch of an epic's spec.
+const specSuffix = "-spec"
+
+// SpecBranchFor is the branch of an epic's spec. The spec has its own
+// branch because the PRD's branch keeps the PRD commits after a squash
+// merge, and a spec pushed onto it would find the remote ahead.
+func SpecBranchFor(epic string) string { return BranchFor(epic) + specSuffix }
+
+// BranchOf is the branch that holds an item's current work. An epic whose
+// PRD merged, or whose ADR landed, writes its spec on SpecBranchFor. Every
+// other item, and an epic before that, uses BranchFor.
+func BranchOf(it machine.Item) string {
+	if it.Kind == machine.KindEpic && (it.Fact(machine.FactPRDMerged) != "" || it.Fact(machine.FactADR) != "") {
+		return SpecBranchFor(it.ID)
+	}
+	return BranchFor(it.ID)
+}
+
+// ItemOf is the item a head branch belongs to, or "". For a spec branch
+// it is the whole name after loop/; SpecEpicOf names the epic.
 func ItemOf(branch string) string {
 	item, ok := strings.CutPrefix(branch, "loop/")
 	if !ok || item == "" || strings.Contains(item, "/") {
 		return ""
 	}
 	return item
+}
+
+// SpecEpicOf is the epic a spec branch belongs to, or "" when branch is
+// no spec branch.
+func SpecEpicOf(branch string) string {
+	epic, ok := strings.CutSuffix(ItemOf(branch), specSuffix)
+	if !ok || epic == "" {
+		return ""
+	}
+	return epic
+}
+
+// itemBranch names the branch of an item's current work. With no machine
+// it is BranchFor.
+func (s *Service) itemBranch(ctx context.Context, project, item string) (string, *cli.Refusal) {
+	if s.cfg.Machine == nil {
+		return BranchFor(item), nil
+	}
+	it, ref := s.cfg.Machine.Read(ctx, project, item)
+	if ref != nil {
+		if ref.Code == cli.CodeNotFound {
+			return BranchFor(item), nil
+		}
+		return "", ref
+	}
+	return BranchOf(it), nil
 }
 
 // repoGet reads one repository path with a token of scope.

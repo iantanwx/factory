@@ -267,3 +267,13 @@ func (d *fakeDeps) OpenDependencies(_ context.Context, _, item string) ([]string
 	defer d.mu.Unlock()
 	return d.open[item], nil
 }
+
+// workEdit applies the work edit row as the coordinator does.
+func (w *world) workEdit(id, field, value string) {
+	w.t.Helper()
+	res := w.m.Apply(context.Background(), machine.Request{Project: prj, Item: id, Verb: "edit", Command: "work edit",
+		Params: map[string]string{field: value}, Actor: machine.Actor{Name: "coordinator:test"}})
+	if res.Refusal != nil {
+		w.t.Fatalf("work edit: %+v", *res.Refusal)
+	}
+}

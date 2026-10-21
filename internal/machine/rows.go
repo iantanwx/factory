@@ -35,6 +35,10 @@ const (
 	FactCreateKey    = "create_key"    // the natural key work entry created the item under (U13)
 	FactStories      = "stories"       // the PRD story labels a ticket cites, comma-separated (R45)
 	FactRequest      = "request"       // the operator's request a PRD-less ticket cites (R48)
+	FactReview       = "review"        // the body of the last review verdict
+	FactTitle        = "title"         // the title work edit wrote; it replaces the bead's title
+	FactBody         = "body"          // the body work edit wrote; it replaces the bead's description
+	FactBug          = "bug"           // the bug a shaped ticket came from
 )
 
 // Entry values of a todo ticket (R6).
@@ -88,6 +92,55 @@ func needCopy(param, fact string) setter {
 		c.setFact(fact, c.param(param))
 		return nil
 	}
+}
+
+// editTask stores the text work edit sent. Each field it sent replaces the
+// one before. TaskText reads them.
+func editTask(c *change) *cli.Refusal {
+	if c.param("title") == "" && c.param("body") == "" {
+		return &cli.Refusal{Code: cli.CodeUsage, Rule: "nothing_to_edit", Item: c.item.ID, Hint: "name the new text with --title, --body or both"}
+	}
+	if t := c.param("title"); t != "" {
+		c.setFact(FactTitle, t)
+	}
+	if b := c.param("body"); b != "" {
+		c.setFact(FactBody, b)
+	}
+	return nil
+}
+
+// editRow is the work edit row of a kind, from each state that is not
+// terminal.
+func editRow(from []string) Row {
+	return Row{Verb: "edit", From: from, To: ToSame, Command: "work edit", set: editTask, Facts: []string{FactTitle, FactBody}}
+}
+
+// recordReview stores the body of a verdict as the review fact, or clears
+// the fact of an earlier round when the verdict has no body.
+func recordReview(c *change) *cli.Refusal {
+	if b := c.param("body"); b != "" {
+		c.setFact(FactReview, b)
+	} else {
+		c.unsetFact(FactReview)
+	}
+	return nil
+}
+
+// withReviews makes every row that review submit performs carry the
+// review fact.
+func withReviews(rows []Row) []Row {
+	for i, r := range rows {
+		if r.Command != "review submit" {
+			continue
+		}
+		if r.set == nil {
+			rows[i].set = recordReview
+		} else {
+			rows[i].set = all(r.set, recordReview)
+		}
+		rows[i].Facts = append(slices.Clone(r.Facts), FactReview)
+	}
+	return rows
 }
 
 func notePut(c *change) *cli.Refusal {

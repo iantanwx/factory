@@ -22,7 +22,9 @@ Read these first, in this order:
 Run `loop work peek --stage fixer`. Exit 1 means no escalation waits. Then finish `done`.
 
 Take the oldest escalation it lists, and only that one. Read its finding, its level, its choice and
-its item. Run `loop work show <item>`, and read each document the finding names.
+its item. Run `loop work show <item>`, and read each document the finding names. Your run holds no
+item. The server lets you read and note the item of an escalation that waits for its panel, or that
+you routed. It refuses every other item.
 
 ## 2. Split it into findings
 
@@ -70,11 +72,18 @@ brief.
 `TRANSITION_NOT_ALLOWED` with the rule `already_routed` means another run routed it. Finish the
 run.
 
+Record your answer on the item, so the next run of its stage reads it in its brief:
+
+```bash
+loop work note <item> --body "<each finding, its route and the reason the panel gave>"
+```
+
 Finish with `loop run finish --outcome done`. Report each finding, its route and the file you sent.
 
 ## 5. Never
 
 - Never route a finding by your own reading. When the judges disagree and you believe one of them,
   the server still routes the finding to a person. Your belief is not a third judge.
-- Never change the item, its documents or its state.
+- Never change the item, its documents or its state. The note in section 4 is the one write you
+  make on the item.
 - Never take a second escalation.

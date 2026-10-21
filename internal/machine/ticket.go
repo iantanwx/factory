@@ -116,7 +116,9 @@ func ticketTable() *Table {
 			set: answerResume, Facts: []string{FactEntry, FactResume, FactResumeEntry, FactEscalation, FactAnswer, FactAmendment}},
 		{Verb: "cancel", From: []string{Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop},
 		{Verb: "note", From: live, To: ToSame, Command: "work note", set: notePut, Facts: []string{FactNote}},
+		editRow(live),
 	}
+	rows = withReviews(rows)
 	resume := map[string]setter{InProgress: setEntry(EntryResume)}
 	pairs := [][2]string{{InProgress, Todo}, {Repair, Repair}, {InReview, InReview}}
 	rows = append(rows, releaseRows("release", false, pairs, resume)...)

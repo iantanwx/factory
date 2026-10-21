@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +26,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/server"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -385,5 +388,84 @@ func TestRestoreNamesItsSnapshot(t *testing.T) {
 	env := runVerb(t, h, "restore", "nightly-1.db")
 	if env["code"] != cli.CodeNotFound || env["rule"] != "no_snapshot" || !strings.Contains(env["hint"].(string), "nightly-1.db") {
 		t.Fatalf("restore nightly-1.db = %v", env)
+	}
+}
+
+// startDoctorServer runs an in-process server on instance. With answer
+// set, doctor-github answers it; without, the server runs no GitHub actor.
+func startDoctorServer(t *testing.T, instance string, answer []map[string]any) {
+	t.Helper()
+	opts := server.Options{Instance: instance, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if answer != nil {
+		opts.Setup = []func(*server.Server) error{func(s *server.Server) error {
+			return s.RPC.Handle("doctor-github", func(context.Context, *rpc.Call) cli.Result { return cli.List(answer) })
+		}}
+	}
+	ready := make(chan struct{})
+	opts.Ready = ready
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx, opts) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	})
+	select {
+	case <-ready:
+	case err := <-done:
+		t.Fatalf("serve stopped: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("serve did not become ready")
+	}
+}
+
+// loop doctor asks the server for the GitHub checks through doctor-github,
+// because only the server holds the GitHub credentials. With the server
+// down, the github line reads unchecked and fails; it is never a pass.
+func TestDoctorAsksTheServerForTheGitHubChecks(t *testing.T) {
+	instance := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rpc.EnsureAdminCredential(instance); err != nil {
+		t.Fatal(err)
+	}
+	h := testHostVerbs(t, instance, &procService{t: t, instance: instance})
+	ctl := &serverControl{h: h, instance: instance}
+	ctx := context.Background()
+
+	lines := h.githubLines(ctx, ctl)
+	if len(lines) != 1 || lines[0].Check != "github" || lines[0].OK || !strings.Contains(lines[0].Detail, "unchecked") {
+		t.Fatalf("with the server down: %+v", lines)
+	}
+
+	startDoctorServer(t, instance, []map[string]any{{"project": "alpha", "lines": []map[string]any{
+		{"check": "project_config", "ok": true, "detail": "loop.yaml exists on main"},
+		{"check": "eligible_required", "ok": false, "detail": "require loop/eligible"},
+	}}})
+	lines = h.githubLines(ctx, ctl)
+	if len(lines) != 2 || lines[0].Check != "alpha/project_config" || !lines[0].OK ||
+		lines[1].Check != "alpha/eligible_required" || lines[1].OK || lines[1].Detail != "require loop/eligible" {
+		t.Fatalf("with the server up: %+v", lines)
+	}
+}
+
+// A server with no GitHub actor answers NOT_IMPLEMENTED, and the github
+// line says so.
+func TestDoctorWithNoGitHubActor(t *testing.T) {
+	instance := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rpc.EnsureAdminCredential(instance); err != nil {
+		t.Fatal(err)
+	}
+	h := testHostVerbs(t, instance, &procService{t: t, instance: instance})
+	startDoctorServer(t, instance, nil)
+	lines := h.githubLines(context.Background(), &serverControl{h: h, instance: instance})
+	if len(lines) != 1 || lines[0].Check != "github" || lines[0].OK || !strings.Contains(lines[0].Detail, "GitHub actor") {
+		t.Fatalf("with no GitHub actor: %+v", lines)
 	}
 }

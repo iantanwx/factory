@@ -95,8 +95,8 @@ It checks the install, the harness settings above, and that the agent host
 knows each project's repository. The GitHub checks run on the server, so the
 App's private key never leaves it. They cover the App's installation and
 permissions, the default-branch rules, and project config on the default
-branch. Until the server has a verb for those checks, `loop doctor` reports
-them as one failed `github` line for any host with a project.
+branch. `loop doctor` asks the server for them. When the server is down, it
+reports them as one failed `github` line marked unchecked.
 
 ## Add a project
 

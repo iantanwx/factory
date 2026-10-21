@@ -112,7 +112,7 @@ func (r *Reactor) reconcileProject(ctx context.Context, p config.Project) error 
 			if t.Terminal(it.Status) {
 				continue
 			}
-			pr, err := r.s.FindPR(ctx, p, BranchFor(it.ID))
+			pr, err := r.s.FindPR(ctx, p, BranchOf(it))
 			if err != nil {
 				return err // a rate limit stops every later read too
 			}
@@ -338,6 +338,13 @@ func (r *Reactor) handle(ctx context.Context, p config.Project, base string, pr 
 		return nil
 	}
 	it, ref := r.m.Show(ctx, p.ID, item)
+	if ref != nil && ref.Code == cli.CodeNotFound {
+		// A spec branch names its epic with a suffix (SpecBranchFor).
+		if epic := SpecEpicOf(pr.Head.Ref); epic != "" {
+			item = epic
+			it, ref = r.m.Show(ctx, p.ID, item)
+		}
+	}
 	if ref != nil {
 		if ref.Code == cli.CodeNotFound {
 			return nil
@@ -348,8 +355,8 @@ func (r *Reactor) handle(ctx context.Context, p config.Project, base string, pr 
 	if !ok || (it.Kind != machine.KindTicket && it.Kind != machine.KindEpic) || t.Terminal(it.Status) {
 		return nil
 	}
-	// An epic's branch carries its PRD, then its spec, each in its own PR.
-	// Only the current document's PR moves the epic (U13).
+	// An epic's PRD and its spec each have a branch and a PR. Only the
+	// current document's PR moves the epic (U13).
 	if it.Kind == machine.KindEpic && it.Fact(machine.FactDocPR) != strconv.Itoa(pr.Number) {
 		return nil
 	}

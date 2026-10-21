@@ -189,6 +189,8 @@ func TestRetryLimitAndInputChanges(t *testing.T) {
 		"a merge that changes a file":      {func(w *world, _ string) { w.base.set("app/task.go", "blob9") }, true},
 		"a merge that changes a cited doc": {func(w *world, _ string) { w.base.set("docs/plans/thing.md", "blob9") }, true},
 		"an edit to the ticket":            {func(w *world, id string) { w.beads.edit(id, declaredBody+"\nChanged contract.") }, true},
+		"a work edit of the body":          {func(w *world, id string) { w.workEdit(id, "body", declaredBody+"\nChanged contract.") }, true},
+		"a work edit of the title":         {func(w *world, id string) { w.workEdit(id, "title", "A sharper title") }, true},
 		"a new release":                    {func(w *world, _ string) { w.build("v2") }, true},
 	}
 	for name, c := range cases {

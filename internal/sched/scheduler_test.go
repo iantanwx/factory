@@ -12,6 +12,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/agenthost/fake"
+	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
@@ -441,5 +442,26 @@ func TestEndDuringOutageIsInfra(t *testing.T) {
 	w.restart()
 	if _, class := w.runState(st.RunID); class != "infra" || w.failures(id) != 0 || w.status(id) != machine.Todo {
 		t.Fatalf("class %s, failures %d, status %s", class, w.failures(id), w.status(id))
+	}
+}
+
+// The brief carries the body that work edit wrote, not the bead's
+// original description.
+func TestBriefCarriesTheEditedBody(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	if _, err := w.bx.Update(context.Background(), id, beadsx.UpdateSpec{IfStatus: machine.Todo,
+		SetMetadata: map[string]string{"loop." + machine.FactBody: "The edited body."},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st := w.dispatch(machine.StageImplementer)
+	raw, err := os.ReadFile(filepath.Join(st.Checkout, brief.BriefJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b brief.Brief
+	if err := json.Unmarshal(raw, &b); err != nil || b.Item == nil || b.Item.Body != "The edited body." {
+		t.Fatalf("brief = %s", raw)
 	}
 }

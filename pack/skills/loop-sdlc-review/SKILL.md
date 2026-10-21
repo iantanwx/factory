@@ -62,9 +62,11 @@ right.
 
 ## 5. One round writes one comment
 
-Write the whole review as one comment with `loop pr reply --body "<comment>"`. Then submit the
-verdict with `loop review submit`. Two comments that list the same faults read as two reviews, and
-the author answers both.
+Write the whole review as one comment, and send it with the verdict:
+`loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`. The server posts
+the comment on the pull request, and it records the comment with the verdict. The author's next run
+reads it. Post no second comment with `loop pr reply`. Two comments that list the same faults read
+as two reviews, and the author answers both.
 
 **Every finding states three things:** what is wrong, where it is, and what the source says. A
 reason with only the "what" makes the author repeat your work.
@@ -106,7 +108,7 @@ Read the head before you start, with `loop pr show`. Read it again before you su
 moved, do not submit. A verdict at an unread head approves text that nobody read.
 
 ```bash
-loop review submit <item> --verdict pass|reject --head <sha>
+loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"
 ```
 
 Before you review, read `loop review rounds <item>`. When a round already holds a verdict at this

@@ -237,7 +237,8 @@ func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *conf
 	if s.cfg.Beads != nil {
 		if bc, err := s.cfg.Beads(ad.Project); err == nil {
 			if is, err := bc.Get(ctx, ad.Item); err == nil {
-				bi.Body, bi.Documents = is.Description, admission.DeclaredPaths(is.Description)
+				_, body := machine.TaskText(is)
+				bi.Body, bi.Documents = body, admission.DeclaredPaths(body)
 			}
 		}
 	}

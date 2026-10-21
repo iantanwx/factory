@@ -105,12 +105,15 @@ func (s *Service) GetPR(ctx context.Context, p config.Project, number int) (PR, 
 	return pr, err
 }
 
-// OpenPR opens the item's PR as the App, or returns the PR already open on
-// its head branch, so `pr open` twice on one branch opens one PR (KTD6:
-// a PR's natural key is its head branch). Ported from createPullRequest in
+// OpenPR opens the PR of an item's branch as the App, or returns the PR
+// already open on that head branch, so `pr open` twice on one branch opens
+// one PR (KTD6: a PR's natural key is its head branch). branch is the
+// item's branch, BranchOf. Ported from createPullRequest in
 // scripts/sdlc/pr-open.ts:165 (alpha).
-func (s *Service) OpenPR(ctx context.Context, p config.Project, item, title, body string) (PR, bool, error) {
-	branch := BranchFor(item)
+func (s *Service) OpenPR(ctx context.Context, p config.Project, branch, title, body string) (PR, bool, error) {
+	if ItemOf(branch) == "" {
+		return PR{}, false, fmt.Errorf("github: %s is no item branch", branch)
+	}
 	base, err := s.DefaultBranch(ctx, p)
 	if err != nil {
 		return PR{}, false, err

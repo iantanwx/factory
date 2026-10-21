@@ -29,13 +29,15 @@ The brief names the item's status and its history. Four kinds exist:
 | Repair | Status `repair` | The failed checks |
 
 Run `loop pr show` to learn whether a pull request exists. Run `loop review rounds <item>` to read
-each earlier verdict.
+each earlier verdict. Each round holds the reviewer's comment in `body`. The last one is also the
+`review` fact in `loop work show <item>`.
 
 Read every handoff note and every earlier failure before you work. A note can hold an answer that
 a person already gave. Never escalate a question that a recorded answer settles.
 
-When the status says rework and you can read no rejection, do not build. A rework without its
-rejection repeats the rejected work. Report a loop fault, and finish `blocked`.
+When the status says rework, and no round holds a reject with a comment, do not build. A rework
+without its rejection repeats the rejected work. The state is then ahead of the record. Report a
+loop fault, and finish `blocked`.
 
 ## 2. Prepare the checkout
 

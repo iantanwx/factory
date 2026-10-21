@@ -2,7 +2,13 @@ package machine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"strings"
+	"time"
 
+	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
@@ -13,23 +19,32 @@ import (
 // scheduler, admission and the inbox call Apply, Claim, MergeObserved and
 // HeadChanged instead.
 func (m *Machine) Register(s *rpc.Server) error {
-	for path, h := range map[string]rpc.Handler{
-		"work show":       m.workShow,
-		"work list":       m.workList,
-		"work note":       m.verb("note", "item"),
-		"work cancel":     m.verb("cancel", "item"),
-		"work unblock":    m.verb("unblock", "item"),
-		"review submit":   m.reviewSubmit,
-		"decision fire":   m.verb("fire", "decision"),
-		"decision defer":  m.verb("defer", "decision"),
-		"decision moot":   m.verb("moot", "decision"),
-		"decision settle": m.decisionSettle,
-	} {
+	for path, h := range m.Handlers() {
 		if err := s.Handle(path, h); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// Handlers returns the handlers of the machine's CLI verbs, keyed by path.
+func (m *Machine) Handlers() map[string]rpc.Handler {
+	return map[string]rpc.Handler{
+		"work show":       m.workShow,
+		"work list":       m.workList,
+		"work note":       m.verb("note", "item"),
+		"work edit":       m.workEdit,
+		"work cancel":     m.verb("cancel", "item"),
+		"work unblock":    m.verb("unblock", "item"),
+		"work shape":      m.workShape,
+		"work duplicate":  m.workDuplicate,
+		"review submit":   m.reviewSubmit,
+		"review rounds":   m.reviewRounds,
+		"decision fire":   m.verb("fire", "decision"),
+		"decision defer":  m.verb("defer", "decision"),
+		"decision moot":   m.verb("moot", "decision"),
+		"decision settle": m.decisionSettle,
+	}
 }
 
 // project is the call's project: a run's or a room's own, or the
@@ -74,6 +89,19 @@ func request(call *rpc.Call, prj, target, verb string, params map[string]string)
 	return req
 }
 
+// borrowed refuses a run's write on an item its token does not hold. The
+// capability check lets a run reach such an item in one case only: the
+// fixer reads and notes the item of the escalation it routes. So the only
+// write a run makes on a borrowed item is a note.
+func borrowed(call *rpc.Call, target string) *cli.Refusal {
+	p := call.Principal
+	if p.Kind != cli.PrincipalRun || p.Item == target || call.Inv.Verb.Path == "work note" {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "borrowed_item", Item: target,
+		Hint: fmt.Sprintf("%s does not hold %s; it may only note it with `loop work note`", p.Actor(), target)}
+}
+
 // verb is the handler of a CLI write that maps to one table verb on the
 // item named by the argument arg.
 func (m *Machine) verb(verb, arg string) rpc.Handler {
@@ -82,17 +110,41 @@ func (m *Machine) verb(verb, arg string) rpc.Handler {
 		if r != nil {
 			return refuse(r)
 		}
+		target := call.Inv.Arg(arg)
+		if r := borrowed(call, target); r != nil {
+			return refuse(r)
+		}
 		params := map[string]string{}
 		if b := call.Inv.Flags["body"]; b != "" {
 			params["body"] = b
 		}
-		return m.Apply(ctx, request(call, prj, call.Inv.Arg(arg), verb, params))
+		return m.Apply(ctx, request(call, prj, target, verb, params))
 	}
 }
 
+// commentKey is the natural key of the comment a write posts: its
+// idempotency key, or its request id when it carries none.
+func commentKey(call *rpc.Call) string {
+	key := call.Request.GetIdempotencyKey()
+	if key == "" {
+		key = call.Inv.RequestID
+	}
+	sum := sha256.Sum256([]byte("review\x00" + key))
+	return hex.EncodeToString(sum[:8])
+}
+
+// reviewSubmit records a verdict. A body is the review comment: the
+// server checks it for a secret, posts it on the item's pull request once
+// every other check of the write passed, and then records it as the
+// review fact under the same compare-and-set as the verdict. A comment
+// GitHub refuses records nothing.
 func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := project(call)
 	if r != nil {
+		return refuse(r)
+	}
+	item := call.Inv.Arg("item")
+	if r := borrowed(call, item); r != nil {
 		return refuse(r)
 	}
 	verb := "review_pass"
@@ -103,7 +155,145 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	if h := call.Inv.Flags["head"]; h != "" {
 		params["head"] = h
 	}
-	return m.Apply(ctx, request(call, prj, call.Inv.Arg("item"), verb, params))
+	body := call.Inv.Flags["body"]
+	if body != "" {
+		params["body"] = body
+	}
+	req := request(call, prj, item, verb, params)
+	if body != "" && m.reviewComment != nil {
+		key := commentKey(call)
+		req.Before = func(ctx context.Context) *cli.Refusal { return m.reviewComment(ctx, prj, item, body, key) }
+	}
+	return m.Apply(ctx, req)
+}
+
+// workEdit replaces an item's title or body. Beads keeps the text the item
+// was created with, and the edit is a fact that replaces it: the item's
+// title, TaskText and so the retry identity (R10) read the edit.
+func (m *Machine) workEdit(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := project(call)
+	if r != nil {
+		return refuse(r)
+	}
+	item := call.Inv.Arg("item")
+	if r := borrowed(call, item); r != nil {
+		return refuse(r)
+	}
+	params := map[string]string{}
+	if t, ok := call.Inv.Flags["title"]; ok {
+		if strings.TrimSpace(t) == "" {
+			return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "empty_title", Item: item, Hint: "--title names the item; it cannot be empty"})
+		}
+		params["title"] = t
+	}
+	if b, ok := call.Inv.Flags["body"]; ok && b != "" {
+		params["body"] = b
+	}
+	if len(params) == 0 {
+		return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "nothing_to_edit", Item: item, Hint: "name the new text with --title, --body or both"})
+	}
+	return m.Apply(ctx, request(call, prj, item, "edit", params))
+}
+
+// workDuplicate closes a bug as a duplicate of another item.
+func (m *Machine) workDuplicate(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := project(call)
+	if r != nil {
+		return refuse(r)
+	}
+	bug, of := call.Inv.Arg("item"), strings.TrimSpace(call.Inv.Flags["of"])
+	if r := borrowed(call, bug); r != nil {
+		return refuse(r)
+	}
+	if of == "" || of == bug {
+		return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "bad_original", Item: bug, Hint: "--of names another item, the one the bug repeats"})
+	}
+	if _, r := m.Read(ctx, prj, of); r != nil {
+		return refuse(r)
+	}
+	return m.Apply(ctx, request(call, prj, bug, "duplicate", map[string]string{"of": of}))
+}
+
+// ShapeResult is what work shape answers.
+type ShapeResult struct {
+	Bug    string `json:"bug"`
+	Ticket string `json:"ticket"`
+	Status string `json:"status"`
+}
+
+// workShape shapes a bug into a ticket: it creates the ticket, which
+// names the bug, then closes the bug as shaped with the ticket's id. The
+// ticket's create key is the bug, so a retry after a crash between the
+// two writes finds the ticket it made.
+func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := project(call)
+	if r != nil {
+		return refuse(r)
+	}
+	bug := call.Inv.Arg("item")
+	if r := borrowed(call, bug); r != nil {
+		return refuse(r)
+	}
+	title, body := strings.TrimSpace(call.Inv.Flags["title"]), call.Inv.Flags["body"]
+	if title == "" {
+		return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "no_title", Item: bug, Hint: "--title names the ticket"})
+	}
+	unlock := m.lock(prj, bug)
+	defer unlock()
+	it, r := m.Show(ctx, prj, bug)
+	if r != nil {
+		return refuse(r)
+	}
+	t, _ := TableFor(it.Kind)
+	switch {
+	case it.Kind != KindBug:
+		return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "not_a_bug", Item: bug, Hint: fmt.Sprintf("%s is a %s; only a bug is shaped", bug, it.Kind)})
+	case !t.Allows("shape", it.Status):
+		return refuse(&cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", Item: bug, CurrentStatus: it.Status,
+			AllowedNext: it.AllowedNext, Hint: fmt.Sprintf("a bug in %s has no shape move", it.Status)})
+	}
+	ticket, r := m.shapedTicket(ctx, prj, bug, title, body, call)
+	if r != nil {
+		return refuse(r)
+	}
+	req := request(call, prj, bug, "shape", map[string]string{"ticket": ticket})
+	res := m.apply(ctx, &req)
+	if res.Refusal != nil {
+		return res
+	}
+	return cli.Found(ShapeResult{Bug: bug, Ticket: ticket, Status: Shaped})
+}
+
+// shapedTicket finds the ticket a bug was shaped into, or creates it in
+// todo. The caller holds the bug's lock.
+func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body string, call *rpc.Call) (string, *cli.Refusal) {
+	key := shapeKey(bug)
+	found, r := m.List(ctx, prj, ListFilter{Kind: KindTicket, Facts: map[string]string{FactCreateKey: key}})
+	if r != nil {
+		return "", r
+	}
+	var tk Item
+	if len(found) > 0 {
+		tk = found[0]
+	} else {
+		id, r := m.CreateBead(ctx, CreateRequest{Project: prj, Kind: KindTicket, Title: title, Description: body,
+			Facts: map[string]string{FactCreateKey: key, FactBug: bug}})
+		if r != nil {
+			return "", r
+		}
+		if tk, r = m.Read(ctx, prj, id); r != nil {
+			return "", r
+		}
+	}
+	if tk.Status == Initial {
+		p := call.Principal
+		res := m.Apply(ctx, Request{Project: prj, Item: tk.ID, Verb: "create", ExpectedStatus: Initial,
+			RequestID: call.Inv.RequestID, Actor: Actor{Name: p.Actor(), RunID: p.RunID}})
+		if res.Refusal != nil {
+			return "", res.Refusal
+		}
+	}
+	return tk.ID, nil
 }
 
 func (m *Machine) decisionSettle(ctx context.Context, call *rpc.Call) cli.Result {
@@ -140,4 +330,75 @@ func (m *Machine) workList(ctx context.Context, call *rpc.Call) cli.Result {
 		return refuse(r)
 	}
 	return cli.List(items)
+}
+
+// ReviewCommenter posts a review's body on the item's pull request. key is
+// the comment's natural key, so a retry posts no second comment.
+type ReviewCommenter func(ctx context.Context, project, item, body, key string) *cli.Refusal
+
+// SetReviewCommenter sets the poster of review comments. The GitHub setup
+// (U10) sets it before the socket binds.
+func (m *Machine) SetReviewCommenter(f ReviewCommenter) { m.reviewComment = f }
+
+// TaskText is the title and the body of an item's task: the text work
+// edit wrote, or the bead's own, and then an answer that amends the task.
+// Admission hashes it for the retry identity (R10), so an edit, or a
+// person's amendment through the inbox (U12), re-admits a twice-failed
+// item.
+func TaskText(is beadsx.Issue) (title, body string) {
+	title, body = is.Title, is.Description
+	if t := is.Metadata[factPrefix+FactTitle]; t != "" {
+		title = t
+	}
+	if b := is.Metadata[factPrefix+FactBody]; b != "" {
+		body = b
+	}
+	if a := is.Metadata[factPrefix+FactAmendment]; a != "" {
+		body += "\n\n" + a
+	}
+	return title, body
+}
+
+// shapeKey is the create key of the ticket a bug is shaped into.
+func shapeKey(bug string) string { return "bug/" + bug }
+
+// Round is one review verdict of an item, as `review rounds` lists it.
+type Round struct {
+	Round   int    `json:"round"`
+	Verdict string `json:"verdict"` // pass or reject
+	// Head is the head a ticket's pass recorded; "" for any other verdict.
+	Head  string    `json:"head"`
+	Body  string    `json:"body"` // the review comment; "" when the verdict sent none
+	From  string    `json:"from"`
+	To    string    `json:"to"`
+	Actor string    `json:"actor"`
+	RunID string    `json:"run_id"`
+	At    time.Time `json:"at"`
+}
+
+// reviewRounds lists every verdict review submit recorded on the item, in
+// order, from the item's history.
+func (m *Machine) reviewRounds(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := project(call)
+	if r != nil {
+		return refuse(r)
+	}
+	item := call.Inv.Arg("item")
+	if _, r := m.Read(ctx, prj, item); r != nil {
+		return refuse(r)
+	}
+	hist, err := m.History(ctx, prj, item)
+	if err != nil {
+		return refuse(internalRefusal(err))
+	}
+	var out []Round
+	for _, t := range hist {
+		verdict, ok := map[string]string{"review_pass": "pass", "review_reject": "reject"}[t.Verb]
+		if !ok {
+			continue
+		}
+		out = append(out, Round{Round: len(out) + 1, Verdict: verdict, Head: t.Set[factPrefix+FactReviewedHead],
+			Body: t.Set[factPrefix+FactReview], From: t.From, To: t.To, Actor: t.Actor, RunID: t.RunID, At: t.At})
+	}
+	return cli.List(out)
 }

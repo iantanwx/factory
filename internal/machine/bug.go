@@ -28,8 +28,9 @@ func bugTable() *Table {
 		{Verb: "file", From: []string{Initial}, To: Reported},
 		{Verb: "claim", From: []string{Reported}, To: Reproducing, Stage: StageReproducer, when: stageIs(StageReproducer),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
-		{Verb: "shape", From: open, To: Shaped, Lease: LeaseDrop, set: needCopy("ticket", FactTicket), Facts: []string{FactTicket}},
-		{Verb: "duplicate", From: open, To: Duplicate, Lease: LeaseDrop, set: needCopy("of", FactDuplicateOf),
+		{Verb: "shape", From: open, To: Shaped, Command: "work shape", Lease: LeaseDrop, set: needCopy("ticket", FactTicket),
+			Facts: []string{FactTicket}},
+		{Verb: "duplicate", From: open, To: Duplicate, Command: "work duplicate", Lease: LeaseDrop, set: needCopy("of", FactDuplicateOf),
 			Facts: []string{FactDuplicateOf}},
 		{Verb: "escalate", From: open, To: Escalated, Lease: LeaseDrop, set: escalateTo(bugResume), Facts: []string{FactResume, FactEscalation}},
 		{Verb: "answer", From: []string{Escalated}, To: ToResume, ResumeTo: []string{Reported}, set: answerResume,
@@ -37,6 +38,7 @@ func bugTable() *Table {
 		{Verb: "cancel", From: []string{Escalated}, To: Canceled, Command: "work cancel"},
 		{Verb: "note", From: []string{Reported, Reproducing, Escalated}, To: ToSame, Command: "work note", set: notePut,
 			Facts: []string{FactNote}},
+		editRow([]string{Reported, Reproducing, Escalated}),
 	}
 	pairs := [][2]string{{Reproducing, Reported}}
 	rows = append(rows, releaseRows("release", false, pairs, nil)...)

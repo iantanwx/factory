@@ -80,13 +80,14 @@ whoever wrote it.
 The server made your checkout from the base branch that the brief names. The loop files under
 `.loop/` and the loop skills are outside git, and `git status` does not show them.
 
-- **Bring the base in with `loop branch sync`.** Its answer names the mirror and the `fetch`
-  command for the base. Run that command, then merge the base. Never rebase a branch that has a
-  pull request.
-- **Bring an open pull request's head in before you change anything.** Run `loop pr show` and read
-  the head. Run the `fetch` command from `loop branch sync` again with the item branch,
-  `loop/<item>`, in place of the base. Then run `git switch -C loop/<item>` at the ref you brought
-  in. When the mirror holds no such ref, report a loop fault (section 7).
+- **Bring the base in with `loop branch sync`.** Its answer names the mirror path in `mirror`, the
+  base branch in `base`, its head in `sha`, and a `fetch` command. Run that command. It brings the
+  base in as `origin/<base>`. Then merge the base. Never rebase a branch that has a pull request.
+- **Bring an open pull request's head in before you change anything.** The `item` part of the
+  `loop branch sync` answer names the item's branch in `branch`, its head in `sha`, and a `fetch`
+  command. Run that command. Then run `git switch -C <branch> <sha>` with the two values. The
+  server keeps the head in the mirror, so `git fetch <mirror> <sha>` also works. An empty `sha`
+  means that the branch does not exist yet. Then start from the base.
 - **Push only with `loop branch push`.** The server pushes your head commit to the item branch. Never run
   `git push`, and never force a push.
 - **Write each message and body file outside the checkout.** Make a directory with `mktemp -d`, and
@@ -191,7 +192,8 @@ These rules bind every runbook. Your runbook adds the rules that are its own.
 
 - **Never take a second item.** One run is one item and, for a change, one pull request.
 - **Never write to an item your run does not hold.** The server refuses it, and the attempt to
-  write is a fault in your run.
+  write is a fault in your run. The fixer has one exception. It may note the item of the
+  escalation that it routes.
 - **Never merge.** The server hands an eligible pull request to the project's merge mechanism. A
   person merges a PRD or a spec, and that merge is the sign-off.
 - **Never edit the loop's files.** The `.loop/` files and the `loop-*` skills belong to the loop.

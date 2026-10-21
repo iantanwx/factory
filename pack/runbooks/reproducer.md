@@ -69,14 +69,20 @@ repair. A separate author for the red and the green keeps the test honest.
 
 ## 5. Record the outcome
 
-1. Record the shaped body, or the duplicate and its proof, with
-   `loop work note <item> --body "<body>"`.
-2. Find the verb in `loop schema` that moves a bug to its outcome: `shaped`, `duplicate`, or a
-   state that waits on the item that builds it. Run that verb when it exists.
-3. When no verb performs the move, the loop lacks a verb that this runbook needs. Report a loop
-   fault that names the move, by `../loop-sdlc-turn/SKILL.md`. Finish `blocked` with the fault.
+Run one command for the outcome:
 
-Otherwise, finish with `loop run finish --outcome done`.
+- **Bug**: `loop work shape <item> --title "<title>" --body "<the shaped body>"`. The server
+  creates the ticket, and it closes the bug as `shaped`. The answer names the ticket in `ticket`.
+  Name that ticket in your report.
+- **Duplicate**: first record the proof with `loop work note <item> --body "<the test and its
+  failure>"`. Then run `loop work duplicate <item> --of <the open bug>`.
+- **Not built yet**: record the item that builds it with `loop work note <item> --body "<item>"`,
+  and run `loop work duplicate <item> --of <that item>`.
+
+A retry of the same `work shape` after exit 4 finds the ticket that it made, and makes no second
+ticket.
+
+Then finish with `loop run finish --outcome done`.
 
 ## 6. Never
 

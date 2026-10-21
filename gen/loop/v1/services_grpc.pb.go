@@ -19,15 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	WorkService_Peek_FullMethodName    = "/loop.v1.WorkService/Peek"
-	WorkService_Show_FullMethodName    = "/loop.v1.WorkService/Show"
-	WorkService_List_FullMethodName    = "/loop.v1.WorkService/List"
-	WorkService_Edit_FullMethodName    = "/loop.v1.WorkService/Edit"
-	WorkService_Note_FullMethodName    = "/loop.v1.WorkService/Note"
-	WorkService_Block_FullMethodName   = "/loop.v1.WorkService/Block"
-	WorkService_Unblock_FullMethodName = "/loop.v1.WorkService/Unblock"
-	WorkService_Cancel_FullMethodName  = "/loop.v1.WorkService/Cancel"
-	WorkService_Create_FullMethodName  = "/loop.v1.WorkService/Create"
+	WorkService_Peek_FullMethodName      = "/loop.v1.WorkService/Peek"
+	WorkService_Show_FullMethodName      = "/loop.v1.WorkService/Show"
+	WorkService_List_FullMethodName      = "/loop.v1.WorkService/List"
+	WorkService_Edit_FullMethodName      = "/loop.v1.WorkService/Edit"
+	WorkService_Note_FullMethodName      = "/loop.v1.WorkService/Note"
+	WorkService_Block_FullMethodName     = "/loop.v1.WorkService/Block"
+	WorkService_Unblock_FullMethodName   = "/loop.v1.WorkService/Unblock"
+	WorkService_Cancel_FullMethodName    = "/loop.v1.WorkService/Cancel"
+	WorkService_Create_FullMethodName    = "/loop.v1.WorkService/Create"
+	WorkService_Shape_FullMethodName     = "/loop.v1.WorkService/Shape"
+	WorkService_Duplicate_FullMethodName = "/loop.v1.WorkService/Duplicate"
 )
 
 // WorkServiceClient is the client API for WorkService service.
@@ -43,6 +45,8 @@ type WorkServiceClient interface {
 	Unblock(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Cancel(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Create(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Shape(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Duplicate(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type workServiceClient struct {
@@ -143,6 +147,26 @@ func (c *workServiceClient) Create(ctx context.Context, in *VerbRequest, opts ..
 	return out, nil
 }
 
+func (c *workServiceClient) Shape(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, WorkService_Shape_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *workServiceClient) Duplicate(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, WorkService_Duplicate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WorkServiceServer is the server API for WorkService service.
 // All implementations must embed UnimplementedWorkServiceServer
 // for forward compatibility.
@@ -156,6 +180,8 @@ type WorkServiceServer interface {
 	Unblock(context.Context, *VerbRequest) (*Envelope, error)
 	Cancel(context.Context, *VerbRequest) (*Envelope, error)
 	Create(context.Context, *VerbRequest) (*Envelope, error)
+	Shape(context.Context, *VerbRequest) (*Envelope, error)
+	Duplicate(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedWorkServiceServer()
 }
 
@@ -192,6 +218,12 @@ func (UnimplementedWorkServiceServer) Cancel(context.Context, *VerbRequest) (*En
 }
 func (UnimplementedWorkServiceServer) Create(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Create not implemented")
+}
+func (UnimplementedWorkServiceServer) Shape(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Shape not implemented")
+}
+func (UnimplementedWorkServiceServer) Duplicate(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Duplicate not implemented")
 }
 func (UnimplementedWorkServiceServer) mustEmbedUnimplementedWorkServiceServer() {}
 func (UnimplementedWorkServiceServer) testEmbeddedByValue()                     {}
@@ -376,6 +408,42 @@ func _WorkService_Create_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WorkService_Shape_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkServiceServer).Shape(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkService_Shape_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkServiceServer).Shape(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WorkService_Duplicate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkServiceServer).Duplicate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkService_Duplicate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkServiceServer).Duplicate(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WorkService_ServiceDesc is the grpc.ServiceDesc for WorkService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -418,6 +486,14 @@ var WorkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Create",
 			Handler:    _WorkService_Create_Handler,
+		},
+		{
+			MethodName: "Shape",
+			Handler:    _WorkService_Shape_Handler,
+		},
+		{
+			MethodName: "Duplicate",
+			Handler:    _WorkService_Duplicate_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -3323,7 +3399,8 @@ var ProjectService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	HostService_Drain_FullMethodName = "/loop.v1.HostService/Drain"
+	HostService_Drain_FullMethodName        = "/loop.v1.HostService/Drain"
+	HostService_DoctorGithub_FullMethodName = "/loop.v1.HostService/DoctorGithub"
 )
 
 // HostServiceClient is the client API for HostService service.
@@ -3331,6 +3408,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type HostServiceClient interface {
 	Drain(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	DoctorGithub(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type hostServiceClient struct {
@@ -3351,11 +3429,22 @@ func (c *hostServiceClient) Drain(ctx context.Context, in *VerbRequest, opts ...
 	return out, nil
 }
 
+func (c *hostServiceClient) DoctorGithub(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, HostService_DoctorGithub_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // HostServiceServer is the server API for HostService service.
 // All implementations must embed UnimplementedHostServiceServer
 // for forward compatibility.
 type HostServiceServer interface {
 	Drain(context.Context, *VerbRequest) (*Envelope, error)
+	DoctorGithub(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedHostServiceServer()
 }
 
@@ -3368,6 +3457,9 @@ type UnimplementedHostServiceServer struct{}
 
 func (UnimplementedHostServiceServer) Drain(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Drain not implemented")
+}
+func (UnimplementedHostServiceServer) DoctorGithub(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method DoctorGithub not implemented")
 }
 func (UnimplementedHostServiceServer) mustEmbedUnimplementedHostServiceServer() {}
 func (UnimplementedHostServiceServer) testEmbeddedByValue()                     {}
@@ -3408,6 +3500,24 @@ func _HostService_Drain_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HostService_DoctorGithub_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HostServiceServer).DoctorGithub(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HostService_DoctorGithub_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HostServiceServer).DoctorGithub(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // HostService_ServiceDesc is the grpc.ServiceDesc for HostService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3418,6 +3528,10 @@ var HostService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Drain",
 			Handler:    _HostService_Drain_Handler,
+		},
+		{
+			MethodName: "DoctorGithub",
+			Handler:    _HostService_DoctorGithub_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

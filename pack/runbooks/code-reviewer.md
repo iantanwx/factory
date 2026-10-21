@@ -114,9 +114,9 @@ Name each defect outside this round under its own heading, with its evidence. Ne
    at that head. A missing check counts as a failed check. While a check runs, review the source.
    Run `loop pr checks` again before you submit.
 2. Run `loop pr show` again. When the head moved, submit nothing. Note it, and finish `failed`.
-3. Post the comment with `loop pr reply --body "<comment>"`.
-4. Run `loop review submit <item> --verdict pass|reject --head <sha>`.
-5. Finish with `loop run finish --outcome done`.
+3. Run `loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`. The
+   server posts the comment on the pull request and records it with the verdict.
+4. Finish with `loop run finish --outcome done`.
 
 When a check stays red or pending at the head, and the source holds no fault, submit nothing. Note
 which check, and finish `failed`. The server moves a ticket with a red build to `repair`.

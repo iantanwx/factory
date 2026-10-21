@@ -19,7 +19,8 @@ import (
 )
 
 // registerRelease plugs in the client-side host verbs of U16: install,
-// upgrade, rollback, restore and doctor. It replaces the gate that
+// upgrade, rollback, restore and doctor. Doctor calls the server verb
+// doctor-github for the checks that need GitHub. It replaces the gate that
 // cli.Client.Attach set on upgrade and rollback with handlers that make the
 // same authorization probe whenever the server answers. run calls it after
 // Attach.
@@ -233,7 +234,7 @@ func (h *hostVerbs) restore(ctx context.Context, inv cli.Invocation) cli.Result 
 }
 
 func (h *hostVerbs) doctor(ctx context.Context, inv cli.Invocation) cli.Result {
-	dir, _, res := h.prepare(ctx, inv)
+	dir, ctl, res := h.prepare(ctx, inv)
 	if res != nil {
 		return *res
 	}
@@ -245,7 +246,8 @@ func (h *hostVerbs) doctor(ctx context.Context, inv cli.Invocation) cli.Result {
 	if err != nil {
 		return fail(err)
 	}
-	d := &release.Doctor{Layout: in.Layout, Installer: in, Home: home, Repos: release.OrcaRepos(execOutput)}
+	d := &release.Doctor{Layout: in.Layout, Installer: in, Home: home, Repos: release.OrcaRepos(execOutput),
+		Remote: func(ctx context.Context) ([]release.DoctorLine, error) { return h.githubLines(ctx, ctl), nil }}
 	lines := d.Run(ctx)
 	if failed := release.Failed(lines); len(failed) > 0 {
 		var hint []string
@@ -352,4 +354,51 @@ func (s *serverControl) Drain(ctx context.Context) (release.DrainReport, error) 
 			return release.DrainReport{}, ctx.Err()
 		}
 	}
+}
+
+// githubLines runs the GitHub checks of `loop doctor` on the server with
+// `loop doctor-github`, because only the server holds the GitHub
+// credentials. Each line names its project. A check that cannot run fails
+// one github line that says why, and is never a pass: with the server
+// down, the line reads unchecked.
+func (h *hostVerbs) githubLines(ctx context.Context, ctl *serverControl) []release.DoctorLine {
+	fail := func(format string, args ...any) []release.DoctorLine {
+		return []release.DoctorLine{{Check: "github", Detail: fmt.Sprintf(format, args...)}}
+	}
+	if !ctl.Reachable(ctx) {
+		return fail("unchecked: the server is not running, and only the server holds the GitHub credentials; start it and run loop doctor again")
+	}
+	v, ok := h.reg.Verb("doctor-github")
+	if !ok {
+		return fail("unchecked: this build has no doctor-github verb")
+	}
+	res := ctl.client().Remote(ctx, cli.Invocation{Verb: v, Flags: map[string]string{}, RequestID: newRequestID()})
+	if r := res.Refusal; r != nil {
+		if r.Code == cli.CodeNotImplemented {
+			return fail("unchecked: the server runs no GitHub actor; set credentials.github_app in host config and restart it")
+		}
+		return fail("the server's GitHub checks could not run: %s %s: %s", r.Code, r.Rule, r.Hint)
+	}
+	if res.Exit == cli.ExitNothing {
+		return []release.DoctorLine{{Check: "github", OK: true, Detail: "the server holds no project to check"}}
+	}
+	var projects []struct {
+		Project string               `json:"project"`
+		Lines   []release.DoctorLine `json:"lines"`
+	}
+	raw, err := json.Marshal(res.Data)
+	if err == nil {
+		err = json.Unmarshal(raw, &projects)
+	}
+	if err != nil {
+		return fail("the server's GitHub checks answered in a form this build cannot read: %v", err)
+	}
+	var lines []release.DoctorLine
+	for _, p := range projects {
+		for _, l := range p.Lines {
+			l.Check = p.Project + "/" + l.Check
+			lines = append(lines, l)
+		}
+	}
+	return lines
 }

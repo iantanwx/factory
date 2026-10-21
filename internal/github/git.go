@@ -198,6 +198,25 @@ func (m *Mirror) FetchCheckout(ctx context.Context, checkout, sha, ref string) e
 	return err
 }
 
+// ServeLocalFetch lets a fetch from the mirror path ask for any object by
+// its sha. The setting lives in the mirror's own config, which only the
+// server writes, so no checkout's config changes. A checkout fetches with
+// no credential, and the mirror holds only this project's objects.
+func (m *Mirror) ServeLocalFetch(ctx context.Context) error {
+	_, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"config", "uploadpack.allowAnySHA1InWant", "true"}})
+	return err
+}
+
+// Keep points ref at sha, or deletes ref when sha is "".
+func (m *Mirror) Keep(ctx context.Context, ref, sha string) error {
+	args := []string{"update-ref", ref, sha}
+	if sha == "" {
+		args = []string{"update-ref", "-d", ref}
+	}
+	_, err := m.git.run(ctx, gitRun{dir: m.Dir, args: args})
+	return err
+}
+
 // Resolve returns the full sha of ref, or "" when the mirror lacks it.
 func (m *Mirror) Resolve(ctx context.Context, ref string) string {
 	sha, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"rev-parse", "--verify", "--quiet", ref + "^{commit}"}})

@@ -142,6 +142,11 @@ func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 	if r := m.secretCheck(c); r != nil {
 		return refuse(r)
 	}
+	if req.Before != nil {
+		if r := req.Before(ctx); r != nil {
+			return refuse(r)
+		}
+	}
 
 	in, err := m.record(ctx, c, epoch, fence(item.Epoch))
 	var lr *leaseError

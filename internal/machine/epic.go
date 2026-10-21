@@ -180,7 +180,9 @@ func epicTable() *Table {
 		{Verb: "escalate", From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
 			set: escalateTo(epicResumeFor), Facts: []string{FactResume, FactEscalation}},
 		{Verb: "note", From: live, To: ToSame, Command: "work note", set: notePut, Facts: []string{FactNote}},
+		editRow(live),
 	}
+	rows = withReviews(rows)
 	pairs := [][2]string{{SpecDrafting, SpecNeeded}, {Decomposing, SpecApproved},
 		{PRDReview, PRDReview}, {PRDAmending, PRDAmending}, {SpecReview, SpecReview}}
 	rows = append(rows, releaseRows("release", false, pairs, nil)...)

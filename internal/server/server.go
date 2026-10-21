@@ -6,6 +6,7 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -309,7 +310,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		Instance:        dir,
 		PreviousVersion: readPreviousVersion(dir),
 		Logger:          logger,
-		HoldsItem:       opts.HoldsItem,
+		HoldsItem:       holdsItem(st, opts.HoldsItem),
 		Checkouts:       opts.Checkouts,
 		Proc:            opts.Proc,
 		OnCall:          onCall,
@@ -380,4 +381,30 @@ func readPreviousVersion(dir string) string {
 // server calls it after secret set, secret import and project remove.
 func (s *Server) RefreshRedactor(ctx context.Context) error {
 	return s.Redactor.Refresh(ctx, s.Secrets)
+}
+
+// holdsItem is the item check of the capability matrix (KTD12): next, or
+// the token's item when next is nil, and the fixer's one allowance. A
+// fixer run's token holds no item, because the fixer takes an escalation,
+// not an item. It may read and note the item of an escalation in its own
+// project that waits for its panel, or that this run routed. The machine
+// refuses every other write a run makes on an item its token does not
+// hold.
+func holdsItem(st *store.Store, next rpc.HoldsItem) rpc.HoldsItem {
+	if next == nil {
+		next = rpc.TokenItem
+	}
+	return func(ctx context.Context, p rpc.Principal, item string) (bool, error) {
+		ok, err := next(ctx, p, item)
+		if ok || err != nil || p.Kind != cli.PrincipalRun || p.Stage != escalation.FixerStage || item == "" {
+			return ok, err
+		}
+		var n int
+		err = st.Read(ctx, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM escalations
+				WHERE project = ? AND item = ? AND (state = ? OR routed_by = ?))`,
+				p.Project, item, escalation.StateAwaitingPanel, p.Actor()).Scan(&n)
+		})
+		return n == 1, err
+	}
 }

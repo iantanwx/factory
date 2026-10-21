@@ -76,9 +76,9 @@ it to `spec_needed`, and the spec-author writes the next round.
 
 1. Write the whole review as one comment, by `../loop-sdlc-review/SKILL.md`.
 2. Run `loop pr show` again. When the head moved, submit nothing. Note it, and finish `failed`.
-3. Post the comment with `loop pr reply --body "<comment>"`.
-4. Run `loop review submit <item> --verdict pass|reject --head <sha>`.
-5. Finish with `loop run finish --outcome done`.
+3. Run `loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`. The
+   server posts the comment on the pull request and records it with the verdict.
+4. Finish with `loop run finish --outcome done`.
 
 ## 5. When a person must decide
 

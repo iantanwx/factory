@@ -111,6 +111,8 @@ func ticketEdges() []edge {
 	e = append(e, each([]string{Repair, ReadyToMerge, Queued}, "pr_closed", Escalated)...)
 	// Added: a note changes no status.
 	e = append(e, each(ticketLive, "note", ToSame)...)
+	// Added: work edit replaces the task's text and changes no status (R10).
+	e = append(e, each(ticketLive, "edit", ToSame)...)
 	return e
 }
 
@@ -157,6 +159,7 @@ func epicEdges() []edge {
 	e = append(e, edge{SpecDrafting, "release", SpecNeeded}, edge{SpecDrafting, "reclaim", SpecNeeded},
 		edge{Decomposing, "release", SpecApproved}, edge{Decomposing, "reclaim", SpecApproved})
 	e = append(e, each(epicLive, "note", ToSame)...)
+	e = append(e, each(epicLive, "edit", ToSame)...)
 	return e
 }
 
@@ -184,6 +187,7 @@ func bugEdges() []edge {
 		{Escalated, "answer", Reported},
 		{Escalated, "cancel", Canceled},
 		{Reported, "note", Reported}, {Reproducing, "note", Reproducing}, {Escalated, "note", Escalated},
+		{Reported, "edit", Reported}, {Reproducing, "edit", Reproducing}, {Escalated, "edit", Escalated},
 	}
 }
 

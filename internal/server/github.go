@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
+	"github.com/iantanwx/loop/internal/rpc"
 )
 
 // MirrorDir holds one bare mirror for each project in the instance
@@ -70,7 +72,26 @@ func (g *GitHub) Setup(s *Server) error {
 	}
 	s.Projects.AddHooks = append(s.Projects.AddHooks, svc.AddHook)
 	g.Service, g.Reactor = svc, github.NewReactor(svc)
-	return nil
+	if s.Machine != nil {
+		// review submit posts its body on the item's PR before the
+		// verdict is recorded.
+		s.Machine.SetReviewCommenter(svc.ReviewComment)
+	}
+	return s.RPC.Handle("doctor-github", g.doctorVerb(s))
+}
+
+// doctorVerb answers `loop doctor-github`: the checks of `loop doctor`
+// that need the platform credentials, which never leave the server. The
+// client-side doctor calls it. A host verb, so only the host-admin caller
+// outside every checkout reaches it.
+func (g *GitHub) doctorVerb(s *Server) rpc.Handler {
+	return func(ctx context.Context, _ *rpc.Call) cli.Result {
+		out, err := g.Doctor(ctx, s.Projects)
+		if err != nil {
+			return internalErr(err)
+		}
+		return cli.List(out)
+	}
 }
 
 // Reconcile is the reactor's start-up step. It does nothing before Setup.

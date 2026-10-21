@@ -58,7 +58,8 @@ Each work entry that draws a screen names its design references, when the projec
 ## 3. Land the spec
 
 1. Run the project's document gates. Commit.
-2. Push with `loop branch push`.
+2. Push with `loop branch push`. The spec has its own branch, apart from the PRD's branch, and
+   the server picks it. A PRD that merged by squash therefore never blocks the push.
 3. Run `loop pr open --title "<title>" --body "<body>"`. Put Decisions and Open questions first in
    the body. The command moves the epic to `spec_review`.
 4. Finish with `loop run finish --outcome done`.

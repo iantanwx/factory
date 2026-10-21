@@ -70,6 +70,8 @@ type Machine struct {
 	// hook lets a test stop the write at a kill point. It returns true to
 	// stop, as a crash would.
 	hook func(point string) bool
+	// reviewComment posts the body of `review submit`. Nil posts nothing.
+	reviewComment ReviewCommenter
 }
 
 type itemLock struct {
@@ -168,6 +170,11 @@ type Request struct {
 	// refuses. Empty means the server asks.
 	Command   string
 	RequestID string
+	// Before runs once every check of the write passed, under the item's
+	// lock and before the intent is recorded. A refusal stops the write.
+	// A replay of a recorded intent never runs it. review submit posts its
+	// comment here, so a comment GitHub refuses records no verdict.
+	Before func(ctx context.Context) *cli.Refusal
 }
 
 // Item is one work item as the machine reads it: beads holds the status
@@ -203,8 +210,9 @@ func view(project string, is beadsx.Issue) (Item, *Table, error) {
 	if err != nil {
 		return Item{}, nil, err
 	}
+	title, _ := TaskText(is)
 	it := Item{
-		Project: project, ID: is.ID, Kind: t.Kind, Title: is.Title, Status: is.Status,
+		Project: project, ID: is.ID, Kind: t.Kind, Title: title, Status: is.Status,
 		Seq: seq, Epoch: epoch, Facts: map[string]string{}, AllowedNext: t.AllowedNext(is.Status),
 	}
 	for k, v := range is.Metadata {

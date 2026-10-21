@@ -69,8 +69,10 @@ Never trust your first theory, and never trust a line without its source. Compar
 read with the event you blame. Read the state back after each write you report.
 
 - **An item stopped after two failed attempts.** The same inputs fail the same way. Change the
-  task first. Answer its inbox entry with `--amend`, so the answer enters the item's inputs. Never
-  look for a way to reset the count.
+  task first. Answer its inbox entry with `--amend`, so the answer enters the item's inputs. When
+  the operator rewrites the task, run `loop work edit <item> --title "<title>" --body "<body>"`
+  with the operator's text. Either change admits a new attempt. Never look for a way to reset the
+  count.
 - **A stage keeps failing for a loop reason.** Pause it with `loop stage pause <stage>`, and resume
   it with `loop stage resume <stage>`. Report each one.
 - **The same item stands still wake after wake.** Say so in the report. Never escalate it a second
