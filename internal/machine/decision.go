@@ -21,10 +21,10 @@ func decisionTable() *Table {
 		{Name: Canceled, Category: beadsx.CategoryDone, Terminal: true},
 	}
 	rows := []Row{
-		{Verb: "file", From: []string{Initial}, To: DecisionPending, Command: "decision file", Says: "Filed."},
-		{Verb: "fire", From: []string{DecisionPending}, To: NeedsHuman, Command: "decision fire", Says: "The trigger fired."},
-		{Verb: "defer", From: []string{NeedsHuman}, To: DecisionPending, Command: "decision defer", Says: "The trigger did not fire."},
-		{Verb: "answer", From: []string{NeedsHuman}, To: Done, Command: "decision settle", Says: "Answered.",
+		{Verb: VerbFile, From: []string{Initial}, To: DecisionPending, Command: "decision file", Says: "Filed."},
+		{Verb: VerbFire, From: []string{DecisionPending}, To: NeedsHuman, Command: "decision fire", Says: "The trigger fired."},
+		{Verb: VerbDefer, From: []string{NeedsHuman}, To: DecisionPending, Command: "decision defer", Says: "The trigger did not fire."},
+		{Verb: VerbAnswer, From: []string{NeedsHuman}, To: Done, Command: "decision settle", Says: "Answered.",
 			set: answerFacts, Facts: []string{FactAnswer}},
 		{Verb: "drop", From: []string{NeedsHuman}, To: Canceled, Command: "decision settle", Says: "Dropped."},
 		{Verb: "moot", From: []string{DecisionPending, NeedsHuman}, To: Canceled, Command: "decision moot",

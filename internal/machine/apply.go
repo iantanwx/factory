@@ -9,7 +9,6 @@ import (
 	"maps"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
@@ -71,11 +70,11 @@ func (m *Machine) completeEpic(ctx context.Context, a Applied) {
 func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 	bc, err := m.cfg.Beads(req.Project)
 	if err != nil {
-		return refuse(internalRefusal(err))
+		return cli.Internal(err)
 	}
 	pending, err := m.pendingIntent(ctx, req.Project, req.Item)
 	if err != nil {
-		return refuse(internalRefusal(err))
+		return cli.Internal(err)
 	}
 	if pending != nil {
 		res, settled := m.drive(ctx, bc, *pending, nil)
@@ -86,7 +85,7 @@ func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 	if req.Key != nil {
 		in, ok, err := m.intentByKey(ctx, req.Key.Key)
 		if err != nil {
-			return refuse(internalRefusal(err))
+			return cli.Internal(err)
 		}
 		if ok {
 			return storedResult(in)
@@ -95,26 +94,26 @@ func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 
 	is, err := bc.Get(ctx, req.Item)
 	if err != nil {
-		return refuse(beadsRefusal(req.Item, err))
+		return beadsRefusal(req.Item, err).Result()
 	}
 	item, table, err := view(req.Project, is)
 	if err != nil {
-		return refuse(internalRefusal(err))
+		return cli.Internal(err)
 	}
 	lease, err := m.Lease(ctx, req.Project, req.Item)
 	if err != nil {
-		return refuse(internalRefusal(err))
+		return cli.Internal(err)
 	}
 	item.Owner = lease.Owner
 	epoch := max(item.Epoch, lease.Epoch)
 
 	if req.ExpectedStatus != "" && req.ExpectedStatus != item.Status {
-		return refuse(&cli.Refusal{Code: cli.CodeStatusChanged, Rule: "status_changed", Item: item.ID,
+		return cli.Refuse(cli.Refusal{Code: cli.CodeStatusChanged, Rule: "status_changed", Item: item.ID,
 			CurrentStatus: item.Status, ExpectedStatus: req.ExpectedStatus, AllowedNext: item.AllowedNext,
 			Hint: fmt.Sprintf("%s moved to %s after the caller read %s; read it again", item.ID, item.Status, req.ExpectedStatus)})
 	}
 	if req.Actor.Fenced && req.Actor.Epoch != epoch {
-		return refuse(leaseRefusal(item.ID, item.Status, req.Actor.Epoch, epoch))
+		return leaseRefusal(item.ID, item.Status, req.Actor.Epoch, epoch).Result()
 	}
 
 	c := &change{ctx: ctx, m: m, req: req, table: table, item: item, set: map[string]string{}, epoch: epoch}
@@ -124,7 +123,7 @@ func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 		if row != nil {
 			hint = fmt.Sprintf("%s does not perform %s; the server does", req.Command, req.Verb)
 		}
-		return refuse(&cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", Item: item.ID,
+		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", Item: item.ID,
 			CurrentStatus: item.Status, AllowedNext: item.AllowedNext, Hint: hint})
 	}
 	c.row, c.to = row, row.To
@@ -133,16 +132,16 @@ func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 	}
 	if row.guard != nil {
 		if r := row.guard(c); r != nil {
-			return refuse(r)
+			return r.Result()
 		}
 	}
 	if row.set != nil {
 		if r := row.set(c); r != nil {
-			return refuse(r)
+			return r.Result()
 		}
 	}
 	if c.to == ToResume {
-		return refuse(internalRefusal(fmt.Errorf("machine: %s %s found no resume target", item.Kind, req.Verb)))
+		return cli.Internal(fmt.Errorf("machine: %s %s found no resume target", item.Kind, req.Verb))
 	}
 	if row.BumpsEpoch {
 		c.epoch = epoch + 1
@@ -161,12 +160,13 @@ func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 	for _, k := range c.unset {
 		delete(c.set, k)
 	}
-	if r := m.secretCheck(c); r != nil {
-		return refuse(r)
+	if r := m.cfg.Redactor.Refusal("secret_in_facts", "write", append(slices.Collect(maps.Values(c.set)), c.param("body"))...); r != nil {
+		r.Item = c.item.ID
+		return r.Result()
 	}
 	if req.Before != nil {
 		if r := req.Before(ctx); r != nil {
-			return refuse(r)
+			return r.Result()
 		}
 	}
 
@@ -174,34 +174,15 @@ func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 	var lr *leaseError
 	switch {
 	case errors.As(err, &lr):
-		return refuse(leaseRefusal(item.ID, item.Status, req.Actor.Epoch, lr.epoch))
+		return leaseRefusal(item.ID, item.Status, req.Actor.Epoch, lr.epoch).Result()
 	case err != nil:
-		return refuse(internalRefusal(err))
+		return cli.Internal(err)
 	}
 	if m.stop(pointRecorded) {
-		return refuse(internalRefusal(errStopped))
+		return cli.Internal(errStopped)
 	}
 	res, _ := m.drive(ctx, bc, in, &is)
 	return res
-}
-
-// secretCheck refuses a write whose facts hold a live secret, before the
-// intent is recorded (KTD27).
-func (m *Machine) secretCheck(c *change) *cli.Refusal {
-	texts := slices.Collect(maps.Values(c.set))
-	texts = append(texts, c.param("body"))
-	var names []string
-	for _, t := range texts {
-		if hit, n := m.cfg.Redactor.Find(t); hit {
-			names = append(names, n...)
-		}
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	slices.Sort(names)
-	return &cli.Refusal{Code: cli.CodeSecretInOutput, Rule: "secret_in_facts", Item: c.item.ID,
-		Hint: "the write holds the value of " + strings.Join(slices.Compact(names), ", ") + "; remove it and write again"}
 }
 
 // leaseError is a stale epoch found inside the record transaction.
@@ -254,7 +235,7 @@ func (m *Machine) record(ctx context.Context, c *change, epoch int64, expectFenc
 func (m *Machine) drive(ctx context.Context, bc beadsx.Client, in store.Intent, cur *beadsx.Issue) (cli.Result, bool) {
 	var f facts
 	if err := json.Unmarshal(in.Facts, &f); err != nil {
-		return m.markRefused(ctx, in, f, internalRefusal(fmt.Errorf("machine: intent %d facts: %w", in.ID, err)))
+		return m.markRefused(ctx, in, f, cli.InternalRefusal(fmt.Errorf("machine: intent %d facts: %w", in.ID, err)))
 	}
 	if cur == nil {
 		is, err := bc.Get(ctx, in.Item)
@@ -262,7 +243,7 @@ func (m *Machine) drive(ctx context.Context, bc beadsx.Client, in store.Intent, 
 			return m.markRefused(ctx, in, f, beadsRefusal(in.Item, err))
 		}
 		if err != nil {
-			return refuse(beadsRefusal(in.Item, err)), false
+			return beadsRefusal(in.Item, err).Result(), false
 		}
 		cur = &is
 	}
@@ -286,7 +267,7 @@ func (m *Machine) drive(ctx context.Context, bc beadsx.Client, in store.Intent, 
 	_, werr := bc.Update(ctx, in.Item, spec)
 	if werr == nil {
 		if m.stop(pointWritten) {
-			return refuse(internalRefusal(errStopped)), false
+			return cli.Internal(errStopped), false
 		}
 		return m.markApplied(ctx, in, f)
 	}
@@ -295,15 +276,15 @@ func (m *Machine) drive(ctx context.Context, bc beadsx.Client, in store.Intent, 
 	// sequence decides, never the error (KTD6).
 	is, rerr := bc.Get(ctx, in.Item)
 	if rerr != nil {
-		return refuse(beadsRefusal(in.Item, rerr)), false
+		return beadsRefusal(in.Item, rerr).Result(), false
 	}
 	if res, done := m.precheck(ctx, in, f, is); done {
 		return res, true
 	}
 	if errors.Is(werr, beadsx.ErrUnavailable) {
-		return refuse(beadsRefusal(in.Item, werr)), false
+		return beadsRefusal(in.Item, werr).Result(), false
 	}
-	return m.markRefused(ctx, in, f, internalRefusal(werr))
+	return m.markRefused(ctx, in, f, cli.InternalRefusal(werr))
 }
 
 // precheck settles an intent the bead already decides: applied when the
@@ -313,14 +294,14 @@ func (m *Machine) drive(ctx context.Context, bc beadsx.Client, in store.Intent, 
 func (m *Machine) precheck(ctx context.Context, in store.Intent, f facts, is beadsx.Issue) (cli.Result, bool) {
 	seq, err := is.IntentSeq()
 	if err != nil {
-		return refuse(internalRefusal(err)), false
+		return cli.Internal(err), false
 	}
 	if seq >= in.Seq {
 		return m.markApplied(ctx, in, f)
 	}
 	be, err := beadEpoch(is)
 	if err != nil {
-		return refuse(internalRefusal(err)), false
+		return cli.Internal(err), false
 	}
 	if be > in.Epoch || is.Assignee != f.Fence {
 		if be <= in.Epoch {
@@ -349,7 +330,7 @@ func (m *Machine) markApplied(ctx context.Context, in store.Intent, f facts) (cl
 		Status: in.TargetStatus, Seq: in.Seq, Epoch: f.Epoch})
 	env, err := m.seal(f, res)
 	if err != nil {
-		return refuse(internalRefusal(err)), false
+		return cli.Internal(err), false
 	}
 	err = m.cfg.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
 		if err := tx.MarkApplied(in.ID, env); err != nil {
@@ -364,26 +345,26 @@ func (m *Machine) markApplied(ctx context.Context, in store.Intent, f facts) (cl
 		return m.settledResult(ctx, in.ID)
 	}
 	if err != nil {
-		return refuse(internalRefusal(err)), false
+		return cli.Internal(err), false
 	}
 	if m.stop(pointMarked) {
-		return refuse(internalRefusal(errStopped)), true
+		return cli.Internal(errStopped), true
 	}
 	return res, true
 }
 
 func (m *Machine) markRefused(ctx context.Context, in store.Intent, f facts, ref *cli.Refusal) (cli.Result, bool) {
-	res := refuse(ref)
+	res := ref.Result()
 	env, err := m.seal(f, res)
 	if err != nil {
-		return refuse(internalRefusal(err)), false
+		return cli.Internal(err), false
 	}
 	err = m.cfg.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error { return tx.MarkRefused(in.ID, env) })
 	if errors.Is(err, store.ErrIntentSettled) {
 		return m.settledResult(ctx, in.ID)
 	}
 	if err != nil {
-		return refuse(internalRefusal(err)), false
+		return cli.Internal(err), false
 	}
 	return res, true
 }
@@ -396,7 +377,7 @@ func (m *Machine) settledResult(ctx context.Context, id int64) (cli.Result, bool
 		return err
 	})
 	if err != nil {
-		return refuse(internalRefusal(err)), false
+		return cli.Internal(err), false
 	}
 	return storedResult(in), true
 }
@@ -413,7 +394,7 @@ func (m *Machine) seal(f facts, res cli.Result) (json.RawMessage, error) {
 func storedResult(in store.Intent) cli.Result {
 	env, err := cli.EnvelopeFromJSON(in.Result)
 	if err != nil {
-		return refuse(internalRefusal(fmt.Errorf("machine: intent %d stored no answer: %w", in.ID, err)))
+		return cli.Internal(fmt.Errorf("machine: intent %d stored no answer: %w", in.ID, err))
 	}
 	if env.Refusal != nil {
 		return cli.Result{Refusal: env.Refusal, Replayed: true}
@@ -451,12 +432,6 @@ func (m *Machine) findIntent(ctx context.Context, query string, args ...any) (*s
 	return out, err
 }
 
-func refuse(r *cli.Refusal) cli.Result { return cli.Refuse(*r) }
-
-func internalRefusal(err error) *cli.Refusal {
-	return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
-}
-
 func leaseRefusal(item, status string, held, current int64) *cli.Refusal {
 	return &cli.Refusal{Code: cli.CodeLeaseNotHeld, Rule: "stale_epoch", Item: item, CurrentStatus: status,
 		Hint: fmt.Sprintf("the caller holds epoch %d of %s, and the lease is at epoch %d", held, item, current)}
@@ -473,5 +448,19 @@ func beadsRefusal(item string, err error) *cli.Refusal {
 		return &cli.Refusal{Code: cli.CodeBeadsUnavailable, Rule: "beads_unavailable", Item: item, RetryAfterSeconds: 5,
 			Hint: "beads did not answer; run the same command again"}
 	}
-	return internalRefusal(err)
+	return cli.InternalRefusal(err)
+}
+
+// Settled maps a machine answer to an error. A status the item already
+// left, a move the table does not hold, or an item that is gone is no
+// fault: the caller read an old view, and its next read decides again.
+func Settled(res cli.Result) error {
+	if res.Refusal == nil {
+		return nil
+	}
+	switch res.Refusal.Code {
+	case cli.CodeStatusChanged, cli.CodeTransitionNotAllowed, cli.CodeNotFound:
+		return nil
+	}
+	return fmt.Errorf("%s: %s", res.Refusal.Code, res.Refusal.Hint)
 }

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -218,9 +219,15 @@ func (t *Tx) settle(intentID int64, to IntentState, outboxTo OutboxState, result
 const intentColumns = `id, project, item, seq, kind, verb, idem_key, expected_status, target_status,
 	facts, epoch, state, result, run_id, actor, created_at, settled_at`
 
-type scanner interface{ Scan(dest ...any) error }
+// Scanner is one row to scan: a *sql.Row or a *sql.Rows.
+type Scanner interface{ Scan(dest ...any) error }
 
-func scanIntent(r scanner) (Intent, error) {
+// Querier runs a query that returns rows: a *sql.DB or a *sql.Tx.
+type Querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func scanIntent(r Scanner) (Intent, error) {
 	var (
 		in        Intent
 		idemKey   sql.NullString
@@ -307,7 +314,7 @@ func (t *Tx) RaiseItemSeq(project, item string, atLeast int64) error {
 const outboxColumns = `id, intent_id, effect_kind, natural_key, payload, state, attempts, next_attempt_at,
 	last_error, created_at, updated_at`
 
-func scanOutbox(r scanner) (OutboxRow, error) {
+func scanOutbox(r Scanner) (OutboxRow, error) {
 	var (
 		ob                        OutboxRow
 		payload, state            string

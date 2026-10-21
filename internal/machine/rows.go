@@ -25,14 +25,14 @@ const (
 	FactTicket       = "ticket"        // the ticket a bug became
 	FactDuplicateOf  = "duplicate_of"  // the item a bug duplicates
 	FactEpic         = "epic"          // a child's epic
-	FactEscalation   = "escalation"    // the escalation that sent the item to a person (U12)
-	FactAnswer       = "answer"        // the last answer a person gave through the inbox (U12)
+	FactEscalation   = "escalation"    // the escalation that sent the item to a person
+	FactAnswer       = "answer"        // the last answer a person gave through the inbox
 	FactAmendment    = "amendment"     // an answer that amends the task; it enters the inputs (R10)
-	FactDocPR        = "doc_pr"        // the PR number of the epic's current document (U13)
-	FactPRDPath      = "prd_path"      // the PRD's path in the repository (U13)
-	FactPRDMerged    = "prd_merged"    // the merge commit of the epic's PRD: the operator's sign-off (U13)
-	FactADR          = "adr"           // the path of the ADR that replaced the PRD of an architecture epic, on the base (U13)
-	FactCreateKey    = "create_key"    // the natural key work entry created the item under (U13)
+	FactDocPR        = "doc_pr"        // the PR number of the epic's current document
+	FactPRDPath      = "prd_path"      // the PRD's path in the repository
+	FactPRDMerged    = "prd_merged"    // the merge commit of the epic's PRD: the operator's sign-off
+	FactADR          = "adr"           // the path of the ADR that replaced the PRD of an architecture epic, on the base
+	FactCreateKey    = "create_key"    // the natural key work entry created the item under
 	FactStories      = "stories"       // the PRD story labels a ticket cites, comma-separated (R45)
 	FactRequest      = "request"       // the operator's request a PRD-less ticket cites (R48)
 	FactReview       = "review"        // the body of the last review verdict
@@ -160,7 +160,7 @@ func paramIs(name, value string) func(c *change) bool {
 	return func(c *change) bool { return c.param(name) == value }
 }
 
-// claimGuard refuses a claim on a held lease, then asks admission (U6).
+// claimGuard refuses a claim on a held lease, then asks admission.
 func claimGuard(c *change) *cli.Refusal {
 	if r := c.needParam("run"); r != nil {
 		return r
@@ -212,7 +212,7 @@ func answerResume(c *change) *cli.Refusal {
 }
 
 // answerFacts stores a person's answer, and an amendment of the task that
-// enters its retry identity (R10, U12).
+// enters its retry identity (R10).
 func answerFacts(c *change) *cli.Refusal {
 	if a := c.param("answer"); a != "" {
 		c.setFact(FactAnswer, a)

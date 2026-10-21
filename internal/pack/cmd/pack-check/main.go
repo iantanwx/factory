@@ -1,4 +1,4 @@
-// Command pack-check runs the pack gate (U15, R39) over the embedded pack.
+// Command pack-check runs the pack gate (R39) over the embedded pack.
 // It checks every command reference against the schema this binary
 // builds: the CLI surface plus the refusal codes of the client-side host
 // verbs. `make pack-check` runs it with both prose linters.

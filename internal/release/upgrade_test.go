@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/server"
 )
 
@@ -41,7 +42,7 @@ func TestUpgradeRefusalsChangeNothing(t *testing.T) {
 			setup: func(t *testing.T, w *instanceWorld, rw *releaseWorld) {
 				rw.publish(w.next("v1.1.0"), []byte("binary v1.1.0"), nil, "")
 				evil := []byte("evil binary")
-				sums := Checksums{AssetName("linux", "amd64"): sha256Hex(evil), MetadataFile: sha256Hex(w.next("v1.1.0").Encode())}
+				sums := Checksums{AssetName("linux", "amd64"): hexid.SHA256(evil), MetadataFile: hexid.SHA256(w.next("v1.1.0").Encode())}
 				rw.replace("v1.1.0", AssetName("linux", "amd64"), evil)
 				rw.replace("v1.1.0", ChecksumsFile, sums.Bytes())
 			}},

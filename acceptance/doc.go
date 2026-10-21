@@ -1,4 +1,4 @@
-// Package acceptance is the parity suite (U17, R15). It starts the real
+// Package acceptance is the parity suite (R15). It starts the real
 // composed server on a temporary instance, with the pinned bd and Dolt, a
 // fake agent host, synthetic GitHub with a local git remote, and the
 // project's own merge mechanism over that synthetic GitHub. Agents, the

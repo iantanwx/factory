@@ -20,7 +20,7 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// Alert kinds the GitHub actor and reactor raise. U12's inbox reads the
+// Alert kinds the GitHub actor and reactor raise. The inbox reads the
 // alerts table.
 const (
 	// AlertForeignHead: a PR head that the server did not push (KTD14).
@@ -135,8 +135,8 @@ func (r *Reactor) reconcileProject(ctx context.Context, p config.Project) error 
 // Tick runs one poll: the full reconcile while one is owed, then for each
 // project the PRs updated since the cursor, the CI of each ticket in
 // review, the base branch into the mirror, and the status effects. While
-// the shared cooldown holds, a tick reads nothing. U8's scheduler calls
-// it.
+// the shared cooldown holds, a tick reads nothing. The scheduler calls it
+// as the github-reactor native job.
 func (r *Reactor) Tick(ctx context.Context) error {
 	if r.m == nil {
 		return nil
@@ -175,7 +175,7 @@ func (r *Reactor) quiet(err error) error {
 	return err
 }
 
-// Run ticks every interval until ctx ends. U8's scheduler may call Tick
+// Run ticks every interval until ctx ends. The scheduler may call Tick
 // instead.
 func (r *Reactor) Run(ctx context.Context, every time.Duration) error {
 	t := time.NewTicker(every)
@@ -334,9 +334,9 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 		if i < 0 {
 			continue
 		}
-		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: "adr_landed", ExpectedStatus: machine.Architecture,
+		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbADRLanded, ExpectedStatus: machine.Architecture,
 			Params: map[string]string{"path": paths[i], "sha": sha}, Actor: machine.Server("reactor")})
-		if err := settled(res); err != nil {
+		if err := machine.Settled(res); err != nil {
 			errs = append(errs, fmt.Errorf("%s adr_landed: %w", ep.ID, err))
 		}
 	}
@@ -388,27 +388,13 @@ func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 		if rep.State != CIRed {
 			continue
 		}
-		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: it.ID, Verb: "ci_red", ExpectedStatus: machine.InReview,
+		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: it.ID, Verb: machine.VerbCIRed, ExpectedStatus: machine.InReview,
 			Params: map[string]string{"head": pr.Head.SHA}, Actor: machine.Server("reactor")})
-		if err := settled(res); err != nil {
+		if err := machine.Settled(res); err != nil {
 			errs = append(errs, fmt.Errorf("%s ci_red: %w", it.ID, err))
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// settled maps a machine answer to an error. A status the item already
-// left, or a move the table does not hold, is no fault: the reactor read
-// an old view, and the next read decides again.
-func settled(res cli.Result) error {
-	if res.Refusal == nil {
-		return nil
-	}
-	switch res.Refusal.Code {
-	case cli.CodeStatusChanged, cli.CodeTransitionNotAllowed, cli.CodeNotFound:
-		return nil
-	}
-	return fmt.Errorf("%s: %s", res.Refusal.Code, res.Refusal.Hint)
 }
 
 // handle reacts to one PR of the project.
@@ -436,7 +422,7 @@ func (r *Reactor) handle(ctx context.Context, p config.Project, base string, pr 
 		return nil
 	}
 	// An epic's PRD and its spec each have a branch and a PR. Only the
-	// current document's PR moves the epic (U13).
+	// current document's PR moves the epic.
 	if it.Kind == machine.KindEpic && it.Fact(machine.FactDocPR) != strconv.Itoa(pr.Number) {
 		return nil
 	}
@@ -470,10 +456,10 @@ func (r *Reactor) closed(ctx context.Context, p config.Project, it machine.Item,
 	if !t.Allows("pr_closed", it.Status) {
 		return nil
 	}
-	res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: it.ID, Verb: "pr_closed", ExpectedStatus: it.Status,
+	res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: it.ID, Verb: machine.VerbPRClosed, ExpectedStatus: it.Status,
 		Params: map[string]string{"pr": strconv.Itoa(pr.Number)}, Actor: machine.Server("reactor")})
 	if res.Refusal != nil {
-		return settled(res)
+		return machine.Settled(res)
 	}
 	return r.alert(ctx, rpc.AuditAlert{Actor: "server:reactor", Project: p.ID, Item: it.ID, Kind: AlertPRClosed,
 		Subject: fmt.Sprintf("%s/%s#%d", p.ID, it.ID, pr.Number),
@@ -507,7 +493,7 @@ func (r *Reactor) head(ctx context.Context, p config.Project, it machine.Item, p
 		sha == it.Fact(machine.FactReviewedHead) {
 		return nil
 	}
-	return settled(r.m.HeadChanged(ctx, p.ID, it.ID, sha))
+	return machine.Settled(r.m.HeadChanged(ctx, p.ID, it.ID, sha))
 }
 
 // alert raises one alert unless the same alert is already open, so a

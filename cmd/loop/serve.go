@@ -32,22 +32,22 @@ func serveVerb(ctx context.Context, inv cli.Invocation) cli.Result {
 	if dir == "" {
 		var err error
 		if dir, err = cli.InstanceDir(); err != nil {
-			return cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "instance_dir", Hint: err.Error()})
+			return cli.Reject(cli.CodeInternal, "instance_dir", err.Error())
 		}
 	}
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	opts, cleanup, err := productionOptions(ctx, dir, realWiring)
 	if err != nil {
-		return cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "serve_failed", Hint: err.Error()})
+		return cli.Reject(cli.CodeInternal, "serve_failed", err.Error())
 	}
 	defer cleanup()
 	err = server.Run(ctx, opts)
 	switch {
 	case errors.Is(err, rpc.ErrInstanceLocked), errors.Is(err, rpc.ErrServerRunning):
-		return cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "instance_locked", Hint: err.Error()})
+		return cli.Reject(cli.CodeInternal, "instance_locked", err.Error())
 	case err != nil:
-		return cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "serve_failed", Hint: err.Error()})
+		return cli.Reject(cli.CodeInternal, "serve_failed", err.Error())
 	}
 	return cli.Found(map[string]any{"instance": dir, "stopped": true})
 }
@@ -71,19 +71,19 @@ var realWiring = wiring{beads: realBeads, agents: realAgents}
 //
 //   - with beads.bd and beads.dolt set, the Dolt supervisor and one beads
 //     workspace for each project (KTD3), so the machine and admission run;
-//   - with agent_host.kind set too, the agent host and the scheduler (U8),
+//   - with agent_host.kind set too, the agent host and the scheduler,
 //     and the coordinator session on the first registered project, which
 //     starts once a project exists;
-//   - with credentials.github_app.app_id set, the GitHub actor and reactor
-//     (U10): its verbs, its start-up reconcile, the base reader of
+//   - with credentials.github_app.app_id set, the GitHub actor and reactor:
+//     its verbs, its start-up reconcile, the base reader of
 //     admission, the manifest reader of secret import, the project config
 //     source, and the reactor as the github-reactor native job; and the
-//     merge interface (U11) after it, with its hand-off as the
-//     merge-handoff native job; and the document pipeline (U13) with
+//     merge interface after it, with its hand-off as the
+//     merge-handoff native job; and the document pipeline with
 //     prd submit, epic decompose and work create.
 //
-// A host config that names none of them serves the U4 verbs only. The
-// returned cleanup stops what it started.
+// A host config that names none of them serves only the verbs of the core
+// server. The returned cleanup stops what it started.
 func productionOptions(ctx context.Context, dir string, w wiring) (server.Options, func(), error) {
 	opts := server.Options{Instance: dir}
 	cleanup := func() {}
@@ -113,13 +113,13 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		opts.BaseFiles = lazyBase{gh}
 		opts.ManifestReader = func(ctx context.Context, p config.Project, branch string) (*config.Manifest, error) {
 			if gh.Service == nil {
-				return nil, errors.New("the GitHub service is not set up")
+				return nil, errNoGitHub
 			}
 			return gh.Service.ManifestReader(ctx, p, branch)
 		}
 		opts.Sched.Refs = func(ctx context.Context, p config.Project) (config.RefReader, string, error) {
 			if gh.Service == nil {
-				return nil, "", errors.New("the GitHub service is not set up")
+				return nil, "", errNoGitHub
 			}
 			branch, err := gh.Service.DefaultBranch(ctx, p)
 			if err != nil {
@@ -182,11 +182,14 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 
 // lazyBase is admission's base reader over the GitHub service, which
 // Setup builds after admission is composed.
+// errNoGitHub is the answer of a GitHub read before Setup built the service.
+var errNoGitHub = errors.New("the GitHub service is not set up")
+
 type lazyBase struct{ gh *server.GitHub }
 
 func (l lazyBase) Files(ctx context.Context, project string, prefixes []string) (map[string]string, error) {
 	if l.gh.Service == nil {
-		return nil, errors.New("the GitHub service is not set up")
+		return nil, errNoGitHub
 	}
 	return l.gh.Service.Files(ctx, project, prefixes)
 }

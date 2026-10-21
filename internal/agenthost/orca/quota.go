@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -41,11 +42,7 @@ func (h *Host) Quota(ctx context.Context, hs agenthost.Harness) (agenthost.Quota
 	if json.Unmarshal(row["updatedAt"], &updated) == nil && updated > 0 {
 		q.UpdatedAt = time.UnixMilli(int64(updated))
 	}
-	keys := make([]string, 0, len(row))
-	for k := range row {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
+	keys := slices.Sorted(maps.Keys(row))
 	for _, k := range keys {
 		var w struct {
 			UsedPercent *float64 `json:"usedPercent"`

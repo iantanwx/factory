@@ -36,7 +36,7 @@ func TestDeclaredPaths(t *testing.T) {
 // Parity: "retry input changes with task and declared source, not
 // unrelated main commits or display metadata" (admission-input.test.ts,
 // alpha). The machinery tree, the PR head and the CI state no longer enter
-// the identity (U6).
+// the identity.
 func TestInputsHash(t *testing.T) {
 	ctx := context.Background()
 	base := newFakeBase(nil)

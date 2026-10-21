@@ -3,7 +3,6 @@ package rpc
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
@@ -11,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -86,10 +86,7 @@ type Tokens struct {
 	Redactor *secrets.Redactor // optional
 }
 
-func hashToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
+func hashToken(token string) string { return hexid.SHA256([]byte(token)) }
 
 func liveName(runID, hash string) string { return "run_token/" + runID + "/" + hash[:8] }
 

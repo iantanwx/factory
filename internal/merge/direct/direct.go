@@ -1,4 +1,4 @@
-// Package direct is the direct merge mechanism (U11, KTD29), for a
+// Package direct is the direct merge mechanism (KTD29), for a
 // repository with no merge queue. The loop is the queue: a hand-off
 // records the PR, and each poll merges it through GitHub's merge API with
 // a merge commit. The call carries the reviewed head sha, so GitHub
@@ -78,11 +78,8 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	if err != nil {
 		return merge.Result{}, err
 	}
-	switch {
-	case cur.Merged():
-		return merge.Result{Outcome: merge.Merged, SHA: cur.MergeCommitSHA}, nil
-	case cur.State != "open":
-		return merge.Result{Outcome: merge.Closed}, nil
+	if res, ok := merge.Terminal(cur); ok {
+		return res, nil
 	}
 	sha, err := d.gh.MergePR(ctx, pr.Project, pr.Number, pr.Head)
 	if err == nil {

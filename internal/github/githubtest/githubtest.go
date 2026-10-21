@@ -2,7 +2,7 @@
 // that mints App installation tokens and answers PR, CI and status calls,
 // and a local smart-HTTP git server (git http-backend) that accepts only
 // a token the fake minted. Nothing here reaches the network. The fixtures
-// name no real repository, token or host path. U17's parity suite can use
+// name no real repository, token or host path. The acceptance suite uses
 // them too.
 package githubtest
 

@@ -7,13 +7,14 @@ import (
 	"slices"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/store"
 )
 
 // mutexStages have one holder for each project at a time. Two intake runs
 // that overlap could create one epic twice (scripts/sdlc/intake-cap.ts,
 // alpha). The stage_mutexes row replaces the mutex issue.
-var mutexStages = []string{stageIntake}
+var mutexStages = []string{config.StageIntake}
 
 func isMutexStage(stage string) bool { return slices.Contains(mutexStages, stage) }
 

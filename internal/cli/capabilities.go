@@ -20,8 +20,8 @@ const (
 var PrincipalKinds = []string{PrincipalNone, PrincipalRun, PrincipalRoom, PrincipalCoordinator, PrincipalHost}
 
 // callerKinds maps each caller label of the surface to the principal kinds
-// it admits. A stage label such as "reviewer run" admits every run here.
-// The scheduler (U8) can narrow a label to its stage later.
+// it admits. A stage label such as "reviewer run" admits every run: the
+// matrix checks the principal's kind, not its stage.
 var callerKinds = map[string][]string{
 	"run":          {PrincipalRun},
 	"reviewer run": {PrincipalRun},

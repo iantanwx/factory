@@ -9,16 +9,15 @@ import (
 )
 
 // The hooks let a scenario act at one exact point of a write: after the
-// server read an item from beads, after beads applied an update, or in the
-// server's stop. Each hook fires once and then disarms. A hook runs on the
-// server's own goroutine, so it may block that call.
+// server read an item from beads, or after beads applied an update. Each
+// hook fires once and then disarms. A hook runs on the server's own
+// goroutine, so it may block that call.
 
 type hookPoint int
 
 const (
 	hookGet hookPoint = iota
 	hookUpdated
-	hookStop
 )
 
 type armed struct {
@@ -27,7 +26,7 @@ type armed struct {
 }
 
 type beadsHooks struct {
-	get, updated, stop *armed
+	get, updated *armed
 }
 
 // AfterGet runs fn once, after the server's next bead read of item and
@@ -40,10 +39,6 @@ func (w *World) AfterUpdate(item string, fn func(ctx context.Context)) {
 	w.arm(&w.hooks.updated, item, fn)
 }
 
-// InStop runs fn once, in the server's stop steps: after its RPC server
-// stopped and before its store closes.
-func (w *World) InStop(fn func()) { w.arm(&w.hooks.stop, "", func(context.Context) { fn() }) }
-
 func (w *World) arm(slot **armed, item string, fn func(ctx context.Context)) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -52,7 +47,7 @@ func (w *World) arm(slot **armed, item string, fn func(ctx context.Context)) {
 
 func (w *World) fire(ctx context.Context, p hookPoint, item string) {
 	w.mu.Lock()
-	slot := map[hookPoint]**armed{hookGet: &w.hooks.get, hookUpdated: &w.hooks.updated, hookStop: &w.hooks.stop}[p]
+	slot := map[hookPoint]**armed{hookGet: &w.hooks.get, hookUpdated: &w.hooks.updated}[p]
 	a := *slot
 	if a == nil || a.item != item {
 		w.mu.Unlock()

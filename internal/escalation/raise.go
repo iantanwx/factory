@@ -84,29 +84,6 @@ func (s *Service) log() *slog.Logger {
 	return s.Logger
 }
 
-func refuse(code, rule, hint string) cli.Result {
-	return cli.Refuse(cli.Refusal{Code: code, Rule: rule, Hint: hint})
-}
-
-// secretRefusal refuses text that holds a stored secret. The hint names the
-// secret and never its value.
-func secretRefusal(red *secrets.Redactor, where string, texts ...string) *cli.Refusal {
-	if red == nil {
-		return nil
-	}
-	var names []string
-	for _, t := range texts {
-		if hit, n := red.Find(t); hit {
-			names = append(names, n...)
-		}
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	return &cli.Refusal{Code: cli.CodeSecretInOutput, Rule: "secret_in_" + where,
-		Hint: fmt.Sprintf("the %s holds the value of %s; remove it and write again", strings.ReplaceAll(where, "_", " "), strings.Join(names, ", "))}
-}
-
 // raise is `loop escalation raise`: a run scores its own finding. A score
 // the rubric routes to the loop is refused with ROUTED_TO_LOOP, and a
 // triaged note on the item records the reason; the item keeps its state.
@@ -115,21 +92,21 @@ func secretRefusal(red *secrets.Redactor, where string, texts ...string) *cli.Re
 func (s *Service) raise(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
 	if p.Item == "" || p.Project == "" {
-		return refuse(cli.CodeUsage, "no_item", "a run raises an escalation on the item it holds, and this run holds none")
+		return cli.Reject(cli.CodeUsage, "no_item", "a run raises an escalation on the item it holds, and this run holds none")
 	}
 	tr, err := ParseTriage(inv.Flags["score"], inv.Flags["choice"])
 	if err != nil {
-		return refuse(cli.CodeUsage, "bad_score", err.Error())
+		return cli.Reject(cli.CodeUsage, "bad_score", err.Error())
 	}
 	body := strings.TrimSpace(inv.Flags["body"])
 	if body == "" {
-		return refuse(cli.CodeUsage, "no_body", "--body holds the finding and the evidence behind the score")
+		return cli.Reject(cli.CodeUsage, "no_body", "--body holds the finding and the evidence behind the score")
 	}
-	if r := secretRefusal(s.Redactor, "escalation", body); r != nil {
-		return cli.Refuse(*r)
+	if r := s.Redactor.Refusal("secret_in_escalation", "escalation", body); r != nil {
+		return r.Result()
 	}
 	if tr.Route() == RouteLoop {
-		res := s.Machine.Apply(ctx, machine.Request{Project: p.Project, Item: p.Item, Verb: "note",
+		res := s.Machine.Apply(ctx, machine.Request{Project: p.Project, Item: p.Item, Verb: machine.VerbNote,
 			Params: map[string]string{"body": TriagedNote(tr, body)},
 			Actor:  machine.Actor{Name: p.Actor(), RunID: p.RunID}})
 		if res.Refusal != nil {
@@ -167,7 +144,7 @@ func (s *Service) raise(ctx context.Context, call *rpc.Call) cli.Result {
 		return nil
 	})
 	if err != nil {
-		return refuse(cli.CodeInternal, "internal", err.Error())
+		return cli.Internal(err)
 	}
 	s.changed()
 	return cli.Found(map[string]any{"escalation": rec,
@@ -182,32 +159,32 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 	// The surface's "fixer" label admits every run, so the stage narrows
 	// it here: only the fixer's panel routes.
 	if p.Stage != FixerStage {
-		return refuse(cli.CodeCapabilityDenied, "fixer_only", "only a fixer run routes an escalation; a run raises its own with `loop escalation raise`")
+		return cli.Reject(cli.CodeCapabilityDenied, "fixer_only", "only a fixer run routes an escalation; a run raises its own with `loop escalation raise`")
 	}
 	id, err := strconv.ParseInt(strings.TrimSpace(inv.Arg("escalation")), 10, 64)
 	if err != nil || id < 1 {
-		return refuse(cli.CodeUsage, "bad_escalation", "the escalation id is a positive number; `loop work peek --stage fixer` lists them")
+		return cli.Reject(cli.CodeUsage, "bad_escalation", "the escalation id is a positive number; `loop work peek --stage fixer` lists them")
 	}
 	content, ok := cli.FileContent(inv)
 	if !ok {
-		return refuse(cli.CodeUsage, "no_file", "--file names the panel file that `loop escalation judge` wrote")
+		return cli.Reject(cli.CodeUsage, "no_file", "--file names the panel file that `loop escalation judge` wrote")
 	}
-	if r := secretRefusal(s.Redactor, "panel_file", content); r != nil {
-		return cli.Refuse(*r)
+	if r := s.Redactor.Refusal("secret_in_panel_file", "panel file", content); r != nil {
+		return r.Result()
 	}
 	panels, err := ParsePanels(content)
 	if err != nil {
-		return refuse(cli.CodeUsage, "bad_panel", err.Error())
+		return cli.Reject(cli.CodeUsage, "bad_panel", err.Error())
 	}
 	rec, err := s.Get(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return refuse(cli.CodeNotFound, "no_escalation", fmt.Sprintf("no escalation %d", id))
+		return cli.Reject(cli.CodeNotFound, "no_escalation", fmt.Sprintf("no escalation %d", id))
 	}
 	if err != nil {
-		return refuse(cli.CodeInternal, "internal", err.Error())
+		return cli.Internal(err)
 	}
 	if p.Project != "" && rec.Project != p.Project {
-		return refuse(cli.CodeCapabilityDenied, "other_project", "a fixer routes the escalations of its own project only")
+		return cli.Reject(cli.CodeCapabilityDenied, "other_project", "a fixer routes the escalations of its own project only")
 	}
 	if rec.State != StateAwaitingPanel {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "already_routed", Item: rec.Item,
@@ -216,19 +193,19 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 	d := DecideAll(panels, DefaultThresholds)
 	raw, err := json.Marshal(map[string]any{"panels": panels, "decision": d})
 	if err != nil {
-		return refuse(cli.CodeInternal, "internal", err.Error())
+		return cli.Internal(err)
 	}
 	if d.Route == RouteLoop {
 		tr, _ := ParseTriage(strconv.Itoa(rec.Level), rec.Choice)
 		note := TriagedNote(tr, "The fixer's panel routed this escalation back to the loop: "+strings.Join(d.Because, "; ")+
 			"\n\nThe finding: "+rec.Finding)
-		res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: "note",
+		res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: machine.VerbNote,
 			Params: map[string]string{"body": note}, Actor: machine.Server("escalation")})
 		if res.Refusal != nil {
 			s.log().WarnContext(ctx, "the triaged note was not written", "item", rec.Item, "code", res.Refusal.Code)
 		}
 	} else {
-		res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: "escalate",
+		res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: machine.VerbEscalate,
 			Params: map[string]string{"escalation": strconv.FormatInt(id, 10)}, Actor: machine.Server("escalation")})
 		if res.Refusal != nil {
 			return res
@@ -246,7 +223,7 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 		_, err := tx.Exec(`DELETE FROM holds WHERE project = ? AND item = ? AND holder = ?`, rec.Project, rec.Item, HolderOf(id))
 		return err
 	}); err != nil {
-		return refuse(cli.CodeInternal, "internal", err.Error())
+		return cli.Internal(err)
 	}
 	s.changed()
 	rec.State, rec.RoutedBy = state, p.Actor()
@@ -281,13 +258,9 @@ type Querier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-type ctxQuerier interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
 const selectCols = `SELECT id, project, item, run_id, stage, level, choice, finding, state, routed_by, created_at, updated_at FROM escalations`
 
-func scan(row interface{ Scan(...any) error }) (Record, error) {
+func scan(row store.Scanner) (Record, error) {
 	var r Record
 	err := row.Scan(&r.ID, &r.Project, &r.Item, &r.RunID, &r.Stage, &r.Level, &r.Choice, &r.Finding, &r.State, &r.RoutedBy,
 		&r.CreatedAt, &r.UpdatedAt)
@@ -297,7 +270,7 @@ func scan(row interface{ Scan(...any) error }) (Record, error) {
 	return r, err
 }
 
-func query(ctx context.Context, q ctxQuerier, sqlText string, args ...any) ([]Record, error) {
+func query(ctx context.Context, q store.Querier, sqlText string, args ...any) ([]Record, error) {
 	rs, err := q.QueryContext(ctx, sqlText, args...)
 	if err != nil {
 		return nil, err

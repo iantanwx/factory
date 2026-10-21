@@ -16,6 +16,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
@@ -264,7 +265,7 @@ func (s *Service) repoDo(ctx context.Context, p config.Project, scope Scope, c C
 // ReadAtBase reads path at the tip of the base branch in the project's
 // mirror, and returns the base sha it read. A path the base lacks matches
 // fs.ErrNotExist. It reads the mirror only: the reactor's tick and
-// `branch sync` bring the base up to date. Admission (U6) reads declared
+// `branch sync` bring the base up to date. Admission reads declared
 // files and cited documents through it.
 func (s *Service) ReadAtBase(ctx context.Context, project, path string) ([]byte, string, error) {
 	p, err := s.project(project)
@@ -378,22 +379,5 @@ func (s *Service) Files(ctx context.Context, project string, prefixes []string) 
 	if err != nil {
 		return nil, err
 	}
-	files := map[string]string{}
-	for _, rec := range strings.Split(string(out), "\x00") {
-		meta, path, ok := strings.Cut(rec, "\t")
-		if !ok {
-			continue
-		}
-		f := strings.Fields(meta) // mode, type, object id
-		if len(f) != 3 {
-			continue
-		}
-		for _, pre := range prefixes {
-			if strings.HasPrefix(path, pre) {
-				files[path] = f[2]
-				break
-			}
-		}
-	}
-	return files, nil
+	return gitx.TreeFiles(out, prefixes), nil
 }

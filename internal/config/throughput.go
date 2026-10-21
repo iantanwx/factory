@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 )
@@ -18,19 +19,32 @@ type Throughput struct {
 	Schedule string `yaml:"schedule,omitempty"`
 }
 
-// The stage set (R13). The machine (U5) names the stages that claim an
-// item, and its claim rows use these names. Intake, the fixer and the
-// native jobs claim no item.
+// The run stages (R13). The machine's claim rows use these names. Intake
+// and the fixer claim no item.
+const (
+	StageImplementer  = "implementer"
+	StageCodeReviewer = "code-reviewer"
+	StageDocReviewer  = "doc-reviewer"
+	StageAmender      = "amender"
+	StageSpecAuthor   = "spec-author"
+	StageDecomposer   = "decomposer"
+	StageFixer        = "fixer"
+	StageReproducer   = "reproducer"
+	// StageIntake is the stage whose cap counts epics, not runs (KTD30).
+	StageIntake = "intake"
+)
+
+// The stage set (R13). The native jobs claim no item.
 var (
 	runStages = []string{
-		"implementer", "code-reviewer", "doc-reviewer", "amender", "spec-author",
-		"decomposer", "fixer", "reproducer", "intake",
+		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StageSpecAuthor,
+		StageDecomposer, StageFixer, StageReproducer, StageIntake,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor"}
 	// pools bound several stages together. The reviewers pool is today's
 	// REVIEW_CAP over every reviewer stage (scripts/sdlc/review-cap.ts,
 	// alpha), next to each stage's own cap.
-	pools = []pool{{name: "reviewers", stages: []string{"code-reviewer", "doc-reviewer"}}}
+	pools = []pool{{name: "reviewers", stages: []string{StageCodeReviewer, StageDocReviewer}}}
 )
 
 type pool struct {
@@ -66,16 +80,16 @@ func isPool(key string) bool {
 func DefaultThroughput() map[string]Throughput {
 	every5 := "*/5 * * * *"
 	return map[string]Throughput{
-		"implementer":        {Cap: 8, Schedule: "3,18,33,48 * * * *"},
-		"code-reviewer":      {Cap: 8, Schedule: every5},
-		"doc-reviewer":       {Cap: 10, Schedule: "26,56 * * * *"},
+		StageImplementer:     {Cap: 8, Schedule: "3,18,33,48 * * * *"},
+		StageCodeReviewer:    {Cap: 8, Schedule: every5},
+		StageDocReviewer:     {Cap: 10, Schedule: "26,56 * * * *"},
 		"reviewers":          {Cap: 10},
-		"amender":            {Cap: 2, Schedule: "16,46 * * * *"},
-		"spec-author":        {Cap: 2, Schedule: "25,55 * * * *"},
-		"decomposer":         {Cap: 2, Schedule: "10,40 * * * *"},
-		"fixer":              {Cap: 1, Schedule: "14,44 * * * *"},
-		"reproducer":         {Cap: 2, Schedule: "12,42 * * * *"},
-		"intake":             {Cap: 8, Schedule: "20,50 * * * *"},
+		StageAmender:         {Cap: 2, Schedule: "16,46 * * * *"},
+		StageSpecAuthor:      {Cap: 2, Schedule: "25,55 * * * *"},
+		StageDecomposer:      {Cap: 2, Schedule: "10,40 * * * *"},
+		StageFixer:           {Cap: 1, Schedule: "14,44 * * * *"},
+		StageReproducer:      {Cap: 2, Schedule: "12,42 * * * *"},
+		StageIntake:          {Cap: 8, Schedule: "20,50 * * * *"},
 		"merge-handoff":      {Cap: 1, Schedule: every5},
 		"dependency-advance": {Cap: 1, Schedule: every5},
 		"decision-timers":    {Cap: 1, Schedule: "* * * * *"},
@@ -102,11 +116,11 @@ func (c *HostConfig) validateThroughput(ck *checker) {
 		switch {
 		case isPool(key) && e.Schedule != "":
 			ck.fail(f+".schedule", "must be absent; a pool bounds other stages and runs nothing")
-		case !isPool(key) && (e.Schedule == "" || hasControl(e.Schedule)):
+		case !isPool(key) && (e.Schedule == "" || HasControl(e.Schedule)):
 			ck.fail(f+".schedule", "must be a nonempty schedule")
 		}
 	}
-	for _, key := range sortedKeys(c.Throughput) {
+	for _, key := range slices.Sorted(maps.Keys(c.Throughput)) {
 		if !slices.Contains(ThroughputKeys(), key) {
 			ck.fail("throughput."+key, "is not a stage, native job or pool of this loop")
 		}

@@ -1,4 +1,4 @@
-// Package github is the server's GitHub actor and reactor (U10). The server
+// Package github is the server's GitHub actor and reactor. The server
 // performs every GitHub act with its own App identity (R31): it pushes from
 // a bare mirror, opens pull requests, posts statuses and comments, and it
 // polls pull requests and CI with cursors in SQLite (KTD16). Agents hold no
@@ -140,7 +140,7 @@ func Refusal(err error) cli.Refusal {
 			return cli.Refusal{Code: cli.CodeGitHubRefused, Rule: "github_refused", Hint: api.Error()}
 		}
 	}
-	return cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
+	return *cli.InternalRefusal(err)
 }
 
 // Refuse is Refusal as a result.

@@ -9,13 +9,14 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/secrets"
 )
 
@@ -41,12 +42,6 @@ func (s *Server) wire() error {
 	return nil
 }
 
-func refuse(code, rule, hint string) cli.Result {
-	return cli.Refuse(cli.Refusal{Code: code, Rule: rule, Hint: hint})
-}
-
-func internalErr(err error) cli.Result { return refuse(cli.CodeInternal, "internal", err.Error()) }
-
 func (s *Server) status(context.Context, *rpc.Call) cli.Result {
 	return cli.Found(map[string]any{
 		"server_version": cli.Version,
@@ -70,15 +65,15 @@ func view(p config.Project) projectView { return projectView{ID: p.ID, Repo: p.R
 func projectFault(err error) cli.Result {
 	switch {
 	case errors.Is(err, config.ErrProjectExists):
-		return refuse(cli.CodeAlreadyExists, "project_exists", err.Error())
+		return cli.Reject(cli.CodeAlreadyExists, "project_exists", err.Error())
 	case errors.Is(err, config.ErrProjectNotFound):
-		return refuse(cli.CodeNotFound, "project_not_found", err.Error())
+		return cli.Reject(cli.CodeNotFound, "project_not_found", err.Error())
 	case errors.Is(err, config.ErrProjectHasLiveRun):
-		return refuse(cli.CodeProjectBusy, "project_has_live_run", err.Error())
+		return cli.Reject(cli.CodeProjectBusy, "project_has_live_run", err.Error())
 	case errors.Is(err, config.ErrInvalid):
-		return refuse(cli.CodeUsage, "invalid_project", err.Error())
+		return cli.Reject(cli.CodeUsage, "invalid_project", err.Error())
 	}
-	return internalErr(err)
+	return cli.Internal(err)
 }
 
 func (s *Server) projectAdd(ctx context.Context, call *rpc.Call) cli.Result {
@@ -136,13 +131,13 @@ func secretProject(call *rpc.Call) (string, *cli.Result) {
 	p := call.Principal
 	if p.Kind == cli.PrincipalRun || p.Kind == cli.PrincipalRoom {
 		if project != "" && project != p.Project {
-			res := refuse(cli.CodeCapabilityDenied, "other_project", "a run checks the secrets of its own project only")
+			res := cli.Reject(cli.CodeCapabilityDenied, "other_project", "a run checks the secrets of its own project only")
 			return "", &res
 		}
 		project = p.Project
 	}
 	if project == "" {
-		res := refuse(cli.CodeUsage, "missing_project", "name the project with --project")
+		res := cli.Reject(cli.CodeUsage, "missing_project", "name the project with --project")
 		return "", &res
 	}
 	return project, nil
@@ -155,11 +150,11 @@ func (s *Server) secretCheck(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	name := call.Inv.Arg("name")
 	if !config.ValidSecretName(name) {
-		return refuse(cli.CodeUsage, "bad_secret_name", "a secret name is an environment variable name")
+		return cli.Reject(cli.CodeUsage, "bad_secret_name", "a secret name is an environment variable name")
 	}
 	ok, err := s.Secrets.Check(ctx, project, name)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	if !ok {
 		return cli.Nothing()
@@ -174,23 +169,23 @@ func (s *Server) secretSet(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	raw, ok := call.Inv.Extra[cli.ExtraStdin]
 	if !ok {
-		return refuse(cli.CodeUsage, "no_stdin", "secret set reads the value from stdin; pipe it in")
+		return cli.Reject(cli.CodeUsage, "no_stdin", "secret set reads the value from stdin; pipe it in")
 	}
 	value, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return refuse(cli.CodeUsage, "bad_stdin", "the value did not arrive intact; run the command again")
+		return cli.Reject(cli.CodeUsage, "bad_stdin", "the value did not arrive intact; run the command again")
 	}
 	defer clear(value)
 	name := call.Inv.Arg("name")
 	if err := s.Secrets.Set(ctx, project, name, bytes.NewReader(value)); err != nil {
 		if errors.Is(err, config.ErrProjectNotFound) {
-			return refuse(cli.CodeNotFound, "project_not_found", fmt.Sprintf("project %s is not registered", project))
+			return cli.Reject(cli.CodeNotFound, "project_not_found", fmt.Sprintf("project %s is not registered", project))
 		}
 		// The secret store's errors never hold the value.
-		return refuse(cli.CodeUsage, "secret_refused", err.Error())
+		return cli.Reject(cli.CodeUsage, "secret_refused", err.Error())
 	}
 	if err := s.RefreshRedactor(ctx); err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	return cli.Found(map[string]any{"project": project, "name": name, "stored": true})
 }
@@ -203,7 +198,7 @@ func (s *Server) secretImport(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	branch := call.Inv.Flags["branch"]
 	if branch == "" {
-		branch = "main"
+		branch = sched.DefaultBaseBranch
 	}
 	read := s.opts.ManifestReader
 	if read == nil {
@@ -212,13 +207,13 @@ func (s *Server) secretImport(ctx context.Context, call *rpc.Call) cli.Result {
 	m, err := read(ctx, p, branch)
 	if err != nil {
 		if errors.Is(err, config.ErrInvalid) {
-			return refuse(cli.CodeUsage, "invalid_manifest", err.Error())
+			return cli.Reject(cli.CodeUsage, "invalid_manifest", err.Error())
 		}
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	cfg, err := config.LoadHost(s.HostPath)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	im := &secrets.Importer{Store: s.Secrets, Vaults: cfg.Vaults, OpPath: s.opts.OpPath, Logger: s.log, Actor: call.Principal.Actor()}
 	res, err := im.Import(ctx, p.ID, m)
@@ -226,10 +221,10 @@ func (s *Server) secretImport(ctx context.Context, call *rpc.Call) cli.Result {
 		s.log.ErrorContext(ctx, "refresh the redactor", "err", refreshErr)
 	}
 	if errors.Is(err, secrets.ErrVaultNotDeclared) {
-		return refuse(cli.CodeUsage, "vault_not_declared", err.Error())
+		return cli.Reject(cli.CodeUsage, "vault_not_declared", err.Error())
 	}
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	imported, added := res.Imported, res.Added
 	if imported == nil {
@@ -243,22 +238,16 @@ func (s *Server) secretImport(ctx context.Context, call *rpc.Call) cli.Result {
 
 // GitManifest reads the manifest from origin/<branch> in the project's
 // local directory with `git show`. It runs no hook and reads no user or
-// system git config. U10 replaces it with a reader over the bare mirror.
+// system git config. A server with the GitHub mirror reads the bare mirror
+// instead.
 func GitManifest(ctx context.Context, p config.Project, branch string) (*config.Manifest, error) {
 	read := func(ctx context.Context, ref, path string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, "git", "-C", p.Path, "show", ref+":"+path)
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		out, err := cmd.Output()
-		if err != nil {
-			msg := stderr.String()
-			if strings.Contains(msg, "does not exist") || strings.Contains(msg, "exists on disk, but not in") {
-				return nil, fs.ErrNotExist
-			}
-			return nil, fmt.Errorf("git show %s:%s: %w: %s", ref, path, err, strings.TrimSpace(msg))
+		out, err := gitx.Run(ctx, p.Path, "show", ref+":"+path)
+		if ge, ok := errors.AsType[*gitx.Error](err); ok &&
+			(strings.Contains(ge.Stderr, "does not exist") || strings.Contains(ge.Stderr, "exists on disk, but not in")) {
+			return nil, fs.ErrNotExist
 		}
-		return out, nil
+		return out, err
 	}
 	snap, err := config.ReadProjectSnapshot(ctx, read, branch)
 	if err != nil {

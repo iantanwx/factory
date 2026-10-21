@@ -1,4 +1,4 @@
-// Package sched is the server's only scheduler (U8, R24). One loop ticks
+// Package sched is the server's only scheduler (R24). One loop ticks
 // every stage and native job of every project on its cron, dispatches stage
 // runs through admission and the agent host, watches each live run, settles
 // it, reclaims its lease to the stage-correct state, cleans its checkout up

@@ -1,14 +1,12 @@
 package sched
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -95,13 +93,9 @@ func checkoutGit(ctx context.Context, dir string, args ...string) (string, error
 	if _, err := os.Stat(dir); err != nil {
 		return "", err
 	}
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := gitx.Run(ctx, dir, args...)
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
 }

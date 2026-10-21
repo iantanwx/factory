@@ -122,11 +122,6 @@ func WithClock(c *Clock) Option { return func(h *Host) { h.clock = c } }
 // WithQuietPeriod overrides agenthost.DefaultQuietPeriod.
 func WithQuietPeriod(d time.Duration) Option { return func(h *Host) { h.quiet = d } }
 
-// WithHarnessArgs sets the extra arguments of one harness.
-func WithHarnessArgs(hs agenthost.Harness, args ...string) Option {
-	return func(h *Host) { h.extra[hs] = args }
-}
-
 // New makes a fake host whose checkouts live under root.
 func New(root string, opts ...Option) *Host {
 	h := &Host{
@@ -154,7 +149,7 @@ var (
 // Clock returns the host's clock.
 func (h *Host) Clock() *Clock { return h.clock }
 
-// Advance moves the host's clock. It serves agenthost.Advancer.
+// Advance moves the host's clock. It serves agenthosttest.Advancer.
 func (h *Host) Advance(d time.Duration) { h.clock.Advance(d) }
 
 // Epoch is the host's current runtime identity.
@@ -166,15 +161,8 @@ func (h *Host) Epoch() string {
 
 func (h *Host) epochLocked() string { return fmt.Sprintf("fake-epoch-%d", h.epoch) }
 
-// AddCheckout registers an existing checkout path, as if the host made it.
-func (h *Host) AddCheckout(path string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.checkouts[filepath.Clean(path)] = true
-}
-
 // CheckoutExists says whether the checkout is still there. It serves
-// agenthost.CheckoutObserver.
+// agenthosttest.CheckoutObserver.
 func (h *Host) CheckoutExists(path string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -191,11 +179,11 @@ func (h *Host) Exit(id agenthost.RunID, code int) {
 }
 
 // EndTurn makes the transcript show the last turn ended now, with nothing
-// pending. It serves agenthost.TurnDriver.
+// pending. It serves agenthosttest.TurnDriver.
 func (h *Host) EndTurn(id agenthost.RunID) { h.setTurn(id, TurnEnded) }
 
 // StartTool makes the transcript show a tool call still running. It serves
-// agenthost.TurnDriver.
+// agenthosttest.TurnDriver.
 func (h *Host) StartTool(id agenthost.RunID) { h.setTurn(id, ToolRunning) }
 
 // Work makes the transcript show a turn in progress.
@@ -214,27 +202,27 @@ func (h *Host) setTurn(id agenthost.RunID, t Turn) {
 	})
 }
 
-// MakeStale makes the session's handle stale. It serves agenthost.Staler.
+// MakeStale makes the session's handle stale. It serves agenthosttest.Staler.
 func (h *Host) MakeStale(id agenthost.RunID) {
 	h.with(id, func(s *session) { s.stale = true })
 }
 
 // RefuseNotify makes the host refuse input to one session. It serves
-// agenthost.NotifyRefuser.
+// agenthosttest.NotifyRefuser.
 func (h *Host) RefuseNotify(id agenthost.RunID, on bool) {
 	h.with(id, func(s *session) { s.refuse = on })
 }
 
 // SetInventoryIncomplete makes every inventory incomplete. It serves
-// agenthost.InventoryBreaker.
+// agenthosttest.InventoryBreaker.
 func (h *Host) SetInventoryIncomplete(on bool) { h.set(func() { h.incomplete = on }) }
 
 // SetNeverReady makes every later start never become ready. It serves
-// agenthost.ReadinessBreaker.
+// agenthosttest.ReadinessBreaker.
 func (h *Host) SetNeverReady(on bool) { h.set(func() { h.neverReady = on }) }
 
 // SetDropModel makes the host drop the model argument of later starts. It
-// serves agenthost.ModelDropper.
+// serves agenthosttest.ModelDropper.
 func (h *Host) SetDropModel(on bool) { h.set(func() { h.dropModel = on }) }
 
 // SetDown makes every call fail with agenthost.ErrHostUnavailable.
@@ -284,7 +272,7 @@ func (h *Host) DaemonDeath() {
 }
 
 // Notifications lists the text each Notify delivered to the session. It
-// serves agenthost.NotifyObserver.
+// serves agenthosttest.NotifyObserver.
 func (h *Host) Notifications(id agenthost.RunID) []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -304,7 +292,7 @@ func (h *Host) Launches() []Launch {
 }
 
 // ProcessArgs lists the harness argument vector of every start. It serves
-// agenthost.ArgvReader.
+// agenthosttest.ArgvReader.
 func (h *Host) ProcessArgs() ([][]string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

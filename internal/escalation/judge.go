@@ -327,10 +327,6 @@ func rubricPath(flag, cwd, checkout string) (string, error) {
 	return "", errors.New("no triage rubric in this checkout; pass --rubric <path to the sdlc-triage skill>")
 }
 
-func usage(rule, hint string) cli.Result {
-	return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: rule, Hint: hint})
-}
-
 // JudgeVerb is the handler of `loop escalation judge` (KTD22). It runs in
 // the fixer's own process: it asks both judges, then Jev, routes the panel
 // with the server's thresholds, writes the panel file and prints it with
@@ -348,31 +344,31 @@ func JudgeVerb(j Judging) cli.Handler {
 		}
 		cwd, err := getwd()
 		if err != nil {
-			return usage("no_cwd", err.Error())
+			return cli.Reject(cli.CodeUsage, "no_cwd", err.Error())
 		}
 		checkout, _ := find(cwd)
 		finding := strings.TrimSpace(inv.Flags["finding"])
 		if finding == "" {
-			return usage("no_finding", "--finding names one finding in one sentence")
+			return cli.Reject(cli.CodeUsage, "no_finding", "--finding names one finding in one sentence")
 		}
 		path, err := rubricPath(inv.Flags["rubric"], cwd, checkout)
 		if err != nil {
-			return usage("no_rubric", err.Error())
+			return cli.Reject(cli.CodeUsage, "no_rubric", err.Error())
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return usage("no_rubric", fmt.Sprintf("read the rubric: %v", err))
+			return cli.Reject(cli.CodeUsage, "no_rubric", fmt.Sprintf("read the rubric: %v", err))
 		}
 		rubric := string(raw)
 		th, err := ThresholdsIn(rubric)
 		if err != nil {
-			return usage("rubric_thresholds", err.Error())
+			return cli.Reject(cli.CodeUsage, "rubric_thresholds", err.Error())
 		}
 		if th != DefaultThresholds {
-			return usage("rubric_drift", fmt.Sprintf("the rubric's thresholds read %+v and the server routes with %+v; change both together", th, DefaultThresholds))
+			return cli.Reject(cli.CodeUsage, "rubric_drift", fmt.Sprintf("the rubric's thresholds read %+v and the server routes with %+v; change both together", th, DefaultThresholds))
 		}
 		if len(j.Judges) != JudgesRequired {
-			return usage("judges", fmt.Sprintf("the panel holds %d judges, and the rubric asks for %d", len(j.Judges), JudgesRequired))
+			return cli.Reject(cli.CodeUsage, "judges", fmt.Sprintf("the panel holds %d judges, and the rubric asks for %d", len(j.Judges), JudgesRequired))
 		}
 
 		prompt := JudgePrompt(rubric, finding)
@@ -420,7 +416,7 @@ func JudgeVerb(j Judging) cli.Handler {
 		decision := Decide(panel, DefaultThresholds)
 		file, err := writePanel(panel, inv.Flags["out"], cwd)
 		if err != nil {
-			return cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "panel_write", Hint: err.Error()})
+			return cli.Reject(cli.CodeInternal, "panel_write", err.Error())
 		}
 		if notes == nil {
 			notes = []string{}

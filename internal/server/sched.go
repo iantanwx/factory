@@ -1,23 +1,20 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
-	"os"
-	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/sched"
 )
 
-// SchedOptions holds the scheduler's optional parts (U8). The server
+// SchedOptions holds the scheduler's optional parts. The server
 // composes the scheduler when Options.Agents is set, and beads and
 // admission are composed.
 type SchedOptions struct {
@@ -26,7 +23,7 @@ type SchedOptions struct {
 	Checkouts func(project string) sched.CheckoutHost
 	// Refs returns where a project's committed config lives: a reader and
 	// the default branch. LocalRefs over the project's own directory when
-	// nil. The GitHub mirror (U10) is the production source.
+	// nil. The GitHub mirror is the production source.
 	Refs RefSource
 	// ProjectConfig replaces the config loader over Refs. Optional.
 	ProjectConfig sched.ProjectSource
@@ -118,17 +115,7 @@ func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 // GitHub mirror uses it.
 func LocalRefs(_ context.Context, p config.Project) (config.RefReader, string, error) {
 	return func(ctx context.Context, ref, path string) ([]byte, error) {
-		run := func(args ...string) ([]byte, error) {
-			cmd := exec.CommandContext(ctx, "git", append([]string{"-C", p.Path}, args...)...)
-			cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-			var stderr bytes.Buffer
-			cmd.Stderr = &stderr
-			out, err := cmd.Output()
-			if err != nil {
-				return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
-			}
-			return out, nil
-		}
+		run := func(args ...string) ([]byte, error) { return gitx.Run(ctx, p.Path, args...) }
 		if _, err := run("cat-file", "-e", ref+":"+path); err != nil {
 			if _, rerr := run("rev-parse", "--verify", "--quiet", ref+"^{commit}"); rerr == nil {
 				return nil, fmt.Errorf("%s holds no %s: %w", ref, path, fs.ErrNotExist)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -40,7 +41,7 @@ type Outage struct {
 	End   time.Time
 }
 
-// Settlement is what the scheduler (U8) knows when a run ends.
+// Settlement is what the scheduler knows when a run ends.
 type Settlement struct {
 	RunID string
 	// Finish is the outcome of `loop run finish`: done, failed or blocked.
@@ -58,8 +59,8 @@ type Settlement struct {
 	// LastCLICall is the run's last CLI call the server observed. Zero
 	// means the server observed none.
 	LastCLICall time.Time
-	// Outages are the recorded outage spans. U8 reads them from the
-	// outages table.
+	// Outages are the recorded outage spans. The scheduler reads them
+	// from the outages table.
 	Outages []Outage
 	// Note is a short reason the failure record keeps.
 	Note string
@@ -72,11 +73,11 @@ type Settlement struct {
 // not it made a CLI call (KTD8).
 func Classify(s Settlement) Class {
 	switch s.Finish {
-	case "done":
+	case cli.OutcomeDone:
 		return ClassDone
-	case "failed":
+	case cli.OutcomeFailed:
 		return ClassFailed
-	case "blocked":
+	case cli.OutcomeBlocked:
 		return ClassBlocked
 	}
 	switch {

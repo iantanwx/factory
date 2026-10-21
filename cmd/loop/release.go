@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,10 +13,12 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/release"
+	"github.com/iantanwx/loop/internal/server"
 )
 
-// registerRelease plugs in the client-side host verbs of U16: install,
+// registerRelease plugs in the client-side host verbs: install,
 // upgrade, rollback, restore and doctor. Doctor calls the server verb
 // doctor-github for the checks that need GitHub. It replaces the gate that
 // cli.Client.Attach set on upgrade and rollback with handlers that make the
@@ -90,9 +90,9 @@ func (h *hostVerbs) instance() (string, error) {
 func fail(err error) cli.Result {
 	var re *release.Error
 	if errors.As(err, &re) {
-		return cli.Refuse(cli.Refusal{Code: re.Code, Rule: re.Rule, Hint: re.Hint})
+		return cli.Reject(re.Code, re.Rule, re.Hint)
 	}
-	return cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "host_verb_failed", Hint: err.Error()})
+	return cli.Reject(cli.CodeInternal, "host_verb_failed", err.Error())
 }
 
 // prepare finds the instance and, when the server answers, asks it to
@@ -160,7 +160,7 @@ func (h *hostVerbs) install(ctx context.Context, inv cli.Invocation) cli.Result 
 		return fail(err)
 	}
 	if len(rep.Drift) > 0 {
-		return cli.Refuse(cli.Refusal{Code: release.CodeDrift, Rule: "drift", Hint: strings.Join(rep.Drift, "; ")})
+		return cli.Reject(release.CodeDrift, "drift", strings.Join(rep.Drift, "; "))
 	}
 	return cli.Found(rep)
 }
@@ -254,7 +254,7 @@ func (h *hostVerbs) doctor(ctx context.Context, inv cli.Invocation) cli.Result {
 		for _, l := range failed {
 			hint = append(hint, l.Check+": "+l.Detail)
 		}
-		return cli.Refuse(cli.Refusal{Code: release.CodeDoctorFailed, Rule: "doctor_failed", Hint: strings.Join(hint, "; ")})
+		return cli.Reject(release.CodeDoctorFailed, "doctor_failed", strings.Join(hint, "; "))
 	}
 	return cli.Found(lines)
 }
@@ -290,11 +290,7 @@ func (s *serverControl) client() *cli.Client {
 	return &c
 }
 
-func newRequestID() string {
-	var b [8]byte
-	_, _ = rand.Read(b[:])
-	return "host-" + hex.EncodeToString(b[:])
-}
+func newRequestID() string { return "host-" + hexid.Random(8) }
 
 // authorize is the probe the CLI's gate makes: the server checks that the
 // caller of a client-side host verb is no run, room or agent session.
@@ -382,10 +378,7 @@ func (h *hostVerbs) githubLines(ctx context.Context, ctl *serverControl) []relea
 	if res.Exit == cli.ExitNothing {
 		return []release.DoctorLine{{Check: "github", OK: true, Detail: "the server holds no project to check"}}
 	}
-	var projects []struct {
-		Project string               `json:"project"`
-		Lines   []release.DoctorLine `json:"lines"`
-	}
+	var projects []server.ProjectDoctor
 	raw, err := json.Marshal(res.Data)
 	if err == nil {
 		err = json.Unmarshal(raw, &projects)

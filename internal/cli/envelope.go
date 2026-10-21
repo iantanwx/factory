@@ -53,6 +53,23 @@ func List[T any](items []T) Result {
 // Refuse is a refusal. Seal fills its exit code and retryable from the table.
 func Refuse(r Refusal) Result { return Result{Refusal: &r} }
 
+// Reject is a refusal that carries only a code, a rule and a hint.
+func Reject(code, rule, hint string) Result {
+	return Refuse(Refusal{Code: code, Rule: rule, Hint: hint})
+}
+
+// InternalRefusal is the INTERNAL refusal of an unexpected error. Its hint
+// is the error text.
+func InternalRefusal(err error) *Refusal {
+	return &Refusal{Code: CodeInternal, Rule: "internal", Hint: err.Error()}
+}
+
+// Internal is the INTERNAL result of an unexpected error.
+func Internal(err error) Result { return InternalRefusal(err).Result() }
+
+// Result is the refusal as a handler's result. It copies the refusal.
+func (r *Refusal) Result() Result { return Refuse(*r) }
+
 // Envelope is the one JSON object every invocation prints. A refusal's
 // fields sit at the top level beside the envelope fields (KTD11).
 type Envelope struct {

@@ -17,7 +17,7 @@ func (m *Machine) Show(ctx context.Context, project, item string) (Item, *cli.Re
 	}
 	l, err := m.Lease(ctx, project, item)
 	if err != nil {
-		return Item{}, internalRefusal(err)
+		return Item{}, cli.InternalRefusal(err)
 	}
 	it.Owner, it.Epoch = l.Owner, max(it.Epoch, l.Epoch)
 	return it, nil
@@ -29,7 +29,7 @@ func (m *Machine) Show(ctx context.Context, project, item string) (Item, *cli.Re
 func (m *Machine) Read(ctx context.Context, project, item string) (Item, *cli.Refusal) {
 	bc, err := m.cfg.Beads(project)
 	if err != nil {
-		return Item{}, internalRefusal(err)
+		return Item{}, cli.InternalRefusal(err)
 	}
 	is, err := bc.Get(ctx, item)
 	if err != nil {
@@ -47,7 +47,7 @@ type ListFilter struct {
 	Kind   Kind
 	Status string
 	// Facts selects items whose facts hold every value, for example the
-	// create key work entry wrote (U13).
+	// create key work entry wrote.
 	Facts map[string]string
 }
 
@@ -56,7 +56,7 @@ type ListFilter struct {
 func (m *Machine) List(ctx context.Context, project string, f ListFilter) ([]Item, *cli.Refusal) {
 	bc, err := m.cfg.Beads(project)
 	if err != nil {
-		return nil, internalRefusal(err)
+		return nil, cli.InternalRefusal(err)
 	}
 	bf := beadsx.Filter{}
 	for k, v := range f.Facts {
@@ -108,20 +108,20 @@ type CreateRequest struct {
 // Create makes the bead, then applies the create verb from Initial. The
 // bead and the first transition are two writes: a crash between them
 // leaves a bead in Initial, which no table row but create moves. Work entry
-// (U13) makes creation idempotent by the epic and child key: it calls
+// makes creation idempotent by the epic and child key: it calls
 // CreateBead with a create key, and Apply with the create verb.
 func (m *Machine) Create(ctx context.Context, cr CreateRequest) (string, cli.Result) {
 	t, ok := TableFor(cr.Kind)
 	if !ok {
-		return "", refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "unknown_kind", Hint: fmt.Sprintf("no kind %q", cr.Kind)})
+		return "", cli.Reject(cli.CodeUsage, "unknown_kind", fmt.Sprintf("no kind %q", cr.Kind))
 	}
 	if !slices.ContainsFunc(t.Rows, func(r Row) bool { return r.Verb == cr.Verb && slices.Contains(r.From, Initial) }) {
-		return "", refuse(&cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", CurrentStatus: Initial,
+		return "", cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", CurrentStatus: Initial,
 			AllowedNext: t.AllowedNext(Initial), Hint: fmt.Sprintf("a new %s has no %s move", cr.Kind, cr.Verb)})
 	}
 	id, ref := m.CreateBead(ctx, cr)
 	if ref != nil {
-		return "", refuse(ref)
+		return "", ref.Result()
 	}
 	return id, m.Apply(ctx, Request{Project: cr.Project, Item: id, Verb: cr.Verb, Params: cr.Params, Actor: cr.Actor})
 }
@@ -137,15 +137,12 @@ func (m *Machine) CreateBead(ctx context.Context, cr CreateRequest) (string, *cl
 	for k, v := range cr.Facts {
 		md[factPrefix+k] = v
 	}
-	for _, v := range append([]string{cr.Title, cr.Description}, valuesOf(md)...) {
-		if hit, names := m.cfg.Redactor.Find(v); hit {
-			return "", &cli.Refusal{Code: cli.CodeSecretInOutput, Rule: "secret_in_facts",
-				Hint: fmt.Sprintf("the new item holds the value of %v", names)}
-		}
+	if r := m.cfg.Redactor.Refusal("secret_in_facts", "new item", append([]string{cr.Title, cr.Description}, valuesOf(md)...)...); r != nil {
+		return "", r
 	}
 	bc, err := m.cfg.Beads(cr.Project)
 	if err != nil {
-		return "", internalRefusal(err)
+		return "", cli.InternalRefusal(err)
 	}
 	is, err := bc.Create(ctx, beadsx.CreateSpec{Title: cr.Title, Description: cr.Description, Type: t.BeadType, Priority: 2, Metadata: md})
 	if err != nil {
@@ -173,7 +170,7 @@ type ClaimRequest struct {
 }
 
 // Claim grants the item's lease to a run: the table's claim row for the
-// stage, the ClaimGuard (U6), and an epoch bump. The scheduler (U8) issues
+// stage, the ClaimGuard, and an epoch bump. The scheduler issues
 // the run's token with the returned epoch.
 func (m *Machine) Claim(ctx context.Context, c ClaimRequest) (Lease, cli.Result) {
 	res := m.Apply(ctx, Request{
@@ -186,12 +183,12 @@ func (m *Machine) Claim(ctx context.Context, c ClaimRequest) (Lease, cli.Result)
 	}
 	l, err := m.Lease(ctx, c.Project, c.Item)
 	if err != nil {
-		return Lease{}, refuse(internalRefusal(err))
+		return Lease{}, cli.Internal(err)
 	}
 	return l, res
 }
 
-// MergeEvent is a merge the GitHub reactor observed (U10).
+// MergeEvent is a merge the GitHub reactor observed.
 type MergeEvent struct {
 	Project string
 	Item    string
@@ -216,7 +213,7 @@ func (m *Machine) MergeObserved(ctx context.Context, ev MergeEvent) cli.Result {
 	}
 	it, ref := m.Show(ctx, ev.Project, ev.Item)
 	if ref != nil {
-		return refuse(ref)
+		return ref.Result()
 	}
 	verb := "merged"
 	if it.Kind == KindEpic {
@@ -232,7 +229,7 @@ func (m *Machine) MergeObserved(ctx context.Context, ev MergeEvent) cli.Result {
 	}
 	if r := res.Refusal; r != nil && r.Code == cli.CodeTransitionNotAllowed {
 		// A terminal item is finished. An epic in a state with no document
-		// row already counted its document's merge (U13).
+		// row already counted its document's merge.
 		if t, ok := TableFor(it.Kind); ok && (t.Terminal(r.CurrentStatus) || it.Kind == KindEpic) {
 			return cli.Nothing()
 		}
@@ -246,7 +243,7 @@ func (m *Machine) MergeObserved(ctx context.Context, ev MergeEvent) cli.Result {
 func (m *Machine) HeadChanged(ctx context.Context, project, item, sha string) cli.Result {
 	it, ref := m.Show(ctx, project, item)
 	if ref != nil {
-		return refuse(ref)
+		return ref.Result()
 	}
 	if it.Kind != KindTicket || !slices.Contains([]string{ReadyToMerge, Queued}, it.Status) || it.Fact(FactReviewedHead) == sha {
 		return cli.Nothing()

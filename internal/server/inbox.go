@@ -18,7 +18,7 @@ import (
 )
 
 // HumanOptions holds the optional parts of the inbox, escalations,
-// decisions and rooms (U12).
+// decisions and rooms.
 type HumanOptions struct {
 	// Now is the clock of the inbox and the decision timers. Sched.Now,
 	// then time.Now, when nil.
@@ -35,12 +35,13 @@ type HumanOptions struct {
 	// NewRoomID names a room. A random id when nil.
 	NewRoomID func() string
 	// Link returns the inbox link of a project's item. When nil, an epic
-	// links to its current document PR, whose merge is the sign-off (U13),
+	// links to its current document PR, whose merge is the sign-off,
 	// and every other item to its `loop work show` line.
 	Link func(project, item string) string
 }
 
-// human is the composed U12 parts and their watch loop.
+// human is the composed inbox, escalation, decision and room parts and
+// their watch loop.
 type human struct {
 	pokes  chan struct{}
 	cancel context.CancelFunc
@@ -64,7 +65,7 @@ func (s *Server) composeHuman() error {
 	s.human = h
 	link := o.Link
 	if link == nil {
-		// An epic's entry links to its current document PR (U13).
+		// An epic's entry links to its current document PR.
 		link = pipeline.Link(s.Machine, s.Projects)
 	}
 	s.Inbox = inbox.New(inbox.Config{Store: s.Store, Machine: s.Machine, Projects: s.Projects.List, Redactor: s.Redactor,
@@ -207,7 +208,7 @@ func (s *Server) peek(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	pending, err := s.Escalations.Pending(ctx, c.Project)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	return cli.Found(map[string]any{"candidate": res.Data, "escalations": pending,
 		"next": "for each escalation: `loop escalation judge --finding <its finding>`, then `loop escalation route <id> --file <panel file>`"})

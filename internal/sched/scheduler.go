@@ -2,9 +2,7 @@ package sched
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +16,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
@@ -38,7 +37,7 @@ const (
 	DefaultBaseBranch = "main"
 )
 
-// Alert kinds the scheduler raises. U12's inbox reads the alerts table.
+// Alert kinds the scheduler raises. The inbox reads the alerts table.
 // The two coordinator-owned kinds ask the coordinator to look and never
 // make the server act (KTD9).
 const (
@@ -187,50 +186,39 @@ func New(cfg Config) (*Scheduler, error) {
 	return s, nil
 }
 
-func randomRunID() string {
-	var b [6]byte
-	_, _ = rand.Read(b[:])
-	return "r-" + hex.EncodeToString(b[:])
-}
+func randomRunID() string { return "r-" + hexid.Random(6) }
 
 func (s *Scheduler) now() time.Time { return s.cfg.Now() }
 
 // RegisterJob sets the work of one native job for each project. The job
-// ticks on its throughput schedule, or the project's override (KTD30). U11
-// registers merge-handoff and U12 decision-timers here. New registers
+// ticks on its throughput schedule, or the project's override (KTD30). The
+// server registers merge-handoff and decision-timers here. New registers
 // dependency-advance itself.
 func (s *Scheduler) RegisterJob(name string, fn JobFunc) error {
-	if !slices.Contains(config.NativeJobs(), name) {
-		return fmt.Errorf("sched: %q is no native job; config.NativeJobs lists them", name)
-	}
-	s.jobsMu.Lock()
-	defer s.jobsMu.Unlock()
-	if _, dup := s.jobs[name]; dup {
-		return fmt.Errorf("sched: native job %q is registered twice", name)
-	}
-	if _, dup := s.instanceJobs[name]; dup {
-		return fmt.Errorf("sched: native job %q is registered twice", name)
-	}
-	s.jobs[name] = fn
-	return nil
+	return s.register(name, func() { s.jobs[name] = fn })
 }
 
 // RegisterInstanceJob sets the work of one native job that covers every
 // project in one call, such as the GitHub reactor. It ticks on host
 // config's schedule only.
 func (s *Scheduler) RegisterInstanceJob(name string, fn InstanceJobFunc) error {
+	return s.register(name, func() { s.instanceJobs[name] = fn })
+}
+
+// register runs add under the jobs lock when name is a native job that
+// neither kind of job holds yet.
+func (s *Scheduler) register(name string, add func()) error {
 	if !slices.Contains(config.NativeJobs(), name) {
 		return fmt.Errorf("sched: %q is no native job; config.NativeJobs lists them", name)
 	}
 	s.jobsMu.Lock()
 	defer s.jobsMu.Unlock()
-	if _, dup := s.jobs[name]; dup {
+	_, dup := s.jobs[name]
+	_, dupInstance := s.instanceJobs[name]
+	if dup || dupInstance {
 		return fmt.Errorf("sched: native job %q is registered twice", name)
 	}
-	if _, dup := s.instanceJobs[name]; dup {
-		return fmt.Errorf("sched: native job %q is registered twice", name)
-	}
-	s.instanceJobs[name] = fn
+	add()
 	return nil
 }
 
@@ -409,7 +397,7 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 				if s.job(stage) == nil {
 					continue
 				}
-			} else if snap == nil || !snap.Config.StageEnabled(stage) || stage == intakeStage {
+			} else if snap == nil || !snap.Config.StageEnabled(stage) || stage == config.StageIntake {
 				continue
 			}
 			expr := hc.Throughput[stage].Schedule

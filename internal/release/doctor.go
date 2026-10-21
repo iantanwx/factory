@@ -14,17 +14,15 @@ import (
 	"strings"
 
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/github"
 )
 
 // DoctorLine is one line of `loop doctor`. A failed line says what the
-// operator changes.
-type DoctorLine struct {
-	Check  string `json:"check"`
-	OK     bool   `json:"ok"`
-	Detail string `json:"detail"`
-}
+// operator changes. It is the GitHub check line, so the server's lines
+// join the host's lines unchanged.
+type DoctorLine = github.CheckLine
 
-// Doctor runs the host checks of `loop doctor` (U16). The GitHub checks
+// Doctor runs the host checks of `loop doctor`. The GitHub checks
 // need the platform credentials, so they run on the server, and Remote
 // returns their lines.
 type Doctor struct {

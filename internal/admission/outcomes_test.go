@@ -38,7 +38,7 @@ func TestClassify(t *testing.T) {
 	}
 }
 
-// The plan's two outage scenarios (U6), with injected times.
+// The plan's two outage scenarios, with injected times.
 func TestOutageScenarios(t *testing.T) {
 	w := newWorld(t)
 	t0 := time.Now().Add(-time.Hour)

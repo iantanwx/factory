@@ -1,4 +1,4 @@
-// Package ghqueue is the github-queue merge mechanism (U11, KTD29). A
+// Package ghqueue is the github-queue merge mechanism (KTD29). A
 // hand-off adds the PR to GitHub's merge queue with the App token, at the
 // reviewed head only. GitHub checks required statuses on the merge-group
 // commit, not on the PR head, so the sweep posts loop/eligible on a group
@@ -125,11 +125,8 @@ func (q *Queue) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	if err != nil {
 		return merge.Result{}, err
 	}
-	switch {
-	case cur.Merged():
-		return merge.Result{Outcome: merge.Merged, SHA: cur.MergeCommitSHA}, nil
-	case cur.State != "open":
-		return merge.Result{Outcome: merge.Closed}, nil
+	if res, ok := merge.Terminal(cur); ok {
+		return res, nil
 	}
 	e, err := q.entry(ctx, pr)
 	if err != nil {

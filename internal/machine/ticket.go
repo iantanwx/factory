@@ -76,11 +76,11 @@ func ticketTable() *Table {
 	}
 	live := []string{Backlog, Todo, InProgress, InReview, Repair, ReadyToMerge, Queued, Escalated}
 	rows := []Row{
-		{Verb: "create", From: []string{Initial}, To: Todo, When: "no_open_dependency",
+		{Verb: VerbCreate, From: []string{Initial}, To: Todo, When: "no_open_dependency",
 			when: paramIs("blocked", ""), set: setEntry(EntryNew), Facts: []string{FactEntry}},
-		{Verb: "create", From: []string{Initial}, To: Backlog, When: "open_dependency",
+		{Verb: VerbCreate, From: []string{Initial}, To: Backlog, When: "open_dependency",
 			when: paramIs("blocked", "true")},
-		{Verb: "unblock", From: []string{Backlog}, To: Todo, Command: "work unblock",
+		{Verb: VerbUnblock, From: []string{Backlog}, To: Todo, Command: "work unblock",
 			set: setEntry(EntryNew), Facts: []string{FactEntry}},
 
 		{Verb: "claim", From: []string{Todo}, To: InProgress, Stage: StageImplementer, when: stageIs(StageImplementer),
@@ -92,7 +92,7 @@ func ticketTable() *Table {
 
 		{Verb: "pr_open", From: []string{InProgress}, To: InReview, Lease: LeaseDrop,
 			set: copyParam("head", FactHead), Facts: []string{FactHead}},
-		{Verb: "ci_red", From: []string{InReview}, To: Repair},
+		{Verb: VerbCIRed, From: []string{InReview}, To: Repair},
 		{Verb: "fix_pushed", From: []string{Repair}, To: InReview, Lease: LeaseDrop,
 			set: copyParam("head", FactHead), Facts: []string{FactHead}},
 		{Verb: "review_pass", From: []string{InReview}, To: ReadyToMerge, Command: "review submit", Lease: LeaseDrop,
@@ -101,21 +101,21 @@ func ticketTable() *Table {
 			set: reviewReject, Facts: []string{FactRejects, FactModelTier, FactEntry, FactReviewedHead}},
 		{Verb: "head_changed", From: []string{ReadyToMerge, Queued}, To: InReview,
 			set: all(clearFacts(FactReviewedHead), copyParam("head", FactHead)), Facts: []string{FactReviewedHead, FactHead}},
-		{Verb: "enqueue", From: []string{ReadyToMerge}, To: Queued, guard: enqueueGuard},
+		{Verb: VerbEnqueue, From: []string{ReadyToMerge}, To: Queued, guard: enqueueGuard},
 		{Verb: "dequeue_conflict", From: []string{Queued}, To: Todo,
 			set: all(setEntry(EntryRework), clearFacts(FactReviewedHead)), Facts: []string{FactEntry, FactReviewedHead}},
 		{Verb: "dequeue_red", From: []string{Queued}, To: Repair,
 			set: clearFacts(FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "merged", From: live, To: Done, BumpsEpoch: true, Lease: LeaseDrop,
 			set: copyParam("sha", FactMergedSHA), Facts: []string{FactMergedSHA}},
-		{Verb: "pr_closed", From: prOpenStates, To: Escalated, Lease: LeaseDrop,
+		{Verb: VerbPRClosed, From: prOpenStates, To: Escalated, Lease: LeaseDrop,
 			set: escalateTo(ticketResume), Facts: []string{FactResume, FactResumeEntry, FactEscalation}},
-		{Verb: "escalate", From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
+		{Verb: VerbEscalate, From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
 			set: escalateTo(ticketResume), Facts: []string{FactResume, FactResumeEntry, FactEscalation}},
-		{Verb: "answer", From: []string{Escalated}, To: ToResume, ResumeTo: []string{Todo},
+		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: []string{Todo},
 			set: answerResume, Facts: []string{FactEntry, FactResume, FactResumeEntry, FactEscalation, FactAnswer, FactAmendment}},
 		{Verb: "cancel", From: []string{Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop},
-		{Verb: "note", From: live, To: ToSame, Command: "work note", set: notePut, Facts: []string{FactNote}},
+		{Verb: VerbNote, From: live, To: ToSame, Command: "work note", set: notePut, Facts: []string{FactNote}},
 		editRow(live),
 	}
 	rows = withReviews(rows)

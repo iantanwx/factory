@@ -18,6 +18,13 @@ var (
 	anyone   = []string{"anyone"}
 )
 
+// Run finish outcomes: the values of `run finish --outcome`.
+const (
+	OutcomeDone    = "done"
+	OutcomeFailed  = "failed"
+	OutcomeBlocked = "blocked"
+)
+
 func arg(name, description string) Arg {
 	return Arg{Name: name, Required: true, Description: description}
 }
@@ -93,7 +100,7 @@ var surface = []Verb{
 		projectFlag)),
 
 	write(server("run", "finish", "report the run's outcome and release its lease", runOnly, nil,
-		Flag{Name: "outcome", Type: FlagString, Required: true, Enum: []string{"done", "failed", "blocked"}, Description: "how the run ended"},
+		Flag{Name: "outcome", Type: FlagString, Required: true, Enum: []string{OutcomeDone, OutcomeFailed, OutcomeBlocked}, Description: "how the run ended"},
 		Flag{Name: "fault", Type: FlagString, Description: "the loop fault that stopped the run, F-<n>; the run's record keeps it"})),
 	server("run", "show", "show one run", coordinator, []Arg{runArg}),
 	server("run", "list", "list runs", coordinator, nil),
@@ -240,7 +247,7 @@ var surfaceTables []surfaceTable
 
 // RegisterSurfaceTable adds the transition table of one item kind to every
 // registry Surface builds, so the server and the CLI print the same schema.
-// The machine package (U5) calls it from init. It panics on a duplicate
+// The machine package calls it from init. It panics on a duplicate
 // kind, the same mistake RegisterTransitionTable refuses.
 func RegisterSurfaceTable(kind string, table any) {
 	for _, t := range surfaceTables {

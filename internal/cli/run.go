@@ -2,13 +2,13 @@ package cli
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"runtime"
 	"strings"
+
+	"github.com/iantanwx/loop/internal/hexid"
 )
 
 // New returns the registry with the whole CLI surface and the verbs this
@@ -55,7 +55,7 @@ func (r *Registry) Run(ctx context.Context, args []string, stdout, stderr io.Wri
 func (r *Registry) dispatch(ctx context.Context, c call, requestID string) (res Result) {
 	defer func() {
 		if p := recover(); p != nil {
-			res = *internal(fmt.Errorf("%s panicked: %v", c.path, p))
+			res = Internal(fmt.Errorf("%s panicked: %v", c.path, p))
 		}
 	}()
 	h := c.verb.handler
@@ -75,15 +75,10 @@ func notImplemented(_ context.Context, inv Invocation) Result {
 	})
 }
 
-func internal(err error) *Result {
-	res := Refuse(Refusal{Code: CodeInternal, Rule: "internal", Hint: err.Error()})
-	return &res
-}
-
 func (r *Registry) schemaVerb(context.Context, Invocation) Result {
 	s, err := r.Schema()
 	if err != nil {
-		return *internal(err)
+		return Internal(err)
 	}
 	return Found(s)
 }
@@ -111,8 +106,4 @@ func validRequestID(id string) bool {
 	return true
 }
 
-func newRequestID() string {
-	var b [8]byte
-	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
-}
+func newRequestID() string { return hexid.Random(8) }

@@ -1,5 +1,5 @@
 // Package release builds, signs, installs, upgrades, rolls back and
-// restores a loop instance (U16, KTD26). Every step reports through a
+// restores a loop instance (KTD26). Every step reports through a
 // value the CLI prints as one JSON envelope. Nothing here prompts.
 package release
 

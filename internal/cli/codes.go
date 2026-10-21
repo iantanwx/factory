@@ -36,7 +36,7 @@ var exitTable = []ExitInfo{
 // ExitCodes returns the exit-code table in exit order.
 func ExitCodes() []ExitInfo { return append([]ExitInfo(nil), exitTable...) }
 
-// Refusal codes seeded by U1. Later units add codes with RegisterRefusal.
+// The core refusal codes. Other packages add codes with RegisterRefusal.
 const (
 	CodeUsage                = "USAGE"
 	CodeNotFound             = "NOT_FOUND"

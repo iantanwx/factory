@@ -28,7 +28,7 @@ type AuditAlert struct {
 }
 
 // WriteAuditAlert writes the audit row and raises or counts up the alert in
-// one transaction. U12's inbox reads the alerts table.
+// one transaction. The inbox reads the alerts table.
 func WriteAuditAlert(ctx context.Context, st *store.Store, red *secrets.Redactor, a AuditAlert) error {
 	detail := a.Detail
 	if detail == nil {

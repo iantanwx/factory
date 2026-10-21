@@ -118,7 +118,7 @@ func checkOpRef(ref string) string {
 	if !ok {
 		return "must be a 1Password reference that starts with op://"
 	}
-	if hasControl(rest) || strings.ContainsAny(rest, "?#") {
+	if HasControl(rest) || strings.ContainsAny(rest, "?#") {
 		return "must not hold a control character, a query or a fragment"
 	}
 	parts := strings.Split(rest, "/")

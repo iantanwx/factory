@@ -1,5 +1,5 @@
 // Package merge lands eligible PRs through the project's merge mechanism
-// (U11, R51, KTD29). A project's config names one of three mechanisms:
+// (R51, KTD29). A project's config names one of three mechanisms:
 // mergify, github-queue or direct. Each one hands off a PR only at the head
 // a review passed, with loop/eligible posted on that head (KTD15). Each one
 // maps its own events onto three outcomes, merged, dequeued with a reason
@@ -81,6 +81,18 @@ type Mechanism interface {
 // eligible reports whether PR number is eligible at its queued head.
 type Sweeper interface {
 	Sweep(ctx context.Context, p config.Project, eligible func(ctx context.Context, number int) (bool, error)) error
+}
+
+// Terminal is the result of a pull request that GitHub already merged or
+// closed. ok is false while the pull request is open.
+func Terminal(cur github.PR) (res Result, ok bool) {
+	switch {
+	case cur.Merged():
+		return Result{Outcome: Merged, SHA: cur.MergeCommitSHA}, true
+	case cur.State != "open":
+		return Result{Outcome: Closed}, true
+	}
+	return Result{}, false
 }
 
 // Classify maps what GitHub reports about a dequeued PR to a reason: a

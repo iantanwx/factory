@@ -6,11 +6,16 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/iantanwx/loop/internal/cli"
 )
 
 // MinRedactLen is the shortest value the redactor matches. A shorter value,
@@ -107,12 +112,30 @@ func (r *Redactor) Find(text string) (bool, []string) {
 	if len(seen) == 0 {
 		return false, nil
 	}
-	names := make([]string, 0, len(seen))
-	for n := range seen {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(seen))
 	return true, names
+}
+
+// Refusal is the SECRET_IN_OUTPUT refusal of texts that hold a live value
+// (KTD27), or nil when none does. Rule is the refusal's rule. The hint
+// names what holds the values, and the sorted names of the values, never a
+// value. A nil redactor finds nothing.
+func (r *Redactor) Refusal(rule, what string, texts ...string) *cli.Refusal {
+	if r == nil {
+		return nil
+	}
+	var names []string
+	for _, t := range texts {
+		if hit, n := r.Find(t); hit {
+			names = append(names, n...)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	slices.Sort(names)
+	return &cli.Refusal{Code: cli.CodeSecretInOutput, Rule: rule,
+		Hint: fmt.Sprintf("the %s holds the value of %s; remove it and write again", what, strings.Join(slices.Compact(names), ", "))}
 }
 
 // Redact replaces each match with [REDACTED:<name>]. Overlapping matches

@@ -97,7 +97,7 @@ func specClaim(r Row) Row {
 func childrenTerminal(c *change) *cli.Refusal {
 	bc, err := c.m.cfg.Beads(c.item.Project)
 	if err != nil {
-		return internalRefusal(err)
+		return cli.InternalRefusal(err)
 	}
 	_, open, err := children(c.ctx, bc, c.item.ID)
 	if err != nil {
@@ -191,9 +191,9 @@ func epicTable() *Table {
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}}
 	}
 	rows := []Row{
-		{Verb: "prd_submit", From: []string{Initial}, To: PRDReview, Command: "prd submit",
+		{Verb: VerbPRDSubmit, From: []string{Initial}, To: PRDReview, Command: "prd submit",
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
-		{Verb: "create_architecture", From: []string{Initial}, To: Architecture},
+		{Verb: VerbCreateArchitecture, From: []string{Initial}, To: Architecture},
 
 		claim(PRDReview, ToSame, StageDocReviewer),
 		claim(PRDAmending, ToSame, StageAmender),
@@ -209,15 +209,15 @@ func epicTable() *Table {
 			set: all(bumpPRDRejects, escalateTo(epicResumeFor)), Facts: []string{FactPRDRejects, FactResume, FactEscalation}},
 		{Verb: "prd_amended", From: []string{PRDAmending}, To: PRDReview, Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{PRDSignoff}, To: SpecNeeded, set: mark(FactPRDMerged, "sha"), Facts: []string{FactPRDMerged}},
-		{Verb: "adr_landed", From: []string{Architecture}, To: SpecNeeded, set: mark(FactADR, "path"), Facts: []string{FactADR}},
+		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded, set: mark(FactADR, "path"), Facts: []string{FactADR}},
 		{Verb: "pr_open", From: []string{SpecDrafting}, To: SpecReview, Lease: LeaseDrop,
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
 		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop},
 		{Verb: "review_reject", From: []string{SpecReview}, To: SpecNeeded, Command: "review submit", Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{SpecSignoff}, To: SpecApproved},
-		{Verb: "decomposed", From: []string{Decomposing}, To: Execution, Lease: LeaseDrop},
+		{Verb: VerbDecomposed, From: []string{Decomposing}, To: Execution, Lease: LeaseDrop},
 		{Verb: "complete", From: []string{Execution}, To: Done, guard: childrenTerminal},
-		{Verb: "answer", From: []string{Escalated}, To: ToResume, ResumeTo: uniqueValues(epicResume),
+		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: uniqueValues(epicResume),
 			set: answerResume, Facts: []string{FactResume, FactEscalation, FactAnswer, FactAmendment}},
 
 		// A document merged while still in review counts as sign-off and
@@ -228,11 +228,11 @@ func epicTable() *Table {
 		{Verb: "doc_merged", From: []string{SpecReview}, To: SpecSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop},
 
 		// A closed document PR escalates the epic and never cancels it.
-		{Verb: "pr_closed", From: []string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff}, To: Escalated,
+		{Verb: VerbPRClosed, From: []string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff}, To: Escalated,
 			Lease: LeaseDrop, set: escalateTo(epicResumeFor), Facts: []string{FactResume, FactEscalation}},
-		{Verb: "escalate", From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
+		{Verb: VerbEscalate, From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
 			set: escalateTo(epicResumeFor), Facts: []string{FactResume, FactEscalation}},
-		{Verb: "note", From: live, To: ToSame, Command: "work note", set: notePut, Facts: []string{FactNote}},
+		{Verb: VerbNote, From: live, To: ToSame, Command: "work note", set: notePut, Facts: []string{FactNote}},
 		editRow(live),
 	}
 	rows = withReviews(rows)
@@ -245,9 +245,10 @@ func epicTable() *Table {
 
 // uniqueValues lists the targets of m once each, in state order.
 func uniqueValues(m map[string]string) []string {
+	values := slices.Collect(maps.Values(m))
 	var out []string
 	for _, s := range epicStateOrder() {
-		if slices.Contains(slices.Collect(maps.Values(m)), s) {
+		if slices.Contains(values, s) {
 			out = append(out, s)
 		}
 	}

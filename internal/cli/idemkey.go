@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/iantanwx/loop/internal/hexid"
 )
 
 // keyScheme is the version of the key canonicalisation. It is frozen: a
@@ -66,8 +68,7 @@ func ArgsHash(verb string, args []string, flags map[string]string) string {
 	if err != nil {
 		panic(err) // strings only; Marshal cannot fail
 	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
+	return hexid.SHA256(raw)
 }
 
 // DeriveKey returns the idempotency key of one write. Equal parts give an
@@ -139,6 +140,5 @@ func CheckoutHead(ctx context.Context, checkout string) (string, error) {
 func HeadContentHash(head string) string { return hashText("head", head) }
 
 func hashText(kind, text string) string {
-	sum := sha256.Sum256([]byte(kind + "\x00" + text))
-	return kind + ":" + hex.EncodeToString(sum[:])
+	return kind + ":" + hexid.SHA256([]byte(kind+"\x00"+text))
 }

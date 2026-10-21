@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
+	"slices"
 	"strings"
 	"time"
 )
@@ -77,11 +79,11 @@ func (c *ProjectConfig) validate() error {
 	ck := &checker{source: ProjectConfigPath}
 	if c.Manifest != "" {
 		clean := path.Clean(c.Manifest)
-		if path.IsAbs(c.Manifest) || clean != c.Manifest || clean == ".." || strings.HasPrefix(clean, "../") || hasControl(c.Manifest) {
+		if path.IsAbs(c.Manifest) || clean != c.Manifest || clean == ".." || strings.HasPrefix(clean, "../") || HasControl(c.Manifest) {
 			ck.fail("manifest", "must be a clean path inside the repository")
 		}
 	}
-	if hasControl(strings.ReplaceAll(c.Setup, "\n", "")) {
+	if HasControl(strings.ReplaceAll(c.Setup, "\n", "")) {
 		ck.fail("setup", "must not hold a control character")
 	}
 	if c.Tracker.Adapter != "" && !validIdent(c.Tracker.Adapter) {
@@ -92,7 +94,7 @@ func (c *ProjectConfig) validate() error {
 	default:
 		ck.fail("merge.mechanism", "must be mergify, github-queue or direct")
 	}
-	for _, name := range sortedKeys(c.Stages) {
+	for _, name := range slices.Sorted(maps.Keys(c.Stages)) {
 		s, f := c.Stages[name], "stages."+name
 		if !validIdent(name) {
 			ck.fail("stages", "stage names must be lower-case identifiers")
@@ -101,7 +103,7 @@ func (c *ProjectConfig) validate() error {
 		if s.Harness != "" && !validIdent(s.Harness) {
 			ck.fail(f+".harness", "must be a lower-case identifier")
 		}
-		if hasControl(s.Model) || hasControl(s.Schedule) {
+		if HasControl(s.Model) || HasControl(s.Schedule) {
 			ck.fail(f, "must not hold a control character")
 		}
 		if s.RunBudget < 0 {
@@ -144,11 +146,11 @@ func (c *ProjectConfig) StageEnabled(stage string) bool {
 	return ok && (s.Enabled == nil || *s.Enabled)
 }
 
-// CheckStages refuses a stage name outside known. The scheduler (U8) owns
+// CheckStages refuses a stage name outside known. The scheduler owns
 // the stage list, so it calls this after it loads a config.
 func (c *ProjectConfig) CheckStages(known []string) error {
 	ck := &checker{source: ProjectConfigPath}
-	for _, name := range sortedKeys(c.Stages) {
+	for _, name := range slices.Sorted(maps.Keys(c.Stages)) {
 		found := false
 		for _, k := range known {
 			found = found || k == name
@@ -161,8 +163,8 @@ func (c *ProjectConfig) CheckStages(known []string) error {
 }
 
 // RefReader returns the bytes of path at a git ref. It returns an error that
-// matches fs.ErrNotExist when the ref holds no such file. U10 supplies the
-// reader over the project's bare mirror.
+// matches fs.ErrNotExist when the ref holds no such file. The GitHub
+// service supplies the reader over the project's bare mirror.
 type RefReader func(ctx context.Context, ref, path string) ([]byte, error)
 
 // DefaultRef is the ref that holds a project's committed config: the remote
@@ -217,7 +219,7 @@ func ReadProjectSnapshot(ctx context.Context, read RefReader, defaultBranch stri
 // checkBranchName refuses a default branch name that git could read as an
 // option, a revision expression or another ref.
 func checkBranchName(b string) error {
-	if b == "" || strings.HasPrefix(b, "-") || strings.Contains(b, "..") || strings.ContainsAny(b, " ~^:?*[\\@{") || hasControl(b) {
+	if b == "" || strings.HasPrefix(b, "-") || strings.Contains(b, "..") || strings.ContainsAny(b, " ~^:?*[\\@{") || HasControl(b) {
 		return &InvalidError{Source: "project registration", Field: "default branch", Reason: "is not a plain branch name"}
 	}
 	return nil

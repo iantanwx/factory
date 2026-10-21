@@ -14,7 +14,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 )
 
-// The REST and GraphQL calls of the merge mechanisms (U11). Each call
+// The REST and GraphQL calls of the merge mechanisms. Each call
 // mints a token of the smallest scope it needs (KTD15).
 
 // EligiblePosted reports whether the server posted loop/eligible on sha:

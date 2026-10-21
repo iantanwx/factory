@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// The merge side of the world (U11): labels, the merge API, GitHub's
+// The merge side of the world: labels, the merge API, GitHub's
 // merge queue over GraphQL, merge-group branches, the contents API and
 // branch refs. Nothing here models a vendor's wording: a refusal carries
 // the status code, and a test asserts outcomes.

@@ -52,7 +52,7 @@ func strs(l []any) []string {
 }
 
 // The loop App's queue command passes only for the base branch, the queue
-// label and loop/eligible (U11).
+// label and loop/eligible.
 func TestTemplateLetsTheAppQueueOnlyForTheBaseTheLabelAndEligible(t *testing.T) {
 	doc := render(t, fixture())
 	conds := list(t, doc, "commands_restrictions", "queue", "conditions")

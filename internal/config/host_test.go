@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -62,7 +63,7 @@ func TestParseHostValid(t *testing.T) {
 	if cfg.RunBudget != 2*time.Hour || cfg.QuietPeriod != 15*time.Minute {
 		t.Fatalf("durations = %v, %v", cfg.RunBudget, cfg.QuietPeriod)
 	}
-	if !cfg.VaultDeclared("Loop") || cfg.VaultDeclared("Private") {
+	if !slices.Contains(cfg.Vaults, "Loop") || slices.Contains(cfg.Vaults, "Private") {
 		t.Fatalf("vault declaration is wrong: %v", cfg.Vaults)
 	}
 	refs := cfg.CredentialRefs()

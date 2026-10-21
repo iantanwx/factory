@@ -13,7 +13,7 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// Alert kinds the machine raises. U12's inbox reads the alerts table.
+// Alert kinds the machine raises. The inbox reads the alerts table.
 const (
 	AlertDivergence = "bead_divergence" // a bead changed outside the server
 	AlertEpochAhead = "epoch_ahead"     // a bead held a higher epoch than SQLite

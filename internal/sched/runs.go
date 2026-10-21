@@ -14,11 +14,9 @@ import (
 
 // Run states the scheduler writes. Admission writes admitted and settled.
 const (
-	RunAdmitted = "admitted"
 	RunStarting = "starting"
 	RunRunning  = "running"
 	RunUnknown  = "unknown"
-	RunSettled  = "settled"
 )
 
 // hostRecord is what the server keeps about a run's session. It lives in
@@ -58,7 +56,7 @@ type runRow struct {
 const runColumns = `r.run_id, r.project, r.stage, r.item, r.harness, r.state, r.started_at, r.last_cli_call_at,
 	r.host_identity, coalesce(c.path, ''), r.ended_at IS NOT NULL, coalesce(r.outcome_class, '')`
 
-func scanRun(sc interface{ Scan(...any) error }) (runRow, error) {
+func scanRun(sc store.Scanner) (runRow, error) {
 	var (
 		r        runRow
 		started  int64

@@ -1,4 +1,4 @@
-// Package fault keeps loop fault reports (U18, R55, KTD31). A run, a room
+// Package fault keeps loop fault reports (R55, KTD31). A run, a room
 // or the coordinator reports a fault in the loop itself with
 // `loop fault report --file <path>`. The server stores the report in
 // SQLite for the whole instance and answers with an id, F-<n>, that never
@@ -115,35 +115,10 @@ func (s *Service) release() string {
 	return cli.Version
 }
 
-func refuse(code, rule, hint string) cli.Result {
-	return cli.Refuse(cli.Refusal{Code: code, Rule: rule, Hint: hint})
-}
-
-func internalErr(err error) cli.Result { return refuse(cli.CodeInternal, "internal", err.Error()) }
-
-// secretIn refuses text that holds a stored secret (KTD27). The hint names
-// the secret and never its value.
-func (s *Service) secretIn(where, text string) *cli.Result {
-	if s.Redactor == nil {
-		return nil
-	}
-	hit, names := s.Redactor.Find(text)
-	if !hit {
-		return nil
-	}
-	r := refuse(cli.CodeSecretInOutput, "secret_in_"+where,
-		fmt.Sprintf("the %s holds the value of %s; remove it and write again", where, strings.Join(names, ", ")))
-	return &r
-}
-
 const columns = `n, status, text, reporter_kind, run_id, project, item, stage, release, fixed_in, duplicate_of, reason,
 	resolved_by, reported_at, coalesce(acknowledged_at, 0), coalesce(resolved_at, 0), updated_at`
 
-type querier interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}
-
-func scan(sc interface{ Scan(...any) error }) (Fault, error) {
+func scan(sc store.Scanner) (Fault, error) {
 	var f Fault
 	var n int64
 	err := sc.Scan(&n, &f.Status, &f.Text, &f.Reporter, &f.RunID, &f.Project, &f.Item, &f.Stage, &f.Release, &f.FixedIn,
@@ -152,7 +127,7 @@ func scan(sc interface{ Scan(...any) error }) (Fault, error) {
 	return f, err
 }
 
-func query(ctx context.Context, q querier, where string, args ...any) ([]Fault, error) {
+func query(ctx context.Context, q store.Querier, where string, args ...any) ([]Fault, error) {
 	rs, err := q.QueryContext(ctx, `SELECT `+columns+` FROM faults WHERE `+where, args...)
 	if err != nil {
 		return nil, err
@@ -237,14 +212,14 @@ func ForBrief(ctx context.Context, st *store.Store, project, stage string, now t
 func (s *Service) show(ctx context.Context, call *rpc.Call) cli.Result {
 	id := call.Inv.Arg("fault")
 	if _, ok := ParseID(id); !ok {
-		return refuse(cli.CodeUsage, "bad_fault", fmt.Sprintf("%q is no fault id; a fault id is F-<n>", id))
+		return cli.Reject(cli.CodeUsage, "bad_fault", fmt.Sprintf("%q is no fault id; a fault id is F-<n>", id))
 	}
 	f, err := s.Get(ctx, id)
 	if errors.Is(err, ErrNotFound) {
-		return refuse(cli.CodeNotFound, "no_fault", fmt.Sprintf("the server gave out no fault %s", id))
+		return cli.Reject(cli.CodeNotFound, "no_fault", fmt.Sprintf("the server gave out no fault %s", id))
 	}
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	f.Installed = s.release()
 	return cli.Found(f)
@@ -265,7 +240,7 @@ func (s *Service) list(ctx context.Context, call *rpc.Call) cli.Result {
 		return err
 	})
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	out := make([]Fault, 0, len(fs))
 	for _, f := range fs {

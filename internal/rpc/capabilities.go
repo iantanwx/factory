@@ -9,7 +9,8 @@ import (
 )
 
 // HoldsItem reports whether p holds item now. The default compares item
-// with the token's bound item. U5 and U6 replace it with the lease table.
+// with the token's bound item. The server widens it for a fixer run, and
+// the machine checks the lease of each write.
 type HoldsItem func(ctx context.Context, p Principal, item string) (bool, error)
 
 // TokenItem is the default HoldsItem.
@@ -53,7 +54,7 @@ func (s *Server) authorize(ctx context.Context, inv cli.Invocation, p *Principal
 		item := inv.Arg("item")
 		holds, err := s.opts.HoldsItem(ctx, *p, item)
 		if err != nil {
-			return internalResult(fmt.Errorf("check whether %s holds %s: %w", p.Actor(), item, err))
+			return new(cli.Internal(fmt.Errorf("check whether %s holds %s: %w", p.Actor(), item, err)))
 		}
 		if !holds {
 			return denied("item_not_held", item, fmt.Sprintf("%s does not hold %s; a run moves only the item it holds", p.Actor(), item))
@@ -67,7 +68,7 @@ func (s *Server) authorize(ctx context.Context, inv cli.Invocation, p *Principal
 func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal) *cli.Result {
 	dirs, err := s.opts.Checkouts(ctx)
 	if err != nil {
-		return internalResult(fmt.Errorf("list registered checkouts: %w", err))
+		return new(cli.Internal(fmt.Errorf("list registered checkouts: %w", err)))
 	}
 	cwds, err := ancestry(s.opts.Proc, p.Peer.PID)
 	if errors.Is(err, ErrProcUnsupported) || p.Peer.PID == 0 {
@@ -75,7 +76,7 @@ func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal)
 		return nil
 	}
 	if err != nil {
-		return internalResult(fmt.Errorf("read the caller's working directory: %w", err))
+		return new(cli.Internal(fmt.Errorf("read the caller's working directory: %w", err)))
 	}
 	for i, cwd := range cwds {
 		for _, dir := range dirs {
@@ -110,7 +111,7 @@ func (s *Server) checkTokenCaller(ctx context.Context, path string, p *Principal
 		return nil
 	}
 	if err != nil {
-		return internalResult(fmt.Errorf("read the caller's working directory: %w", err))
+		return new(cli.Internal(fmt.Errorf("read the caller's working directory: %w", err)))
 	}
 	if within(cwd, p.Checkout) {
 		return nil
@@ -128,9 +129,4 @@ func (s *Server) alert(ctx context.Context, a AuditAlert) {
 	if err := WriteAuditAlert(context.WithoutCancel(ctx), s.opts.Store, s.opts.Redactor, a); err != nil {
 		s.log.ErrorContext(ctx, "audit alert failed", "kind", a.Kind, "err", err)
 	}
-}
-
-func internalResult(err error) *cli.Result {
-	res := cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()})
-	return &res
 }

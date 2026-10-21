@@ -382,7 +382,6 @@ func (w *World) beads(cfg *config.HostConfig) (machine.BeadsResolver, func(conte
 func (w *World) Start() {
 	w.T.Helper()
 	opts := w.options()
-	opts.OnStop = append(opts.OnStop, func(ctx context.Context) error { w.fire(ctx, hookStop, ""); return nil })
 	ready := make(chan struct{})
 	opts.Ready = ready
 	ctx, cancel := context.WithCancel(context.Background())
@@ -472,12 +471,6 @@ func (w *World) Restart() {
 	w.T.Helper()
 	w.Stop()
 	w.Start()
-}
-
-// SocketGone reports whether the server's socket is absent.
-func (w *World) SocketGone() bool {
-	_, err := os.Lstat(cli.SocketPath(w.Dir))
-	return errors.Is(err, os.ErrNotExist)
 }
 
 func (w *World) waitCoordinator() {
@@ -945,7 +938,8 @@ func (w *World) WriteFile(name, content string) string {
 // running server stops, the instance records the release it replaced, and
 // a server of the new release starts. Every later CLI call runs binary,
 // whose version is version. The swap itself, its signature check and its
-// rollback are U16's, and cmd/loop's release tests prove them.
+// rollback belong to the release verbs, and cmd/loop's release tests prove
+// them.
 func (w *World) Upgrade(version, binary string) {
 	w.T.Helper()
 	prev := cli.Version

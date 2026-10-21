@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/base64"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -93,7 +94,7 @@ func (r *Registry) parse(tokens []string) (call, *Result) {
 		if help {
 			s, err := r.Schema()
 			if err != nil {
-				return c, internal(err)
+				return c, new(Internal(err))
 			}
 			res := Found(s)
 			return c, &res
@@ -299,11 +300,7 @@ func (r *Registry) Validate(path string, args []string, flags map[string]string,
 	if inv.Args == nil {
 		inv.Args = []string{}
 	}
-	names := make([]string, 0, len(flags))
-	for name := range flags {
-		names = append(names, name)
-	}
-	slices.Sort(names)
+	names := slices.Sorted(maps.Keys(flags))
 	for _, name := range names {
 		value := flags[name]
 		if strings.HasPrefix(name, ReservedPrefix) {

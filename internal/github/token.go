@@ -25,7 +25,7 @@ const (
 	ScopePulls    Scope = "pulls"    // open a PR, reply on a thread
 	ScopeStatuses Scope = "statuses" // post loop/eligible
 	ScopeActions  Scope = "actions"  // rerun failed CI jobs
-	ScopeMerge    Scope = "merge"    // merge a PR, use the merge queue, open the Mergify setup PR (U11)
+	ScopeMerge    Scope = "merge"    // merge a PR, use the merge queue, open the Mergify setup PR
 )
 
 var scopePermissions = map[Scope]map[string]string{
@@ -178,7 +178,9 @@ var allowedPermissions = map[string]string{
 	"checks": "read", "actions": "write", "metadata": "read",
 }
 
-func level(l string) int {
+// PermissionLevel orders a GitHub App permission level: none, read, write,
+// admin. An unknown level is none.
+func PermissionLevel(l string) int {
 	switch l {
 	case "read":
 		return 1
@@ -203,7 +205,7 @@ func (s *Service) CheckInstallation(ctx context.Context, p config.Project) ([]Ch
 	var extra []string
 	for _, k := range slices.Sorted(maps.Keys(in.Permissions)) {
 		want, ok := allowedPermissions[k]
-		if !ok || level(in.Permissions[k]) > level(want) {
+		if !ok || PermissionLevel(in.Permissions[k]) > PermissionLevel(want) {
 			extra = append(extra, k+":"+in.Permissions[k])
 		}
 	}

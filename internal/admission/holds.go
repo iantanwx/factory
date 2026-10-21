@@ -9,7 +9,8 @@ import (
 )
 
 // holdRefusal refuses new admission on an item that a room or an
-// escalation holds (KTD23). U12 writes the holds table. A hold never
+// escalation holds (KTD23). Rooms and escalations write the holds table.
+// A hold never
 // revokes a running lease: the lease finishes first.
 func holdRefusal(q querier, project, item string) (*cli.Refusal, error) {
 	var holder, kind string
@@ -25,7 +26,7 @@ func holdRefusal(q querier, project, item string) (*cli.Refusal, error) {
 		Hint: fmt.Sprintf("%s %s holds %s; no stage takes it until the %s lets it go", kind, holder, item, kind)}, nil
 }
 
-// stageFixer is the stage that routes escalations (U12).
+// stageFixer is the stage that routes escalations.
 const stageFixer = "fixer"
 
 // panelsWaiting reports whether an escalation of the project waits for the

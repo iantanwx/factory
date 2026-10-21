@@ -23,51 +23,51 @@ type CreateResult struct {
 // only when it cites the operator's own request; it never waives the PRD
 // on its own. A run's PRD-less ticket is PRD_REQUIRED. With --kind bug the
 // coordinator files the operator's bug report in reported, the state the
-// reproducer stage claims from, under the same rule (U5).
+// reproducer stage claims from, under the same rule.
 func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
-	prj, ref := project(call)
+	prj, ref := call.Project(ownProject)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	title, body := strings.TrimSpace(inv.Flags["title"]), inv.Flags["body"]
 	epicID, request := inv.Flags["epic"], strings.TrimSpace(inv.Flags["request"])
 	stories := splitStories(inv.Flags["story"])
 	if title == "" {
-		return refuse(cli.CodeUsage, "no_title", "--title names the ticket")
+		return cli.Reject(cli.CodeUsage, "no_title", "--title names the ticket")
 	}
-	kind, verb := machine.KindTicket, "create"
+	kind, verb := machine.KindTicket, machine.VerbCreate
 	facts := map[string]string{}
 	switch {
 	case inv.Flags["kind"] == string(machine.KindBug):
 		// A bug skips the PRD, so it follows R48 as a PRD-less ticket
 		// does: only the coordinator files one, on the operator's request.
-		kind, verb = machine.KindBug, "file"
+		kind, verb = machine.KindBug, machine.VerbFile
 		switch {
 		case pr.Kind != cli.PrincipalCoordinator:
-			return refuse(cli.CodeCapabilityDenied, "coordinator_only",
+			return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only",
 				"only the coordinator files a bug, from the operator's report; a run reports a fault in the loop with `loop fault report`")
 		case request == "":
-			return refuse(cli.CodePRDRequired, "no_operator_request",
+			return cli.Reject(cli.CodePRDRequired, "no_operator_request",
 				"a bug skips the PRD, so it needs the operator's request: quote the operator's own words with --request")
 		case epicID != "" || len(stories) > 0:
-			return refuse(cli.CodeUsage, "bug_without_epic", "a bug cites no epic and no story; the reproducer shapes it into a ticket")
+			return cli.Reject(cli.CodeUsage, "bug_without_epic", "a bug cites no epic and no story; the reproducer shapes it into a ticket")
 		}
 		facts[machine.FactRequest] = request
 	case epicID != "":
 		epic, ref := p.cfg.Machine.Read(ctx, prj, epicID)
 		if ref != nil {
-			return refuseRef(ref)
+			return ref.Result()
 		}
 		if epic.Kind != machine.KindEpic {
-			return refuse(cli.CodeUsage, "not_an_epic", fmt.Sprintf("%s is a %s, not an epic", epicID, epic.Kind))
+			return cli.Reject(cli.CodeUsage, "not_an_epic", fmt.Sprintf("%s is a %s, not an epic", epicID, epic.Kind))
 		}
 		labels, ref := p.prdLabels(ctx, epic)
 		if ref != nil {
-			return refuseRef(ref)
+			return ref.Result()
 		}
 		if m := citeCheck("the ticket", stories, labels); m != "" {
-			return refuse(cli.CodeStoryUnknown, "story_not_in_prd", m)
+			return cli.Reject(cli.CodeStoryUnknown, "story_not_in_prd", m)
 		}
 		facts[machine.FactEpic] = epicID
 		facts[machine.FactStories] = strings.Join(stories, ",")
@@ -75,35 +75,25 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 			facts[machine.FactRequest] = request
 		}
 	case pr.Kind != cli.PrincipalCoordinator:
-		return refuse(cli.CodePRDRequired, "prd_first",
+		return cli.Reject(cli.CodePRDRequired, "prd_first",
 			"work starts with a PRD: name the epic whose merged PRD the ticket implements with --epic and --story. "+
 				"Only the coordinator creates PRD-less work, when the operator asks for it")
 	case request == "":
-		return refuse(cli.CodePRDRequired, "no_operator_request",
+		return cli.Reject(cli.CodePRDRequired, "no_operator_request",
 			"a PRD-less ticket needs the operator's request: quote the operator's own words with --request")
 	case len(stories) > 0:
-		return refuse(cli.CodeUsage, "story_without_epic", "--story cites the labels of an epic's PRD; name the epic with --epic")
+		return cli.Reject(cli.CodeUsage, "story_without_epic", "--story cites the labels of an epic's PRD; name the epic with --epic")
 	default:
 		facts[machine.FactRequest] = request
 	}
-	if ref := p.secretIn(title, body, request); ref != nil {
-		return refuseRef(ref)
+	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", title, body, request); ref != nil {
+		return ref.Result()
 	}
 
 	cr := machine.CreateRequest{Project: prj, Kind: kind, Title: title, Description: body, Facts: facts}
-	var it machine.Item
-	if key := call.Request.GetIdempotencyKey(); key != "" && pr.RunID != "" {
-		// A retry of the same write finds the ticket it made.
-		cr.Facts[machine.FactCreateKey] = "work/" + pr.RunID + "/" + key
-		it, ref = p.findOrCreate(ctx, cr)
-	} else {
-		var id string
-		if id, ref = p.cfg.Machine.CreateBead(ctx, cr); ref == nil {
-			it, ref = p.cfg.Machine.Read(ctx, prj, id)
-		}
-	}
+	it, ref := p.create(ctx, call, "work", cr)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	if it.Status == machine.Initial {
 		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: verb, ExpectedStatus: machine.Initial,
@@ -117,6 +107,21 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 	}
 	return cli.Found(CreateResult{Item: it.ID, Status: it.Status, Epic: epicID})
+}
+
+// create makes the item of cr. A run's keyed write records its key, under
+// scope, as a fact, so a retry of the same write finds the item it made.
+func (p *Pipeline) create(ctx context.Context, call *rpc.Call, scope string, cr machine.CreateRequest) (machine.Item, *cli.Refusal) {
+	pr := call.Principal
+	if key := call.Request.GetIdempotencyKey(); key != "" && pr.RunID != "" {
+		cr.Facts[machine.FactCreateKey] = scope + "/" + pr.RunID + "/" + key
+		return p.findOrCreate(ctx, cr)
+	}
+	id, ref := p.cfg.Machine.CreateBead(ctx, cr)
+	if ref != nil {
+		return machine.Item{}, ref
+	}
+	return p.cfg.Machine.Read(ctx, cr.Project, id)
 }
 
 // splitStories reads --story: labels separated by commas.
@@ -144,39 +149,30 @@ type EpicResult struct {
 func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	if pr.Kind != cli.PrincipalCoordinator {
-		return refuse(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator creates an architecture epic")
+		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator creates an architecture epic")
 	}
 	if inv.Flags["architecture"] != "true" {
-		return refuse(cli.CodeUsage, "architecture_only",
+		return cli.Reject(cli.CodeUsage, "architecture_only",
 			"epic create makes an architecture epic only, so pass --architecture; a PRD epic starts with prd submit in an intake room")
 	}
-	prj, ref := project(call)
+	prj, ref := call.Project(ownProject)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	title, body := strings.TrimSpace(inv.Flags["title"]), inv.Flags["body"]
 	if title == "" {
-		return refuse(cli.CodeUsage, "no_title", "--title names the epic")
+		return cli.Reject(cli.CodeUsage, "no_title", "--title names the epic")
 	}
-	if ref := p.secretIn(title, body); ref != nil {
-		return refuseRef(ref)
+	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", title, body); ref != nil {
+		return ref.Result()
 	}
 	cr := machine.CreateRequest{Project: prj, Kind: machine.KindEpic, Title: title, Description: body, Facts: map[string]string{}}
-	var it machine.Item
-	if key := call.Request.GetIdempotencyKey(); key != "" && pr.RunID != "" {
-		cr.Facts[machine.FactCreateKey] = "epic/" + pr.RunID + "/" + key
-		it, ref = p.findOrCreate(ctx, cr)
-	} else {
-		var id string
-		if id, ref = p.cfg.Machine.CreateBead(ctx, cr); ref == nil {
-			it, ref = p.cfg.Machine.Read(ctx, prj, id)
-		}
-	}
+	it, ref := p.create(ctx, call, "epic", cr)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	if it.Status == machine.Initial {
-		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: "create_architecture",
+		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: machine.VerbCreateArchitecture,
 			ExpectedStatus: machine.Initial, RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
 		if res.Refusal != nil {
 			return res

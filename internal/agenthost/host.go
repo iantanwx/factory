@@ -455,10 +455,7 @@ func InsideRoot(root, path string) bool {
 	}
 	r, p := resolve(root), resolve(path)
 	rel, err := filepath.Rel(r, p)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
-		return false
-	}
-	return !filepath.IsAbs(rel)
+	return err == nil && rel != "." && filepath.IsLocal(rel)
 }
 
 // resolve cleans a path and resolves links in the longest prefix that exists.

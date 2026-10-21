@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -55,7 +56,7 @@ func (w *releaseWorld) source() Source { return Source{Base: w.srv.URL, HTTP: w.
 func (w *releaseWorld) publish(meta Metadata, bin []byte, signer *SecretKey, trusted string) {
 	w.t.Helper()
 	metaBytes := meta.Encode()
-	sums := Checksums{AssetName("linux", "amd64"): sha256Hex(bin), MetadataFile: sha256Hex(metaBytes)}
+	sums := Checksums{AssetName("linux", "amd64"): hexid.SHA256(bin), MetadataFile: hexid.SHA256(metaBytes)}
 	if signer == nil {
 		signer = &w.sec
 	}

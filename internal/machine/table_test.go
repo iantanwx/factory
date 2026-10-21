@@ -209,7 +209,7 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 		params["blocked"] = "true"
 	}
 	if r.Stage == StageSpecAuthor {
-		facts[FactPRDMerged] = "m1" // the operator signed the PRD off (U13)
+		facts[FactPRDMerged] = "m1" // the operator signed the PRD off
 	}
 	if r.When == "second_reject" {
 		facts[FactPRDRejects] = "1"

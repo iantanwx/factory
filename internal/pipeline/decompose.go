@@ -53,29 +53,29 @@ type BatchResult struct {
 func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 	pr := call.Principal
 	if pr.Kind != cli.PrincipalRun || pr.Stage != machine.StageDecomposer || pr.Item == "" {
-		return refuse(cli.CodeCapabilityDenied, "decomposer_only", "only the decomposer run that holds the epic decomposes it")
+		return cli.Reject(cli.CodeCapabilityDenied, "decomposer_only", "only the decomposer run that holds the epic decomposes it")
 	}
 	raw, ok := cli.FileContent(call.Inv)
 	if !ok {
-		return refuse(cli.CodeUsage, "no_file", "--file names the decomposition file")
+		return cli.Reject(cli.CodeUsage, "no_file", "--file names the decomposition file")
 	}
 	var d Decomposition
 	dec := json.NewDecoder(bytes.NewReader([]byte(raw)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&d); err != nil {
-		return refuse(cli.CodeUsage, "bad_file", "the decomposition file is not the JSON object the schema names: "+err.Error())
+		return cli.Reject(cli.CodeUsage, "bad_file", "the decomposition file is not the JSON object the schema names: "+err.Error())
 	}
 	order, msg := topoOrder(d.Tickets)
 	if msg != "" {
-		return refuse(cli.CodeUsage, "bad_batch", msg)
+		return cli.Reject(cli.CodeUsage, "bad_batch", msg)
 	}
 	epic, ref := p.cfg.Machine.Show(ctx, pr.Project, pr.Item)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	labels, ref := p.prdLabels(ctx, epic)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	var faults []string
 	var texts []string
@@ -89,8 +89,8 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeStoryUnknown, Rule: "story_not_in_prd", Item: epic.ID,
 			Hint: "the batch is refused, and no ticket was created: " + strings.Join(faults, "; ")})
 	}
-	if ref := p.secretIn(texts...); ref != nil {
-		return refuseRef(ref)
+	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", texts...); ref != nil {
+		return ref.Result()
 	}
 
 	switch epic.Status {
@@ -115,16 +115,16 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 				machine.FactStories: strings.Join(t.Stories, ","),
 			}})
 		if ref != nil {
-			return refuseRef(ref)
+			return ref.Result()
 		}
 		ids[t.Key] = it
 		if p.stop("ticket_created") {
-			return internalErr(errCrash)
+			return cli.Internal(errCrash)
 		}
 	}
 	bc, err := p.cfg.Beads(epic.Project)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	actor := machine.Actor{Name: pr.Actor(), RunID: pr.RunID}
 	for _, t := range order {
@@ -136,20 +136,20 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 		// left Initial holds all of its edges.
 		for _, b := range t.BlockedBy {
 			if err := bc.AddDependency(ctx, it.ID, ids[b].ID, beadsx.DepBlocks); err != nil {
-				return internalErr(fmt.Errorf("pipeline: record that %s waits on %s: %w", it.ID, ids[b].ID, err))
+				return cli.Internal(fmt.Errorf("pipeline: record that %s waits on %s: %w", it.ID, ids[b].ID, err))
 			}
 		}
 		params := map[string]string{}
 		if len(t.BlockedBy) > 0 {
 			params["blocked"] = "true"
 		}
-		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: epic.Project, Item: it.ID, Verb: "create", Params: params,
+		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: epic.Project, Item: it.ID, Verb: machine.VerbCreate, Params: params,
 			ExpectedStatus: machine.Initial, Actor: actor})
 		if res.Refusal != nil {
 			return res
 		}
 	}
-	res := p.cfg.Machine.Apply(ctx, machine.Request{Project: epic.Project, Item: epic.ID, Verb: "decomposed",
+	res := p.cfg.Machine.Apply(ctx, machine.Request{Project: epic.Project, Item: epic.ID, Verb: machine.VerbDecomposed,
 		ExpectedStatus: machine.Decomposing, RequestID: call.Inv.RequestID,
 		Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID, Fenced: true, Epoch: pr.Epoch}})
 	if res.Refusal != nil {
@@ -164,7 +164,7 @@ func (p *Pipeline) landed(ctx context.Context, epic machine.Item, order []Ticket
 	for _, t := range order {
 		it, ref := p.byKey(ctx, epic.Project, machine.KindTicket, epic.ID+"/"+t.Key)
 		if ref != nil {
-			return refuseRef(ref)
+			return ref.Result()
 		}
 		if it == nil {
 			return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "other_batch", Item: epic.ID,

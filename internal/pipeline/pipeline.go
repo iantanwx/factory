@@ -1,4 +1,4 @@
-// Package pipeline is the document pipeline and work entry (U13). Work
+// Package pipeline is the document pipeline and work entry. Work
 // enters as a PRD that an intake room submits: the server pushes its
 // branch, opens its PR and creates the epic in prd_review in one call. The
 // doc-reviewer reviews it, the amender revises it once after a first
@@ -100,14 +100,6 @@ var errCrash = errors.New("pipeline: stopped at a kill point")
 
 func (p *Pipeline) stop(point string) bool { return p.crash != nil && p.crash(point) }
 
-func refuse(code, rule, hint string) cli.Result {
-	return cli.Refuse(cli.Refusal{Code: code, Rule: rule, Hint: hint})
-}
-
-func refuseRef(r *cli.Refusal) cli.Result { return cli.Refuse(*r) }
-
-func internalErr(err error) cli.Result { return refuse(cli.CodeInternal, "internal", err.Error()) }
-
 // storyRe matches a story label of a PRD (R45): US-01, US-02 and on.
 var storyRe = regexp.MustCompile(`\bUS-[0-9]+\b`)
 
@@ -191,20 +183,8 @@ func (p *Pipeline) findOrCreate(ctx context.Context, cr machine.CreateRequest) (
 	return p.cfg.Machine.Read(ctx, cr.Project, id)
 }
 
-// project is the call's project: a run's or a room's own, or the
-// coordinator's --project.
-func project(call *rpc.Call) (string, *cli.Refusal) {
-	pr, flag := call.Principal, call.Inv.Flags["project"]
-	switch {
-	case flag != "" && pr.Project != "" && flag != pr.Project && pr.Kind != cli.PrincipalCoordinator:
-		return "", &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "other_project", Hint: "a run works only in its own project"}
-	case flag != "":
-		return flag, nil
-	case pr.Project != "":
-		return pr.Project, nil
-	}
-	return "", &cli.Refusal{Code: cli.CodeUsage, Rule: "no_project", Hint: "name the project with --project"}
-}
+// ownProject is the hint of a run that names another project.
+const ownProject = "a run works only in its own project"
 
 func (p *Pipeline) registration(id string) (config.Project, *cli.Refusal) {
 	prj, err := p.cfg.Projects.Show(id)
@@ -224,20 +204,4 @@ func (p *Pipeline) roomOf(ctx context.Context, run string) (string, error) {
 		return "", fmt.Errorf("pipeline: no intake room holds session %s", run)
 	}
 	return id, err
-}
-
-// secretIn refuses text that holds a stored secret, naming it only.
-func (p *Pipeline) secretIn(texts ...string) *cli.Refusal {
-	var names []string
-	for _, t := range texts {
-		if hit, n := p.cfg.Redactor.Find(t); hit {
-			names = append(names, n...)
-		}
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	slices.Sort(names)
-	return &cli.Refusal{Code: cli.CodeSecretInOutput, Rule: "secret_in_text",
-		Hint: "the text holds the value of " + strings.Join(slices.Compact(names), ", ") + "; remove it and write again"}
 }

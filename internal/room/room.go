@@ -1,4 +1,4 @@
-// Package room runs rooms (U12, KTD23): a session where the operator talks
+// Package room runs rooms (KTD23): a session where the operator talks
 // to an agent. A room prepares a decision and applies it, and it never
 // makes the decision. Only the coordinator opens and closes a room. A room
 // holds its item, so no stage takes the item while the room is open, and
@@ -14,9 +14,7 @@ package room
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,6 +29,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
@@ -118,11 +117,7 @@ func New(cfg Config) (*Service, error) {
 		cfg.Release = cli.Version
 	}
 	if cfg.NewID == nil {
-		cfg.NewID = func() string {
-			var b [4]byte
-			_, _ = rand.Read(b[:])
-			return "room-" + hex.EncodeToString(b[:])
-		}
+		cfg.NewID = func() string { return "room-" + hexid.Random(4) }
 	}
 	log := cfg.Logger
 	if log == nil {
@@ -177,7 +172,7 @@ const roomCols = `SELECT r.id, r.project, r.item, r.kind, r.state, r.reason, r.o
 	r.run_id, r.sessions, r.outcome, r.decision, r.session, r.opened_at, r.updated_at
 	FROM rooms r LEFT JOIN checkouts c ON c.id = r.checkout_id`
 
-func scanRoom(row interface{ Scan(...any) error }) (Room, error) {
+func scanRoom(row store.Scanner) (Room, error) {
 	var r Room
 	var decision, session string
 	err := row.Scan(&r.ID, &r.Project, &r.Item, &r.Kind, &r.State, &r.Reason, &r.OpenedBy, &r.Checkout, &r.checkoutID,
@@ -233,58 +228,33 @@ func (s *Service) Rooms(ctx context.Context, all bool) ([]Room, error) {
 	return out, err
 }
 
-func refuse(code, rule, hint string) cli.Result {
-	return cli.Refuse(cli.Refusal{Code: code, Rule: rule, Hint: hint})
-}
-
-func internalErr(err error) cli.Result { return refuse(cli.CodeInternal, "internal", err.Error()) }
-
-// secretIn refuses text that holds a stored secret, naming it only.
-func (s *Service) secretIn(where string, texts ...string) *cli.Result {
-	if s.cfg.Redactor == nil {
-		return nil
-	}
-	var names []string
-	for _, t := range texts {
-		if hit, n := s.cfg.Redactor.Find(t); hit {
-			names = append(names, n...)
-		}
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	r := refuse(cli.CodeSecretInOutput, "secret_in_"+strings.ReplaceAll(where, " ", "_"),
-		fmt.Sprintf("the %s holds the value of %s; remove it and write again", where, strings.Join(names, ", ")))
-	return &r
-}
-
 // open is `loop room open`: a new room, or the reopen of an idle or
 // interrupted one of the same kind on the same item.
 func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
 	if p.Kind != cli.PrincipalCoordinator {
-		return refuse(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator opens a room")
+		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator opens a room")
 	}
 	kind, project, item, reason := inv.Flags["kind"], inv.Flags["project"], inv.Flags["item"], strings.TrimSpace(inv.Flags["reason"])
 	if reason == "" {
-		return refuse(cli.CodeUsage, "no_reason", "--reason says why the room opens; the room agent tells the operator first")
+		return cli.Reject(cli.CodeUsage, "no_reason", "--reason says why the room opens; the room agent tells the operator first")
 	}
 	if kind != "intake" && item == "" {
-		return refuse(cli.CodeUsage, "no_item", "a "+kind+" room serves one work item; name it with --item")
+		return cli.Reject(cli.CodeUsage, "no_item", "a "+kind+" room serves one work item; name it with --item")
 	}
-	if r := s.secretIn("reason", reason); r != nil {
-		return *r
+	if r := s.cfg.Redactor.Refusal("secret_in_reason", "reason", reason); r != nil {
+		return r.Result()
 	}
 	if _, err := s.cfg.ProjectConfig(ctx, project); err != nil {
-		return refuse(cli.CodeNotFound, "no_project", fmt.Sprintf("project %s: %v", project, err))
+		return cli.Reject(cli.CodeNotFound, "no_project", fmt.Sprintf("project %s: %v", project, err))
 	}
 	if item != "" {
 		if _, ref := s.cfg.Machine.Show(ctx, project, item); ref != nil {
-			return cli.Refuse(*ref)
+			return ref.Result()
 		}
 	}
 	if ref := s.intakeCap(ctx, kind, project, item); ref != nil {
-		return cli.Refuse(*ref)
+		return ref.Result()
 	}
 	var r Room
 	var reopen bool
@@ -311,22 +281,22 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 		return takeHold(tx, project, item, r.ID)
 	})
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	defer s.changed()
 	switch {
 	case !reopen:
 		if ref := s.advance(ctx, &r); ref != nil {
-			return cli.Refuse(*ref)
+			return ref.Result()
 		}
 	case r.State == Idle || r.State == Interrupted:
 		if ref := s.reopen(ctx, &r); ref != nil {
-			return cli.Refuse(*ref)
+			return ref.Result()
 		}
 	}
 	got, err := s.Get(ctx, r.ID)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	return cli.Found(map[string]any{"room": got, "reopened": reopen})
 }
@@ -344,7 +314,7 @@ func (s *Service) intakeCap(ctx context.Context, kind, project, item string) *cl
 			project, kind).Scan(&open)
 	})
 	if err != nil {
-		return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
+		return cli.InternalRefusal(err)
 	}
 	if open > 0 {
 		return nil
@@ -369,7 +339,7 @@ func (s *Service) leaseFree(ctx context.Context, r *Room) (bool, int64, error) {
 func (s *Service) advance(ctx context.Context, r *Room) *cli.Refusal {
 	free, _, err := s.leaseFree(ctx, r)
 	if err != nil {
-		return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
+		return cli.InternalRefusal(err)
 	}
 	if !free {
 		return nil
@@ -386,13 +356,13 @@ func (s *Service) reopen(ctx context.Context, r *Room) *cli.Refusal {
 		if err == nil && st.Liveness == agenthost.Live {
 			snap, err := s.cfg.ProjectConfig(ctx, r.Project)
 			if err != nil {
-				return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
+				return cli.InternalRefusal(err)
 			}
 			if ref := s.writeEnv(ctx, r, snap); ref != nil {
 				return ref
 			}
 			if err := s.setState(ctx, r.ID, Live, nil); err != nil {
-				return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
+				return cli.InternalRefusal(err)
 			}
 			if err := s.cfg.Agents.Notify(ctx, r.Session.ID, "loop: the coordinator reopened this room, and .env is back. Read "+
 				brief.BriefMD+" again."); err != nil {
@@ -415,13 +385,13 @@ func (s *Service) writeEnv(ctx context.Context, r *Room, snap *config.ProjectSna
 			Hint: fmt.Sprintf("project %s has no stored value for %s", r.Project, strings.Join(miss.Names, ", "))}
 	}
 	if err != nil {
-		return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
+		return cli.InternalRefusal(err)
 	}
 	if len(env) == 0 {
 		return nil
 	}
 	if err := brief.WriteEnv(r.Checkout, env); err != nil {
-		return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
+		return cli.InternalRefusal(err)
 	}
 	return nil
 }
@@ -658,14 +628,14 @@ func (s *Service) interrupt(ctx context.Context, r *Room) {
 // checkout is kept for a person.
 func (s *Service) close(ctx context.Context, call *rpc.Call) cli.Result {
 	if call.Principal.Kind != cli.PrincipalCoordinator {
-		return refuse(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator closes a room")
+		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator closes a room")
 	}
 	r, err := s.Get(ctx, call.Inv.Arg("room"))
 	if errors.Is(err, sql.ErrNoRows) {
-		return refuse(cli.CodeNotFound, "no_room", "no room "+call.Inv.Arg("room"))
+		return cli.Reject(cli.CodeNotFound, "no_room", "no room "+call.Inv.Arg("room"))
 	}
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	if r.State == Closed {
 		return cli.Found(map[string]any{"room": r, "closed": true})
@@ -677,12 +647,12 @@ func (s *Service) close(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	if r.RunID != "" {
 		if _, err := s.cfg.Tokens.Revoke(ctx, r.RunID); err != nil {
-			return internalErr(err)
+			return cli.Internal(err)
 		}
 	}
 	if r.Checkout != "" {
 		if err := brief.RemoveEnv(r.Checkout); err != nil {
-			return internalErr(err)
+			return cli.Internal(err)
 		}
 	}
 	outcome := OutcomeAbandoned
@@ -701,12 +671,12 @@ func (s *Service) close(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		return dropHold(tx, r.Project, r.Item, r.ID)
 	}); err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	s.changed()
 	got, err := s.Get(ctx, r.ID)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	return cli.Found(map[string]any{"room": got, "closed": true})
 }
@@ -715,7 +685,7 @@ func (s *Service) close(ctx context.Context, call *rpc.Call) cli.Result {
 func (s *Service) list(ctx context.Context, call *rpc.Call) cli.Result {
 	rooms, err := s.Rooms(ctx, call.Inv.Flags["all"] == "true")
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	return cli.List(rooms)
 }

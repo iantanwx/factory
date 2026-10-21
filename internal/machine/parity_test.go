@@ -108,7 +108,7 @@ func TestParityEachStateHasItsClaimingStage(t *testing.T) {
 	for _, c := range cases {
 		tbl, _ := TableFor(c.kind)
 		id := w.create(c.kind, firstCreate(tbl), nil)
-		// The spec author starts only after the operator's sign-off (U13).
+		// The spec author starts only after the operator's sign-off.
 		w.force(id, c.state, map[string]string{FactPRDMerged: "m1"})
 		mustOK(t, w.tryClaim(id, c.stage, "run-1", c.state))
 		it := w.show(id)

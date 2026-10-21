@@ -16,21 +16,21 @@ import (
 func (s *Service) report(ctx context.Context, call *rpc.Call) cli.Result {
 	text, ok := cli.FileContent(call.Inv)
 	if !ok {
-		return refuse(cli.CodeUsage, "no_file", "--file names the report file; the CLI reads it and sends its text")
+		return cli.Reject(cli.CodeUsage, "no_file", "--file names the report file; the CLI reads it and sends its text")
 	}
 	if len(text) > MaxReportBytes {
-		return refuse(cli.CodeUsage, "report_too_large",
+		return cli.Reject(cli.CodeUsage, "report_too_large",
 			fmt.Sprintf("the report holds %d bytes; a report holds %d bytes at most. Keep the command, its envelope and what you expected", len(text), MaxReportBytes))
 	}
 	if strings.TrimSpace(text) == "" {
-		return refuse(cli.CodeUsage, "empty_report", "the report file is empty; name the command, its envelope and what you expected")
+		return cli.Reject(cli.CodeUsage, "empty_report", "the report file is empty; name the command, its envelope and what you expected")
 	}
-	if r := s.secretIn("report", text); r != nil {
-		return *r
+	if r := s.Redactor.Refusal("secret_in_report", "report", text); r != nil {
+		return r.Result()
 	}
 	f, err := s.Report(ctx, call.Principal, text)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	f.Installed = s.release()
 	return cli.Found(f)

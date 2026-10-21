@@ -1,4 +1,4 @@
-// Package machine is the server's state machine for work items (U5): one
+// Package machine is the server's state machine for work items: one
 // transition table for each item kind, the intent verbs that the tables
 // check, the write order of KTD6 across SQLite and beads, and the start-up
 // reconcile that finishes every write a crash interrupted.
@@ -16,6 +16,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // Kind is a work-item kind. Each kind has one table.
@@ -41,16 +42,35 @@ const (
 	ToSame = "@same"
 )
 
-// Stages that claim an item. The scheduler (U8) owns the stage list and
-// reads the claim rows for the states each stage takes.
+// Verbs that callers outside the machine apply.
 const (
-	StageImplementer  = "implementer"
-	StageCodeReviewer = "code-reviewer"
-	StageDocReviewer  = "doc-reviewer"
-	StageAmender      = "amender"
-	StageSpecAuthor   = "spec-author"
-	StageDecomposer   = "decomposer"
-	StageReproducer   = "reproducer"
+	VerbADRLanded          = "adr_landed"
+	VerbAnswer             = "answer"
+	VerbCIRed              = "ci_red"
+	VerbCreate             = "create"
+	VerbCreateArchitecture = "create_architecture"
+	VerbDecomposed         = "decomposed"
+	VerbDefer              = "defer"
+	VerbEnqueue            = "enqueue"
+	VerbEscalate           = "escalate"
+	VerbFile               = "file"
+	VerbFire               = "fire"
+	VerbNote               = "note"
+	VerbPRClosed           = "pr_closed"
+	VerbPRDSubmit          = "prd_submit"
+	VerbUnblock            = "unblock"
+)
+
+// Stages that claim an item. The config package owns the stage list, and
+// the scheduler reads the claim rows for the states each stage takes.
+const (
+	StageImplementer  = config.StageImplementer
+	StageCodeReviewer = config.StageCodeReviewer
+	StageDocReviewer  = config.StageDocReviewer
+	StageAmender      = config.StageAmender
+	StageSpecAuthor   = config.StageSpecAuthor
+	StageDecomposer   = config.StageDecomposer
+	StageReproducer   = config.StageReproducer
 )
 
 // Lease effects of a row.
@@ -81,7 +101,7 @@ type Row struct {
 	// Stage is the stage a claim row admits.
 	Stage string `json:"stage,omitempty"`
 	// Command is the CLI verb that performs the row. Empty means only the
-	// server performs it, for example from the GitHub reactor (U10).
+	// server performs it, for example from the GitHub reactor.
 	Command string `json:"command,omitempty"`
 	// Facts lists the facts the write sets or clears, by name.
 	Facts      []string `json:"facts,omitempty"`
@@ -117,17 +137,6 @@ func (t *Table) state(name string) (State, bool) {
 func (t *Table) Terminal(name string) bool {
 	s, ok := t.state(name)
 	return ok && s.Terminal
-}
-
-// NonTerminal lists every state of the kind that is not terminal.
-func (t *Table) NonTerminal() []string {
-	var out []string
-	for _, s := range t.States {
-		if !s.Terminal {
-			out = append(out, s.Name)
-		}
-	}
-	return out
 }
 
 // match returns the row for verb from the change's current status, or nil.

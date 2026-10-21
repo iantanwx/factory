@@ -26,9 +26,9 @@ type ProjectDoctor struct {
 }
 
 // Doctor runs the checks of `loop doctor` that need GitHub, so the
-// platform credentials never leave the server (U16): for each project, the
+// platform credentials never leave the server: for each project, the
 // installation's repository selection and permissions, the default
-// branch's rules (U10), and project config on the default branch. A check
+// branch's rules, and project config on the default branch. A check
 // that cannot run is a failed line, never a pass.
 func (g *GitHub) Doctor(ctx context.Context, projects *config.Projects) ([]ProjectDoctor, error) {
 	if g.Service == nil {
@@ -48,18 +48,6 @@ func (g *GitHub) Doctor(ctx context.Context, projects *config.Projects) ([]Proje
 	return out, nil
 }
 
-func permLevel(l string) int {
-	switch l {
-	case "read":
-		return 1
-	case "write":
-		return 2
-	case "admin":
-		return 3
-	}
-	return 0
-}
-
 func (g *GitHub) requiredPermissionsLine(ctx context.Context, p config.Project) github.CheckLine {
 	line := github.CheckLine{Check: "installation_required_permissions"}
 	in, err := g.Service.Installation(ctx, p)
@@ -69,7 +57,7 @@ func (g *GitHub) requiredPermissionsLine(ctx context.Context, p config.Project) 
 	}
 	var missing []string
 	for _, k := range slices.Sorted(maps.Keys(requiredPermissions)) {
-		if permLevel(in.Permissions[k]) < permLevel(requiredPermissions[k]) {
+		if github.PermissionLevel(in.Permissions[k]) < github.PermissionLevel(requiredPermissions[k]) {
 			missing = append(missing, k+":"+requiredPermissions[k])
 		}
 	}

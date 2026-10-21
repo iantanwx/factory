@@ -22,7 +22,7 @@ const factPrefix = "loop."
 // BeadsResolver returns the beads client of one project's workspace.
 type BeadsResolver func(project string) (beadsx.Client, error)
 
-// ClaimGuard is the admission hook (U6). The machine calls it inside the
+// ClaimGuard is the admission hook. The machine calls it inside the
 // item's lock, after the table allows the claim and before the intent is
 // recorded. A non-nil refusal stops the claim and writes nothing. It must
 // make no outside read: admission reads its snapshot before the lock and

@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -371,11 +373,7 @@ func (b *BD) List(ctx context.Context, f Filter) ([]Issue, error) {
 	if f.Type != "" {
 		args = append(args, "--type", f.Type)
 	}
-	keys := make([]string, 0, len(f.Metadata))
-	for k := range f.Metadata {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(f.Metadata))
 	for _, k := range keys {
 		args = append(args, "--metadata-field", k+"="+f.Metadata[k])
 	}

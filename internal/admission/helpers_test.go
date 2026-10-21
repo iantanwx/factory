@@ -142,7 +142,7 @@ func wantRefusal(t *testing.T, ref *cli.Refusal, code string) {
 }
 
 // settle records the run's outcome, then returns the item to its queue
-// the way the scheduler (U8) does at settlement.
+// the way the scheduler does at settlement.
 func (w *world) settle(ad Admitted, s Settlement) Outcome {
 	w.t.Helper()
 	s.RunID = ad.RunID

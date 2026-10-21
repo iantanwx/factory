@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -100,7 +101,7 @@ func (c *Client) prepare(inv Invocation) (*callCtx, *Result) {
 	if cc.instance == "" {
 		dir, err := InstanceDir()
 		if err != nil {
-			return nil, internal(err)
+			return nil, new(Internal(err))
 		}
 		cc.instance = dir
 	}
@@ -116,18 +117,18 @@ func (c *Client) prepare(inv Invocation) (*callCtx, *Result) {
 	}
 	cwd, err := getwd()
 	if err != nil {
-		return nil, internal(fmt.Errorf("read the working directory: %w", err))
+		return nil, new(Internal(fmt.Errorf("read the working directory: %w", err)))
 	}
 	cc.cwd = cwd
 	checkout, err := FindCheckout(cwd)
 	switch {
 	case errors.Is(err, ErrNoCheckout):
 	case err != nil:
-		return nil, internal(err)
+		return nil, new(Internal(err))
 	default:
 		tf, err := ReadTokenFile(checkout)
 		if err != nil {
-			return nil, internal(err)
+			return nil, new(Internal(err))
 		}
 		cc.token, cc.checkout = &tf, checkout
 	}
@@ -149,9 +150,7 @@ func (cc *callCtx) request(inv Invocation) *loopv1.VerbRequest {
 		RequestId:     inv.RequestID,
 		ClientVersion: Version,
 	}
-	for k, v := range inv.Flags {
-		req.Flags[k] = v
-	}
+	maps.Copy(req.Flags, inv.Flags)
 	if cc.token != nil {
 		req.RunToken = cc.token.Token
 	}
@@ -171,7 +170,7 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 		}
 		value, err := io.ReadAll(io.LimitReader(c.Stdin, maxStdin))
 		if err != nil {
-			return *internal(fmt.Errorf("read stdin: %w", err))
+			return Internal(fmt.Errorf("read stdin: %w", err))
 		}
 		req.Flags[ExtraStdin] = base64.StdEncoding.EncodeToString(value)
 		clear(value)
@@ -194,7 +193,7 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 	}
 	if inv.Verb.Path == "inbox wait" {
 		// The server holds the call until shortly before this deadline,
-		// then answers exit 4 (U12).
+		// then answers exit 4.
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithDeadline(ctx, cc.deadline)
 		defer cancel()
@@ -275,7 +274,7 @@ func (c *Client) reserveKey(ctx context.Context, cc *callCtx, inv Invocation, re
 	pending := OpenPending(cc.checkout)
 	entries, err := pending.Entries()
 	if err != nil {
-		return nil, "", internal(fmt.Errorf("read the pending log: %w", err))
+		return nil, "", new(Internal(fmt.Errorf("read the pending log: %w", err)))
 	}
 	for _, e := range entries {
 		if e.Verb == entry.Verb && e.ArgsHash == entry.ArgsHash && e.ContentHash == entry.ContentHash {
@@ -311,7 +310,7 @@ func (c *Client) reserveKey(ctx context.Context, cc *callCtx, inv Invocation, re
 		req.Flags[ExtraExpectedStatus] = st.Status
 	}
 	if err != nil {
-		return nil, "", internal(fmt.Errorf("record the pending write: %w", err))
+		return nil, "", new(Internal(fmt.Errorf("record the pending write: %w", err)))
 	}
 	return pending, key, nil
 }
@@ -386,7 +385,7 @@ func (cc *callCtx) send(ctx context.Context, method string, req *loopv1.VerbRequ
 		}
 		last = err
 		if ctx.Err() != nil {
-			return *internal(fmt.Errorf("the call was cancelled: %w", ctx.Err()))
+			return Internal(fmt.Errorf("the call was cancelled: %w", ctx.Err()))
 		}
 		if !sleepUntil(ctx, b.wait(), cc.deadline) {
 			return unavailable(cc.socket, cc.budget, last)
@@ -418,5 +417,5 @@ func (cc *callCtx) attempt(ctx context.Context, method string, req *loopv1.VerbR
 	if st.Code() == codes.Unavailable || st.Code() == codes.Canceled && ctx.Err() == nil {
 		return Result{}, err
 	}
-	return *internal(fmt.Errorf("the server answered without an envelope: %s: %s", st.Code(), st.Message())), nil
+	return Internal(fmt.Errorf("the server answered without an envelope: %s: %s", st.Code(), st.Message())), nil
 }

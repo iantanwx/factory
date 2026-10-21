@@ -67,26 +67,24 @@ func (s *Service) fenced(ctx context.Context, call *rpc.Call) (*machine.Item, *c
 	return &it, nil
 }
 
-func refuseRef(r *cli.Refusal) cli.Result { return cli.Refuse(*r) }
-
 func (s *Service) branchPush(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, item, ref := s.subject(call)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	head := call.Inv.Extra[cli.ExtraHead]
 	if head == "" {
-		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "no_head", Hint: "the CLI sent no HEAD; push from inside the checkout"})
+		return cli.Reject(cli.CodeUsage, "no_head", "the CLI sent no HEAD; push from inside the checkout")
 	}
 	if c := call.Inv.Extra[cli.ExtraContentHash]; c != "" && c != cli.HeadContentHash(head) {
-		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "head_moved", Hint: "HEAD moved while the CLI read it; push again"})
+		return cli.Reject(cli.CodeUsage, "head_moved", "HEAD moved while the CLI read it; push again")
 	}
 	if _, ref := s.fenced(ctx, call); ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	branch, ref := s.itemBranch(ctx, prj.ID, item)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	p := call.Principal
 	res, err := s.Push(ctx, PushRequest{Project: prj.ID, Item: item, Branch: branch, Checkout: p.Checkout,
@@ -100,11 +98,11 @@ func (s *Service) branchPush(ctx context.Context, call *rpc.Call) cli.Result {
 func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, item, ref := s.subject(call)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	branch, ref := s.itemBranch(ctx, prj.ID, item)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	res, err := s.Sync(ctx, prj, item, branch)
 	if err != nil {
@@ -116,7 +114,7 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 // openVerbs maps the status an item holds when its run opens or updates
 // its PR to the table verb that hands the item to review. The amender
 // pushes its revision to the PRD's open PR, and its `pr open` returns the
-// epic to review (U13).
+// epic to review.
 var openVerbs = map[machine.Kind]map[string]string{
 	machine.KindTicket: {machine.InProgress: "pr_open", machine.Repair: "fix_pushed"},
 	machine.KindEpic:   {machine.SpecDrafting: "pr_open", machine.PRDAmending: "prd_amended"},
@@ -125,16 +123,16 @@ var openVerbs = map[machine.Kind]map[string]string{
 func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, item, ref := s.subject(call)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	it, ref := s.fenced(ctx, call)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	title := call.Inv.Flags["title"]
 	branch, ref := s.itemBranch(ctx, prj.ID, item)
 	if ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	pr, created, err := s.OpenPR(ctx, prj, branch, title, call.Inv.Flags["body"])
 	if err != nil {
@@ -165,7 +163,7 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 func (s *Service) itemPR(ctx context.Context, call *rpc.Call, item string) (config.Project, *PR, *cli.Result) {
 	prj, own, ref := s.subject(call)
 	if ref != nil {
-		res := refuseRef(ref)
+		res := ref.Result()
 		return prj, nil, &res
 	}
 	if item == "" {
@@ -173,7 +171,7 @@ func (s *Service) itemPR(ctx context.Context, call *rpc.Call, item string) (conf
 	}
 	branch, ref := s.itemBranch(ctx, prj.ID, item)
 	if ref != nil {
-		res := refuseRef(ref)
+		res := ref.Result()
 		return prj, nil, &res
 	}
 	pr, err := s.FindPR(ctx, prj, branch)
@@ -249,13 +247,13 @@ func (s *Service) prReply(ctx context.Context, call *rpc.Call) cli.Result {
 		return *res
 	}
 	if _, ref := s.fenced(ctx, call); ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	var thread int64
 	if t := call.Inv.Flags["thread"]; t != "" {
 		n, err := strconv.ParseInt(t, 10, 64)
 		if err != nil || n <= 0 {
-			return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "bad_thread", Hint: "--thread is a review comment id"})
+			return cli.Reject(cli.CodeUsage, "bad_thread", "--thread is a review comment id")
 		}
 		thread = n
 	}
@@ -294,7 +292,7 @@ func (s *Service) prLogs(ctx context.Context, call *rpc.Call) cli.Result {
 	if j := call.Inv.Flags["job"]; j != "" {
 		n, err := strconv.ParseInt(j, 10, 64)
 		if err != nil || n <= 0 {
-			return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "bad_job", Hint: "--job is a CI job id"})
+			return cli.Reject(cli.CodeUsage, "bad_job", "--job is a CI job id")
 		}
 		job = n
 	}
@@ -311,7 +309,7 @@ func (s *Service) prRerun(ctx context.Context, call *rpc.Call) cli.Result {
 		return *res
 	}
 	if _, ref := s.fenced(ctx, call); ref != nil {
-		return refuseRef(ref)
+		return ref.Result()
 	}
 	ids, err := s.Rerun(ctx, prj, pr.Head.SHA)
 	if err != nil {

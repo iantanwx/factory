@@ -56,13 +56,13 @@ func (s *Service) apply(ctx context.Context, call *rpc.Call) cli.Result {
 	p := call.Principal
 	r, err := s.Get(ctx, call.Inv.Arg("room"))
 	if errors.Is(err, sql.ErrNoRows) {
-		return refuse(cli.CodeNotFound, "no_room", "no room "+call.Inv.Arg("room"))
+		return cli.Reject(cli.CodeNotFound, "no_room", "no room "+call.Inv.Arg("room"))
 	}
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	if p.Kind != cli.PrincipalRoom || p.RunID == "" || p.RunID != r.RunID {
-		return refuse(cli.CodeCapabilityDenied, "other_room", "a room applies its own decision only, with its current token")
+		return cli.Reject(cli.CodeCapabilityDenied, "other_room", "a room applies its own decision only, with its current token")
 	}
 	switch r.State {
 	case Live, Idle:
@@ -75,20 +75,20 @@ func (s *Service) apply(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	content, ok := cli.FileContent(call.Inv)
 	if !ok {
-		return refuse(cli.CodeUsage, "no_file", "--file names the room's decision file")
+		return cli.Reject(cli.CodeUsage, "no_file", "--file names the room's decision file")
 	}
-	if res := s.secretIn("decision file", content); res != nil {
-		return *res
+	if r := s.cfg.Redactor.Refusal("secret_in_decision_file", "decision file", content); r != nil {
+		return r.Result()
 	}
 	f, ref := ParseDecisionFile(content)
 	if ref != nil {
-		return cli.Refuse(*ref)
+		return ref.Result()
 	}
 	answered := false
 	if r.Item != "" {
 		it, ref := s.cfg.Machine.Show(ctx, r.Project, r.Item)
 		if ref != nil {
-			return cli.Refuse(*ref)
+			return ref.Result()
 		}
 		if it.Status == machine.Escalated || it.Kind == machine.KindDecision && it.Status == machine.NeedsHuman {
 			answer := f.Decision + "\n\nThe operator said: " + f.Statement
@@ -96,7 +96,7 @@ func (s *Service) apply(ctx context.Context, call *rpc.Call) cli.Result {
 			if f.Amend && it.Kind != machine.KindDecision {
 				params["amendment"] = f.Decision
 			}
-			res := s.cfg.Machine.Apply(ctx, machine.Request{Project: r.Project, Item: r.Item, Verb: "answer", Params: params,
+			res := s.cfg.Machine.Apply(ctx, machine.Request{Project: r.Project, Item: r.Item, Verb: machine.VerbAnswer, Params: params,
 				Actor: machine.Actor{Name: p.Actor(), RunID: p.RunID}, ExpectedStatus: it.Status})
 			if res.Refusal != nil {
 				return res
@@ -106,7 +106,7 @@ func (s *Service) apply(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	raw, err := json.Marshal(f)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	if err := s.setState(ctx, r.ID, Applied, func(tx *store.Tx) error {
 		if _, err := tx.Exec(`UPDATE rooms SET decision = ? WHERE id = ?`, string(raw), r.ID); err != nil {
@@ -119,7 +119,7 @@ func (s *Service) apply(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		return dropHold(tx, r.Project, r.Item, r.ID)
 	}); err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	s.changed()
 	return cli.Found(map[string]any{"room": r.ID, "state": Applied, "answered": answered,

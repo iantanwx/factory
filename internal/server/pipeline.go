@@ -6,7 +6,7 @@ import (
 	"github.com/iantanwx/loop/internal/pipeline"
 )
 
-// Pipeline wires the document pipeline and work entry (U13) into a
+// Pipeline wires the document pipeline and work entry into a
 // server: prd submit, epic decompose and work create. Pass Setup in
 // Options.Setup after the GitHub setup, because it pushes, opens PRs and
 // reads the merged PRD through the GitHub service:

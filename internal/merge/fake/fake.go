@@ -20,14 +20,13 @@ type Mechanism struct {
 	held      map[int]string // PR number -> handed-off head
 	outcome   map[int]merge.Result
 	withdrawn map[int]bool
-	requeues  map[int]int
 	// CheckErr is what Check answers.
 	CheckErr error
 }
 
 // New returns an empty fake.
 func New() *Mechanism {
-	return &Mechanism{held: map[int]string{}, outcome: map[int]merge.Result{}, withdrawn: map[int]bool{}, requeues: map[int]int{}}
+	return &Mechanism{held: map[int]string{}, outcome: map[int]merge.Result{}, withdrawn: map[int]bool{}}
 }
 
 // Name implements merge.Mechanism.
@@ -48,7 +47,6 @@ func (m *Mechanism) HandOff(_ context.Context, pr merge.PR) error {
 // Requeue implements merge.Mechanism.
 func (m *Mechanism) Requeue(ctx context.Context, pr merge.PR) error {
 	m.mu.Lock()
-	m.requeues[pr.Number]++
 	delete(m.outcome, pr.Number)
 	m.mu.Unlock()
 	return m.HandOff(ctx, pr)
@@ -93,11 +91,4 @@ func (m *Mechanism) Withdrawn(n int) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.withdrawn[n]
-}
-
-// Requeues counts the re-queues of PR n.
-func (m *Mechanism) Requeues(n int) int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.requeues[n]
 }

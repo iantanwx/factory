@@ -17,11 +17,8 @@ func (m *Mergify) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	if err != nil {
 		return merge.Result{}, err
 	}
-	switch {
-	case cur.Merged():
-		return merge.Result{Outcome: merge.Merged, SHA: cur.MergeCommitSHA}, nil
-	case cur.State != "open":
-		return merge.Result{Outcome: merge.Closed}, nil
+	if res, ok := merge.Terminal(cur); ok {
+		return res, nil
 	}
 	labels, err := m.gh.Labels(ctx, pr.Project, pr.Number)
 	if err != nil {

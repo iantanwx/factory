@@ -1,4 +1,4 @@
-// Package admission decides which item a stage may take (U6): the caps
+// Package admission decides which item a stage may take: the caps
 // from host config's throughput map (KTD30), the retry identity of R10,
 // the stage mutexes and the dependency rule. It also classes each run's
 // outcome and keeps the failure records that only counted outcomes create
@@ -62,7 +62,7 @@ type Admission struct {
 	mu      sync.Mutex
 	pending map[string]snapshot // by run id, between reservation and claim
 
-	draining atomic.Bool // SetDraining; the scheduler's drain sets it (U8)
+	draining atomic.Bool // SetDraining; the scheduler's drain sets it
 }
 
 // snapshot is what admission read outside the lock for one claim.
@@ -118,16 +118,12 @@ type refusalErr struct{ r *cli.Refusal }
 
 func (e refusalErr) Error() string { return e.r.Code + ": " + e.r.Hint }
 
-func internal(err error) *cli.Refusal {
-	return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
-}
-
 func asRefusal(err error) *cli.Refusal {
 	var re refusalErr
 	if errors.As(err, &re) {
 		return re.r
 	}
-	return internal(err)
+	return cli.InternalRefusal(err)
 }
 
 // claimStates returns each kind and state a stage claims from, in table
@@ -156,7 +152,7 @@ type stateOf struct {
 func (a *Admission) limitsFor(ctx context.Context, stage string) ([]config.Limit, *cli.Refusal) {
 	cfg, err := a.cfg.Host.Load(ctx)
 	if err != nil {
-		return nil, internal(fmt.Errorf("admission: load host config: %w", err))
+		return nil, cli.InternalRefusal(fmt.Errorf("admission: load host config: %w", err))
 	}
 	limits := cfg.Limits(stage)
 	if len(limits) == 0 {
@@ -176,8 +172,8 @@ func (a *Admission) task(ctx context.Context, project, item string) (Task, error
 	if err != nil {
 		return Task{}, err
 	}
-	// TaskText holds work edit's text and an answer that amends the task
-	// (U12), so either re-admits a twice-failed item (R10).
+	// TaskText holds work edit's text and an answer that amends the task,
+	// so either re-admits a twice-failed item (R10).
 	title, body := machine.TaskText(is)
 	return Task{Title: title, Body: body}, nil
 }
@@ -200,7 +196,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		return Admitted{}, &cli.Refusal{Code: cli.CodeUsage, Rule: "incomplete_request", Hint: "admission needs a project, a stage and a run id"}
 	}
 	if a.items == nil {
-		return Admitted{}, internal(errors.New("admission: no machine attached"))
+		return Admitted{}, cli.InternalRefusal(errors.New("admission: no machine attached"))
 	}
 	if a.draining.Load() {
 		return Admitted{}, drainingRefusal()
@@ -228,7 +224,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		}
 		if ref, err := dependencyRefusal(ctx, a.cfg.Deps, it); err != nil || ref != nil {
 			if err != nil {
-				return Admitted{}, internal(err)
+				return Admitted{}, cli.InternalRefusal(err)
 			}
 			return Admitted{}, ref
 		}
@@ -245,9 +241,9 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		status = it.Status
 		var err error
 		if snap.inputs, err = a.inputsOf(ctx, r.Project, r.Item); err != nil {
-			return Admitted{}, internal(err)
+			return Admitted{}, cli.InternalRefusal(err)
 		}
-	} else if r.Stage == stageIntake {
+	} else if r.Stage == config.StageIntake {
 		if epics, ref = a.intakeEpics(ctx, r.Project); ref != nil {
 			return Admitted{}, ref
 		}
@@ -272,7 +268,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 				return refusalErr{ref}
 			}
 		}
-		if r.Stage == stageIntake {
+		if r.Stage == config.StageIntake {
 			if ref := intakeFull(epics, limits[0]); ref != nil {
 				return refusalErr{ref}
 			}
@@ -328,7 +324,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 	a.mu.Unlock()
 	if res.Refusal != nil {
 		if err := a.unreserve(ctx, r.RunID); err != nil {
-			return Admitted{}, internal(errors.Join(fmt.Errorf("admission: %s: %s", res.Refusal.Code, res.Refusal.Hint), err))
+			return Admitted{}, cli.InternalRefusal(errors.Join(fmt.Errorf("admission: %s: %s", res.Refusal.Code, res.Refusal.Hint), err))
 		}
 		return Admitted{}, res.Refusal
 	}
@@ -394,7 +390,7 @@ func (a *Admission) AdmitClaim(ctx context.Context, c machine.ClaimCheck) *cli.R
 		return nil
 	})
 	if err != nil {
-		return internal(err)
+		return cli.InternalRefusal(err)
 	}
 	return ref
 }
@@ -414,7 +410,7 @@ type Candidate struct {
 // item when it may start.
 func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate, *cli.Refusal) {
 	if a.items == nil {
-		return nil, internal(errors.New("admission: no machine attached"))
+		return nil, cli.InternalRefusal(errors.New("admission: no machine attached"))
 	}
 	if a.draining.Load() {
 		return nil, nil
@@ -423,7 +419,7 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 	if ref != nil {
 		return nil, ref
 	}
-	if stage == stageIntake {
+	if stage == config.StageIntake {
 		epics, ref := a.intakeEpics(ctx, project)
 		if ref != nil {
 			return nil, ref
@@ -442,7 +438,7 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 				return err
 			}
 		}
-		if stage == stageIntake {
+		if stage == config.StageIntake {
 			return nil
 		}
 		ref, err := capRefusal(q, stage, limits, 0)
@@ -451,13 +447,13 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 			return err
 		}
 		// The fixer has work only while an escalation waits for its
-		// panel (U12).
+		// panel.
 		waiting, err := panelsWaiting(q, project)
 		full = !waiting
 		return err
 	})
 	if err != nil {
-		return nil, internal(err)
+		return nil, cli.InternalRefusal(err)
 	}
 	if full {
 		return nil, nil
@@ -474,7 +470,7 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 		for _, it := range items {
 			ok, err := a.admissible(ctx, stage, it)
 			if err != nil {
-				return nil, internal(err)
+				return nil, cli.InternalRefusal(err)
 			}
 			if ok {
 				return &Candidate{Project: project, Stage: stage, Item: it.ID, Kind: it.Kind, Status: it.Status}, nil

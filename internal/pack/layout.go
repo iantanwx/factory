@@ -1,5 +1,5 @@
 // Package pack lays the embedded skill pack out for a harness and gates it
-// (U15, R36-R39, KTD19). The source tree holds runbooks/<stage>.md and
+// (R36-R39, KTD19). The source tree holds runbooks/<stage>.md and
 // skills/loop-*/. A run's checkout receives one loop-* directory for each:
 // a runbook becomes loop-<stage>/SKILL.md, which is the path
 // brief.Runbook names, and a skill keeps its directory.
@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -112,11 +113,7 @@ func Layout(src fs.FS) (fs.FS, error) {
 		owner[dir] = by
 		return nil
 	}
-	stages := make([]string, 0, len(m.Runbooks))
-	for s := range m.Runbooks {
-		stages = append(stages, s)
-	}
-	slices.Sort(stages)
+	stages := slices.Sorted(maps.Keys(m.Runbooks))
 	for _, stage := range stages {
 		dir := Injected(stage)
 		if err := claim(dir, RunbookSource(stage)); err != nil {

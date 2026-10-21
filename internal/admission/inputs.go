@@ -2,18 +2,18 @@ package admission
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/iantanwx/loop/internal/hexid"
 )
 
-// BaseReader reads a project's base branch. U10 supplies the reader over
-// the project's bare mirror. Admission calls it only outside the store's
+// BaseReader reads a project's base branch. The GitHub service supplies
+// the reader over the project's bare mirror. Admission calls it only outside the store's
 // write lock and outside the machine's item lock.
 type BaseReader interface {
 	// Files returns a content id, such as a git blob id, for every file on
@@ -39,8 +39,7 @@ func inputsHash(t Task, files map[string]string, release string) string {
 	}
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i][0] < pairs[j][0] })
 	raw, _ := json.Marshal([]any{t.Title, t.Body, pairs, release})
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
+	return hexid.SHA256(raw)
 }
 
 // computeInputs reads the base for the task's declared paths and returns

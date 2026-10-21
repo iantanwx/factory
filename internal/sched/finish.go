@@ -44,7 +44,7 @@ func (s *Scheduler) Finish(ctx context.Context, runID, outcome string) (FinishRe
 // server never gave out is NOT_FOUND, and the run stays unsettled.
 func (s *Scheduler) FinishFault(ctx context.Context, runID, outcome, faultID string) (FinishResult, *cli.Refusal) {
 	switch outcome {
-	case "done", "failed", "blocked":
+	case cli.OutcomeDone, cli.OutcomeFailed, cli.OutcomeBlocked:
 	default:
 		return FinishResult{}, &cli.Refusal{Code: cli.CodeUsage, Rule: "bad_outcome", Hint: "the outcome is done, failed or blocked"}
 	}
@@ -56,7 +56,7 @@ func (s *Scheduler) FinishFault(ctx context.Context, runID, outcome, faultID str
 		return FinishResult{}, &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_run", Hint: "the server has no run " + runID}
 	}
 	if err != nil {
-		return FinishResult{}, internalRef(err)
+		return FinishResult{}, cli.InternalRefusal(err)
 	}
 	kept, ref := s.keepFault(ctx, runID, faultID)
 	if ref != nil {
@@ -65,7 +65,7 @@ func (s *Scheduler) FinishFault(ctx context.Context, runID, outcome, faultID str
 	now := s.now()
 	out, err := s.cfg.Admission.RecordOutcome(ctx, admission.Settlement{RunID: runID, Finish: outcome, Ended: now, LastCLICall: now})
 	if err != nil {
-		return FinishResult{}, internalRef(err)
+		return FinishResult{}, cli.InternalRefusal(err)
 	}
 	res := FinishResult{RunID: runID, Outcome: outcome, Class: out.Class, Counted: out.Counted, Replayed: out.Replayed, Fault: kept}
 	if out.Replayed {
@@ -97,7 +97,7 @@ func (s *Scheduler) keepFault(ctx context.Context, runID, faultID string) (strin
 		return tx.QueryRow(`SELECT fault_id FROM runs WHERE run_id = ?`, runID).Scan(&kept)
 	})
 	if err != nil {
-		return "", internalRef(err)
+		return "", cli.InternalRefusal(err)
 	}
 	if missing {
 		return "", &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_fault",
@@ -118,11 +118,11 @@ func (s *Scheduler) Register(srv *rpc.Server) error {
 func (s *Scheduler) runFinish(ctx context.Context, call *rpc.Call) cli.Result {
 	p := call.Principal
 	if p.Kind != cli.PrincipalRun || p.RunID == "" {
-		return cli.Refuse(cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "run_only", Hint: "only a stage run finishes, from its own checkout"})
+		return cli.Reject(cli.CodeCapabilityDenied, "run_only", "only a stage run finishes, from its own checkout")
 	}
 	res, ref := s.FinishFault(ctx, p.RunID, call.Inv.Flags["outcome"], call.Inv.Flags["fault"])
 	if ref != nil {
-		return cli.Refuse(*ref)
+		return ref.Result()
 	}
 	return cli.Found(res)
 }

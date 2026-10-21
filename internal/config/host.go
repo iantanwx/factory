@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -127,7 +129,7 @@ func SaveHost(path string, cfg *HostConfig) error {
 	return WriteFileAtomic(path, data, 0o600)
 }
 
-// Validate refuses a value that a later unit cannot use.
+// Validate refuses a host config value that the server cannot use.
 func (c *HostConfig) Validate() error {
 	ck := &checker{source: HostConfigFile}
 	if !filepath.IsAbs(c.StateDir) {
@@ -171,7 +173,7 @@ func (c *HostConfig) Validate() error {
 	for i, v := range c.Vaults {
 		f := fmt.Sprintf("vaults[%d]", i)
 		switch {
-		case v == "" || hasControl(v) || strings.Contains(v, "/"):
+		case v == "" || HasControl(v) || strings.Contains(v, "/"):
 			ck.fail(f, "must be a vault name with no slash")
 		case vaults[v]:
 			ck.fail(f, "declares a vault twice")
@@ -197,7 +199,7 @@ func (c *HostConfig) validateCredentials(ck *checker) {
 			ck.fail("credentials."+r.Purpose, "must name a secret-store entry (upper case, digits and underscores), not hold a value")
 		}
 	}
-	for _, name := range sortedKeys(c.Credentials.Trackers) {
+	for _, name := range slices.Sorted(maps.Keys(c.Credentials.Trackers)) {
 		if !validIdent(name) {
 			ck.fail("credentials.trackers", "tracker names must be lower-case identifiers")
 		}
@@ -217,18 +219,8 @@ func (c *HostConfig) CredentialRefs() []CredentialRef {
 	if n := c.Credentials.MergifyTokenSecret; n != "" {
 		refs = append(refs, CredentialRef{Purpose: "mergify_token", Name: n})
 	}
-	for _, name := range sortedKeys(c.Credentials.Trackers) {
+	for _, name := range slices.Sorted(maps.Keys(c.Credentials.Trackers)) {
 		refs = append(refs, CredentialRef{Purpose: "trackers." + name + ".token", Name: c.Credentials.Trackers[name].TokenSecret})
 	}
 	return refs
-}
-
-// VaultDeclared reports whether host config declares vault (KTD28).
-func (c *HostConfig) VaultDeclared(vault string) bool {
-	for _, v := range c.Vaults {
-		if v == vault {
-			return true
-		}
-	}
-	return false
 }

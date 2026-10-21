@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/iantanwx/loop/internal/hexid"
 )
 
 // DistOptions describe one release build.
@@ -44,7 +46,7 @@ func WriteDistChecksums(dir string) error {
 	if err != nil {
 		return err
 	}
-	sums := Checksums{MetadataFile: sha256Hex(metaRaw)}
+	sums := Checksums{MetadataFile: hexid.SHA256(metaRaw)}
 	for _, p := range Platforms {
 		goos, goarch, _ := strings.Cut(p, "/")
 		name := AssetName(goos, goarch)
@@ -52,7 +54,7 @@ func WriteDistChecksums(dir string) error {
 		if err != nil {
 			return fmt.Errorf("release: the release lacks the %s binary: %w", p, err)
 		}
-		sums[name] = sha256Hex(data)
+		sums[name] = hexid.SHA256(data)
 	}
 	return writeFileAtomic(filepath.Join(dir, ChecksumsFile), sums.Bytes(), 0o644)
 }

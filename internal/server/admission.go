@@ -1,17 +1,17 @@
 package server
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/sched"
 )
 
 // composeAdmission builds admission over the host config file and the
@@ -19,7 +19,7 @@ import (
 func (s *Server) composeAdmission() (*admission.Admission, error) {
 	base := s.opts.BaseFiles
 	if base == nil {
-		base = GitBase{Projects: s.Projects, Branch: "main"}
+		base = GitBase{Projects: s.Projects, Branch: sched.DefaultBaseBranch}
 	}
 	return admission.New(admission.Config{
 		Store:   s.Store,
@@ -34,19 +34,13 @@ func (s *Server) composeAdmission() (*admission.Admission, error) {
 // workPeek is `loop work peek --stage`: the stage's work query, with no
 // claim (R20). A run asks for its own project.
 func (s *Server) workPeek(ctx context.Context, call *rpc.Call) cli.Result {
-	p, flag := call.Principal, call.Inv.Flags["project"]
-	project := p.Project
-	switch {
-	case flag != "" && p.Project != "" && flag != p.Project && p.Kind != cli.PrincipalCoordinator:
-		return refuse(cli.CodeCapabilityDenied, "other_project", "a run asks for the work of its own project only")
-	case flag != "":
-		project = flag
-	case project == "":
-		return refuse(cli.CodeUsage, "no_project", "name the project with --project")
+	project, ref := call.Project("a run asks for the work of its own project only")
+	if ref != nil {
+		return ref.Result()
 	}
 	c, ref := s.Admission.Peek(ctx, project, call.Inv.Flags["stage"])
 	if ref != nil {
-		return cli.Refuse(*ref)
+		return ref.Result()
 	}
 	if c == nil {
 		return cli.Nothing()
@@ -56,8 +50,8 @@ func (s *Server) workPeek(ctx context.Context, call *rpc.Call) cli.Result {
 
 // GitBase reads a project's base branch from the project's local directory
 // with `git ls-tree`, at origin/<Branch>. It runs no hook and reads no user
-// or system git config. U10 replaces it with a reader over the bare mirror,
-// which knows each project's base branch.
+// or system git config. A server with the GitHub mirror reads the bare
+// mirror instead, which knows each project's base branch.
 type GitBase struct {
 	Projects *config.Projects
 	Branch   string
@@ -69,30 +63,9 @@ func (g GitBase) Files(ctx context.Context, project string, prefixes []string) (
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", p.Path, "ls-tree", "-r", "-z", "--full-tree", "origin/"+g.Branch)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("git ls-tree origin/%s: %w: %s", g.Branch, err, strings.TrimSpace(stderr.String()))
+	out, err := gitx.Run(ctx, p.Path, "ls-tree", "-r", "-z", "--full-tree", "origin/"+g.Branch)
+	if ge, ok := errors.AsType[*gitx.Error](err); ok {
+		return nil, fmt.Errorf("git ls-tree origin/%s: %w: %s", g.Branch, ge.Err, strings.TrimSpace(ge.Stderr))
 	}
-	files := map[string]string{}
-	for _, rec := range strings.Split(string(out), "\x00") {
-		meta, path, ok := strings.Cut(rec, "\t")
-		if !ok {
-			continue
-		}
-		f := strings.Fields(meta) // mode, type, object id
-		if len(f) != 3 {
-			continue
-		}
-		for _, pre := range prefixes {
-			if strings.HasPrefix(path, pre) {
-				files[path] = f[2]
-				break
-			}
-		}
-	}
-	return files, nil
+	return gitx.TreeFiles(out, prefixes), nil
 }

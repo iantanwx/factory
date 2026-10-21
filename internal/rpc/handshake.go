@@ -19,9 +19,6 @@ func (s *Server) checkVersion(clientVersion string, p Principal) *cli.Result {
 		clientVersion == s.opts.PreviousVersion && p.Release == clientVersion {
 		return nil
 	}
-	res := cli.Refuse(cli.Refusal{
-		Code: cli.CodeVersionMismatch, Rule: "version_mismatch",
-		Hint: fmt.Sprintf("this CLI is %q and the server is %q; use the loop binary of the server's release", clientVersion, s.opts.Version),
-	})
-	return &res
+	return new(cli.Reject(cli.CodeVersionMismatch, "version_mismatch",
+		fmt.Sprintf("this CLI is %q and the server is %q; use the loop binary of the server's release", clientVersion, s.opts.Version)))
 }

@@ -1,4 +1,4 @@
-// Package escalation scores and routes escalations (U12, KTD22). A run
+// Package escalation scores and routes escalations (KTD22). A run
 // raises one with its own score against the triage rubric. A score the
 // rubric routes back to the loop is refused with a triaged note, and the
 // item keeps its state. Any other score waits for the fixer's panel: two
@@ -39,7 +39,7 @@ type Level struct {
 }
 
 // Levels is the rubric's Score in order, ported from TRIAGE_LEVELS
-// (scripts/sdlc/triage-route.ts, alpha). The pack gate (U15) holds the
+// (scripts/sdlc/triage-route.ts, alpha). The pack gate holds the
 // rubric's prose to these cells.
 var Levels = []Level{
 	{1, "computed", "A command in this repository", RouteLoop},

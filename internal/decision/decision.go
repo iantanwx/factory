@@ -1,7 +1,7 @@
-// Package decision files decisions and runs the decision-timers native job
-// (U12). A decision waits in pending for its trigger. `decision fire`, a
+// Package decision files decisions and runs the decision-timers native job.
+// A decision waits in pending for its trigger. `decision fire`, a
 // --by date or the end of an inbox defer sends it to a person in
-// needs_human. The other decision verbs are the state machine's (U5): the
+// needs_human. The other decision verbs are the state machine's: the
 // table ports DECISION_MOVES (scripts/sdlc/decision-states.ts, alpha).
 package decision
 
@@ -61,39 +61,29 @@ func (s *Service) Register(srv *rpc.Server) error {
 	return srv.Handle("decision file", s.file)
 }
 
-func refuse(code, rule, hint string) cli.Result {
-	return cli.Refuse(cli.Refusal{Code: code, Rule: rule, Hint: hint})
-}
-
 // file is `loop decision file`: a question that waits for its trigger. A
 // run files in its own project, and the coordinator names one.
 func (s *Service) file(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
-	project := inv.Flags["project"]
-	switch {
-	case project != "" && p.Project != "" && project != p.Project && p.Kind != cli.PrincipalCoordinator:
-		return refuse(cli.CodeCapabilityDenied, "other_project", "a run files decisions in its own project only")
-	case project == "":
-		project = p.Project
-	}
-	if project == "" {
-		return refuse(cli.CodeUsage, "no_project", "name the project with --project")
+	project, ref := call.Project("a run files decisions in its own project only")
+	if ref != nil {
+		return ref.Result()
 	}
 	title, trigger := strings.TrimSpace(inv.Flags["title"]), strings.TrimSpace(inv.Flags["trigger"])
 	if title == "" || trigger == "" {
-		return refuse(cli.CodeUsage, "no_trigger", "--title holds the question and --trigger the event that forces the answer")
+		return cli.Reject(cli.CodeUsage, "no_trigger", "--title holds the question and --trigger the event that forces the answer")
 	}
 	by := strings.TrimSpace(inv.Flags["by"])
 	if by != "" {
 		if _, err := time.Parse(dateLayout, by); err != nil {
-			return refuse(cli.CodeUsage, "bad_by", "--by is a date, YYYY-MM-DD")
+			return cli.Reject(cli.CodeUsage, "bad_by", "--by is a date, YYYY-MM-DD")
 		}
 	}
 	body := inv.Flags["body"]
 	if s.Redactor != nil {
 		for _, t := range []string{title, trigger, body} {
 			if hit, names := s.Redactor.Find(t); hit {
-				return refuse(cli.CodeSecretInOutput, "secret_in_decision",
+				return cli.Reject(cli.CodeSecretInOutput, "secret_in_decision",
 					"the decision holds the value of "+strings.Join(names, ", ")+"; remove it and file again")
 			}
 		}
@@ -103,7 +93,7 @@ func (s *Service) file(ctx context.Context, call *rpc.Call) cli.Result {
 		facts[inbox.FactBy] = by
 	}
 	id, res := s.Machine.Create(ctx, machine.CreateRequest{Project: project, Kind: machine.KindDecision, Title: title,
-		Description: body, Verb: "file", Actor: machine.Actor{Name: p.Actor(), RunID: p.RunID}, Facts: facts})
+		Description: body, Verb: machine.VerbFile, Actor: machine.Actor{Name: p.Actor(), RunID: p.RunID}, Facts: facts})
 	if res.Refusal != nil {
 		return res
 	}
@@ -167,7 +157,7 @@ func (s *Service) Tick(ctx context.Context, project string) error {
 	}
 	var errs []string
 	for _, d := range dues {
-		res := s.Machine.Apply(ctx, machine.Request{Project: project, Item: d.item, Verb: "fire", Actor: machine.Server(JobName),
+		res := s.Machine.Apply(ctx, machine.Request{Project: project, Item: d.item, Verb: machine.VerbFire, Actor: machine.Server(JobName),
 			ExpectedStatus: machine.DecisionPending})
 		settled := res.Refusal == nil || res.Refusal.Code == cli.CodeTransitionNotAllowed || res.Refusal.Code == cli.CodeStatusChanged ||
 			res.Refusal.Code == cli.CodeNotFound

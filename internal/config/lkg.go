@@ -182,7 +182,7 @@ func (s storeLKG) SaveLKG(ctx context.Context, project string, config, manifest 
 }
 
 // storeAlerter writes the alerts table. One open row exists for each dedupe
-// key, and a repeat raise counts up on it. U12 owns the inbox that reads it.
+// key, and a repeat raise counts up on it. The inbox reads it.
 type storeAlerter struct{ st *store.Store }
 
 // StoreAlerter returns an Alerter over the store's alerts table.

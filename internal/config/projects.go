@@ -65,8 +65,8 @@ func validateRegistrations(ck *checker, ps []Project) {
 }
 
 // AddHook prepares one part of a new project, for example its beads
-// database (U3), its bare mirror and branch-rules check (U10) or its merge
-// mechanism check (U11). Projects.Add runs every hook before it saves the
+// database, its bare mirror and branch-rules check or its merge
+// mechanism check. Projects.Add runs every hook before it saves the
 // registration, and it saves nothing if a hook fails. A hook must be safe to
 // run again, because an operator repeats a failed add.
 type AddHook func(ctx context.Context, p Project) error

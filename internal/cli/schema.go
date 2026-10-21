@@ -255,7 +255,8 @@ func (r *Registry) SetHandler(path string, h Handler) error {
 }
 
 // SetRemote sets the handler of every server verb that has no handler of
-// its own. U4 sets it to the call that sends a VerbRequest to the server.
+// its own. The client sets it to the call that sends a VerbRequest to the
+// server.
 func (r *Registry) SetRemote(h Handler) { r.remote = h }
 
 // RegisterTransitionTable adds the transition table of one item kind. The

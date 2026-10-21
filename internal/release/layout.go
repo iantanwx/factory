@@ -2,8 +2,6 @@ package release
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +14,7 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/server"
 )
@@ -213,11 +212,7 @@ func (l Layout) lockInstance(ctx context.Context, timeout time.Duration) (*rpc.I
 	}
 }
 
-func randomSuffix() string {
-	var b [6]byte
-	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
-}
+func randomSuffix() string { return hexid.Random(6) }
 
 func syncDir(dir string) error {
 	f, err := os.Open(dir)

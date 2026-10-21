@@ -100,9 +100,8 @@ type DepKind string
 
 // The dependency kinds the server uses.
 const (
-	DepBlocks      DepKind = "blocks"
-	DepParentChild DepKind = "parent-child"
-	DepRelated     DepKind = "related"
+	DepBlocks  DepKind = "blocks"
+	DepRelated DepKind = "related"
 )
 
 // Issue is the part of a bead the server reads.
@@ -187,6 +186,3 @@ func IsBuiltinStatus(s string) bool { _, ok := builtinStatuses[s]; return ok }
 
 // IsBuiltinType reports whether bd defines the issue type itself.
 func IsBuiltinType(t string) bool { return builtinTypes[t] }
-
-// CategoryOf returns the category of a built-in status.
-func CategoryOf(s string) (StatusCategory, bool) { c, ok := builtinStatuses[s]; return c, ok }

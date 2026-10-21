@@ -1,4 +1,4 @@
-package agenthost
+package agenthosttest
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/iantanwx/loop/internal/agenthost"
 )
 
 // ContractEnv is what one contract run needs from its factory. The suite
@@ -16,11 +18,11 @@ import (
 // none. The fake implements every capability. A real host implements the
 // ones it can drive without a person.
 type ContractEnv struct {
-	Host Host
+	Host agenthost.Host
 	// NewCheckout makes a fresh checkout inside the checkout root and
 	// returns its path. The suite removes it through Host.RemoveCheckout.
 	NewCheckout func(t testing.TB) string
-	Harness     Harness
+	Harness     agenthost.Harness
 	Model       string
 	Effort      string
 	// PromptDir holds the prompt files. Empty means t.TempDir().
@@ -48,8 +50,8 @@ type (
 	Advancer interface{ Advance(d time.Duration) }
 	// TurnDriver sets what the session's transcript shows.
 	TurnDriver interface {
-		EndTurn(id RunID)
-		StartTool(id RunID)
+		EndTurn(id agenthost.RunID)
+		StartTool(id agenthost.RunID)
 	}
 	// InventoryBreaker makes every inventory incomplete.
 	InventoryBreaker interface{ SetInventoryIncomplete(on bool) }
@@ -58,16 +60,20 @@ type (
 	// ModelDropper makes the host drop the model argument of later starts.
 	ModelDropper interface{ SetDropModel(on bool) }
 	// NotifyRefuser makes the host refuse input to one session.
-	NotifyRefuser interface{ RefuseNotify(id RunID, on bool) }
+	NotifyRefuser interface {
+		RefuseNotify(id agenthost.RunID, on bool)
+	}
 	// Staler makes one session's handle stale.
-	Staler interface{ MakeStale(id RunID) }
+	Staler interface{ MakeStale(id agenthost.RunID) }
 	// ArgvReader lists the argument vector of every process the host
 	// started, or every process on the machine.
 	ArgvReader interface {
 		ProcessArgs() ([][]string, error)
 	}
 	// NotifyObserver lists what a session received through Notify.
-	NotifyObserver interface{ Notifications(id RunID) []string }
+	NotifyObserver interface {
+		Notifications(id agenthost.RunID) []string
+	}
 	// CheckoutObserver says whether a checkout still exists.
 	CheckoutObserver interface{ CheckoutExists(path string) bool }
 )
@@ -156,15 +162,15 @@ func (c *contract) prompt(t *testing.T, text string) string {
 	return f.Name()
 }
 
-func (c *contract) spec(kind Kind, checkout, promptFile string) StartSpec {
-	return StartSpec{
+func (c *contract) spec(kind agenthost.Kind, checkout, promptFile string) agenthost.StartSpec {
+	return agenthost.StartSpec{
 		Kind: kind, Checkout: checkout, Harness: c.env.Harness, Model: c.env.Model,
 		Effort: c.env.Effort, PromptFile: promptFile, Title: "loop contract " + string(kind),
 	}
 }
 
 // start starts a session and closes it when the scenario ends.
-func (c *contract) start(t *testing.T, spec StartSpec) Session {
+func (c *contract) start(t *testing.T, spec agenthost.StartSpec) agenthost.Session {
 	t.Helper()
 	s, err := c.env.Host.Start(c.ctx, spec)
 	if err != nil {
@@ -174,7 +180,7 @@ func (c *contract) start(t *testing.T, spec StartSpec) Session {
 	return s
 }
 
-func (c *contract) startDefault(t *testing.T, kind Kind) (Session, string) {
+func (c *contract) startDefault(t *testing.T, kind agenthost.Kind) (agenthost.Session, string) {
 	t.Helper()
 	path := c.checkout(t)
 	return c.start(t, c.spec(kind, path, c.prompt(t, c.env.Prompt))), path
@@ -205,37 +211,37 @@ func need[T any](t *testing.T, driver any) T {
 }
 
 // staleOf names a handle the host never issued, on the session's host.
-func staleOf(id RunID) RunID {
-	return RunID{Host: id.Host, Terminal: "term_00000000-0000-0000-0000-000000000000", Incarnation: id.Incarnation}
+func staleOf(id agenthost.RunID) agenthost.RunID {
+	return agenthost.RunID{Host: id.Host, Terminal: "term_00000000-0000-0000-0000-000000000000", Incarnation: id.Incarnation}
 }
 
 func scStart(t *testing.T, c *contract) {
-	s, path := c.startDefault(t, KindStage)
+	s, path := c.startDefault(t, agenthost.KindStage)
 	if !s.ID.Valid() {
 		t.Fatalf("session id %+v is not valid", s.ID)
 	}
 	if s.Checkout != path || s.Harness != c.env.Harness || s.Model != c.env.Model {
 		t.Fatalf("session %+v does not echo the request", s)
 	}
-	var inv Inventory
+	var inv agenthost.Inventory
 	ok := c.eventually(func() bool {
 		var err error
 		inv, err = c.env.Host.Inventory(c.ctx)
-		return err == nil && inv.Complete && inv.Lookup(s) == Present
+		return err == nil && inv.Complete && inv.Lookup(s) == agenthost.Present
 	})
 	if !ok {
 		t.Fatalf("inventory never listed %s: complete=%v why=%q", s.ID, inv.Complete, inv.Why)
 	}
 	st, err := c.env.Host.Settle(c.ctx, s.ID)
-	if err != nil || st.Liveness != Live {
+	if err != nil || st.Liveness != agenthost.Live {
 		t.Fatalf("Settle live session = %+v, %v; want live", st, err)
 	}
 }
 
 func scRunID(t *testing.T, c *contract) {
-	s, _ := c.startDefault(t, KindStage)
+	s, _ := c.startDefault(t, agenthost.KindStage)
 	owner := s.ID.String()
-	back, err := ParseRunID(owner)
+	back, err := agenthost.ParseRunID(owner)
 	if err != nil || back != s.ID {
 		t.Fatalf("ParseRunID(%q) = %+v, %v; want %+v", owner, back, err, s.ID)
 	}
@@ -250,7 +256,7 @@ func scArgv(t *testing.T, c *contract) {
 		"-" + time.Now().Format("150405.000000000")
 	path := c.checkout(t)
 	file := c.prompt(t, c.env.Prompt+"\nThe marker is "+marker+". It's \"quoted\" and `ticked`; $HOME stays.\n")
-	c.start(t, c.spec(KindStage, path, file))
+	c.start(t, c.spec(agenthost.KindStage, path, file))
 	args, err := reader.ProcessArgs()
 	if err != nil {
 		t.Fatalf("ProcessArgs: %v", err)
@@ -271,15 +277,15 @@ func scArgv(t *testing.T, c *contract) {
 
 func scIncomplete(t *testing.T, c *contract) {
 	// The rule holds for every inventory value, whatever the host.
-	ghost := Session{ID: RunID{Host: "h", Terminal: "t", Incarnation: "i"}, Epoch: "e"}
-	if got := (Inventory{Complete: false, Epoch: "e"}).Lookup(ghost); got == Absent {
+	ghost := agenthost.Session{ID: agenthost.RunID{Host: "h", Terminal: "t", Incarnation: "i"}, Epoch: "e"}
+	if got := (agenthost.Inventory{Complete: false, Epoch: "e"}).Lookup(ghost); got == agenthost.Absent {
 		t.Fatal("an incomplete inventory reported a run absent")
 	}
-	if got := (Inventory{Complete: true, Epoch: "e2"}).Lookup(ghost); got == Absent {
+	if got := (agenthost.Inventory{Complete: true, Epoch: "e2"}).Lookup(ghost); got == agenthost.Absent {
 		t.Fatal("an inventory of another epoch reported a run absent")
 	}
 	breaker := need[InventoryBreaker](t, c.env.Driver)
-	s, _ := c.startDefault(t, KindStage)
+	s, _ := c.startDefault(t, agenthost.KindStage)
 	if err := c.env.Host.Close(c.ctx, s.ID); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -289,15 +295,15 @@ func scIncomplete(t *testing.T, c *contract) {
 	if inv.Complete {
 		t.Fatal("broken inventory reads complete")
 	}
-	if got := inv.Lookup(s); got == Absent {
+	if got := inv.Lookup(s); got == agenthost.Absent {
 		t.Fatalf("incomplete inventory reported %s absent", s.ID)
 	}
 }
 
 func scStale(t *testing.T, c *contract) {
-	s, _ := c.startDefault(t, KindStage)
+	s, _ := c.startDefault(t, agenthost.KindStage)
 	st, err := c.env.Host.Settle(c.ctx, staleOf(s.ID))
-	if st.Liveness != Unknown || err == nil {
+	if st.Liveness != agenthost.Unknown || err == nil {
 		t.Fatalf("Settle stale handle = %+v, %v; want unknown and an error", st, err)
 	}
 	staler, ok := c.env.Driver.(Staler)
@@ -306,7 +312,7 @@ func scStale(t *testing.T, c *contract) {
 	}
 	staler.MakeStale(s.ID)
 	st, err = c.env.Host.Settle(c.ctx, s.ID)
-	if st.Liveness != Unknown || !errors.Is(err, ErrStaleHandle) {
+	if st.Liveness != agenthost.Unknown || !errors.Is(err, agenthost.ErrStaleHandle) {
 		t.Fatalf("Settle after MakeStale = %+v, %v; want unknown, ErrStaleHandle", st, err)
 	}
 }
@@ -316,8 +322,8 @@ func scNotReady(t *testing.T, c *contract) {
 	breaker.SetNeverReady(true)
 	t.Cleanup(func() { breaker.SetNeverReady(false) })
 	path := c.checkout(t)
-	s, err := c.env.Host.Start(c.ctx, c.spec(KindStage, path, c.prompt(t, c.env.Prompt)))
-	if !errors.Is(err, ErrNotReady) {
+	s, err := c.env.Host.Start(c.ctx, c.spec(agenthost.KindStage, path, c.prompt(t, c.env.Prompt)))
+	if !errors.Is(err, agenthost.ErrNotReady) {
 		t.Fatalf("Start of a never-ready agent = %v; want ErrNotReady", err)
 	}
 	if s.ID.Valid() {
@@ -328,18 +334,18 @@ func scNotReady(t *testing.T, c *contract) {
 func scEndedQuiet(t *testing.T, c *contract) {
 	turns := need[TurnDriver](t, c.env.Driver)
 	clock := need[Advancer](t, c.env.Driver)
-	s, path := c.startDefault(t, KindStage)
+	s, path := c.startDefault(t, agenthost.KindStage)
 	if r, err := c.env.Host.Ended(c.ctx, s); err != nil || r.Ended {
 		t.Fatalf("Ended of a working session = %+v, %v; want not ended", r, err)
 	}
 	turns.EndTurn(s.ID)
-	clock.Advance(DefaultQuietPeriod - time.Minute)
+	clock.Advance(agenthost.DefaultQuietPeriod - time.Minute)
 	if r, err := c.env.Host.Ended(c.ctx, s); err != nil || r.Ended {
 		t.Fatalf("Ended inside the quiet period = %+v, %v; want not ended", r, err)
 	}
 	clock.Advance(2 * time.Minute)
 	r, err := c.env.Host.Ended(c.ctx, s)
-	if err != nil || !r.Ended || r.Cause != EndQuiet {
+	if err != nil || !r.Ended || r.Cause != agenthost.EndQuiet {
 		t.Fatalf("Ended after the quiet period = %+v, %v; want ended by quiet", r, err)
 	}
 	if err := c.env.Host.Close(c.ctx, s.ID); err != nil {
@@ -351,9 +357,9 @@ func scEndedQuiet(t *testing.T, c *contract) {
 func scToolRunning(t *testing.T, c *contract) {
 	turns := need[TurnDriver](t, c.env.Driver)
 	clock := need[Advancer](t, c.env.Driver)
-	s, _ := c.startDefault(t, KindStage)
+	s, _ := c.startDefault(t, agenthost.KindStage)
 	turns.StartTool(s.ID)
-	clock.Advance(3 * DefaultQuietPeriod)
+	clock.Advance(3 * agenthost.DefaultQuietPeriod)
 	r, err := c.env.Host.Ended(c.ctx, s)
 	if err != nil || r.Ended {
 		t.Fatalf("Ended with a tool call running = %+v, %v; want not ended", r, err)
@@ -364,9 +370,9 @@ func scEndedReal(t *testing.T, c *contract) {
 	if _, ok := c.env.Driver.(TurnDriver); ok || c.env.EndedWithin == 0 {
 		t.Skip("covered by the driven quiet scenario, or no EndedWithin")
 	}
-	s, path := c.startDefault(t, KindStage)
+	s, path := c.startDefault(t, agenthost.KindStage)
 	deadline := time.Now().Add(c.env.EndedWithin)
-	var r EndReport
+	var r agenthost.EndReport
 	var err error
 	for time.Now().Before(deadline) {
 		r, err = c.env.Host.Ended(c.ctx, s)
@@ -398,13 +404,13 @@ func (c *contract) assertCheckout(t *testing.T, path string) {
 }
 
 func scCloseKeeps(t *testing.T, c *contract) {
-	s, path := c.startDefault(t, KindRoom)
+	s, path := c.startDefault(t, agenthost.KindRoom)
 	if err := c.env.Host.Close(c.ctx, s.ID); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	c.assertCheckout(t, path)
 	st, _ := c.env.Host.Settle(c.ctx, s.ID)
-	if st.Liveness == Live {
+	if st.Liveness == agenthost.Live {
 		t.Fatal("a closed session still reads live")
 	}
 }
@@ -413,32 +419,32 @@ func scDroppedModel(t *testing.T, c *contract) {
 	dropper := need[ModelDropper](t, c.env.Driver)
 	dropper.SetDropModel(true)
 	t.Cleanup(func() { dropper.SetDropModel(false) })
-	s, path := c.startDefault(t, KindStage)
+	s, path := c.startDefault(t, agenthost.KindStage)
 	rc, err := c.env.Host.ModelReceipt(c.ctx, s)
-	if err != nil || rc.Status != Unverified {
+	if err != nil || rc.Status != agenthost.Unverified {
 		t.Fatalf("receipt of a dropped model = %+v, %v; want unverified", rc, err)
 	}
-	spec := c.spec(KindStage, path, c.prompt(t, c.env.Prompt))
+	spec := c.spec(agenthost.KindStage, path, c.prompt(t, c.env.Prompt))
 	spec.RequireVerifiedModel = true
 	esc, err := c.env.Host.Start(c.ctx, spec)
-	if !errors.Is(err, ErrModelUnverified) {
+	if !errors.Is(err, agenthost.ErrModelUnverified) {
 		t.Fatalf("escalated start with a dropped model = %v; want ErrModelUnverified", err)
 	}
 	if esc.ID.Valid() {
 		st, _ := c.env.Host.Settle(c.ctx, esc.ID)
-		if st.Liveness == Live {
+		if st.Liveness == agenthost.Live {
 			t.Fatal("an escalated role with an unverified model is still live")
 		}
 	}
 }
 
 func scVerified(t *testing.T, c *contract) {
-	s, _ := c.startDefault(t, KindStage)
-	var rc ModelReceipt
+	s, _ := c.startDefault(t, agenthost.KindStage)
+	var rc agenthost.ModelReceipt
 	ok := c.eventually(func() bool {
 		var err error
 		rc, err = c.env.Host.ModelReceipt(c.ctx, s)
-		return err == nil && rc.Status == Verified
+		return err == nil && rc.Status == agenthost.Verified
 	})
 	if !ok {
 		t.Fatalf("receipt of the requested model = %+v; want verified", rc)
@@ -449,7 +455,7 @@ func scVerified(t *testing.T, c *contract) {
 }
 
 func scNotify(t *testing.T, c *contract) {
-	s, _ := c.startDefault(t, KindCoordinator)
+	s, _ := c.startDefault(t, agenthost.KindCoordinator)
 	if turns, ok := c.env.Driver.(TurnDriver); ok {
 		turns.EndTurn(s.ID)
 	}
@@ -471,22 +477,22 @@ func scNotify(t *testing.T, c *contract) {
 
 func scNotifyRefused(t *testing.T, c *contract) {
 	refuser := need[NotifyRefuser](t, c.env.Driver)
-	s, _ := c.startDefault(t, KindCoordinator)
+	s, _ := c.startDefault(t, agenthost.KindCoordinator)
 	refuser.RefuseNotify(s.ID, true)
 	err := c.env.Host.Notify(c.ctx, s.ID, "doorbell")
-	if !errors.Is(err, ErrNotifyRefused) {
+	if !errors.Is(err, agenthost.ErrNotifyRefused) {
 		t.Fatalf("refused Notify = %v; want ErrNotifyRefused", err)
 	}
 }
 
 func scStop(t *testing.T, c *contract) {
-	s, _ := c.startDefault(t, KindStage)
+	s, _ := c.startDefault(t, agenthost.KindStage)
 	st, err := c.env.Host.Stop(c.ctx, staleOf(s.ID))
-	if st.Liveness == Exited || !errors.Is(err, ErrExitUnproven) {
+	if st.Liveness == agenthost.Exited || !errors.Is(err, agenthost.ErrExitUnproven) {
 		t.Fatalf("Stop of a stale handle = %+v, %v; want no exit and ErrExitUnproven", st, err)
 	}
 	st, err = c.env.Host.Stop(c.ctx, s.ID)
-	if err != nil || st.Liveness != Exited {
+	if err != nil || st.Liveness != agenthost.Exited {
 		t.Fatalf("Stop of a live session = %+v, %v; want exited", st, err)
 	}
 }
@@ -495,12 +501,12 @@ func scOutsideRoot(t *testing.T, c *contract) {
 	if c.env.OutsideRoot == "" {
 		t.Skip("env names no path outside the root")
 	}
-	if err := c.env.Host.RemoveCheckout(c.ctx, c.env.OutsideRoot); !errors.Is(err, ErrOutsideRoot) {
+	if err := c.env.Host.RemoveCheckout(c.ctx, c.env.OutsideRoot); !errors.Is(err, agenthost.ErrOutsideRoot) {
 		t.Fatalf("RemoveCheckout outside root = %v; want ErrOutsideRoot", err)
 	}
 	escape := filepath.Join(c.env.OutsideRoot, "..", filepath.Base(c.env.OutsideRoot))
-	spec := c.spec(KindStage, escape, c.prompt(t, c.env.Prompt))
-	if _, err := c.env.Host.Start(c.ctx, spec); !errors.Is(err, ErrOutsideRoot) {
+	spec := c.spec(agenthost.KindStage, escape, c.prompt(t, c.env.Prompt))
+	if _, err := c.env.Host.Start(c.ctx, spec); !errors.Is(err, agenthost.ErrOutsideRoot) {
 		t.Fatalf("Start outside root = %v; want ErrOutsideRoot", err)
 	}
 }

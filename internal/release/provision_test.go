@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/hexid"
 )
 
 // tarGz builds a gzip tar archive with one file.
@@ -63,7 +65,7 @@ func newPinWorld(t *testing.T, bdVersion string) *pinWorld {
 		urlPath := "/" + p.name + "-" + p.version + ".tar.gz"
 		w.files[urlPath] = archive
 		w.pins = append(w.pins, Pin{Name: p.name, Version: p.version, Platform: "linux/amd64",
-			URL: urlPath, Member: p.member, ArchiveSHA256: sha256Hex(archive), BinarySHA256: sha256Hex(bin)})
+			URL: urlPath, Member: p.member, ArchiveSHA256: hexid.SHA256(archive), BinarySHA256: hexid.SHA256(bin)})
 	}
 	w.prov = Provisioner{HTTP: w.srv.Client(), URL: func(p Pin) string { return w.srv.URL + p.URL }}
 	return w
@@ -113,7 +115,7 @@ func TestProvisionRefusesAChecksumMismatch(t *testing.T) {
 		// The archive matches its pin, and the binary inside does not.
 		other := tarGz(t, w.pins[0].Member, []byte("another bd"))
 		w.files[w.pins[0].URL] = other
-		w.pins[0].ArchiveSHA256 = sha256Hex(other)
+		w.pins[0].ArchiveSHA256 = hexid.SHA256(other)
 		_, err := w.prov.Provision(ctx, w.pins, filepath.Join(t.TempDir(), "bin"))
 		if !errors.Is(err, ErrPinMismatch) || !strings.Contains(err.Error(), "binary") {
 			t.Fatalf("err = %v", err)

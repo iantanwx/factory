@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/iantanwx/loop/internal/gitx"
 )
 
 // ConflictError is a tracked file at an injected path (KTD19). The run is
@@ -23,25 +24,11 @@ func (e *ConflictError) Error() string {
 	return "brief: the repository tracks injected paths: " + strings.Join(e.Paths, ", ")
 }
 
-// gitCmd runs git in dir with no user or system config, so no hook or
-// alias the operator set changes the answer.
-func gitCmd(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
-	}
-	return out, nil
-}
-
 // CheckTracked returns a *ConflictError when git tracks a file at one of
 // files, or any file under one of dirs. Paths are relative and use
 // slashes.
 func CheckTracked(ctx context.Context, checkout string, files, dirs []string) error {
-	out, err := gitCmd(ctx, checkout, "ls-files", "-z", "--full-name")
+	out, err := gitx.Run(ctx, checkout, "ls-files", "-z", "--full-name")
 	if err != nil {
 		return err
 	}
@@ -71,7 +58,7 @@ const excludeMarker = "# loop: injected run files (KTD19)"
 // anchored at the root. A line already present is not written again. A
 // linked worktree shares its common directory's exclude file.
 func Exclude(ctx context.Context, checkout string, files, dirs []string) error {
-	out, err := gitCmd(ctx, checkout, "rev-parse", "--git-path", "info/exclude")
+	out, err := gitx.Run(ctx, checkout, "rev-parse", "--git-path", "info/exclude")
 	if err != nil {
 		return err
 	}

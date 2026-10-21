@@ -38,7 +38,7 @@ func (s *Service) ack(ctx context.Context, call *rpc.Call) cli.Result {
 	id := call.Inv.Arg("fault")
 	n, ok := ParseID(id)
 	if !ok {
-		return refuse(cli.CodeUsage, "bad_fault", fmt.Sprintf("%q is no fault id; a fault id is F-<n>", id))
+		return cli.Reject(cli.CodeUsage, "bad_fault", fmt.Sprintf("%q is no fault id; a fault id is F-<n>", id))
 	}
 	err := s.Store.Write(ctx, func(tx *store.Tx) error {
 		status, err := statusOf(tx, n)
@@ -64,7 +64,7 @@ func (s *Service) resolve(ctx context.Context, call *rpc.Call) cli.Result {
 	id, fl := call.Inv.Arg("fault"), call.Inv.Flags
 	n, ok := ParseID(id)
 	if !ok {
-		return refuse(cli.CodeUsage, "bad_fault", fmt.Sprintf("%q is no fault id; a fault id is F-<n>", id))
+		return cli.Reject(cli.CodeUsage, "bad_fault", fmt.Sprintf("%q is no fault id; a fault id is F-<n>", id))
 	}
 	r := Resolution{FixedIn: strings.TrimSpace(fl["fixed-in"]), DuplicateOf: strings.TrimSpace(fl["duplicate-of"]),
 		Reason: strings.TrimSpace(fl["reason"])}
@@ -78,24 +78,24 @@ func (s *Service) resolve(ctx context.Context, call *rpc.Call) cli.Result {
 	const one = "name exactly one resolution: --fixed-in <release>, --duplicate-of <id>, or --not-a-fault --reason <text>"
 	switch {
 	case count != 1:
-		return refuse(cli.CodeUsage, "one_resolution", one)
+		return cli.Reject(cli.CodeUsage, "one_resolution", one)
 	case notAFault && r.Reason == "":
-		return refuse(cli.CodeUsage, "no_reason", "--not-a-fault needs --reason, which says why the report is no fault in the loop")
+		return cli.Reject(cli.CodeUsage, "no_reason", "--not-a-fault needs --reason, which says why the report is no fault in the loop")
 	case !notAFault && r.Reason != "":
-		return refuse(cli.CodeUsage, "reason_without_not_a_fault", "--reason goes with --not-a-fault only; "+one)
+		return cli.Reject(cli.CodeUsage, "reason_without_not_a_fault", "--reason goes with --not-a-fault only; "+one)
 	}
 	if r.DuplicateOf != "" {
 		dn, ok := ParseID(r.DuplicateOf)
 		if !ok {
-			return refuse(cli.CodeUsage, "bad_duplicate", fmt.Sprintf("--duplicate-of %q is no fault id; a fault id is F-<n>", r.DuplicateOf))
+			return cli.Reject(cli.CodeUsage, "bad_duplicate", fmt.Sprintf("--duplicate-of %q is no fault id; a fault id is F-<n>", r.DuplicateOf))
 		}
 		if dn == n {
-			return refuse(cli.CodeUsage, "duplicate_of_itself", "a fault cannot be a duplicate of itself")
+			return cli.Reject(cli.CodeUsage, "duplicate_of_itself", "a fault cannot be a duplicate of itself")
 		}
 		r.DuplicateOf = FormatID(dn)
 	}
-	if res := s.secretIn("reason", r.Reason); res != nil {
-		return *res
+	if ref := s.Redactor.Refusal("secret_in_reason", "reason", r.Reason); ref != nil {
+		return ref.Result()
 	}
 	actor := call.Principal.Actor()
 	err := s.Store.Write(ctx, func(tx *store.Tx) error {
@@ -136,16 +136,16 @@ func statusOf(tx *store.Tx, n int64) (string, error) {
 func (s *Service) answer(ctx context.Context, id string, err error, verb string) cli.Result {
 	switch {
 	case errors.Is(err, ErrNotFound):
-		return refuse(cli.CodeNotFound, "no_fault", fmt.Sprintf("the server gave out no fault %s", strings.TrimPrefix(err.Error(), ErrNotFound.Error()+": ")))
+		return cli.Reject(cli.CodeNotFound, "no_fault", fmt.Sprintf("the server gave out no fault %s", strings.TrimPrefix(err.Error(), ErrNotFound.Error()+": ")))
 	case errors.Is(err, errNotAllowed):
 		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "fault_" + verb, Item: id,
 			Hint: strings.TrimPrefix(err.Error(), errNotAllowed.Error()+": ")})
 	case err != nil:
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	f, err := s.Get(ctx, id)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	f.Installed = s.release()
 	return cli.Found(f)

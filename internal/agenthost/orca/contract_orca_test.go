@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/agenthost/agenthosttest"
 	"github.com/iantanwx/loop/internal/agenthost/orca"
 )
 
@@ -37,7 +38,7 @@ func envOr(name, def string) string {
 }
 
 // procArgs reads the argument vector of every process on this Linux host.
-// It serves agenthost.ArgvReader. A process that ends during the scan, or
+// It serves agenthosttest.ArgvReader. A process that ends during the scan, or
 // that this user cannot read, drops out.
 type procArgs struct{}
 
@@ -84,12 +85,12 @@ func TestOrcaContract(t *testing.T) {
 		cfg.HarnessArgs[harness] = strings.Fields(extra)
 	}
 	n := 0
-	agenthost.RunContract(t, func(t *testing.T) agenthost.ContractEnv {
+	agenthosttest.RunContract(t, func(t *testing.T) agenthosttest.ContractEnv {
 		h, err := orca.New(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return agenthost.ContractEnv{
+		return agenthosttest.ContractEnv{
 			Host: h,
 			NewCheckout: func(tb testing.TB) string {
 				n++

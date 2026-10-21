@@ -11,7 +11,7 @@ import (
 	"github.com/iantanwx/loop/internal/merge/mergify"
 )
 
-// Merge wires the merge interface (U11) into a server. Pass Setup in
+// Merge wires the merge interface into a server. Pass Setup in
 // Options.Setup after the GitHub setup, because it uses the GitHub
 // service and its `project add` hook must run after the GitHub hook,
 // which fetches the default branch:
@@ -21,7 +21,7 @@ import (
 //	opts.Setup = append(opts.Setup, gh.Setup, mg.Setup)
 //
 // Setup composes the three mechanisms and the merge-handoff job, and it
-// adds the mechanism check to `project add`. The scheduler (U8) registers
+// adds the mechanism check to `project add`. The scheduler registers
 // HandOff.TickProject as the merge-handoff native job.
 type Merge struct {
 	GitHub *GitHub

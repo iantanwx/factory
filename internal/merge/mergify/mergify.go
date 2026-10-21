@@ -1,4 +1,4 @@
-// Package mergify is the mergify merge mechanism (U11, KTD29). A hand-off
+// Package mergify is the mergify merge mechanism (KTD29). A hand-off
 // labels the PR. The project's Mergify configuration, rendered from
 // deploy/mergify.yml.tmpl, queues a PR only with that label and the
 // loop/eligible status, which the loop posts only on a reviewed head. A
@@ -166,20 +166,16 @@ func cond(op, value string) (string, error) {
 	return string(b), err
 }
 
-func controlFree(s string) bool {
-	return s != "" && !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
-}
-
 // Render renders the project's Mergify configuration.
 func Render(t Template) ([]byte, error) {
 	switch {
 	case !botRe.MatchString(t.Bot):
 		return nil, fmt.Errorf("%w: %q is not a bot user", errBad, t.Bot)
-	case !controlFree(t.Base) || strings.ContainsAny(t.Base, " \"'"):
+	case t.Base == "" || config.HasControl(t.Base) || strings.ContainsAny(t.Base, " \"'"):
 		return nil, fmt.Errorf("%w: %q is not a plain branch name", errBad, t.Base)
 	}
 	for _, c := range t.Checks {
-		if !controlFree(c) {
+		if c == "" || config.HasControl(c) {
 			return nil, fmt.Errorf("%w: check %q holds a control character", errBad, c)
 		}
 	}

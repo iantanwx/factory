@@ -197,9 +197,6 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Healthy reports whether the server answers on its socket now.
-func (s *Supervisor) Healthy() error { return probe(s.cfg.Socket) }
-
 // prepare makes the directories and seeds dolt's global config with metrics
 // and the online version check turned off.
 func (s *Supervisor) prepare() error {

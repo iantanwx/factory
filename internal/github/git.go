@@ -226,17 +226,6 @@ func (m *Mirror) Resolve(ctx context.Context, ref string) string {
 	return sha
 }
 
-// IsAncestor reports whether a is an ancestor of b.
-func (m *Mirror) IsAncestor(ctx context.Context, a, b string) (bool, error) {
-	_, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"merge-base", "--is-ancestor", a, b}})
-	var ge *GitError
-	var ee *exec.ExitError
-	if errors.As(err, &ge) && errors.As(ge.Err, &ee) && ee.ExitCode() == 1 {
-		return false, nil
-	}
-	return err == nil, err
-}
-
 // Lacking lists the commits of remote whose change head lacks, by patch
 // id, as `git cherry` reads it. A rebase of the same commits lacks none.
 // Ported from push in scripts/sdlc/machinery-publish-flow.ts:105-125

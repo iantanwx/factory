@@ -1,4 +1,4 @@
-// Package rpc is the server side of the CLI's socket (U4): the gRPC server
+// Package rpc is the server side of the CLI's socket: the gRPC server
 // that answers every verb, the version handshake, run tokens, the
 // capability matrix, peer checks and idempotent replay.
 package rpc
@@ -39,6 +39,23 @@ type Call struct {
 	Request   *loopv1.VerbRequest
 }
 
+// Project is the project the call acts on: --project, or else the
+// principal's own. A principal that holds a project, and is not the
+// coordinator, cannot name another project. otherHint is the hint of that
+// refusal.
+func (c *Call) Project(otherHint string) (string, *cli.Refusal) {
+	p, flag := c.Principal, c.Inv.Flags["project"]
+	switch {
+	case flag != "" && p.Project != "" && flag != p.Project && p.Kind != cli.PrincipalCoordinator:
+		return "", &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "other_project", Hint: otherHint}
+	case flag != "":
+		return flag, nil
+	case p.Project != "":
+		return p.Project, nil
+	}
+	return "", &cli.Refusal{Code: cli.CodeUsage, Rule: "no_project", Hint: "name the project with --project"}
+}
+
 // Handler answers one server verb. The server seals, redacts and logs the
 // result. ctx also carries the principal: PrincipalFrom(ctx).
 type Handler func(ctx context.Context, call *Call) cli.Result
@@ -69,7 +86,7 @@ type Options struct {
 	// Proc reads a caller's working directory. DefaultProc when nil.
 	Proc ProcInspector
 	// OnCall sees each authorized call of a principal with a run id,
-	// before its handler runs. The scheduler (U8) records the run's last
+	// before its handler runs. The scheduler records the run's last
 	// CLI call with it (KTD7, KTD8). Optional.
 	OnCall func(ctx context.Context, p Principal)
 }
@@ -267,14 +284,14 @@ func (s *Server) decide(ctx context.Context, method string, req *loopv1.VerbRequ
 	} else {
 		v, ok = s.reg.VerbByRPC(method)
 		if ok && v.Path != path {
-			return v.Path, usageResult("verb_mismatch", fmt.Sprintf("the RPC %s carries the verb %q", method, path)), p, nil
+			return v.Path, cli.Reject(cli.CodeUsage, "verb_mismatch", fmt.Sprintf("the RPC %s carries the verb %q", method, path)), p, nil
 		}
 	}
 	if !ok {
 		if res := s.checkVersion(req.GetClientVersion(), p); res != nil {
 			return path, *res, p, nil
 		}
-		return path, usageResult("unknown_verb", fmt.Sprintf("this server has no verb %q at %s", path, method)), p, nil
+		return path, cli.Reject(cli.CodeUsage, "unknown_verb", fmt.Sprintf("this server has no verb %q at %s", path, method)), p, nil
 	}
 	path = v.Path
 
@@ -309,7 +326,7 @@ func (s *Server) decide(ctx context.Context, method string, req *loopv1.VerbRequ
 		return path, s.run(ctx, call), p, nil
 	}
 	if len(key) > maxKeyLen {
-		return path, usageResult("bad_idempotency_key", "the idempotency key is too long"), p, nil
+		return path, cli.Reject(cli.CodeUsage, "bad_idempotency_key", "the idempotency key is too long"), p, nil
 	}
 	res, replay := s.idempotent(ctx, call, key)
 	return path, res, p, replay
@@ -329,27 +346,37 @@ func (s *Server) replaySettled(ctx context.Context, v *cli.Verb, req *loopv1.Ver
 	if bad != nil {
 		return nil
 	}
-	fp := fingerprint(p.RunID, inv)
-	var (
-		rec   store.IdemRecord
-		found bool
-	)
-	err := s.opts.Store.Write(ctx, func(tx *store.Tx) error {
+	rec, found, err := s.lookupKey(ctx, key, fingerprint(p.RunID, inv))
+	if err != nil || !found || rec.Pending() {
+		return nil
+	}
+	env, err := s.replayed(rec, req.GetRequestId())
+	if err != nil {
+		return nil
+	}
+	return env
+}
+
+// lookupKey reads the stored record of an idempotency key under fp.
+func (s *Server) lookupKey(ctx context.Context, key string, fp store.Fingerprint) (rec store.IdemRecord, found bool, err error) {
+	err = s.opts.Store.Write(ctx, func(tx *store.Tx) error {
 		var err error
 		rec, found, err = tx.LookupKey(key, fp)
 		return err
 	})
-	if err != nil || !found || rec.Pending() {
-		return nil
-	}
+	return rec, found, err
+}
+
+// replayed is the stored answer of rec, as the answer to request id.
+func (s *Server) replayed(rec store.IdemRecord, requestID string) (*cli.Envelope, error) {
 	env, err := cli.EnvelopeFromJSON(rec.Result)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	env.RequestID = req.GetRequestId()
+	env.RequestID = requestID
 	env.ServerVersion = s.opts.Version
 	env.Replayed = true
-	return &env
+	return &env, nil
 }
 
 // conditional reports a refusal that depends only on the moment: a full
@@ -383,30 +410,19 @@ func (s *Server) idempotent(ctx context.Context, call *Call, key string) (cli.Re
 	defer unlock()
 	inv := call.Inv
 	fp := fingerprint(call.Principal.RunID, inv)
-	var (
-		rec   store.IdemRecord
-		found bool
-	)
-	err := s.opts.Store.Write(ctx, func(tx *store.Tx) error {
-		var err error
-		rec, found, err = tx.LookupKey(key, fp)
-		return err
-	})
+	rec, found, err := s.lookupKey(ctx, key, fp)
 	if errors.Is(err, store.ErrKeyConflict) {
-		return usageResult("idempotency_key_conflict", "this idempotency key was sent before with other arguments or content"), nil
+		return cli.Reject(cli.CodeUsage, "idempotency_key_conflict", "this idempotency key was sent before with other arguments or content"), nil
 	}
 	if err != nil {
-		return *internalResult(err), nil
+		return cli.Internal(err), nil
 	}
 	if found && !rec.Pending() {
-		env, err := cli.EnvelopeFromJSON(rec.Result)
+		env, err := s.replayed(rec, call.Request.GetRequestId())
 		if err != nil {
-			return *internalResult(fmt.Errorf("read the stored answer: %w", err)), nil
+			return cli.Internal(fmt.Errorf("read the stored answer: %w", err)), nil
 		}
-		env.RequestID = call.Request.GetRequestId()
-		env.ServerVersion = s.opts.Version
-		env.Replayed = true
-		return cli.Result{}, &env
+		return cli.Result{}, env
 	}
 
 	res := s.run(ctx, call)
@@ -455,14 +471,12 @@ func (s *Server) run(ctx context.Context, call *Call) (res cli.Result) {
 	h := s.handlers[call.Inv.Verb.Path]
 	s.mu.RUnlock()
 	if h == nil {
-		return cli.Refuse(cli.Refusal{
-			Code: cli.CodeNotImplemented, Rule: "not_implemented",
-			Hint: fmt.Sprintf("server %s defines %s but does not implement it yet", s.opts.Version, call.Inv.Verb.Path),
-		})
+		return cli.Reject(cli.CodeNotImplemented, "not_implemented",
+			fmt.Sprintf("server %s defines %s but does not implement it yet", s.opts.Version, call.Inv.Verb.Path))
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			res = *internalResult(fmt.Errorf("%s panicked: %v", call.Inv.Verb.Path, r))
+			res = cli.Internal(fmt.Errorf("%s panicked: %v", call.Inv.Verb.Path, r))
 		}
 	}()
 	return h(ctx, call)
@@ -480,7 +494,7 @@ func (s *Server) resolve(ctx context.Context, req *loopv1.VerbRequest, p Princip
 		case errors.Is(err, ErrTokenUnknown):
 			return p, denied("token_unknown", "", "the server issued no such run token")
 		case err != nil:
-			return p, internalResult(err)
+			return p, new(cli.Internal(err))
 		}
 		tp.Peer = p.Peer
 		return tp, nil
@@ -519,8 +533,4 @@ func (s *Server) redact(env cli.Envelope) cli.Envelope {
 		env.Refusal = &r
 	}
 	return env
-}
-
-func usageResult(rule, hint string) cli.Result {
-	return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: rule, Hint: hint})
 }

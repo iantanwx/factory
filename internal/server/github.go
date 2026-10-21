@@ -17,7 +17,7 @@ import (
 // directory (KTD14).
 const MirrorDir = "mirrors"
 
-// GitHub wires the GitHub actor and reactor (U10) into a server. Pass
+// GitHub wires the GitHub actor and reactor into a server. Pass
 // Setup in Options.Setup and Reconcile in Options.Reconcile:
 //
 //	gh := &server.GitHub{}
@@ -26,7 +26,7 @@ const MirrorDir = "mirrors"
 //
 // Setup registers the GitHub verbs, and it adds the mirror and branch-rules
 // check to `project add`. Reconcile runs after the machine's reconcile,
-// before the socket binds. The scheduler (U8) ticks Reactor.
+// before the socket binds. The scheduler ticks Reactor.
 type GitHub struct {
 	// API, GitURL, Protocols and HTTP override GitHub's endpoints. A test
 	// points them at local servers. Production leaves them empty.
@@ -88,7 +88,7 @@ func (g *GitHub) doctorVerb(s *Server) rpc.Handler {
 	return func(ctx context.Context, _ *rpc.Call) cli.Result {
 		out, err := g.Doctor(ctx, s.Projects)
 		if err != nil {
-			return internalErr(err)
+			return cli.Internal(err)
 		}
 		return cli.List(out)
 	}

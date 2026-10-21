@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/iantanwx/loop/internal/beadsx"
+	"github.com/iantanwx/loop/internal/hexid"
 )
 
 // Pin is one pinned bd or dolt binary for one platform (R40, KTD26). The
@@ -117,14 +118,14 @@ func (p Provisioner) Fetch(ctx context.Context, pins []Pin) (map[string][]byte, 
 		if err != nil {
 			return nil, fmt.Errorf("release: fetch %s %s: %w", pin.Name, pin.Version, err)
 		}
-		if got := sha256Hex(archive); got != pin.ArchiveSHA256 {
+		if got := hexid.SHA256(archive); got != pin.ArchiveSHA256 {
 			return nil, fmt.Errorf("%w: the %s %s archive has sha256 %s, and the binary pins %s", ErrPinMismatch, pin.Name, pin.Version, got, pin.ArchiveSHA256)
 		}
 		bin, err := extractMember(archive, pin.Member)
 		if err != nil {
 			return nil, fmt.Errorf("release: %s %s: %w", pin.Name, pin.Version, err)
 		}
-		if got := sha256Hex(bin); got != pin.BinarySHA256 {
+		if got := hexid.SHA256(bin); got != pin.BinarySHA256 {
 			return nil, fmt.Errorf("%w: the %s %s binary has sha256 %s, and the binary pins %s", ErrPinMismatch, pin.Name, pin.Version, got, pin.BinarySHA256)
 		}
 		out[pin.Name] = bin
@@ -203,7 +204,7 @@ func fileHasHash(path, want string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return sha256Hex(data) == want, nil
+	return hexid.SHA256(data) == want, nil
 }
 
 // extractMember reads one regular file from a gzip tar archive.

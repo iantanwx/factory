@@ -57,13 +57,13 @@ func TestIntakeCapCountsEpicsInCountedStates(t *testing.T) {
 	}
 	w.put(machine.KindEpic, machine.PRDSignoff, "waits on a person")
 	w.put(machine.KindEpic, machine.Escalated, "waits on a person")
-	_, ref := w.admit(stageIntake, "")
+	_, ref := w.admit(config.StageIntake, "")
 	wantRefusal(t, ref, cli.CodeCapFull)
-	if c, r := w.a.Peek(context.Background(), prj, stageIntake); c != nil || r != nil {
+	if c, r := w.a.Peek(context.Background(), prj, config.StageIntake); c != nil || r != nil {
 		t.Fatalf("peek at the intake cap = %+v %+v, want nothing", c, r)
 	}
-	w.setCaps(map[string]int{stageIntake: 9})
-	w.mustAdmit(stageIntake, "")
+	w.setCaps(map[string]int{config.StageIntake: 9})
+	w.mustAdmit(config.StageIntake, "")
 }
 
 // The intake mutex has one holder at a time, also under a race. Settling
@@ -74,7 +74,7 @@ func TestIntakeMutexHasOneHolder(t *testing.T) {
 	admitted := make([]Admitted, 6)
 	var wg sync.WaitGroup
 	for i := range results {
-		wg.Go(func() { admitted[i], results[i] = w.admit(stageIntake, "") })
+		wg.Go(func() { admitted[i], results[i] = w.admit(config.StageIntake, "") })
 	}
 	wg.Wait()
 	var holder Admitted
@@ -91,7 +91,7 @@ func TestIntakeMutexHasOneHolder(t *testing.T) {
 		t.Fatalf("%d intake runs admitted at once, want 1", ok)
 	}
 	w.settle(holder, Settlement{Finish: "done"})
-	w.mustAdmit(stageIntake, "")
+	w.mustAdmit(config.StageIntake, "")
 }
 
 // Caps come from host config only, and a changed cap applies on the next
@@ -441,7 +441,7 @@ func TestPeek(t *testing.T) {
 		t.Fatalf("peek at the cap = %+v %+v", c, r)
 	}
 	// The fixer claims no item, and it has work only while an escalation
-	// waits for its panel (U12).
+	// waits for its panel.
 	if c, r := w.a.Peek(ctx, prj, "fixer"); r != nil || c != nil {
 		t.Fatalf("peek of the fixer with no escalation = %+v %+v", c, r)
 	}

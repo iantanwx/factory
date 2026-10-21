@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/sched"
 )
 
@@ -63,8 +64,11 @@ var itemSources = []itemSource{
 // shows as one coordinator entry, and the rest of the inbox still reads.
 func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	now := in.cfg.Now().UnixMilli()
-	var items []machine.Item
-	var kinds []string
+	type sourced struct {
+		kind string
+		item machine.Item
+	}
+	var items []sourced
 	var out []Entry
 	if in.cfg.Machine != nil && in.cfg.Projects != nil {
 		projects, err := in.cfg.Projects()
@@ -82,7 +86,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 					break
 				}
 				for _, it := range got {
-					items, kinds = append(items, it), append(kinds, src.kind)
+					items = append(items, sourced{kind: src.kind, item: it})
 				}
 			}
 		}
@@ -93,8 +97,8 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 		if defers, err = readDefers(ctx, tx); err != nil {
 			return err
 		}
-		for i, it := range items {
-			e, err := in.itemEntry(ctx, tx, kinds[i], it)
+		for _, it := range items {
+			e, err := in.itemEntry(ctx, tx, it.kind, it.item)
 			if err != nil {
 				return err
 			}
@@ -272,15 +276,6 @@ func (in *Inbox) questions(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 	return out, rs.Err()
 }
 
-// Room states (internal/room).
-const (
-	roomOpening     = "opening"
-	roomLive        = "live"
-	roomIdle        = "idle"
-	roomInterrupted = "interrupted"
-	roomApplied     = "applied"
-)
-
 func (in *Inbox) rooms(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 	rs, err := tx.QueryContext(ctx, `SELECT id, project, item, kind, state, reason, opened_by, updated_at, opened_at FROM rooms
 		WHERE closed_at IS NULL ORDER BY opened_at, id`)
@@ -298,13 +293,13 @@ func (in *Inbox) rooms(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 		e := Entry{ID: KindRoom + "/" + id, Kind: KindRoom, Project: project, Item: item, Status: state,
 			Title: fmt.Sprintf("%s room %s is %s", kind, id, state), Link: "loop room list", At: max(updated, opened)}
 		switch state {
-		case roomLive:
+		case room.Live:
 			e.Awaits, e.Next = AwaitsPerson, "the operator talks to the room agent in the room's session"
-		case roomIdle:
+		case room.Idle:
 			e.Awaits, e.Next = AwaitsPerson, "the room waits for the operator; it never closes itself. `loop room open` returns its secrets, and `loop room close` ends it"
-		case roomInterrupted:
+		case room.Interrupted:
 			e.Awaits, e.Next = AwaitsCoordinator, "the room's session ended without a close; `loop room open` reopens it in the same checkout"
-		case roomApplied:
+		case room.Applied:
 			e.Awaits, e.Next = AwaitsCoordinator, "the room applied its decision; `loop room close "+id+"` ends it"
 		default:
 			e.Awaits, e.Next = AwaitsCoordinator, "the room starts once the running lease on its item finishes"

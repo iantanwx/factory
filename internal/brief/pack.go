@@ -19,8 +19,8 @@ import (
 const SkillPrefix = "loop-"
 
 // Pack is the skill pack the release ships (R36). Its FS holds one
-// directory for each skill at its root, each named loop-*. U15 supplies
-// the real pack. A nil FS is an empty pack.
+// directory for each skill at its root, each named loop-*. internal/pack
+// embeds the real pack. A nil FS is an empty pack.
 type Pack struct {
 	Version string
 	FS      fs.FS

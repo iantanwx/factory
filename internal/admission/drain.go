@@ -4,7 +4,7 @@ import "github.com/iantanwx/loop/internal/cli"
 
 // SetDraining turns the drain on or off (AE6). While it is on, Admit
 // refuses every run with DRAINING and Peek admits nothing. It touches no
-// lease and no run already admitted. The scheduler (U8) sets it.
+// lease and no run already admitted. The scheduler sets it.
 func (a *Admission) SetDraining(on bool) { a.draining.Store(on) }
 
 // Draining reports whether the drain is on.

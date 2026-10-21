@@ -1,4 +1,4 @@
-// Package inbox is the coordinator's one typed inbox (U12, KTD21). It is a
+// Package inbox is the coordinator's one typed inbox (KTD21). It is a
 // derived view: its entries come from beads states (escalated, sign-off
 // waiting, fired decisions) and from SQLite (alerts, questions, rooms and
 // escalations that wait for the fixer's panel). Each entry says who it
@@ -79,7 +79,7 @@ type Config struct {
 	Projects func() ([]config.Project, error)
 	Redactor *secrets.Redactor
 	// Link returns the link of a project's item. A `loop work show` line
-	// when nil. U13 may link a sign-off to its pull request.
+	// when nil. The server links an epic to its current document PR.
 	Link func(project, item string) string
 	// Now is the inbox clock. time.Now when nil.
 	Now          func() time.Time

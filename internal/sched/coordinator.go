@@ -15,8 +15,8 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// CoordinatorConfig starts the coordinator session (R24, U12's resident
-// agent).
+// CoordinatorConfig starts the coordinator session, the resident agent
+// (R24).
 type CoordinatorConfig struct {
 	// Project is the project whose repository the coordinator's checkout
 	// comes from. The coordinator itself serves every project. Empty means

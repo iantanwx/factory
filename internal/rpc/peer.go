@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
@@ -107,7 +106,7 @@ func within(path, dir string) bool {
 	for _, p := range variants(path) {
 		for _, d := range variants(dir) {
 			rel, err := filepath.Rel(d, p)
-			if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			if err == nil && filepath.IsLocal(rel) {
 				return true
 			}
 		}

@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/config"
@@ -16,7 +17,7 @@ import (
 var ErrMissingSecret = errors.New("secrets: a manifest secret has no stored value")
 
 // MissingSecretsError names each manifest secret with no stored value (R53).
-// The scheduler (U8) refuses the run with MISSING_SECRET and puts one inbox
+// The scheduler refuses the run with MISSING_SECRET and puts one inbox
 // item. The refusal never counts toward the failure limit.
 type MissingSecretsError struct {
 	Project string
@@ -77,7 +78,7 @@ func (s *Store) Values(ctx context.Context, project string, m *config.Manifest) 
 
 // WriteEnvFile writes values to path at mode 0600, sorted by name, through a
 // temporary file and a rename. It refuses a path that is a symlink, so an
-// agent cannot point .env at another file. U8 lists the file in
+// agent cannot point .env at another file. The brief lists the file in
 // .git/info/exclude.
 //
 // Quoting: a value with no single quote, CR or LF is written in single
@@ -87,11 +88,7 @@ func (s *Store) Values(ctx context.Context, project string, m *config.Manifest) 
 // double quotes that holds $ may be expanded by a reader that interpolates,
 // such as bash source. That case needs a quote and a newline in one value.
 func WriteEnvFile(path string, values map[string]string) error {
-	names := make([]string, 0, len(values))
-	for n := range values {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(values))
 	var b strings.Builder
 	for _, n := range names {
 		if !config.ValidSecretName(n) {

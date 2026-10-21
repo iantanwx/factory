@@ -12,9 +12,6 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 )
 
-// stageIntake is the stage whose cap counts epics, not runs (KTD30).
-const stageIntake = "intake"
-
 // intakeCounted are the epic states an agent moves on. An epic here holds
 // an intake slot. An epic that waits on a person (a sign-off, an
 // architecture epic, an escalation) holds none, and neither does one past
@@ -97,9 +94,9 @@ func intakeFull(epics int, l config.Limit) *cli.Refusal {
 // opens. It checks the cap only: a room holds no run and no stage mutex.
 func (a *Admission) IntakeCap(ctx context.Context, project string) *cli.Refusal {
 	if a.items == nil {
-		return internal(errors.New("admission: no machine attached"))
+		return cli.InternalRefusal(errors.New("admission: no machine attached"))
 	}
-	limits, ref := a.limitsFor(ctx, stageIntake)
+	limits, ref := a.limitsFor(ctx, config.StageIntake)
 	if ref != nil {
 		return ref
 	}

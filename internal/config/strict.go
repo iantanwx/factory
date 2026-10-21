@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -160,15 +159,7 @@ func ValidCredentialRef(name string) bool { return credentialRefRe.MatchString(n
 
 func validIdent(s string) bool { return identRe.MatchString(s) }
 
-func hasControl(s string) bool {
+// HasControl reports whether s holds an ASCII control character.
+func HasControl(s string) bool {
 	return strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f })
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return keys
 }

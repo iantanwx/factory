@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/admission"
@@ -33,22 +35,16 @@ type Started struct {
 	Session  agenthost.Session `json:"session"`
 }
 
-// intakeStage has a throughput entry, and its cap counts epics (KTD30).
-// Intake itself runs in a room, attended, so no unattended run of it
-// starts.
-const intakeStage = "intake"
-
-func internalRef(err error) *cli.Refusal {
-	return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
-}
-
 // Dispatch starts one run of stage on project, in the order of KTD7 and
 // the admission flowchart: a manifest secret check before any claim,
 // admission with its claim, the checkout, the project's setup command, the
 // pack, brief and .env, the token, then the start. It returns nil and no
 // refusal when the stage has no work now.
 func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Started, *cli.Refusal) {
-	if stage == intakeStage {
+	// Intake has a throughput entry, and its cap counts epics (KTD30).
+	// Intake itself runs in a room, attended, so no unattended run of it
+	// starts.
+	if stage == config.StageIntake {
 		return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "intake_runs_in_a_room",
 			Hint: "intake runs in a room the coordinator opens with `loop room open --kind intake`; the scheduler starts no intake run"}
 	}
@@ -57,14 +53,14 @@ func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Start
 	}
 	snap, err := s.cfg.ProjectConfig(ctx, project)
 	if err != nil {
-		return nil, internalRef(fmt.Errorf("sched: project config of %s: %w", project, err))
+		return nil, cli.InternalRefusal(fmt.Errorf("sched: project config of %s: %w", project, err))
 	}
 	if ref := s.secretsReady(ctx, project, snap.Manifest); ref != nil {
 		return nil, ref
 	}
 	hc, err := s.cfg.Host.Load(ctx)
 	if err != nil {
-		return nil, internalRef(err)
+		return nil, cli.InternalRefusal(err)
 	}
 	prof, why := s.choose(ctx, profiles(stage, snap.Config, hc))
 	if prof == nil {
@@ -89,7 +85,7 @@ func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Start
 func (s *Scheduler) secretsReady(ctx context.Context, project string, m *config.Manifest) *cli.Refusal {
 	missing, err := s.cfg.Secrets.Missing(ctx, project, m)
 	if err != nil {
-		return internalRef(err)
+		return cli.InternalRefusal(err)
 	}
 	if len(missing) == 0 {
 		return nil
@@ -102,10 +98,12 @@ func (s *Scheduler) secretsReady(ctx context.Context, project string, m *config.
 		Hint: fmt.Sprintf("project %s has no stored value for %s", project, names)}
 }
 
+// reasons joins why in the order of its keys, so one state always reads
+// the same.
 func reasons(why map[string]string) string {
 	var out []string
-	for k, v := range why {
-		out = append(out, k+": "+v)
+	for _, k := range slices.Sorted(maps.Keys(why)) {
+		out = append(out, k+": "+why[k])
 	}
 	return strings.Join(out, "; ")
 }
@@ -126,15 +124,15 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: checkoutName(ad), BaseBranch: DefaultBaseBranch})
 	s.checkoutMu.Unlock()
 	if err != nil {
-		return fail(internalRef(fmt.Errorf("sched: create the checkout: %w", err)), false, AlertStartFailed, err)
+		return fail(cli.InternalRefusal(fmt.Errorf("sched: create the checkout: %w", err)), false, AlertStartFailed, err)
 	}
 	st.Checkout = co.Path
 	if err := s.recordCheckout(ctx, ad, co); err != nil {
-		return fail(internalRef(err), false, AlertStartFailed, err)
+		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	if setup := snap.Config.Setup; setup != "" {
 		if err := s.runSetup(ctx, co.Path, setup); err != nil {
-			return fail(internalRef(err), false, AlertStartFailed, err)
+			return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 		}
 	}
 	env, err := s.cfg.Secrets.Values(ctx, ad.Project, snap.Manifest)
@@ -145,7 +143,7 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		return fail(ref, true, AlertMissingSecret, err)
 	}
 	if err != nil {
-		return fail(internalRef(err), false, AlertStartFailed, err)
+		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	b := s.brief(ctx, ad, snap, prof)
 	res, err := brief.Inject(ctx, brief.Injection{Checkout: co.Path, Harness: prof.Harness, Pack: s.cfg.Pack, Brief: b, Env: env})
@@ -156,29 +154,29 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		return fail(ref, true, AlertConfigConflict, err)
 	}
 	if err != nil {
-		return fail(internalRef(err), false, AlertStartFailed, err)
+		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	if _, err := s.cfg.Tokens.IssueToCheckout(ctx, rpc.IssueRequest{RunID: ad.RunID, Kind: cli.PrincipalRun,
 		Project: ad.Project, Item: ad.Item, Stage: ad.Stage, Checkout: co.Path, Epoch: ad.Lease.Epoch, Release: s.cfg.Release}); err != nil {
-		return fail(internalRef(err), false, AlertStartFailed, err)
+		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	if err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		_, err := tx.Exec(`UPDATE runs SET state = ?, pack_hash = ? WHERE run_id = ? AND ended_at IS NULL`, RunStarting, res.PackHash, ad.RunID)
 		return err
 	}); err != nil {
-		return fail(internalRef(err), false, AlertStartFailed, err)
+		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindStage, Checkout: co.Path, Harness: prof.Harness,
 		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt,
 		Title: strings.TrimSpace(fmt.Sprintf("loop %s %s %s", ad.Project, ad.Stage, ad.Item))})
 	if err != nil {
-		return fail(internalRef(fmt.Errorf("sched: start the session: %w", err)), false, AlertStartFailed, err)
+		return fail(cli.InternalRefusal(fmt.Errorf("sched: start the session: %w", err)), false, AlertStartFailed, err)
 	}
 	if err := s.setRun(ctx, ad.RunID, RunRunning, hostRecord{Session: &sess}); err != nil {
 		// The session runs and the record lacks it. Close it, so nothing
 		// runs that the server cannot watch.
 		_ = s.cfg.Agents.Close(context.WithoutCancel(ctx), sess.ID)
-		return fail(internalRef(err), false, AlertStartFailed, err)
+		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	st.Session = sess
 	return st, nil

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -21,6 +20,7 @@ import (
 	_ "modernc.org/sqlite" // the driver the store uses
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -214,13 +214,8 @@ func (c Checksums) Check(name string, data []byte) error {
 	if !ok {
 		return fmt.Errorf("release: %s names no %s", ChecksumsFile, name)
 	}
-	if got := sha256Hex(data); got != want {
+	if got := hexid.SHA256(data); got != want {
 		return fmt.Errorf("release: %s has sha256 %s, and %s names %s", name, got, ChecksumsFile, want)
 	}
 	return nil
-}
-
-func sha256Hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }

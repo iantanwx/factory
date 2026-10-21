@@ -15,7 +15,7 @@ import (
 // EnsureAdminCredential writes a random host-admin credential to a 0600
 // file in the instance directory when none exists, and returns the
 // credential (KTD12). It never replaces an existing credential, and it
-// refuses one with loose permissions. `loop install` (U16) calls it.
+// refuses one with loose permissions. `loop install` calls it.
 func EnsureAdminCredential(instance string) (string, error) {
 	if err := ensurePrivateDir(instance); err != nil {
 		return "", err

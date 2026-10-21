@@ -14,8 +14,7 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// Register sets the handlers of the CLI verbs U5 implements. Every other
-// write stays NOT_IMPLEMENTED until its unit lands: the reactor, the
+// Register sets the handlers of the machine's CLI verbs. The reactor, the
 // scheduler, admission and the inbox call Apply, Claim, MergeObserved and
 // HeadChanged instead.
 func (m *Machine) Register(s *rpc.Server) error {
@@ -47,21 +46,8 @@ func (m *Machine) Handlers() map[string]rpc.Handler {
 	}
 }
 
-// project is the call's project: a run's or a room's own, or the
-// coordinator's --project.
-func project(call *rpc.Call) (string, *cli.Refusal) {
-	p, flag := call.Principal, call.Inv.Flags["project"]
-	switch {
-	case flag != "" && p.Project != "" && flag != p.Project && p.Kind != cli.PrincipalCoordinator:
-		return "", &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "other_project",
-			Hint: "a run works only in its own project"}
-	case flag != "":
-		return flag, nil
-	case p.Project != "":
-		return p.Project, nil
-	}
-	return "", &cli.Refusal{Code: cli.CodeUsage, Rule: "no_project", Hint: "name the project with --project"}
-}
+// ownProject is the hint of a run that names another project.
+const ownProject = "a run works only in its own project"
 
 // request builds the machine request of one CLI write on target.
 func request(call *rpc.Call, prj, target, verb string, params map[string]string) Request {
@@ -106,13 +92,13 @@ func borrowed(call *rpc.Call, target string) *cli.Refusal {
 // item named by the argument arg.
 func (m *Machine) verb(verb, arg string) rpc.Handler {
 	return func(ctx context.Context, call *rpc.Call) cli.Result {
-		prj, r := project(call)
+		prj, r := call.Project(ownProject)
 		if r != nil {
-			return refuse(r)
+			return r.Result()
 		}
 		target := call.Inv.Arg(arg)
 		if r := borrowed(call, target); r != nil {
-			return refuse(r)
+			return r.Result()
 		}
 		params := map[string]string{}
 		if b := call.Inv.Flags["body"]; b != "" {
@@ -139,13 +125,13 @@ func commentKey(call *rpc.Call) string {
 // review fact under the same compare-and-set as the verdict. A comment
 // GitHub refuses records nothing.
 func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
-	prj, r := project(call)
+	prj, r := call.Project(ownProject)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	item := call.Inv.Arg("item")
 	if r := borrowed(call, item); r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	verb := "review_pass"
 	if call.Inv.Flags["verdict"] == "reject" {
@@ -171,18 +157,18 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 // was created with, and the edit is a fact that replaces it: the item's
 // title, TaskText and so the retry identity (R10) read the edit.
 func (m *Machine) workEdit(ctx context.Context, call *rpc.Call) cli.Result {
-	prj, r := project(call)
+	prj, r := call.Project(ownProject)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	item := call.Inv.Arg("item")
 	if r := borrowed(call, item); r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	params := map[string]string{}
 	if t, ok := call.Inv.Flags["title"]; ok {
 		if strings.TrimSpace(t) == "" {
-			return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "empty_title", Item: item, Hint: "--title names the item; it cannot be empty"})
+			return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "empty_title", Item: item, Hint: "--title names the item; it cannot be empty"})
 		}
 		params["title"] = t
 	}
@@ -190,26 +176,26 @@ func (m *Machine) workEdit(ctx context.Context, call *rpc.Call) cli.Result {
 		params["body"] = b
 	}
 	if len(params) == 0 {
-		return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "nothing_to_edit", Item: item, Hint: "name the new text with --title, --body or both"})
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "nothing_to_edit", Item: item, Hint: "name the new text with --title, --body or both"})
 	}
 	return m.Apply(ctx, request(call, prj, item, "edit", params))
 }
 
 // workDuplicate closes a bug as a duplicate of another item.
 func (m *Machine) workDuplicate(ctx context.Context, call *rpc.Call) cli.Result {
-	prj, r := project(call)
+	prj, r := call.Project(ownProject)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	bug, of := call.Inv.Arg("item"), strings.TrimSpace(call.Inv.Flags["of"])
 	if r := borrowed(call, bug); r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	if of == "" || of == bug {
-		return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "bad_original", Item: bug, Hint: "--of names another item, the one the bug repeats"})
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "bad_original", Item: bug, Hint: "--of names another item, the one the bug repeats"})
 	}
 	if _, r := m.Read(ctx, prj, of); r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	return m.Apply(ctx, request(call, prj, bug, "duplicate", map[string]string{"of": of}))
 }
@@ -226,35 +212,35 @@ type ShapeResult struct {
 // ticket's create key is the bug, so a retry after a crash between the
 // two writes finds the ticket it made.
 func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
-	prj, r := project(call)
+	prj, r := call.Project(ownProject)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	bug := call.Inv.Arg("item")
 	if r := borrowed(call, bug); r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	title, body := strings.TrimSpace(call.Inv.Flags["title"]), call.Inv.Flags["body"]
 	if title == "" {
-		return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "no_title", Item: bug, Hint: "--title names the ticket"})
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "no_title", Item: bug, Hint: "--title names the ticket"})
 	}
 	unlock := m.lock(prj, bug)
 	defer unlock()
 	it, r := m.Show(ctx, prj, bug)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	t, _ := TableFor(it.Kind)
 	switch {
 	case it.Kind != KindBug:
-		return refuse(&cli.Refusal{Code: cli.CodeUsage, Rule: "not_a_bug", Item: bug, Hint: fmt.Sprintf("%s is a %s; only a bug is shaped", bug, it.Kind)})
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "not_a_bug", Item: bug, Hint: fmt.Sprintf("%s is a %s; only a bug is shaped", bug, it.Kind)})
 	case !t.Allows("shape", it.Status):
-		return refuse(&cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", Item: bug, CurrentStatus: it.Status,
+		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", Item: bug, CurrentStatus: it.Status,
 			AllowedNext: it.AllowedNext, Hint: fmt.Sprintf("a bug in %s has no shape move", it.Status)})
 	}
 	ticket, r := m.shapedTicket(ctx, prj, bug, title, body, call)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	req := request(call, prj, bug, "shape", map[string]string{"ticket": ticket})
 	res := m.apply(ctx, &req)
@@ -287,7 +273,7 @@ func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body string
 	}
 	if tk.Status == Initial {
 		p := call.Principal
-		res := m.Apply(ctx, Request{Project: prj, Item: tk.ID, Verb: "create", ExpectedStatus: Initial,
+		res := m.Apply(ctx, Request{Project: prj, Item: tk.ID, Verb: VerbCreate, ExpectedStatus: Initial,
 			RequestID: call.Inv.RequestID, Actor: Actor{Name: p.Actor(), RunID: p.RunID}})
 		if res.Refusal != nil {
 			return "", res.Refusal
@@ -297,9 +283,9 @@ func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body string
 }
 
 func (m *Machine) decisionSettle(ctx context.Context, call *rpc.Call) cli.Result {
-	prj, r := project(call)
+	prj, r := call.Project(ownProject)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	verb := "answer"
 	if call.Inv.Flags["dropped"] == "true" {
@@ -309,25 +295,25 @@ func (m *Machine) decisionSettle(ctx context.Context, call *rpc.Call) cli.Result
 }
 
 func (m *Machine) workShow(ctx context.Context, call *rpc.Call) cli.Result {
-	prj, r := project(call)
+	prj, r := call.Project(ownProject)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	it, r := m.Show(ctx, prj, call.Inv.Arg("item"))
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	return cli.Found(it)
 }
 
 func (m *Machine) workList(ctx context.Context, call *rpc.Call) cli.Result {
-	prj, r := project(call)
+	prj, r := call.Project(ownProject)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	items, r := m.List(ctx, prj, ListFilter{Kind: Kind(call.Inv.Flags["kind"]), Status: call.Inv.Flags["status"]})
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	return cli.List(items)
 }
@@ -337,13 +323,13 @@ func (m *Machine) workList(ctx context.Context, call *rpc.Call) cli.Result {
 type ReviewCommenter func(ctx context.Context, project, item, body, key string) *cli.Refusal
 
 // SetReviewCommenter sets the poster of review comments. The GitHub setup
-// (U10) sets it before the socket binds.
+// sets it before the socket binds.
 func (m *Machine) SetReviewCommenter(f ReviewCommenter) { m.reviewComment = f }
 
 // TaskText is the title and the body of an item's task: the text work
 // edit wrote, or the bead's own, and then an answer that amends the task.
 // Admission hashes it for the retry identity (R10), so an edit, or a
-// person's amendment through the inbox (U12), re-admits a twice-failed
+// person's amendment through the inbox, re-admits a twice-failed
 // item.
 func TaskText(is beadsx.Issue) (title, body string) {
 	title, body = is.Title, is.Description
@@ -379,17 +365,17 @@ type Round struct {
 // reviewRounds lists every verdict review submit recorded on the item, in
 // order, from the item's history.
 func (m *Machine) reviewRounds(ctx context.Context, call *rpc.Call) cli.Result {
-	prj, r := project(call)
+	prj, r := call.Project(ownProject)
 	if r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	item := call.Inv.Arg("item")
 	if _, r := m.Read(ctx, prj, item); r != nil {
-		return refuse(r)
+		return r.Result()
 	}
 	hist, err := m.History(ctx, prj, item)
 	if err != nil {
-		return refuse(internalRefusal(err))
+		return cli.Internal(err)
 	}
 	var out []Round
 	for _, t := range hist {

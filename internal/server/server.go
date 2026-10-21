@@ -1,6 +1,6 @@
-// Package server composes one loop server process (U4): the instance lock,
+// Package server composes one loop server process: the instance lock,
 // host config, the store, the secret store and its redactor, run tokens,
-// the RPC server and its socket. Later units add verb handlers through
+// the RPC server and its socket. Callers add verb handlers through
 // Options.Setup and start-up reconcile steps through Options.Reconcile.
 package server
 
@@ -36,8 +36,8 @@ import (
 const (
 	DatabaseFile = "loop.db"
 	KeyFile      = "keys/kek"
-	// PreviousVersionFile names the release this one replaced. U16's
-	// upgrade writes it. A run started under that release may keep calling.
+	// PreviousVersionFile names the release this one replaced. `loop
+	// upgrade` writes it. A run started under that release may keep calling.
 	PreviousVersionFile = "previous_version"
 )
 
@@ -52,8 +52,8 @@ type Options struct {
 	// Instance is the instance directory.
 	Instance string
 	// Reconcile runs in order after the store opens and before the socket
-	// binds. The socket accepts no call until every step returns nil. U5
-	// adds the real reconcile.
+	// binds. The socket accepts no call until every step returns nil. The
+	// machine's reconcile runs before them.
 	Reconcile []Step
 	// OnStop runs in order after the last in-flight call finished, before
 	// the store closes. It persists what memory holds (R16).
@@ -78,30 +78,31 @@ type Options struct {
 	// OpPath is the 1Password CLI. "op" on PATH when empty.
 	OpPath string
 	// Beads resolves each project's beads client. When set, the server
-	// composes the state machine (U5): it serves the work, review and
+	// composes the state machine: it serves the work, review and
 	// decision verbs, and its reconcile runs first, before the socket
 	// binds. A server without beads answers those verbs NOT_IMPLEMENTED.
 	Beads machine.BeadsResolver
-	// Claims is the admission hook of claims (U6). With Beads set and
+	// Claims is the admission hook of claims. With Beads set and
 	// Claims nil, the server composes admission (internal/admission) over
 	// host config's throughput map, and it serves work peek.
 	Claims machine.ClaimGuard
 	// BaseFiles reads declared paths on each project's base branch for the
-	// retry identity (U6). GitBase over the project's local directory when
-	// nil. U10 supplies the reader over the bare mirror.
+	// retry identity. GitBase over the project's local directory when
+	// nil. `loop serve` sets the GitHub service's reader over the bare
+	// mirror.
 	BaseFiles admission.BaseReader
 	// Dependencies reports an item's open dependencies to admission.
 	// Optional.
 	Dependencies admission.DepReader
-	// Agents is the agent host (U7). With Beads set and admission
-	// composed, the server composes the scheduler (U8): it serves run
+	// Agents is the agent host. With Beads set and admission
+	// composed, the server composes the scheduler: it serves run
 	// finish and drain, its reconcile runs last before the socket binds,
 	// and its loops tick until the server stops.
 	Agents agenthost.Host
 	// Sched holds the scheduler's optional parts.
 	Sched SchedOptions
 	// Human holds the optional parts of the inbox, escalations, decisions
-	// and rooms (U12), which the server composes with the machine.
+	// and rooms, which the server composes with the machine.
 	Human HumanOptions
 }
 
@@ -124,14 +125,14 @@ type Server struct {
 	// is composed. A Setup step registers native jobs on it.
 	Sched *sched.Scheduler
 	// Inbox, Notifier, Escalations and Decisions are composed with the
-	// machine, and Rooms with the scheduler too (U12). Each is nil
+	// machine, and Rooms with the scheduler too. Each is nil
 	// otherwise.
 	Inbox       *inbox.Inbox
 	Notifier    *inbox.Notifier
 	Escalations *escalation.Service
 	Decisions   *decision.Service
 	Rooms       *room.Service
-	// Faults keeps loop fault reports (U18). Every server composes it: a
+	// Faults keeps loop fault reports. Every server composes it: a
 	// fault belongs to the instance, not to a project's beads.
 	Faults  *fault.Service
 	Started time.Time
@@ -242,7 +243,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	dir := opts.Instance
 	hostPath := filepath.Join(dir, config.HostConfigFile)
 	if _, err := os.Stat(hostPath); errors.Is(err, fs.ErrNotExist) {
-		// `loop install` (U16) writes host config. Until then a first start
+		// `loop install` writes host config. Until then a first start
 		// writes the minimal one.
 		if err := config.SaveHost(hostPath, config.DefaultHost(dir)); err != nil {
 			return nil, err

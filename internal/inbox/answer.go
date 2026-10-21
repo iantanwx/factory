@@ -16,27 +16,6 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
-func refuse(code, rule, hint string) cli.Result {
-	return cli.Refuse(cli.Refusal{Code: code, Rule: rule, Hint: hint})
-}
-
-func internalErr(err error) cli.Result { return refuse(cli.CodeInternal, "internal", err.Error()) }
-
-// secretIn refuses text that holds a stored secret (KTD27). The hint names
-// the secret and never its value.
-func (in *Inbox) secretIn(where, text string) *cli.Result {
-	if in.cfg.Redactor == nil {
-		return nil
-	}
-	hit, names := in.cfg.Redactor.Find(text)
-	if !hit {
-		return nil
-	}
-	r := refuse(cli.CodeSecretInOutput, "secret_in_"+where,
-		fmt.Sprintf("the %s holds the value of %s; remove it and write again", where, strings.Join(names, ", ")))
-	return &r
-}
-
 func filter(es []Entry, awaits string) []Entry {
 	if awaits == "" {
 		return es
@@ -54,7 +33,7 @@ func filter(es []Entry, awaits string) []Entry {
 func (in *Inbox) list(ctx context.Context, call *rpc.Call) cli.Result {
 	es, err := in.Entries(ctx)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	return cli.List(filter(es, call.Inv.Flags["awaits"]))
 }
@@ -97,7 +76,7 @@ func (in *Inbox) waitVerb(ctx context.Context, call *rpc.Call) cli.Result {
 		wake := in.woken()
 		es, err := in.Since(ctx, cursor)
 		if err != nil {
-			return refuse(cli.CodeUsage, "bad_cursor", err.Error())
+			return cli.Reject(cli.CodeUsage, "bad_cursor", err.Error())
 		}
 		if len(es) > 0 {
 			return cli.Found(map[string]any{"entries": es, "cursor": es[len(es)-1].Cursor})
@@ -127,18 +106,18 @@ func (in *Inbox) waitVerb(ctx context.Context, call *rpc.Call) cli.Result {
 func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	id, body := call.Inv.Arg("entry"), strings.TrimSpace(call.Inv.Flags["body"])
 	if body == "" {
-		return refuse(cli.CodeUsage, "no_body", "--body holds the operator's answer")
+		return cli.Reject(cli.CodeUsage, "no_body", "--body holds the operator's answer")
 	}
-	if r := in.secretIn("answer", body); r != nil {
-		return *r
+	if r := in.cfg.Redactor.Refusal("secret_in_answer", "answer", body); r != nil {
+		return r.Result()
 	}
 	if strings.HasPrefix(id, KindFault+"/") {
 		f := strings.TrimPrefix(id, KindFault+"/")
-		return refuse(cli.CodeUsage, "fault_entry", fmt.Sprintf("a fault entry settles with `loop fault ack %s` and `loop fault resolve %s`, not with an answer", f, f))
+		return cli.Reject(cli.CodeUsage, "fault_entry", fmt.Sprintf("a fault entry settles with `loop fault ack %s` and `loop fault resolve %s`, not with an answer", f, f))
 	}
 	kind, project, item, row, ok := parseEntry(id)
 	if !ok {
-		return refuse(cli.CodeUsage, "bad_entry", fmt.Sprintf("%q is no entry id that `loop inbox list` prints", id))
+		return cli.Reject(cli.CodeUsage, "bad_entry", fmt.Sprintf("%q is no entry id that `loop inbox list` prints", id))
 	}
 	actor := machine.Actor{Name: call.Principal.Actor(), RunID: call.Principal.RunID}
 	switch kind {
@@ -146,7 +125,7 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		params := map[string]string{"answer": body}
 		if call.Inv.Flags["amend"] == "true" {
 			if kind != KindEscalation {
-				return refuse(cli.CodeUsage, "amend_decision", "a decision has no task inputs; --amend applies to an escalated item")
+				return cli.Reject(cli.CodeUsage, "amend_decision", "a decision has no task inputs; --amend applies to an escalated item")
 			}
 			params["amendment"] = body
 		}
@@ -154,7 +133,7 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		if kind == KindDecision {
 			want = machine.NeedsHuman
 		}
-		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: "answer", Params: params,
+		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: machine.VerbAnswer, Params: params,
 			Actor: actor, ExpectedStatus: want})
 		if res.Refusal != nil {
 			return res
@@ -165,7 +144,7 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 			}
 			return clearDefer(tx, id)
 		}); err != nil {
-			return internalErr(err)
+			return cli.Internal(err)
 		}
 		in.Changed()
 		return res
@@ -180,10 +159,10 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 			n, _ = r.RowsAffected()
 			return clearDefer(tx, id)
 		}); err != nil {
-			return internalErr(err)
+			return cli.Internal(err)
 		}
 		if n == 0 {
-			return refuse(cli.CodeNotFound, "no_question", fmt.Sprintf("no open question %d", row))
+			return cli.Reject(cli.CodeNotFound, "no_question", fmt.Sprintf("no open question %d", row))
 		}
 		in.Changed()
 		return cli.Found(map[string]any{"entry": id, "answered": true})
@@ -202,21 +181,21 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 			}
 			return clearDefer(tx, id)
 		}); err != nil {
-			return internalErr(err)
+			return cli.Internal(err)
 		}
 		if n == 0 {
-			return refuse(cli.CodeNotFound, "no_alert", fmt.Sprintf("no open alert %d", row))
+			return cli.Reject(cli.CodeNotFound, "no_alert", fmt.Sprintf("no open alert %d", row))
 		}
 		in.Changed()
 		return cli.Found(map[string]any{"entry": id, "closed": true})
 	case KindSignoff:
-		return refuse(cli.CodeTransitionNotAllowed, "signoff_by_merge",
+		return cli.Reject(cli.CodeTransitionNotAllowed, "signoff_by_merge",
 			"a sign-off is the operator's merge of the document's pull request; no inbox answer replaces it")
 	case KindPanel:
-		return refuse(cli.CodeTransitionNotAllowed, "panel_pending",
+		return cli.Reject(cli.CodeTransitionNotAllowed, "panel_pending",
 			"the fixer's panel routes this escalation; a person answers it only after the panel sends it to a person")
 	}
-	return refuse(cli.CodeTransitionNotAllowed, "room_entry", "a room is settled with `loop room apply` from the room, and `loop room close`")
+	return cli.Reject(cli.CodeTransitionNotAllowed, "room_entry", "a room is settled with `loop room apply` from the room, and `loop room close`")
 }
 
 func clearDefer(tx *store.Tx, entry string) error {
@@ -234,18 +213,18 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 	id := call.Inv.Arg("entry")
 	until, err := time.Parse(time.RFC3339, call.Inv.Flags["until"])
 	if err != nil {
-		return refuse(cli.CodeUsage, "bad_until", "--until is an RFC 3339 time")
+		return cli.Reject(cli.CodeUsage, "bad_until", "--until is an RFC 3339 time")
 	}
 	if !until.After(in.cfg.Now()) {
-		return refuse(cli.CodeUsage, "until_past", "--until must be in the future")
+		return cli.Reject(cli.CodeUsage, "until_past", "--until must be in the future")
 	}
 	kind, project, item, _, ok := parseEntry(id)
 	if !ok {
-		return refuse(cli.CodeUsage, "bad_entry", fmt.Sprintf("%q is no entry id that `loop inbox list` prints", id))
+		return cli.Reject(cli.CodeUsage, "bad_entry", fmt.Sprintf("%q is no entry id that `loop inbox list` prints", id))
 	}
 	es, err := in.Entries(ctx)
 	if err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	found := false
 	for _, e := range es {
@@ -255,10 +234,10 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 	}
 	if !found {
-		return refuse(cli.CodeNotFound, "no_entry", fmt.Sprintf("the inbox holds no entry %s now", id))
+		return cli.Reject(cli.CodeNotFound, "no_entry", fmt.Sprintf("the inbox holds no entry %s now", id))
 	}
 	if kind == KindDecision {
-		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: "defer",
+		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: machine.VerbDefer,
 			Actor: machine.Actor{Name: call.Principal.Actor(), RunID: call.Principal.RunID}, ExpectedStatus: machine.NeedsHuman})
 		if res.Refusal != nil {
 			return res
@@ -274,7 +253,7 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 			VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`, project, DeferKind, item, id, due, now, now)
 		return err
 	}); err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	in.Changed()
 	return cli.Found(map[string]any{"entry": id, "until": until.UTC().Format(time.RFC3339)})
@@ -285,15 +264,15 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 func (in *Inbox) prepare(ctx context.Context, call *rpc.Call) cli.Result {
 	body := strings.TrimSpace(call.Inv.Flags["body"])
 	if body == "" {
-		return refuse(cli.CodeUsage, "no_body", "--body holds the question, its options and their costs")
+		return cli.Reject(cli.CodeUsage, "no_body", "--body holds the question, its options and their costs")
 	}
-	if r := in.secretIn("question", body); r != nil {
-		return *r
+	if r := in.cfg.Redactor.Refusal("secret_in_question", "question", body); r != nil {
+		return r.Result()
 	}
 	about := call.Inv.Flags["entry"]
 	if about != "" {
 		if _, _, _, _, ok := parseEntry(about); !ok {
-			return refuse(cli.CodeUsage, "bad_entry", fmt.Sprintf("%q is no entry id that `loop inbox list` prints", about))
+			return cli.Reject(cli.CodeUsage, "bad_entry", fmt.Sprintf("%q is no entry id that `loop inbox list` prints", about))
 		}
 	}
 	var id int64
@@ -306,7 +285,7 @@ func (in *Inbox) prepare(ctx context.Context, call *rpc.Call) cli.Result {
 		id, err = r.LastInsertId()
 		return err
 	}); err != nil {
-		return internalErr(err)
+		return cli.Internal(err)
 	}
 	in.Changed()
 	return cli.Found(map[string]any{"entry": rowEntry(KindQuestion, id), "awaits": AwaitsPerson})

@@ -15,7 +15,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 )
 
-// The mirror-backed reader is admission's base reader (U6).
+// The mirror-backed reader is admission's base reader.
 var _ admission.BaseReader = (*Service)(nil)
 
 // Every installation token is minted for the one project repository with

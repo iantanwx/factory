@@ -10,15 +10,16 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/agenthost/agenthosttest"
 	"github.com/iantanwx/loop/internal/agenthost/fake"
 )
 
 func TestContract(t *testing.T) {
-	agenthost.RunContract(t, func(t *testing.T) agenthost.ContractEnv {
+	agenthosttest.RunContract(t, func(t *testing.T) agenthosttest.ContractEnv {
 		root := t.TempDir()
 		h := fake.New(root)
 		n := 0
-		return agenthost.ContractEnv{
+		return agenthosttest.ContractEnv{
 			Host: h,
 			NewCheckout: func(testing.TB) string {
 				n++

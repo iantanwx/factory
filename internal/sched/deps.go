@@ -47,7 +47,7 @@ func (s *Scheduler) advanceDependencies(ctx context.Context, project string) err
 		if !ready {
 			continue
 		}
-		res := s.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: it.ID, Verb: "unblock",
+		res := s.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: it.ID, Verb: machine.VerbUnblock,
 			ExpectedStatus: machine.Backlog, Actor: machine.Server(DependencyAdvanceJob)})
 		switch r := res.Refusal; {
 		case r == nil:

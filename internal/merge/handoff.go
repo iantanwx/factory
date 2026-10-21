@@ -180,10 +180,10 @@ func (h *HandOff) handOff(ctx context.Context, p config.Project, mech Mechanism,
 	if err != nil || !ok {
 		return err
 	}
-	res := h.cfg.Machine.Apply(ctx, machine.Request{Project: p.ID, Item: it.ID, Verb: "enqueue", ExpectedStatus: machine.ReadyToMerge,
+	res := h.cfg.Machine.Apply(ctx, machine.Request{Project: p.ID, Item: it.ID, Verb: machine.VerbEnqueue, ExpectedStatus: machine.ReadyToMerge,
 		Params: map[string]string{"head": reviewed}, Actor: actor})
 	if res.Refusal != nil {
-		return settled(res)
+		return machine.Settled(res)
 	}
 	return h.give(ctx, mech, h.prOf(p, it, pr))
 }
@@ -217,7 +217,7 @@ func (h *HandOff) advance(ctx context.Context, p config.Project, mech Mechanism,
 	case pr.Head.SHA != mp.Head:
 		// A push after the hand-off: the ticket returns to review, and
 		// the mechanism lets the PR go (AE1, R8).
-		if err := settled(h.cfg.Machine.HeadChanged(ctx, p.ID, it.ID, pr.Head.SHA)); err != nil {
+		if err := machine.Settled(h.cfg.Machine.HeadChanged(ctx, p.ID, it.ID, pr.Head.SHA)); err != nil {
 			return err
 		}
 		return h.withdraw(ctx, mech, mp)
@@ -266,7 +266,7 @@ func (h *HandOff) dequeued(ctx context.Context, mech Mechanism, pr PR, t *track,
 	res := h.cfg.Machine.Apply(ctx, machine.Request{Project: pr.Project.ID, Item: pr.Item, Verb: verb, ExpectedStatus: machine.Queued,
 		Params: map[string]string{"reason": string(r.Reason)}, Actor: actor})
 	if res.Refusal != nil {
-		return settled(res)
+		return machine.Settled(res)
 	}
 	state := stateDequeued
 	if verb == "escalate" {
@@ -358,20 +358,6 @@ func (h *HandOff) eligible(ctx context.Context, p config.Project, n int) (bool, 
 		return false, err
 	}
 	return h.cfg.GitHub.EligiblePosted(ctx, p.ID, head)
-}
-
-// settled maps a machine answer to an error. A status the item already
-// left, or a move the table no longer holds, is no fault: another writer
-// moved the item, and the next tick reads it again.
-func settled(res cli.Result) error {
-	if res.Refusal == nil {
-		return nil
-	}
-	switch res.Refusal.Code {
-	case cli.CodeStatusChanged, cli.CodeTransitionNotAllowed, cli.CodeNotFound:
-		return nil
-	}
-	return fmt.Errorf("%s: %s", res.Refusal.Code, res.Refusal.Hint)
 }
 
 // track is one merge_tracking row.
