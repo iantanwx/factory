@@ -62,6 +62,10 @@ const (
 	CodeProjectBusy          = "PROJECT_BUSY"
 	CodeLeaseHeld            = "LEASE_HELD"
 	CodeBeadsUnavailable     = "BEADS_UNAVAILABLE"
+	CodeUnsafePath           = "UNSAFE_PATH"
+	CodeRemoteAhead          = "REMOTE_AHEAD"
+	CodeGitHubUnavailable    = "GITHUB_UNAVAILABLE"
+	CodeGitHubRefused        = "GITHUB_REFUSED"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -99,6 +103,10 @@ var baseRefusals = []RefusalCode{
 	{CodeProjectBusy, ExitRefused, codes.FailedPrecondition, false, "the project has a live run"},
 	{CodeLeaseHeld, ExitRefused, codes.FailedPrecondition, false, "another run holds the item's lease"},
 	{CodeBeadsUnavailable, ExitWait, codes.Unavailable, true, "the server recorded the write and cannot reach beads yet; run the same command again"},
+	{CodeUnsafePath, ExitRefused, codes.FailedPrecondition, false, "the pushed content changes .gitmodules, a gitlink, or a filter or LFS line in .gitattributes; the operator makes that change by hand"},
+	{CodeRemoteAhead, ExitRefused, codes.FailedPrecondition, false, "the remote branch holds commits that the pushed head lacks; sync the branch first"},
+	{CodeGitHubUnavailable, ExitWait, codes.Unavailable, true, "GitHub did not answer or rate-limited the App; run the same command again after retry_after_seconds"},
+	{CodeGitHubRefused, ExitRefused, codes.FailedPrecondition, false, "GitHub refused the request; the hint holds GitHub's answer"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

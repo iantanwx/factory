@@ -56,7 +56,7 @@ var (
 
 var surface = []Verb{
 	server("work", "peek", "name the next item a stage would take", runOrCoordinator, nil,
-		Flag{Name: "stage", Type: FlagString, Required: true, Description: "the stage whose work query to run"}),
+		Flag{Name: "stage", Type: FlagString, Required: true, Description: "the stage whose work query to run"}, projectFlag),
 	server("work", "show", "show one work item", runOrCoordinator, []Arg{itemArg}, projectFlag),
 	server("work", "list", "list work items", runOrCoordinator, nil, projectFlag,
 		Flag{Name: "kind", Type: FlagString, Enum: []string{"ticket", "epic", "decision", "bug"}, Description: "only items of this kind"},
@@ -83,14 +83,18 @@ var surface = []Verb{
 	write(server("branch", "push", "push the item's branch through the server", runOrRoom, nil)),
 	write(server("branch", "sync", "bring the base branch into the checkout", runOrRoom, nil)),
 
-	write(server("pr", "open", "open the item's pull request", runOrRoom, nil)),
+	write(server("pr", "open", "open the item's pull request, or show the one open on its branch, and hand the item to review", runOrRoom, nil,
+		Flag{Name: "title", Type: FlagString, Required: true, Description: "the pull request title"},
+		Flag{Name: "body", Type: FlagString, Description: "the pull request body"})),
 	server("pr", "show", "show the item's pull request", runOrRoom, nil),
 	server("pr", "files", "list the pull request's changed files", runOrRoom, nil),
 	server("pr", "diff", "print the pull request's diff", runOrRoom, nil),
 	server("pr", "threads", "list the pull request's threads", runOrRoom, nil),
-	write(server("pr", "reply", "reply on a pull request thread", runOrRoom, nil, bodyFlag)),
+	write(server("pr", "reply", "reply on a pull request thread, or comment on the pull request", runOrRoom, nil, bodyFlag,
+		Flag{Name: "thread", Type: FlagInt, Description: "the review comment id to reply to; a conversation comment when absent"})),
 	server("pr", "checks", "list the pull request's checks", runOrRoom, nil),
-	server("pr", "logs", "print a failed check's log", runOrRoom, nil),
+	server("pr", "logs", "print the tail of each failed CI job's log", runOrRoom, nil,
+		Flag{Name: "job", Type: FlagInt, Description: "one CI job id; every failed job of the head when absent"}),
 	write(server("pr", "rerun", "rerun the pull request's failed checks", runOrRoom, nil)),
 
 	server("merge", "status", "show the merge mechanism's state", coordinator, nil),

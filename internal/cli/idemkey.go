@@ -100,12 +100,11 @@ func DeriveKey(p KeyParts) string {
 func ContentHash(ctx context.Context, inv Invocation, checkout, cwd string) (string, error) {
 	switch {
 	case inv.Verb.Path == "branch push":
-		cmd := exec.CommandContext(ctx, "git", "-C", checkout, "rev-parse", "HEAD")
-		out, err := cmd.Output()
+		head, err := CheckoutHead(ctx, checkout)
 		if err != nil {
-			return "", fmt.Errorf("read the checkout's HEAD: %w", err)
+			return "", err
 		}
-		return hashText("head", strings.TrimSpace(string(out))), nil
+		return HeadContentHash(head), nil
 	case inv.Flags["body"] != "":
 		return hashText("body", inv.Flags["body"]), nil
 	case inv.Flags["file"] != "":
@@ -121,6 +120,19 @@ func ContentHash(ctx context.Context, inv Invocation, checkout, cwd string) (str
 	}
 	return "", nil
 }
+
+// CheckoutHead reads the full sha of the checkout's HEAD.
+func CheckoutHead(ctx context.Context, checkout string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", checkout, "rev-parse", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("read the checkout's HEAD: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// HeadContentHash is the content hash of a `branch push` of head.
+func HeadContentHash(head string) string { return hashText("head", head) }
 
 func hashText(kind, text string) string {
 	sum := sha256.Sum256([]byte(kind + "\x00" + text))

@@ -1,0 +1,300 @@
+package github
+
+import (
+	"context"
+	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/iantanwx/loop/internal/cli"
+)
+
+func refusalCode(t *testing.T, err error) string {
+	t.Helper()
+	if err == nil {
+		t.Fatal("the push landed; want a refusal")
+	}
+	return Refusal(err).Code
+}
+
+// With an insteadOf rewrite to SSH in the server's own HOME, and a global
+// config file in its environment, the push still goes over HTTPS (here
+// plain HTTP to the local server) with the App token.
+func TestPushUsesTheExplicitURLAndTheAppToken(t *testing.T) {
+	e := newEnv(t)
+	home := t.TempDir()
+	rewrite := "[url \"ssh://git@127.0.0.1:1/\"]\n\tinsteadOf = " + e.git.Base() + "/\n" +
+		"[credential]\n\thelper = !echo leaked >" + filepath.Join(home, "captured") + "\n"
+	writeFile(t, filepath.Join(home, ".gitconfig"), rewrite)
+	writeFile(t, filepath.Join(home, ".config", "git", "config"), rewrite)
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
+
+	head := commit(t, e.checkout, "work", map[string]string{"a.txt": "a\n"})
+	res, err := e.push("tk-1", head)
+	if err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if !res.Pushed || res.Replayed {
+		t.Fatalf("push result %+v", res)
+	}
+	if got := e.remoteSHA("loop/tk-1"); got != head {
+		t.Fatalf("remote loop/tk-1 = %q, want %s", got, head)
+	}
+	seen := e.git.SeenTokens()
+	if len(seen) == 0 || !slices.Contains(e.api.Minted(), seen[len(seen)-1]) {
+		t.Fatalf("the git server saw no minted App token: %v", seen)
+	}
+	if _, err := os.Stat(filepath.Join(home, "captured")); err == nil {
+		t.Fatal("a credential helper from the global config received the token")
+	}
+}
+
+// The agent controls the checkout's config and hooks. None of them sees
+// the token or redirects the push.
+func TestCheckoutConfigNeverSeesTheToken(t *testing.T) {
+	e := newEnv(t)
+	trap := t.TempDir()
+	gitT(t, e.checkout, "config", "credential.helper", "!f() { cat > "+filepath.Join(trap, "helper")+"; }; f")
+	gitT(t, e.checkout, "config", "remote.origin.url", e.git.URL(testRepo))
+	gitT(t, e.checkout, "config", "remote.origin.pushurl", "file://"+filepath.Join(trap, "elsewhere.git"))
+	gitT(t, e.checkout, "config", "url.file://"+trap+"/.insteadOf", e.git.Base()+"/")
+	hook := filepath.Join(e.checkout, ".git", "hooks", "pre-push")
+	writeFile(t, hook, "#!/bin/sh\necho ran > "+filepath.Join(trap, "hook")+"\n")
+	if err := os.Chmod(hook, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	upload := filepath.Join(e.checkout, ".git", "hooks", "post-checkout")
+	writeFile(t, upload, "#!/bin/sh\necho ran > "+filepath.Join(trap, "hook2")+"\n")
+	_ = os.Chmod(upload, 0o755)
+
+	head := commit(t, e.checkout, "work", map[string]string{"a.txt": "a\n"})
+	if _, err := e.push("tk-1", head); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	if got := e.remoteSHA("loop/tk-1"); got != head {
+		t.Fatalf("the push went elsewhere: remote loop/tk-1 = %q", got)
+	}
+	for _, f := range []string{"helper", "hook", "hook2", "elsewhere.git"} {
+		if _, err := os.Stat(filepath.Join(trap, f)); err == nil {
+			t.Errorf("%s ran or received data", f)
+		}
+	}
+}
+
+func TestPushOfTheBaseBranchIsRefused(t *testing.T) {
+	e := newEnv(t)
+	head := commit(t, e.checkout, "work", map[string]string{"a.txt": "a\n"})
+	_, err := e.svc.Push(context.Background(), PushRequest{Project: testProject, Item: "tk-1", Branch: "main",
+		Checkout: e.checkout, Head: head})
+	if got := refusalCode(t, err); got != cli.CodeCapabilityDenied {
+		t.Fatalf("code %s, want %s: %v", got, cli.CodeCapabilityDenied, err)
+	}
+	_, err = e.svc.Push(context.Background(), PushRequest{Project: testProject, Item: "tk-1", Branch: "loop/tk-2",
+		Checkout: e.checkout, Head: head})
+	if got := refusalCode(t, err); got != cli.CodeCapabilityDenied {
+		t.Fatalf("another item's branch: code %s: %v", got, err)
+	}
+	if e.remoteSHA("main") != e.base {
+		t.Fatal("the base branch moved")
+	}
+}
+
+func TestPushRefusedWhenTheRemoteHoldsCommitsHeadLacks(t *testing.T) {
+	e := newEnv(t)
+	first := commit(t, e.checkout, "one", map[string]string{"a.txt": "a\n"})
+	if _, err := e.push("tk-1", first); err != nil {
+		t.Fatal(err)
+	}
+	// Someone else adds a commit to the branch on the remote.
+	other := t.TempDir()
+	gitT(t, other, "clone", "-q", "-b", "loop/tk-1", e.git.RemoteDir(), ".")
+	commit(t, other, "foreign", map[string]string{"b.txt": "b\n"})
+	gitT(t, other, "push", "-q", "origin", "loop/tk-1")
+	foreign := e.remoteSHA("loop/tk-1")
+
+	second := commit(t, e.checkout, "two", map[string]string{"c.txt": "c\n"})
+	_, err := e.push("tk-1", second)
+	if got := refusalCode(t, err); got != cli.CodeRemoteAhead {
+		t.Fatalf("code %s, want %s: %v", got, cli.CodeRemoteAhead, err)
+	}
+	if e.remoteSHA("loop/tk-1") != foreign {
+		t.Fatal("the push overwrote the foreign commit")
+	}
+}
+
+func TestSecretAddedThenRemovedIsStillRefused(t *testing.T) {
+	e := newEnv(t)
+	commit(t, e.checkout, "add", map[string]string{"cfg.txt": "key=" + storedSecret + "\n"})
+	head := commit(t, e.checkout, "remove", map[string]string{"cfg.txt": ""})
+	_, err := e.push("tk-1", head)
+	if got := refusalCode(t, err); got != cli.CodeSecretInDiff {
+		t.Fatalf("code %s, want %s: %v", got, cli.CodeSecretInDiff, err)
+	}
+	if strings.Contains(err.Error(), storedSecret) {
+		t.Fatal("the refusal quotes the secret")
+	}
+	if e.remoteSHA("loop/tk-1") != "" {
+		t.Fatal("the branch reached the remote")
+	}
+}
+
+func TestSecretInAnEncodedFormIsRefused(t *testing.T) {
+	e := newEnv(t)
+	// base64 of the stored value.
+	head := commit(t, e.checkout, "add", map[string]string{"blob.txt": "c2stdGVzdC0wMTIzNDU2Nzg5YWJjZGVm\n"})
+	if got := refusalCode(t, firstErr(e.push("tk-1", head))); got != cli.CodeSecretInDiff {
+		t.Fatalf("code %s, want %s", got, cli.CodeSecretInDiff)
+	}
+}
+
+func firstErr(_ PushResult, err error) error { return err }
+
+func TestInjectedPathIsRefused(t *testing.T) {
+	for _, p := range []string{".loop/brief.json", ".env", ".claude/skills/loop-turn/SKILL.md", ".agents/skills/loop-x/a.md"} {
+		t.Run(p, func(t *testing.T) {
+			e := newEnv(t)
+			head := commit(t, e.checkout, "inject", map[string]string{p: "x\n"})
+			err := firstErr(e.push("tk-1", head))
+			if got := refusalCode(t, err); got != cli.CodeSecretInDiff || Refusal(err).Rule != "injected_path" {
+				t.Fatalf("refusal %+v", Refusal(err))
+			}
+		})
+	}
+}
+
+func TestCommitMessageWithASecretIsSecretInOutput(t *testing.T) {
+	e := newEnv(t)
+	head := commit(t, e.checkout, "fix: use "+storedSecret, map[string]string{"a.txt": "a\n"})
+	if got := refusalCode(t, firstErr(e.push("tk-1", head))); got != cli.CodeSecretInOutput {
+		t.Fatalf("code %s, want %s", got, cli.CodeSecretInOutput)
+	}
+}
+
+func TestUnsafePathsAreRefused(t *testing.T) {
+	cases := map[string]func(t *testing.T, e *env) string{
+		"gitmodules": func(t *testing.T, e *env) string {
+			return commit(t, e.checkout, "sub", map[string]string{".gitmodules": "[submodule \"x\"]\n\tpath = x\n\turl = ../x\n"})
+		},
+		"gitlink": func(t *testing.T, e *env) string {
+			gitT(t, e.checkout, "update-index", "--add", "--cacheinfo", "160000,"+e.base+",vendor/lib")
+			gitT(t, e.checkout, "commit", "-q", "-m", "gitlink")
+			return gitT(t, e.checkout, "rev-parse", "HEAD")
+		},
+		"lfs": func(t *testing.T, e *env) string {
+			return commit(t, e.checkout, "lfs", map[string]string{".gitattributes": "*.bin filter=lfs diff=lfs merge=lfs -text\n"})
+		},
+		"nested filter": func(t *testing.T, e *env) string {
+			return commit(t, e.checkout, "filter", map[string]string{"sub/.gitattributes": "*.c filter=indent\n"})
+		},
+	}
+	for name, mk := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			head := mk(t, e)
+			if got := refusalCode(t, firstErr(e.push("tk-1", head))); got != cli.CodeUnsafePath {
+				t.Fatalf("code %s, want %s", got, cli.CodeUnsafePath)
+			}
+		})
+	}
+}
+
+// A plain .gitattributes line and a workflow change are allowed: the
+// operator grants the App the workflows permission.
+func TestSafeAttributesAndWorkflowsPush(t *testing.T) {
+	e := newEnv(t)
+	head := commit(t, e.checkout, "ok", map[string]string{
+		".gitattributes":           "*.txt text eol=lf\n",
+		".github/workflows/ci.yml": "on: push\n",
+	})
+	if _, err := e.push("tk-1", head); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+	mint := e.api.Mints()[len(e.api.Mints())-1]
+	if perms, _ := mint["permissions"].(map[string]any); perms["workflows"] != "write" {
+		t.Fatalf("the push token lacks workflows write: %v", mint)
+	}
+}
+
+func TestATagIsNeverPushed(t *testing.T) {
+	e := newEnv(t)
+	head := commit(t, e.checkout, "work", map[string]string{"a.txt": "a\n"})
+	gitT(t, e.checkout, "tag", "-a", "v9", "-m", "tag")
+	gitT(t, e.checkout, "tag", "light")
+	if _, err := e.push("tk-1", head); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "for-each-ref", "refs/tags")
+	cmd.Dir = e.git.RemoteDir()
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}
+	out, _ := cmd.Output()
+	if strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("the remote holds tags: %s", out)
+	}
+}
+
+// The server crashes after a push and before it records the push as done.
+// After a restart no head reads as foreign, and the retried push is a
+// replay.
+func TestCrashAfterPushReplays(t *testing.T) {
+	e := newEnv(t)
+	head := commit(t, e.checkout, "work", map[string]string{"a.txt": "a\n"})
+	e.svc.crash = func(p string) bool { return p == "pushed" }
+	if _, err := e.push("tk-1", head); !errors.Is(err, errCrash) {
+		t.Fatalf("push: %v, want the crash", err)
+	}
+	e.restart()
+	if err := e.svc.ReconcilePushes(context.Background(), e.project); err != nil {
+		t.Fatal(err)
+	}
+	own, err := e.svc.ownPush(context.Background(), testProject, "loop/tk-1", head)
+	if err != nil || !own {
+		t.Fatalf("the reconciled push is not the server's own: %v %v", own, err)
+	}
+	res, err := e.push("tk-1", head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Replayed {
+		t.Fatalf("the retried push is not a replay: %+v", res)
+	}
+}
+
+// Two pushes in one repair run with different local HEADs both land, and
+// neither is a replay.
+func TestTwoPushesInOneRunBothLand(t *testing.T) {
+	e := newEnv(t)
+	for i, f := range []string{"a.txt", "b.txt"} {
+		head := commit(t, e.checkout, f, map[string]string{f: f})
+		res, err := e.push("tk-1", head)
+		if err != nil {
+			t.Fatalf("push %d: %v", i+1, err)
+		}
+		if !res.Pushed || res.Replayed || e.remoteSHA("loop/tk-1") != head {
+			t.Fatalf("push %d: %+v", i+1, res)
+		}
+	}
+}
+
+// A rebased branch whose commits the head holds by patch id pushes with
+// the lease.
+func TestRebasedBranchPushes(t *testing.T) {
+	e := newEnv(t)
+	first := commit(t, e.checkout, "one", map[string]string{"a.txt": "a\n"})
+	if _, err := e.push("tk-1", first); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, e.checkout, "commit", "-q", "--amend", "-m", "one, reworded")
+	head := gitT(t, e.checkout, "rev-parse", "HEAD")
+	if _, err := e.push("tk-1", head); err != nil {
+		t.Fatalf("push of the rebased head: %v", err)
+	}
+	if e.remoteSHA("loop/tk-1") != head {
+		t.Fatal("the rebased head did not land")
+	}
+}

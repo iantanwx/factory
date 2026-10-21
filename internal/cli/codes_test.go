@@ -39,6 +39,10 @@ func TestRefusalCodeTable(t *testing.T) {
 		CodeProjectBusy:          {3, codes.FailedPrecondition, false},
 		CodeLeaseHeld:            {3, codes.FailedPrecondition, false},
 		CodeBeadsUnavailable:     {4, codes.Unavailable, true},
+		CodeUnsafePath:           {3, codes.FailedPrecondition, false},
+		CodeRemoteAhead:          {3, codes.FailedPrecondition, false},
+		CodeGitHubUnavailable:    {4, codes.Unavailable, true},
+		CodeGitHubRefused:        {3, codes.FailedPrecondition, false},
 	}
 	r := New()
 	got := r.RefusalCodes()

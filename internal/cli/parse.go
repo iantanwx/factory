@@ -257,6 +257,10 @@ const (
 	// key. The server answers STATUS_CHANGED when the item moved since
 	// (AE4), and never applies the write over another actor's move.
 	ExtraExpectedStatus = ReservedPrefix + "expected_status"
+	// ExtraHead is the full sha of the checkout's HEAD that `branch push`
+	// sends. The server fetches that commit from the checkout into its
+	// mirror, and it checks the sha against the content hash.
+	ExtraHead = ReservedPrefix + "head"
 )
 
 // Validate checks a call that arrives over the wire against the verb's

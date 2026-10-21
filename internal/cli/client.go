@@ -44,7 +44,7 @@ const maxStdin = 64<<10 + 3
 
 // gatedHostVerbs are the client-side host verbs whose caller the server
 // checks before the verb runs.
-var gatedHostVerbs = []string{"upgrade", "rollback", "restore"}
+var gatedHostVerbs = []string{"upgrade", "rollback"}
 
 // ItemState is what a write's key needs from the item: its status and its
 // applied-transition sequence.
@@ -174,6 +174,14 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 		}
 		req.Flags[ExtraStdin] = base64.StdEncoding.EncodeToString(value)
 		clear(value)
+	}
+
+	if inv.Verb.Path == "branch push" && cc.checkout != "" {
+		head, err := CheckoutHead(ctx, cc.checkout)
+		if err != nil {
+			return *usage("head_unreadable", err.Error(), inv.Verb.Path)
+		}
+		req.Flags[ExtraHead] = head
 	}
 
 	var pending *Pending

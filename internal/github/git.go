@@ -1,0 +1,282 @@
+package github
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+// Git runs every server git command (KTD14). The server never runs an
+// authenticated git command inside a checkout: the agent controls the
+// checkout's config and hooks. Each command runs in a project's bare mirror
+// with an environment built from nothing:
+//
+//   - GIT_CONFIG_GLOBAL=/dev/null and GIT_CONFIG_NOSYSTEM=1, so no user or
+//     system config applies (no insteadOf, no credential helper, no
+//     pushurl);
+//   - HOME is an empty directory of the server's, and no GIT_* variable of
+//     the server's environment passes through;
+//   - hooks off (core.hooksPath=/dev/null), no credential helper, no
+//     redirect, and only the transport protocols the server allows;
+//   - the App token reaches git only as an environment-scoped config entry
+//     (GIT_CONFIG_COUNT) that sets http.<url>.extraHeader for the one URL.
+//
+// The token never enters argv, so `ps` shows no token. Residual risk: a
+// process of the same OS user can read /proc/<pid>/environ of git and of
+// git-remote-https while a push or a fetch runs. Agents share that user in
+// v1 (KTD12). The token is short-lived, scoped to the one repository and
+// to the smallest permission set (KTD15), which bounds the exposure.
+type Git struct {
+	Binary    string
+	Home      string   // an empty directory the server owns
+	Protocols []string // allowed transport protocols besides file
+}
+
+// gitRun is one git command.
+type gitRun struct {
+	dir   string
+	args  []string
+	stdin []byte
+	// url and token set http.<url>.extraHeader for this one command.
+	url   string
+	token string
+}
+
+// env builds the environment of one git command from nothing.
+func (g *Git) env(r gitRun) []string {
+	env := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + g.Home,
+		"GIT_CONFIG_GLOBAL=/dev/null",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS=/bin/false",
+		"SSH_ASKPASS=/bin/false",
+		"GIT_NO_REPLACE_OBJECTS=1",
+		"GIT_PROTOCOL_FROM_USER=0",
+		"LC_ALL=C",
+	}
+	cfg := [][2]string{
+		{"core.hooksPath", "/dev/null"},
+		{"core.fsmonitor", "false"},
+		{"credential.helper", ""},
+		{"http.followRedirects", "false"},
+		{"submodule.recurse", "false"},
+		{"fetch.recurseSubmodules", "false"},
+		{"push.recurseSubmodules", "no"},
+		{"push.followTags", "false"},
+		{"protocol.allow", "never"},
+		{"protocol.file.allow", "always"},
+	}
+	for _, p := range g.Protocols {
+		cfg = append(cfg, [2]string{"protocol." + p + ".allow", "always"})
+	}
+	if r.token != "" {
+		basic := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + r.token))
+		cfg = append(cfg, [2]string{"http." + r.url + ".extraHeader", "Authorization: Basic " + basic})
+	}
+	env = append(env, "GIT_CONFIG_COUNT="+strconv.Itoa(len(cfg)))
+	for i, kv := range cfg {
+		env = append(env, fmt.Sprintf("GIT_CONFIG_KEY_%d=%s", i, kv[0]), fmt.Sprintf("GIT_CONFIG_VALUE_%d=%s", i, kv[1]))
+	}
+	return env
+}
+
+// GitError is a failed git command. Stderr never holds the token: git
+// does not print an extra header, and the redactor still sees every line
+// before it leaves the server.
+type GitError struct {
+	Args   []string
+	Stderr string
+	Err    error
+}
+
+func (e *GitError) Error() string {
+	return fmt.Sprintf("github: git %s: %v: %s", strings.Join(e.Args, " "), e.Err, strings.TrimSpace(e.Stderr))
+}
+
+func (g *Git) run(ctx context.Context, r gitRun) ([]byte, error) {
+	bin := g.Binary
+	if bin == "" {
+		bin = "git"
+	}
+	cmd := exec.CommandContext(ctx, bin, r.args...)
+	cmd.Dir = r.dir
+	cmd.Env = g.env(r)
+	if r.stdin != nil {
+		cmd.Stdin = bytes.NewReader(r.stdin)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return stdout.Bytes(), &GitError{Args: r.args, Stderr: stderr.String(), Err: err}
+	}
+	return stdout.Bytes(), nil
+}
+
+func (g *Git) text(ctx context.Context, r gitRun) (string, error) {
+	out, err := g.run(ctx, r)
+	return strings.TrimSpace(string(out)), err
+}
+
+// Mirror is one project's bare mirror in the instance directory. The
+// remote's branches live under refs/remotes/origin/, so config.DefaultRef
+// ("origin/<branch>") names the remote default branch here too.
+type Mirror struct {
+	git *Git
+	Dir string
+	URL string // the explicit HTTPS URL of the repository
+}
+
+// Init creates the bare mirror once. It is safe to run again.
+func (m *Mirror) Init(ctx context.Context) error {
+	if _, err := os.Stat(filepath.Join(m.Dir, "HEAD")); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(m.Dir), 0o700); err != nil {
+		return err
+	}
+	_, err := m.git.run(ctx, gitRun{dir: filepath.Dir(m.Dir), args: []string{"init", "--bare", "--quiet", m.Dir}})
+	return err
+}
+
+// SetDefaultBranch records the remote default branch in the mirror.
+func (m *Mirror) SetDefaultBranch(ctx context.Context, branch string) error {
+	_, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"config", "loop.defaultBranch", branch}})
+	return err
+}
+
+// DefaultBranch reads the recorded default branch, or "".
+func (m *Mirror) DefaultBranch(ctx context.Context) string {
+	b, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"config", "--get", "loop.defaultBranch"}})
+	if err != nil {
+		return ""
+	}
+	return b
+}
+
+// Fetch brings the named remote branches into refs/remotes/origin/ with
+// the token. A branch the remote lacks is no fault: its local ref goes.
+func (m *Mirror) Fetch(ctx context.Context, token string, branches ...string) error {
+	args := []string{"fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--prune", m.URL}
+	for _, b := range branches {
+		args = append(args, "+refs/heads/"+b+":refs/remotes/origin/"+b)
+	}
+	_, err := m.git.run(ctx, gitRun{dir: m.Dir, args: args, url: m.URL, token: token})
+	var ge *GitError
+	if errors.As(err, &ge) && strings.Contains(ge.Stderr, "couldn't find remote ref") {
+		// Fetch each branch alone, so one absent branch does not hide the
+		// others.
+		if len(branches) == 1 {
+			_, _ = m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"update-ref", "-d", "refs/remotes/origin/" + branches[0]}})
+			return nil
+		}
+		for _, b := range branches {
+			if err := m.Fetch(ctx, token, b); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return err
+}
+
+// FetchCheckout copies one commit from a checkout into the mirror, with no
+// token. The command runs in the mirror. git starts upload-pack in the
+// checkout, which runs no hook, and no token is present to capture.
+func (m *Mirror) FetchCheckout(ctx context.Context, checkout, sha, ref string) error {
+	_, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"fetch", "--quiet", "--no-tags", "--no-recurse-submodules",
+		"--no-write-fetch-head", checkout, "+" + sha + ":" + ref}})
+	return err
+}
+
+// Resolve returns the full sha of ref, or "" when the mirror lacks it.
+func (m *Mirror) Resolve(ctx context.Context, ref string) string {
+	sha, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"rev-parse", "--verify", "--quiet", ref + "^{commit}"}})
+	if err != nil {
+		return ""
+	}
+	return sha
+}
+
+// IsAncestor reports whether a is an ancestor of b.
+func (m *Mirror) IsAncestor(ctx context.Context, a, b string) (bool, error) {
+	_, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"merge-base", "--is-ancestor", a, b}})
+	var ge *GitError
+	var ee *exec.ExitError
+	if errors.As(err, &ge) && errors.As(ge.Err, &ee) && ee.ExitCode() == 1 {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Lacking lists the commits of remote whose change head lacks, by patch
+// id, as `git cherry` reads it. A rebase of the same commits lacks none.
+// Ported from push in scripts/sdlc/machinery-publish-flow.ts:105-125
+// (alpha).
+func (m *Mirror) Lacking(ctx context.Context, head, remote string) ([]string, error) {
+	out, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"cherry", head, remote}})
+	if err != nil {
+		return nil, err
+	}
+	var lacking []string
+	for _, line := range strings.Split(out, "\n") {
+		if sha, ok := strings.CutPrefix(line, "+ "); ok {
+			lacking = append(lacking, sha)
+		}
+	}
+	return lacking, nil
+}
+
+// Push sends sha to refs/heads/<branch> over the explicit URL with the
+// token. It pushes one refspec and no tag, and it leases on old: "" means
+// the branch must not exist yet.
+func (m *Mirror) Push(ctx context.Context, token, sha, branch, old string) error {
+	ref := "refs/heads/" + branch
+	_, err := m.git.run(ctx, gitRun{dir: m.Dir, url: m.URL, token: token, args: []string{
+		"push", "--quiet", "--porcelain", "--no-follow-tags", "--no-recurse-submodules", "--no-verify",
+		"--force-with-lease=" + ref + ":" + old, m.URL, sha + ":" + ref,
+	}})
+	return err
+}
+
+// RemoteHead reads refs/heads/<branch> on the remote with the token, or ""
+// when the branch is absent.
+func (m *Mirror) RemoteHead(ctx context.Context, token, branch string) (string, error) {
+	out, err := m.git.text(ctx, gitRun{dir: m.Dir, url: m.URL, token: token,
+		args: []string{"ls-remote", "--heads", m.URL, "refs/heads/" + branch}})
+	if err != nil {
+		return "", err
+	}
+	sha, _, _ := strings.Cut(out, "\t")
+	return strings.TrimSpace(sha), nil
+}
+
+// Show reads path at ref. A ref or a path the mirror lacks matches
+// fs.ErrNotExist.
+func (m *Mirror) Show(ctx context.Context, ref, path string) ([]byte, error) {
+	if strings.HasPrefix(path, "/") || strings.Contains(path, "\x00") {
+		return nil, fmt.Errorf("github: %q is not a repository path", path)
+	}
+	sha := m.Resolve(ctx, ref)
+	if sha == "" {
+		return nil, fmt.Errorf("github: the mirror holds no %s: %w", ref, fs.ErrNotExist)
+	}
+	out, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"cat-file", "blob", sha + ":" + path}})
+	if err != nil {
+		var ge *GitError
+		if errors.As(err, &ge) {
+			return nil, fmt.Errorf("github: %s:%s: %w", ref, path, fs.ErrNotExist)
+		}
+		return nil, err
+	}
+	return out, nil
+}

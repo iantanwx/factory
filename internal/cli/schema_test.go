@@ -55,7 +55,8 @@ func TestSchemaListsEveryVerbFlagExitAndRefusalCode(t *testing.T) {
 	}
 
 	peek := findVerb(t, data, "work peek")
-	if flags := peek["flags"].([]any); len(flags) != 1 || flags[0].(map[string]any)["name"] != "stage" {
+	if flags := peek["flags"].([]any); len(flags) != 2 || flags[0].(map[string]any)["name"] != "stage" ||
+		flags[1].(map[string]any)["name"] != "project" {
 		t.Errorf("work peek flags = %v", flags)
 	}
 	if g := data["global_flags"].([]any); len(g) != len(globalFlags) {
