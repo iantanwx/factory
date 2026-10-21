@@ -22,18 +22,19 @@ const HostScope = "_host"
 // HostConfig is the instance scope of R35. It names each platform credential
 // by its secret-store name and holds no credential value (KTD15, KTD17).
 type HostConfig struct {
-	StateDir    string            `yaml:"state_dir"`
-	Store       StoreConfig       `yaml:"store,omitempty"`
-	KeyFile     string            `yaml:"key_file,omitempty"`
-	AgentHost   AgentHostConfig   `yaml:"agent_host,omitempty"`
-	Harnesses   []HarnessLogin    `yaml:"harnesses,omitempty"`
-	Credentials Credentials       `yaml:"credentials,omitempty"`
-	Vaults      []string          `yaml:"vaults,omitempty"`   // 1Password vaults that secret import may read (KTD28)
-	Schedule    map[string]string `yaml:"schedule,omitempty"` // default schedule for each stage; project config may override
-	Caps        Caps              `yaml:"caps,omitempty"`
-	RunBudget   time.Duration     `yaml:"run_budget,omitempty"`   // default run budget (KTD9)
-	QuietPeriod time.Duration     `yaml:"quiet_period,omitempty"` // quiet period before the server acts
-	Projects    []Project         `yaml:"projects,omitempty"`
+	StateDir    string          `yaml:"state_dir"`
+	Store       StoreConfig     `yaml:"store,omitempty"`
+	KeyFile     string          `yaml:"key_file,omitempty"`
+	AgentHost   AgentHostConfig `yaml:"agent_host,omitempty"`
+	Harnesses   []HarnessLogin  `yaml:"harnesses,omitempty"`
+	Credentials Credentials     `yaml:"credentials,omitempty"`
+	Vaults      []string        `yaml:"vaults,omitempty"` // 1Password vaults that secret import may read (KTD28)
+	// Throughput holds a cap and a schedule for every stage, native job and
+	// pool (KTD30). Project config may override a schedule only.
+	Throughput  map[string]Throughput `yaml:"throughput"`
+	RunBudget   time.Duration         `yaml:"run_budget,omitempty"`   // default run budget (KTD9)
+	QuietPeriod time.Duration         `yaml:"quiet_period,omitempty"` // quiet period before the server acts
+	Projects    []Project             `yaml:"projects,omitempty"`
 }
 
 // StoreConfig names the database and the identity of the instance.
@@ -74,12 +75,6 @@ type GitHubAppCredentials struct {
 // TrackerCredentials names one tracker adapter's token in the store.
 type TrackerCredentials struct {
 	TokenSecret string `yaml:"token_secret"`
-}
-
-// Caps bounds concurrent runs. Zero means no cap from host config.
-type Caps struct {
-	Runs           int `yaml:"runs,omitempty"`
-	RunsPerProject int `yaml:"runs_per_project,omitempty"`
 }
 
 // CredentialRef is one platform credential that host config names.
@@ -169,17 +164,7 @@ func (c *HostConfig) Validate() error {
 		}
 		vaults[v] = true
 	}
-	for _, stage := range sortedKeys(c.Schedule) {
-		s := c.Schedule[stage]
-		if !validIdent(stage) {
-			ck.fail("schedule", "stage names must be lower-case identifiers")
-		} else if s == "" || hasControl(s) {
-			ck.fail("schedule."+stage, "must be a nonempty schedule")
-		}
-	}
-	if c.Caps.Runs < 0 || c.Caps.RunsPerProject < 0 {
-		ck.fail("caps", "must not be negative")
-	}
+	c.validateThroughput(ck)
 	if c.RunBudget < 0 {
 		ck.fail("run_budget", "must not be negative")
 	}

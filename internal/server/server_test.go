@@ -294,7 +294,7 @@ func TestSecretImportUsesTheManifestAndOp(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfgPath := filepath.Join(dir, config.HostConfigFile)
-	if err := config.SaveHost(cfgPath, &config.HostConfig{StateDir: dir, Vaults: []string{"Loop"}}); err != nil {
+	if err := config.SaveHost(cfgPath, &config.HostConfig{StateDir: dir, Vaults: []string{"Loop"}, Throughput: config.DefaultThroughput()}); err != nil {
 		t.Fatal(err)
 	}
 	op := filepath.Join(t.TempDir(), "op")

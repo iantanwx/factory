@@ -13,7 +13,7 @@ import (
 func newProjects(t *testing.T, hooks ...AddHook) *Projects {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), HostConfigFile)
-	if err := SaveHost(path, &HostConfig{StateDir: "/var/lib/loop"}); err != nil {
+	if err := SaveHost(path, DefaultHost("/var/lib/loop")); err != nil {
 		t.Fatal(err)
 	}
 	return &Projects{HostPath: path, AddHooks: hooks}

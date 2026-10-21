@@ -126,7 +126,8 @@ func TestPlatformCredentialsComeFromStore(t *testing.T) {
 	ctx := context.Background()
 	e := newTestEnv(t)
 	cfg := &config.HostConfig{
-		StateDir: "/var/lib/loop",
+		StateDir:   "/var/lib/loop",
+		Throughput: config.DefaultThroughput(),
 		Credentials: config.Credentials{
 			GitHubApp:          config.GitHubAppCredentials{AppID: 7, PrivateKeySecret: "GITHUB_APP_PRIVATE_KEY"},
 			MergifyTokenSecret: "MERGIFY_TOKEN",

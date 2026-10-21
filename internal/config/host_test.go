@@ -31,11 +31,20 @@ credentials:
     linear:
       token_secret: LINEAR_TOKEN
 vaults: [Loop, Shared]
-schedule:
-  implementer: 10m
-caps:
-  runs: 4
-  runs_per_project: 2
+throughput:
+  implementer: {cap: 4, schedule: "3,18,33,48 * * * *"}
+  code-reviewer: {cap: 8, schedule: "*/5 * * * *"}
+  doc-reviewer: {cap: 10, schedule: "26,56 * * * *"}
+  reviewers: {cap: 10}
+  amender: {cap: 2, schedule: "16,46 * * * *"}
+  spec-author: {cap: 2, schedule: "25,55 * * * *"}
+  decomposer: {cap: 2, schedule: "10,40 * * * *"}
+  fixer: {cap: 1, schedule: "14,44 * * * *"}
+  reproducer: {cap: 2, schedule: "12,42 * * * *"}
+  intake: {cap: 8, schedule: "20,50 * * * *"}
+  merge-handoff: {cap: 1, schedule: "*/5 * * * *"}
+  dependency-advance: {cap: 1, schedule: "*/5 * * * *"}
+  decision-timers: {cap: 1, schedule: "* * * * *"}
 run_budget: 2h
 quiet_period: 15m
 projects:

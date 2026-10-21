@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
@@ -73,8 +74,17 @@ type Options struct {
 	// decision verbs, and its reconcile runs first, before the socket
 	// binds. A server without beads answers those verbs NOT_IMPLEMENTED.
 	Beads machine.BeadsResolver
-	// Claims is the admission hook of claims (U6). Optional.
+	// Claims is the admission hook of claims (U6). With Beads set and
+	// Claims nil, the server composes admission (internal/admission) over
+	// host config's throughput map, and it serves work peek.
 	Claims machine.ClaimGuard
+	// BaseFiles reads declared paths on each project's base branch for the
+	// retry identity (U6). GitBase over the project's local directory when
+	// nil. U10 supplies the reader over the bare mirror.
+	BaseFiles admission.BaseReader
+	// Dependencies reports an item's open dependencies to admission.
+	// Optional.
+	Dependencies admission.DepReader
 }
 
 // Server is one composed instance.
@@ -89,7 +99,10 @@ type Server struct {
 	Projects *config.Projects
 	// Machine is the state machine, or nil when Options.Beads is nil.
 	Machine *machine.Machine
-	Started time.Time
+	// Admission is the admission policy, or nil when Options.Beads is nil
+	// or Options.Claims names another guard.
+	Admission *admission.Admission
+	Started   time.Time
 
 	opts Options
 	log  *slog.Logger
@@ -185,7 +198,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	if _, err := os.Stat(hostPath); errors.Is(err, fs.ErrNotExist) {
 		// `loop install` (U16) writes host config. Until then a first start
 		// writes the minimal one.
-		if err := config.SaveHost(hostPath, &config.HostConfig{StateDir: dir}); err != nil {
+		if err := config.SaveHost(hostPath, config.DefaultHost(dir)); err != nil {
 			return nil, err
 		}
 	}
@@ -263,13 +276,26 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		return nil, err
 	}
 	if opts.Beads != nil {
-		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: opts.Claims,
+		claims := opts.Claims
+		if claims == nil {
+			if s.Admission, err = s.composeAdmission(); err != nil {
+				return nil, err
+			}
+			claims = s.Admission
+		}
+		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: claims,
 			Registry: cli.Surface(), Logger: srv.Logger()})
 		if err != nil {
 			return nil, err
 		}
 		if err := s.Machine.Register(srv); err != nil {
 			return nil, err
+		}
+		if s.Admission != nil {
+			s.Admission.Attach(s.Machine)
+			if err := srv.Handle("work peek", s.workPeek); err != nil {
+				return nil, err
+			}
 		}
 	}
 	ok = true
