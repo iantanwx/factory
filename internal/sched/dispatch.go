@@ -33,6 +33,11 @@ type Started struct {
 	Session  agenthost.Session `json:"session"`
 }
 
+// intakeStage has a throughput entry, and its cap counts epics (KTD30).
+// Intake itself runs in a room, attended, so no unattended run of it
+// starts.
+const intakeStage = "intake"
+
 func internalRef(err error) *cli.Refusal {
 	return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
 }
@@ -43,6 +48,10 @@ func internalRef(err error) *cli.Refusal {
 // pack, brief and .env, the token, then the start. It returns nil and no
 // refusal when the stage has no work now.
 func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Started, *cli.Refusal) {
+	if stage == intakeStage {
+		return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "intake_runs_in_a_room",
+			Hint: "intake runs in a room the coordinator opens with `loop room open --kind intake`; the scheduler starts no intake run"}
+	}
 	if s.Draining() {
 		return nil, &cli.Refusal{Code: cli.CodeDraining, Rule: "draining", Hint: "the server is draining and admits no new run"}
 	}

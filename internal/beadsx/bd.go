@@ -528,8 +528,31 @@ func (b *BD) AddDependency(ctx context.Context, from, to string, kind DepKind) e
 	}
 	// bd 1.3.1 keeps one edge when the same pair is added again, and it
 	// reports success (TestContractReal, DependencyTwice).
-	_, err := b.run(ctx, "dep", "add", from, to, "--type", string(kind), "--json")
+	_, err := b.run(ctx, "dep", "add", from, to, "--type", bdDepType(kind), "--json")
 	return err
+}
+
+// bdBlocks is the bd type that stores a blocks edge. Beads enforces no
+// edges, and the server alone decides when a ticket waits (admission and
+// dependency-advance). bd 1.3.1 enforces its own blocks type: it refuses
+// to move an issue to a done status while a blocker holds any status but
+// the built-in closed, and the server's done is a custom status. So a
+// blocks edge goes to bd as tracks, a type bd keeps and never enforces
+// (TestContractReal, DoneBlockerBlocksNoDone).
+const bdBlocks = "tracks"
+
+func bdDepType(k DepKind) string {
+	if k == DepBlocks {
+		return bdBlocks
+	}
+	return string(k)
+}
+
+func depKind(bdType string) DepKind {
+	if bdType == bdBlocks {
+		return DepBlocks
+	}
+	return DepKind(bdType)
 }
 
 // Dependencies implements Client. bd 1.3.1 answers an unknown id with exit
@@ -555,7 +578,7 @@ func (b *BD) Dependencies(ctx context.Context, id string) ([]Dependency, error) 
 		if r.ID == "" || r.Status == "" || r.Kind == "" {
 			return nil, &BDError{Op: "dep", Message: "dependency row lacks an id, a status or a type: " + truncate(out), Kind: ErrMalformed}
 		}
-		deps = append(deps, Dependency{ID: r.ID, Kind: DepKind(r.Kind), Status: r.Status})
+		deps = append(deps, Dependency{ID: r.ID, Kind: depKind(r.Kind), Status: r.Status})
 	}
 	return deps, nil
 }

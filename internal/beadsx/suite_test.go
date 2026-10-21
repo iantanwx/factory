@@ -411,6 +411,23 @@ func runContract(t *testing.T, c beadsx.Client) {
 		}
 	})
 
+	// The server moves a ticket to a done status when it observes the
+	// merge, after its blocker reached a done status. The edge must not
+	// refuse that write: a blocker in a done status blocks nothing.
+	t.Run("DoneBlockerBlocksNoDone", func(t *testing.T) {
+		a, b := mustCreate(t, c, "done-a"), mustCreate(t, c, "done-b")
+		if err := c.AddDependency(ctx, a.ID, b.ID, beadsx.DepBlocks); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Update(ctx, b.ID, beadsx.UpdateSpec{IfStatus: "open", Status: "merged"}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := c.Update(ctx, a.ID, beadsx.UpdateSpec{IfStatus: "open", Status: "merged"})
+		if err != nil || got.Status != "merged" {
+			t.Fatalf("the dependent of a merged blocker = %+v %v", got, err)
+		}
+	})
+
 	// A decompose replay adds the same edge again. bd 1.3.1 keeps one edge
 	// and reports success, and it journals a dep_add for each call.
 	t.Run("DependencyTwice", func(t *testing.T) {

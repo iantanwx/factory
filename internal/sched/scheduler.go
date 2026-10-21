@@ -409,7 +409,7 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 				if s.job(stage) == nil {
 					continue
 				}
-			} else if snap == nil || !snap.Config.StageEnabled(stage) {
+			} else if snap == nil || !snap.Config.StageEnabled(stage) || stage == intakeStage {
 				continue
 			}
 			expr := hc.Throughput[stage].Schedule

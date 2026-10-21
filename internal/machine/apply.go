@@ -42,8 +42,29 @@ type Applied struct {
 // one write in flight, and a retry of an in-flight key joins it.
 func (m *Machine) Apply(ctx context.Context, req Request) cli.Result {
 	unlock := m.lock(req.Project, req.Item)
-	defer unlock()
-	return m.apply(ctx, &req)
+	res := m.apply(ctx, &req)
+	unlock()
+	if a, ok := res.Data.(Applied); ok && !res.Replayed && a.Kind == KindTicket {
+		m.completeEpic(ctx, a)
+	}
+	return res
+}
+
+// completeEpic applies the epic's complete row after a child ticket moved
+// to a terminal state: the plan's epic table moves execution to done when
+// every child is terminal. The row's guard refuses while a child is open,
+// and an epic in any other state refuses the row, so both refusals are
+// the expected answer and change nothing.
+func (m *Machine) completeEpic(ctx context.Context, a Applied) {
+	t, _ := TableFor(KindTicket)
+	if !t.Terminal(a.Status) {
+		return
+	}
+	it, ref := m.Read(ctx, a.Project, a.Item)
+	if ref != nil || it.Facts[FactEpic] == "" {
+		return
+	}
+	_ = m.Apply(ctx, Request{Project: a.Project, Item: it.Facts[FactEpic], Verb: "complete", Actor: Server("machine")})
 }
 
 func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {

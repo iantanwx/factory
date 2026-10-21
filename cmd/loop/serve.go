@@ -72,7 +72,8 @@ var realWiring = wiring{beads: realBeads, agents: realAgents}
 //   - with beads.bd and beads.dolt set, the Dolt supervisor and one beads
 //     workspace for each project (KTD3), so the machine and admission run;
 //   - with agent_host.kind set too, the agent host and the scheduler (U8),
-//     and the coordinator session on the first registered project;
+//     and the coordinator session on the first registered project, which
+//     starts once a project exists;
 //   - with credentials.github_app.app_id set, the GitHub actor and reactor
 //     (U10): its verbs, its start-up reconcile, the base reader of
 //     admission, the manifest reader of secret import, the project config
@@ -156,8 +157,9 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		return opts, func() {}, fmt.Errorf("pack: %w", err)
 	}
 	opts.Sched.Pack = p
+	opts.Sched.Coordinator = &sched.CoordinatorConfig{Harness: agenthost.Claude}
 	if len(cfg.Projects) > 0 {
-		opts.Sched.Coordinator = &sched.CoordinatorConfig{Project: cfg.Projects[0].ID, Harness: agenthost.Claude}
+		opts.Sched.Coordinator.Project = cfg.Projects[0].ID
 	}
 	if gh != nil {
 		opts.Setup = append(opts.Setup, func(s *server.Server) error {

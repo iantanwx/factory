@@ -19,7 +19,10 @@ import (
 // agent).
 type CoordinatorConfig struct {
 	// Project is the project whose repository the coordinator's checkout
-	// comes from. The coordinator itself serves every project.
+	// comes from. The coordinator itself serves every project. Empty means
+	// the first registered project, so a service that starts before any
+	// project is added starts the coordinator at the first tick after the
+	// operator adds one.
 	Project string
 	Harness agenthost.Harness
 	Model   string
@@ -111,6 +114,15 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 		}
 		cs.Session = nil
 		s.log.WarnContext(ctx, "the coordinator session ended; starting another", "run", cs.RunID)
+	}
+	if cs.Checkout == "" && cc.Project == "" {
+		ps, err := s.cfg.Projects()
+		if err != nil || len(ps) == 0 {
+			return
+		}
+		first := *cc
+		first.Project = ps[0].ID
+		cc = &first
 	}
 	if err := s.startCoordinator(ctx, cc, &cs); err != nil {
 		s.raise(ctx, config.Alert{Kind: AlertCoordinator, DedupeKey: AlertCoordinator,

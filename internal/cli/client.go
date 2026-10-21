@@ -293,7 +293,7 @@ func (c *Client) reserveKey(ctx context.Context, cc *callCtx, inv Invocation, re
 	if item != "" {
 		reader := c.State
 		if reader == nil {
-			reader = serverState{c: c, cc: cc}
+			reader = serverState{c: c, cc: cc, project: inv.Flags["project"]}
 		}
 		var res *Result
 		if st, res = reader.ItemState(ctx, item); res != nil {
@@ -316,16 +316,22 @@ func (c *Client) reserveKey(ctx context.Context, cc *callCtx, inv Invocation, re
 	return pending, key, nil
 }
 
-// serverState reads `work show <item>` over the same socket.
+// serverState reads `work show <item>` over the same socket. Project is
+// the write's --project: the coordinator's token holds no project, so its
+// read names the one its write names.
 type serverState struct {
-	c  *Client
-	cc *callCtx
+	c       *Client
+	cc      *callCtx
+	project string
 }
 
 func (s serverState) ItemState(ctx context.Context, item string) (ItemState, *Result) {
 	req := &loopv1.VerbRequest{
 		Verb: "work show", Args: []string{item}, Flags: map[string]string{},
 		RequestId: newRequestID(), ClientVersion: Version,
+	}
+	if s.project != "" {
+		req.Flags["project"] = s.project
 	}
 	if s.cc.token != nil {
 		req.RunToken = s.cc.token.Token
