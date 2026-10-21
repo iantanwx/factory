@@ -15,10 +15,14 @@ func main() {
 }
 
 // run builds the binary's registry: the surface, the socket client for
-// every server verb, serve and escalation judge.
+// every server verb, the host verbs, serve and escalation judge.
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	r := cli.Surface()
-	(&cli.Client{Stdin: stdin}).Attach(r)
+	c := &cli.Client{Stdin: stdin}
+	c.Attach(r)
+	if err := registerRelease(r, c); err != nil {
+		panic(err)
+	}
 	if err := r.SetHandler("serve", serveVerb); err != nil {
 		panic(err)
 	}

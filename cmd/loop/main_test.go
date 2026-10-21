@@ -124,7 +124,7 @@ func TestBinary(t *testing.T) {
 		{[]string{"schema", "--json"}, 0, ""},
 		{[]string{"version"}, 0, ""},
 		{[]string{"work", "peek", "--bogus"}, 2, "USAGE"},
-		{[]string{"doctor"}, 2, "NOT_IMPLEMENTED"},
+		{[]string{"doctor"}, 3, "DOCTOR_FAILED"}, // an empty instance fails every install check
 	}
 	for _, tc := range cases {
 		r := loop(t, bin, instance, t.TempDir(), "", tc.args...)
