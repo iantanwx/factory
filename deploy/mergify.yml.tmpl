@@ -1,0 +1,62 @@
+# Mergify's merge queue for the loop. `loop project add` opened this file
+# from deploy/mergify.yml.tmpl in the loop's release (U11, KTD29).
+#
+# The file is inert until the loop labels a pull request: every rule that
+# queues needs the queue label and the loop/eligible status, which the loop
+# posts only on the head a review passed (KTD15).
+#
+# The loop App holds installation permissions and no collaborator role, so
+# its queue command needs the narrow exception below. The exception holds
+# only for the base branch, the queue label and loop/eligible.
+commands_restrictions:
+  queue:
+    conditions:
+      - or:
+          - "sender-permission >= write"
+          - and:
+              - {{cond "sender =" .Bot}}
+              - {{cond "base =" .Base}}
+              - {{cond "label =" .Label}}
+              - {{cond "check-success =" .Eligible}}
+
+merge_queue:
+  queued_label: queued
+  checking_label: checking
+  dequeued_label: {{.Dequeued}}
+  status_comments: outcomes
+
+queue_rules:
+  - name: default
+    batch_size:
+      min: 1
+      max: 6
+    batch_max_wait_time: 5 min
+    max_checks_retries: 0
+    # Merge commits land the reviewed commits unchanged.
+    merge_method: merge
+    # No condition reads queued, checking or dequeued: Mergify writes those
+    # labels late, and a condition on its own label can dequeue a PR again.
+    queue_conditions:
+      - {{cond "base =" .Base}}
+      - "-draft"
+      - "-conflict"
+      - {{cond "label =" .Label}}
+      - {{cond "check-success =" .Eligible}}
+{{- range .Checks}}
+      - {{cond "check-success =" .}}
+{{- end}}
+{{- if .Checks}}
+    merge_conditions:
+{{- range .Checks}}
+      - {{cond "check-success =" .}}
+{{- end}}
+{{- end}}
+
+pull_request_rules:
+  - name: queue each pull request the loop labelled
+    conditions:
+      - {{cond "label =" .Label}}
+      - {{cond "check-success =" .Eligible}}
+    actions:
+      queue:
+        name: default

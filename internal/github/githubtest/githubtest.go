@@ -249,6 +249,9 @@ type PR struct {
 	Body      string
 	Fork      bool
 	UpdatedAt time.Time
+	// Labels and MergeableState serve the merge fakes (merge.go).
+	Labels         []string
+	MergeableState string
 }
 
 func (p *PR) json() map[string]any {
@@ -262,6 +265,7 @@ func (p *PR) json() map[string]any {
 		"head": map[string]any{"ref": p.Head, "sha": p.HeadSHA, "repo": map[string]any{"full_name": repo}},
 		"base": map[string]any{"ref": p.Base, "sha": strings.Repeat("b", 40)},
 	}
+	out["node_id"], out["labels"], out["mergeable_state"] = nodeID(p.Number), labelsJSON(p.Labels), p.MergeableState
 	if p.Merged {
 		out["merged_at"] = p.UpdatedAt.UTC().Format(time.RFC3339)
 	}
@@ -279,6 +283,7 @@ type World struct {
 	files    int
 	failNext map[string]int
 	clock    time.Time
+	merge    mergeWorld
 	// HeadOf answers the head sha of a new PR's branch. A fixed sha when
 	// nil.
 	HeadOf func(branch string) string
@@ -488,7 +493,7 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 		w.statuses = append(w.statuses, reStatus.FindStringSubmatch(path)[1]+" "+body["context"]+" "+body["state"])
 		WriteJSON(rw, 201, map[string]any{"state": body["state"]})
 	default:
-		return false
+		return w.serveMerge(rw, r)
 	}
 	return true
 }

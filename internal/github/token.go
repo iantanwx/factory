@@ -25,6 +25,7 @@ const (
 	ScopePulls    Scope = "pulls"    // open a PR, reply on a thread
 	ScopeStatuses Scope = "statuses" // post loop/eligible
 	ScopeActions  Scope = "actions"  // rerun failed CI jobs
+	ScopeMerge    Scope = "merge"    // merge a PR, use the merge queue, open the Mergify setup PR (U11)
 )
 
 var scopePermissions = map[Scope]map[string]string{
@@ -34,6 +35,7 @@ var scopePermissions = map[Scope]map[string]string{
 	ScopePulls:    {"pull_requests": "write", "metadata": "read"},
 	ScopeStatuses: {"statuses": "write", "metadata": "read"},
 	ScopeActions:  {"actions": "write", "metadata": "read"},
+	ScopeMerge:    {"contents": "write", "pull_requests": "write", "metadata": "read"},
 }
 
 // Permissions returns a copy of the permission subset of scope.
