@@ -240,3 +240,67 @@ func canonical(f Flag, value string) (string, error) {
 	}
 	return value, nil
 }
+
+// ReservedPrefix starts each transport field that a VerbRequest carries in
+// its flags map beside the verb's flags. No flag name can start with it, so
+// no command line can set one.
+const ReservedPrefix = "@"
+
+// Reserved transport fields.
+const (
+	// ExtraStdin is the base64 of the bytes a verb read from stdin, such as
+	// the value of secret set. The server never logs or echoes it.
+	ExtraStdin = ReservedPrefix + "stdin"
+	// ExtraContentHash is the hash of the content a write carries (KTD13).
+	ExtraContentHash = ReservedPrefix + "content_hash"
+)
+
+// Validate checks a call that arrives over the wire against the verb's
+// schema, the way parse checks a command line. Each flag value must already
+// be canonical, so the server sees exactly what an honest CLI sends.
+// Reserved fields move to Invocation.Extra.
+func (r *Registry) Validate(path string, args []string, flags map[string]string, requestID string) (Invocation, *Result) {
+	v, ok := r.byPath[path]
+	if !ok {
+		return Invocation{}, usage("unknown_verb", fmt.Sprintf("this server has no verb %q", path), "schema")
+	}
+	inv := Invocation{Verb: v, Args: slices.Clone(args), Flags: map[string]string{}, Extra: map[string]string{}, RequestID: requestID}
+	if inv.Args == nil {
+		inv.Args = []string{}
+	}
+	names := make([]string, 0, len(flags))
+	for name := range flags {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		value := flags[name]
+		if strings.HasPrefix(name, ReservedPrefix) {
+			inv.Extra[name] = value
+			continue
+		}
+		f, ok := findFlag(v.Flags, name)
+		if !ok {
+			return inv, usage("unknown_flag", fmt.Sprintf("%s has no flag --%s", path, name), path)
+		}
+		canon, err := canonical(f, value)
+		if err != nil || canon != value {
+			return inv, usage("bad_flag_value", fmt.Sprintf("--%s: the value is not canonical", name), path)
+		}
+		inv.Flags[name] = value
+	}
+	for _, f := range v.Flags {
+		if _, ok := inv.Flags[f.Name]; f.Required && !ok {
+			return inv, usage("missing_flag", fmt.Sprintf("%s needs --%s", path, f.Name), path)
+		}
+	}
+	if len(inv.Args) > len(v.Args) {
+		return inv, usage("extra_argument", fmt.Sprintf("%s takes at most %d arguments", path, len(v.Args)), path)
+	}
+	for i, a := range v.Args {
+		if a.Required && i >= len(inv.Args) {
+			return inv, usage("missing_argument", fmt.Sprintf("%s needs <%s>", path, a.Name), path)
+		}
+	}
+	return inv, nil
+}

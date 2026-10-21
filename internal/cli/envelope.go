@@ -31,6 +31,9 @@ type Result struct {
 	Data          any
 	Refusal       *Refusal
 	ServerVersion string
+	// Replayed marks the stored answer of an idempotency key that already
+	// landed (R18, KTD13).
+	Replayed bool
 }
 
 // Found is a result that did work or found work.
@@ -59,6 +62,9 @@ type Envelope struct {
 	RequestID     string   `json:"request_id"`
 	ServerVersion string   `json:"server_version"`
 	Data          any      `json:"data"`
+	// Replayed is true when the server answered a repeated idempotency key
+	// with the stored result of the first call. It is absent otherwise.
+	Replayed bool `json:"replayed,omitempty"`
 	*Refusal
 }
 
@@ -71,6 +77,7 @@ func (r *Registry) seal(verb, requestID string, res Result) Envelope {
 		RequestID:     requestID,
 		ServerVersion: res.ServerVersion,
 		Data:          res.Data,
+		Replayed:      res.Replayed,
 	}
 	ref := res.Refusal
 	if ref == nil && (res.Exit == ExitUndecided || res.Exit == ExitRefused) {
@@ -105,6 +112,12 @@ func (r *Registry) seal(verb, requestID string, res Result) Envelope {
 	env.Data = nil
 	env.Refusal = &sealed
 	return env
+}
+
+// Seal is seal for the server: it turns a handler's result into the
+// envelope the server sends, under the same closed refusal-code set.
+func (r *Registry) Seal(verb, requestID string, res Result) Envelope {
+	return r.seal(verb, requestID, res)
 }
 
 func isNilOrEmpty(v any) bool {

@@ -1,0 +1,128 @@
+package cli
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+// keyScheme is the version of the key canonicalisation. It is frozen: a
+// verb present in two consecutive schemas must derive the same key in both
+// releases (KTD13), so a change here needs a new scheme and a release that
+// accepts both.
+const keyScheme = 1
+
+// KeyParts are the inputs of one write's idempotency key (KTD13).
+type KeyParts struct {
+	RunID          string
+	Verb           string
+	Args           []string
+	Flags          map[string]string // canonical; reserved fields are ignored
+	ExpectedStatus string
+	Seq            int64
+	ContentHash    string
+	// RequestID is the coordinator's own durable request id, when it gave
+	// one. Its session outlives any run, so the id it keeps joins the key.
+	RequestID string
+}
+
+type canonicalFlag struct {
+	Name  string `json:"n"`
+	Value string `json:"v"`
+}
+
+type canonicalCall struct {
+	Verb  string          `json:"verb"`
+	Args  []string        `json:"args"`
+	Flags []canonicalFlag `json:"flags"`
+}
+
+func canonicalCallOf(verb string, args []string, flags map[string]string) canonicalCall {
+	c := canonicalCall{Verb: verb, Args: args, Flags: []canonicalFlag{}}
+	if c.Args == nil {
+		c.Args = []string{}
+	}
+	for name, value := range flags {
+		if strings.HasPrefix(name, ReservedPrefix) {
+			continue
+		}
+		c.Flags = append(c.Flags, canonicalFlag{name, value})
+	}
+	sort.Slice(c.Flags, func(i, j int) bool { return c.Flags[i].Name < c.Flags[j].Name })
+	return c
+}
+
+// ArgsHash is the hash of a call's verb, arguments and canonical flags. The
+// server stores it with each key, and the CLI matches pending entries on it.
+func ArgsHash(verb string, args []string, flags map[string]string) string {
+	raw, err := json.Marshal(canonicalCallOf(verb, args, flags))
+	if err != nil {
+		panic(err) // strings only; Marshal cannot fail
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+// DeriveKey returns the idempotency key of one write. Equal parts give an
+// equal key in every release that keeps keyScheme.
+func DeriveKey(p KeyParts) string {
+	doc := struct {
+		Scheme  int    `json:"scheme"`
+		Run     string `json:"run"`
+		Args    string `json:"args"`
+		Status  string `json:"status"`
+		Seq     int64  `json:"seq"`
+		Content string `json:"content"`
+		Request string `json:"request"`
+		Verb    string `json:"verb"`
+	}{
+		Scheme: keyScheme, Run: p.RunID, Args: ArgsHash(p.Verb, p.Args, p.Flags),
+		Status: p.ExpectedStatus, Seq: p.Seq, Content: p.ContentHash, Request: p.RequestID, Verb: p.Verb,
+	}
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		panic(err)
+	}
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("k%d-%s", keyScheme, hex.EncodeToString(sum[:]))
+}
+
+// ContentHash is the hash of the content a write carries: the local HEAD
+// sha for branch push, the --body text, or the bytes of the --file file.
+// It is "" for a write that carries no content.
+func ContentHash(ctx context.Context, inv Invocation, checkout, cwd string) (string, error) {
+	switch {
+	case inv.Verb.Path == "branch push":
+		cmd := exec.CommandContext(ctx, "git", "-C", checkout, "rev-parse", "HEAD")
+		out, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("read the checkout's HEAD: %w", err)
+		}
+		return hashText("head", strings.TrimSpace(string(out))), nil
+	case inv.Flags["body"] != "":
+		return hashText("body", inv.Flags["body"]), nil
+	case inv.Flags["file"] != "":
+		path := inv.Flags["file"]
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(cwd, path)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read --file: %w", err)
+		}
+		return hashText("file", string(data)), nil
+	}
+	return "", nil
+}
+
+func hashText(kind, text string) string {
+	sum := sha256.Sum256([]byte(kind + "\x00" + text))
+	return kind + ":" + hex.EncodeToString(sum[:])
+}

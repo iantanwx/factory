@@ -6,7 +6,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
+	"strings"
 )
 
 // New returns the registry with the whole CLI surface and the verbs this
@@ -33,7 +35,10 @@ func must(err error) {
 // prints exactly one envelope on stdout. stderr carries only a failure to
 // write stdout.
 func (r *Registry) Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	requestID := newRequestID()
+	requestID := os.Getenv(RequestIDEnv)
+	if !validRequestID(requestID) {
+		requestID = newRequestID()
+	}
 	c, res := r.parse(args)
 	if res == nil {
 		answer := r.dispatch(ctx, c, requestID)
@@ -89,6 +94,21 @@ func versionVerb(context.Context, Invocation) Result {
 		"go":       runtime.Version(),
 		"platform": runtime.GOOS + "/" + runtime.GOARCH,
 	})
+}
+
+// validRequestID accepts a coordinator's own request id: 1 to 128
+// characters of letters, digits, '-', '_', '.' and ':'.
+func validRequestID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("-_.:", c)
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func newRequestID() string {

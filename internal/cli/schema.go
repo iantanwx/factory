@@ -71,6 +71,9 @@ type Verb struct {
 	RPC      string   `json:"rpc"` // full gRPC method name; "" for a client verb
 	Args     []Arg    `json:"args"`
 	Flags    []Flag   `json:"flags"`
+	// Write marks a verb that changes state. A write from a run, a room or
+	// the coordinator carries an idempotency key (KTD13).
+	Write bool `json:"write"`
 
 	handler Handler
 }
@@ -82,6 +85,10 @@ type Invocation struct {
 	Args      []string
 	Flags     map[string]string
 	RequestID string
+	// Extra holds the reserved transport fields of a VerbRequest, keyed with
+	// ReservedPrefix: a value read from stdin and a content hash. The CLI
+	// parser never fills it, so no command-line flag can set one.
+	Extra map[string]string
 }
 
 // Arg returns the positional argument with the given schema name, or "".
@@ -108,6 +115,7 @@ type Registry struct {
 	refusalOrder []string
 	transitions  map[string]json.RawMessage
 	capabilities json.RawMessage
+	matrix       *CapabilityMatrix
 	remote       Handler
 }
 
@@ -275,7 +283,32 @@ func (r *Registry) SetCapabilityMatrix(matrix any) error {
 		return fmt.Errorf("capability matrix: %w", err)
 	}
 	r.capabilities = raw
+	switch m := matrix.(type) {
+	case CapabilityMatrix:
+		r.matrix = &m
+	case *CapabilityMatrix:
+		r.matrix = m
+	}
 	return nil
+}
+
+// CapabilityMatrix returns the typed matrix, when SetCapabilityMatrix was
+// given a CapabilityMatrix.
+func (r *Registry) CapabilityMatrix() (*CapabilityMatrix, bool) {
+	return r.matrix, r.matrix != nil
+}
+
+// Verbs returns every registered verb in registration order.
+func (r *Registry) Verbs() []*Verb { return slices.Clone(r.verbs) }
+
+// VerbByRPC returns the server verb whose RPC is the full method name.
+func (r *Registry) VerbByRPC(method string) (*Verb, bool) {
+	for _, v := range r.verbs {
+		if v.Side == SideServer && v.RPC == method {
+			return v, true
+		}
+	}
+	return nil, false
 }
 
 // Verb returns one verb by path.

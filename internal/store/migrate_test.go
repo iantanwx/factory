@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,7 +41,7 @@ func TestOpenRefusesDatabaseWhoseMinimumReaderIsAboveBinary(t *testing.T) {
 		t.Fatalf("Open err = %#v, want min reader 7, binary %d, database 9", err, binary)
 	}
 	msg := err.Error()
-	for _, want := range []string{"reader schema 7", "this binary has schema 1", "database schema 9"} {
+	for _, want := range []string{"reader schema 7", fmt.Sprintf("this binary has schema %d", binary), "database schema 9"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q does not name %q", msg, want)
 		}
@@ -53,6 +54,7 @@ func TestOpenAcceptsNewerDatabaseWhoseMinimumReaderTheBinaryMeets(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	binary := s.SchemaVersion()
 	addProject(t, s, "p1")
 	_ = s.Close()
 
@@ -70,8 +72,8 @@ func TestOpenAcceptsNewerDatabaseWhoseMinimumReaderTheBinaryMeets(t *testing.T) 
 		t.Fatalf("Open of an additive future schema: %v", err)
 	}
 	defer func() { _ = s2.Close() }()
-	if s2.DatabaseSchema() != 9 || s2.SchemaVersion() != 1 {
-		t.Fatalf("DatabaseSchema = %d, SchemaVersion = %d; want 9 and 1", s2.DatabaseSchema(), s2.SchemaVersion())
+	if s2.DatabaseSchema() != 9 || s2.SchemaVersion() != binary {
+		t.Fatalf("DatabaseSchema = %d, SchemaVersion = %d; want 9 and %d", s2.DatabaseSchema(), s2.SchemaVersion(), binary)
 	}
 	if n := countRows(t, s2, "projects"); n != 1 {
 		t.Fatalf("projects = %d, want 1", n)

@@ -35,6 +35,8 @@ func TestRefusalCodeTable(t *testing.T) {
 		CodePRDRequired:          {3, codes.FailedPrecondition, false},
 		CodeDraining:             {4, codes.Unavailable, true},
 		CodeServerUnavailable:    {4, codes.Unavailable, true},
+		CodeAlreadyExists:        {3, codes.AlreadyExists, false},
+		CodeProjectBusy:          {3, codes.FailedPrecondition, false},
 	}
 	r := New()
 	got := r.RefusalCodes()
