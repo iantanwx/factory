@@ -26,6 +26,7 @@ type HostConfig struct {
 	Store       StoreConfig     `yaml:"store,omitempty"`
 	KeyFile     string          `yaml:"key_file,omitempty"`
 	AgentHost   AgentHostConfig `yaml:"agent_host,omitempty"`
+	Beads       BeadsConfig     `yaml:"beads,omitempty"`
 	Harnesses   []HarnessLogin  `yaml:"harnesses,omitempty"`
 	Credentials Credentials     `yaml:"credentials,omitempty"`
 	Vaults      []string        `yaml:"vaults,omitempty"` // 1Password vaults that secret import may read (KTD28)
@@ -43,10 +44,20 @@ type StoreConfig struct {
 	Identity string `yaml:"identity,omitempty"`
 }
 
-// AgentHostConfig selects the agent host implementation.
+// AgentHostConfig selects the agent host implementation. CheckoutRoot is
+// the directory that holds every checkout the host makes; the host refuses
+// a path outside it.
 type AgentHostConfig struct {
-	Kind   string `yaml:"kind,omitempty"`
-	Binary string `yaml:"binary,omitempty"`
+	Kind         string `yaml:"kind,omitempty"`
+	Binary       string `yaml:"binary,omitempty"`
+	CheckoutRoot string `yaml:"checkout_root,omitempty"`
+}
+
+// BeadsConfig names the pinned bd and dolt binaries. With both set, the
+// server keeps each project's record of work in beads (KTD3).
+type BeadsConfig struct {
+	BD   string `yaml:"bd,omitempty"`
+	Dolt string `yaml:"dolt,omitempty"`
 }
 
 // HarnessLogin names a harness and where its login lives. The login itself
@@ -126,6 +137,9 @@ func (c *HostConfig) Validate() error {
 		{"store.path", c.Store.Path},
 		{"key_file", c.KeyFile},
 		{"agent_host.binary", c.AgentHost.Binary},
+		{"agent_host.checkout_root", c.AgentHost.CheckoutRoot},
+		{"beads.bd", c.Beads.BD},
+		{"beads.dolt", c.Beads.Dolt},
 	} {
 		if f[1] != "" && !filepath.IsAbs(f[1]) {
 			ck.fail(f[0], "must be an absolute path")

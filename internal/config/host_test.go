@@ -45,6 +45,7 @@ throughput:
   merge-handoff: {cap: 1, schedule: "*/5 * * * *"}
   dependency-advance: {cap: 1, schedule: "*/5 * * * *"}
   decision-timers: {cap: 1, schedule: "* * * * *"}
+  github-reactor: {cap: 1, schedule: "* * * * *"}
 run_budget: 2h
 quiet_period: 15m
 projects:

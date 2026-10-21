@@ -68,6 +68,10 @@ type Options struct {
 	Checkouts CheckoutLister
 	// Proc reads a caller's working directory. DefaultProc when nil.
 	Proc ProcInspector
+	// OnCall sees each authorized call of a principal with a run id,
+	// before its handler runs. The scheduler (U8) records the run's last
+	// CLI call with it (KTD7, KTD8). Optional.
+	OnCall func(ctx context.Context, p Principal)
 }
 
 // Server answers every RPC through one generic handler.
@@ -292,6 +296,9 @@ func (s *Server) decide(ctx context.Context, method string, req *loopv1.VerbRequ
 		return path, cli.Found(map[string]any{"authorized": true, "verb": path}), p, nil
 	}
 
+	if s.opts.OnCall != nil && p.RunID != "" {
+		s.opts.OnCall(ctx, p)
+	}
 	call := &Call{Inv: inv, Principal: p, Request: req}
 	ctx = withPrincipal(ctx, p)
 	key := req.GetIdempotencyKey()

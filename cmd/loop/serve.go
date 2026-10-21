@@ -3,11 +3,23 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
+	"os"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"syscall"
 
+	"github.com/iantanwx/loop/internal/admission"
+	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/agenthost/orca"
+	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
 )
 
@@ -23,7 +35,12 @@ func serveVerb(ctx context.Context, inv cli.Invocation) cli.Result {
 	}
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-	err := server.Run(ctx, server.Options{Instance: dir})
+	opts, cleanup, err := productionOptions(ctx, dir, realWiring)
+	if err != nil {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "serve_failed", Hint: err.Error()})
+	}
+	defer cleanup()
+	err = server.Run(ctx, opts)
 	switch {
 	case errors.Is(err, rpc.ErrInstanceLocked), errors.Is(err, rpc.ErrServerRunning):
 		return cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "instance_locked", Hint: err.Error()})
@@ -31,4 +48,195 @@ func serveVerb(ctx context.Context, inv cli.Invocation) cli.Result {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeInternal, Rule: "serve_failed", Hint: err.Error()})
 	}
 	return cli.Found(map[string]any{"instance": dir, "stopped": true})
+}
+
+// wiring builds the parts that reach outside the process. Production uses
+// realWiring. A test passes fakes, so no default test starts Dolt, orca
+// or an agent, or calls GitHub.
+type wiring struct {
+	// beads starts the record of work: a resolver of each project's
+	// client, and the step that stops it.
+	beads func(ctx context.Context, cfg *config.HostConfig) (machine.BeadsResolver, func(context.Context) error, error)
+	// agents makes the agent host and each project's checkout host.
+	agents func(cfg *config.HostConfig, projects *config.Projects) (agenthost.Host, func(project string) sched.CheckoutHost, error)
+	// github overrides GitHub's endpoints. Production leaves it nil.
+	github *server.GitHub
+}
+
+var realWiring = wiring{beads: realBeads, agents: realAgents}
+
+// productionOptions composes the server from host config:
+//
+//   - with beads.bd and beads.dolt set, the Dolt supervisor and one beads
+//     workspace for each project (KTD3), so the machine and admission run;
+//   - with agent_host.kind set too, the agent host and the scheduler (U8),
+//     and the coordinator session on the first registered project;
+//   - with credentials.github_app.app_id set, the GitHub actor and reactor
+//     (U10): its verbs, its start-up reconcile, the base reader of
+//     admission, the manifest reader of secret import, the project config
+//     source, and the reactor as the github-reactor native job.
+//
+// A host config that names none of them serves the U4 verbs only. The
+// returned cleanup stops what it started.
+func productionOptions(ctx context.Context, dir string, w wiring) (server.Options, func(), error) {
+	opts := server.Options{Instance: dir}
+	cleanup := func() {}
+	cfg, err := config.LoadHost(filepath.Join(dir, config.HostConfigFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return opts, cleanup, nil // the first start writes the default host config
+	}
+	if err != nil {
+		return opts, cleanup, err
+	}
+	projects := &config.Projects{HostPath: filepath.Join(dir, config.HostConfigFile)}
+
+	var gh *server.GitHub
+	if cfg.Credentials.GitHubApp.AppID != 0 {
+		gh = &server.GitHub{}
+		if w.github != nil {
+			gh = w.github
+		}
+		opts.Setup = append(opts.Setup, gh.Setup)
+		opts.Reconcile = append(opts.Reconcile, gh.Reconcile)
+		// Admission needs its base reader when the server composes, before
+		// Setup builds the service. The wrapper reads through the service.
+		opts.BaseFiles = lazyBase{gh}
+		opts.ManifestReader = func(ctx context.Context, p config.Project, branch string) (*config.Manifest, error) {
+			if gh.Service == nil {
+				return nil, errors.New("the GitHub service is not set up")
+			}
+			return gh.Service.ManifestReader(ctx, p, branch)
+		}
+		opts.Sched.Refs = func(ctx context.Context, p config.Project) (config.RefReader, string, error) {
+			if gh.Service == nil {
+				return nil, "", errors.New("the GitHub service is not set up")
+			}
+			branch, err := gh.Service.DefaultBranch(ctx, p)
+			if err != nil {
+				return nil, "", err
+			}
+			return gh.Service.RefReader(p.ID), branch, nil
+		}
+	}
+
+	if cfg.Beads.BD == "" || cfg.Beads.Dolt == "" {
+		return opts, cleanup, nil
+	}
+	resolver, stopBeads, err := w.beads(ctx, cfg)
+	if err != nil {
+		return opts, cleanup, fmt.Errorf("beads: %w", err)
+	}
+	opts.Beads = resolver
+	cleanup = func() {
+		if err := stopBeads(context.Background()); err != nil {
+			fmt.Fprintln(os.Stderr, "loop serve: stop beads:", err)
+		}
+	}
+	if cfg.AgentHost.Kind == "" {
+		return opts, cleanup, nil
+	}
+	agents, checkouts, err := w.agents(cfg, projects)
+	if err != nil {
+		cleanup()
+		return opts, func() {}, fmt.Errorf("agent host: %w", err)
+	}
+	opts.Agents, opts.Sched.Checkouts = agents, checkouts
+	if len(cfg.Projects) > 0 {
+		opts.Sched.Coordinator = &sched.CoordinatorConfig{Project: cfg.Projects[0].ID, Harness: agenthost.Claude}
+	}
+	if gh != nil {
+		opts.Setup = append(opts.Setup, func(s *server.Server) error {
+			if s.Sched == nil || gh.Reactor == nil {
+				return nil
+			}
+			return s.Sched.RegisterInstanceJob("github-reactor", gh.Reactor.Tick)
+		})
+	}
+	return opts, cleanup, nil
+}
+
+// lazyBase is admission's base reader over the GitHub service, which
+// Setup builds after admission is composed.
+type lazyBase struct{ gh *server.GitHub }
+
+func (l lazyBase) Files(ctx context.Context, project string, prefixes []string) (map[string]string, error) {
+	if l.gh.Service == nil {
+		return nil, errors.New("the GitHub service is not set up")
+	}
+	return l.gh.Service.Files(ctx, project, prefixes)
+}
+
+var _ admission.BaseReader = lazyBase{}
+
+// realBeads starts the instance's Dolt sql-server and resolves each
+// project's workspace on its first use (KTD3).
+func realBeads(ctx context.Context, cfg *config.HostConfig) (machine.BeadsResolver, func(context.Context) error, error) {
+	layout := beadsx.Layout{StateDir: cfg.StateDir}
+	sup, err := beadsx.NewSupervisor(beadsx.DoltConfig{Binary: cfg.Beads.Dolt, Dir: layout.DoltDir()})
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := sup.Start(ctx); err != nil {
+		return nil, nil, err
+	}
+	var types []string
+	for _, t := range machine.Tables() {
+		if !beadsx.IsBuiltinType(t.BeadType) {
+			types = append(types, t.BeadType)
+		}
+	}
+	var mu sync.Mutex
+	clients := map[string]beadsx.Client{}
+	resolve := func(project string) (beadsx.Client, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if c, ok := clients[project]; ok {
+			return c, nil
+		}
+		b, err := beadsx.EnsureWorkspace(context.Background(), beadsx.WorkspaceSpec{
+			BD: cfg.Beads.BD, Layout: layout, Project: project, Socket: sup.Socket(),
+			Statuses: machine.Statuses(), Types: types,
+		})
+		if err != nil {
+			return nil, err
+		}
+		clients[project] = b
+		return b, nil
+	}
+	return resolve, sup.Stop, nil
+}
+
+// realAgents makes the orca agent host. A checkout needs its project's
+// repository, so each project gets its own orca host for checkouts.
+func realAgents(cfg *config.HostConfig, projects *config.Projects) (agenthost.Host, func(string) sched.CheckoutHost, error) {
+	if cfg.AgentHost.Kind != "orca" {
+		return nil, nil, fmt.Errorf("agent_host.kind %q is not supported; v1 drives orca", cfg.AgentHost.Kind)
+	}
+	base := orca.Config{Bin: cfg.AgentHost.Binary, CheckoutRoot: cfg.AgentHost.CheckoutRoot, QuietPeriod: cfg.QuietPeriod}
+	host, err := orca.New(base)
+	if err != nil {
+		return nil, nil, err
+	}
+	var mu sync.Mutex
+	per := map[string]*orca.Host{}
+	checkouts := func(project string) sched.CheckoutHost {
+		mu.Lock()
+		defer mu.Unlock()
+		if h, ok := per[project]; ok {
+			return h
+		}
+		p, err := projects.Show(project)
+		if err != nil {
+			return host
+		}
+		c := base
+		c.Repo = "path:" + p.Path
+		h, err := orca.New(c)
+		if err != nil {
+			return host
+		}
+		per[project] = h
+		return h
+	}
+	return host, checkouts, nil
 }

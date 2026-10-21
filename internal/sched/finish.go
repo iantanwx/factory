@@ -1,0 +1,102 @@
+package sched
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/iantanwx/loop/internal/admission"
+	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/rpc"
+)
+
+// FinishResult is the answer of `loop run finish`.
+type FinishResult struct {
+	RunID   string          `json:"run_id"`
+	Outcome string          `json:"outcome"`
+	Class   admission.Class `json:"class"`
+	Counted bool            `json:"counted"`
+	// Released is true when the run still held its item's lease and the
+	// finish released it.
+	Released bool `json:"released"`
+	// Replayed is true when the run had already settled. Class is then the
+	// stored one.
+	Replayed bool `json:"replayed"`
+}
+
+// Finish settles a run by its own report (KTD7): done, failed or blocked.
+// It releases the lease the run still holds, which restores the
+// stage-correct state, settles the checkout, removes .env and revokes the
+// token. The next tick closes the session and keeps the checkout.
+func (s *Scheduler) Finish(ctx context.Context, runID, outcome string) (FinishResult, *cli.Refusal) {
+	switch outcome {
+	case "done", "failed", "blocked":
+	default:
+		return FinishResult{}, &cli.Refusal{Code: cli.CodeUsage, Rule: "bad_outcome", Hint: "the outcome is done, failed or blocked"}
+	}
+	ctx = context.WithoutCancel(ctx)
+	s.settleMu.Lock()
+	defer s.settleMu.Unlock()
+	r, err := s.runByID(ctx, runID)
+	if errors.Is(err, errNoRun) {
+		return FinishResult{}, &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_run", Hint: "the server has no run " + runID}
+	}
+	if err != nil {
+		return FinishResult{}, internalRef(err)
+	}
+	now := s.now()
+	out, err := s.cfg.Admission.RecordOutcome(ctx, admission.Settlement{RunID: runID, Finish: outcome, Ended: now, LastCLICall: now})
+	if err != nil {
+		return FinishResult{}, internalRef(err)
+	}
+	res := FinishResult{RunID: runID, Outcome: outcome, Class: out.Class, Counted: out.Counted, Replayed: out.Replayed}
+	if out.Replayed {
+		return res, nil
+	}
+	res.Released = s.afterSettle(ctx, r, "release", CheckoutSettled)
+	return res, nil
+}
+
+// Register sets the handlers of the verbs the scheduler serves: run
+// finish and drain.
+func (s *Scheduler) Register(srv *rpc.Server) error {
+	if err := srv.Handle("run finish", s.runFinish); err != nil {
+		return err
+	}
+	return srv.Handle("drain", s.drain)
+}
+
+func (s *Scheduler) runFinish(ctx context.Context, call *rpc.Call) cli.Result {
+	p := call.Principal
+	if p.Kind != cli.PrincipalRun || p.RunID == "" {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "run_only", Hint: "only a stage run finishes, from its own checkout"})
+	}
+	res, ref := s.Finish(ctx, p.RunID, call.Inv.Flags["outcome"])
+	if ref != nil {
+		return cli.Refuse(*ref)
+	}
+	return cli.Found(res)
+}
+
+// OnCall records a run's CLI call as its last observed activity (KTD7,
+// KTD8). It writes at most once every few seconds for each run.
+func (s *Scheduler) OnCall(ctx context.Context, p rpc.Principal) {
+	if p.Kind != cli.PrincipalRun || p.RunID == "" {
+		return
+	}
+	now := s.now()
+	s.mu.Lock()
+	last := s.lastCall[p.RunID]
+	if !last.IsZero() && now.Sub(last) < callWriteGap && now.After(last) {
+		s.mu.Unlock()
+		return
+	}
+	s.lastCall[p.RunID] = now
+	s.mu.Unlock()
+	if err := s.markCall(ctx, p.RunID, now); err != nil {
+		s.log.WarnContext(ctx, "record a CLI call", "run", p.RunID, "err", err)
+	}
+}
+
+// callWriteGap bounds how often one run's calls are written.
+const callWriteGap = 5 * time.Second

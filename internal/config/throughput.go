@@ -26,7 +26,7 @@ var (
 		"implementer", "code-reviewer", "doc-reviewer", "amender", "spec-author",
 		"decomposer", "fixer", "reproducer", "intake",
 	}
-	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers"}
+	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor"}
 	// pools bound several stages together. The reviewers pool is today's
 	// REVIEW_CAP over every reviewer stage (scripts/sdlc/review-cap.ts,
 	// alpha), next to each stage's own cap.
@@ -79,6 +79,7 @@ func DefaultThroughput() map[string]Throughput {
 		"merge-handoff":      {Cap: 1, Schedule: every5},
 		"dependency-advance": {Cap: 1, Schedule: every5},
 		"decision-timers":    {Cap: 1, Schedule: "* * * * *"},
+		"github-reactor":     {Cap: 1, Schedule: "* * * * *"},
 	}
 }
 

@@ -16,10 +16,12 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
+	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -85,6 +87,13 @@ type Options struct {
 	// Dependencies reports an item's open dependencies to admission.
 	// Optional.
 	Dependencies admission.DepReader
+	// Agents is the agent host (U7). With Beads set and admission
+	// composed, the server composes the scheduler (U8): it serves run
+	// finish and drain, its reconcile runs last before the socket binds,
+	// and its loops tick until the server stops.
+	Agents agenthost.Host
+	// Sched holds the scheduler's optional parts.
+	Sched SchedOptions
 }
 
 // Server is one composed instance.
@@ -102,7 +111,10 @@ type Server struct {
 	// Admission is the admission policy, or nil when Options.Beads is nil
 	// or Options.Claims names another guard.
 	Admission *admission.Admission
-	Started   time.Time
+	// Sched is the scheduler, or nil when no agent host or no admission
+	// is composed. A Setup step registers native jobs on it.
+	Sched   *sched.Scheduler
+	Started time.Time
 
 	opts Options
 	log  *slog.Logger
@@ -148,6 +160,13 @@ func Run(ctx context.Context, opts Options) (err error) {
 	if s.Machine != nil {
 		steps = append([]Step{s.Machine.Reconcile}, steps...)
 	}
+	stops := opts.OnStop
+	if s.Sched != nil {
+		// The scheduler reconciles live runs last (R17, AE2), then starts
+		// its loops. It stops first, and writes the last liveness tick.
+		steps = append(steps, s.Sched.Start)
+		stops = append([]Step{s.Sched.Stop}, stops...)
+	}
 	for i, step := range steps {
 		if err := step(ctx); err != nil {
 			return fmt.Errorf("server: start-up reconcile step %d: %w", i+1, err)
@@ -183,7 +202,7 @@ func Run(ctx context.Context, opts Options) (err error) {
 	stopCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	s.RPC.GracefulStop(stopCtx)
-	for i, step := range opts.OnStop {
+	for i, step := range stops {
 		if err := step(stopCtx); err != nil {
 			s.log.ErrorContext(stopCtx, "stop step failed", "step", i+1, "err", err)
 		}
@@ -243,6 +262,14 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	if err := tokens.LoadLive(ctx); err != nil {
 		return nil, err
 	}
+	// The scheduler sees every call of a run (KTD7). It is composed after
+	// the RPC server, before any call can arrive.
+	var s *Server
+	onCall := func(ctx context.Context, p rpc.Principal) {
+		if s.Sched != nil {
+			s.Sched.OnCall(ctx, p)
+		}
+	}
 
 	logger := opts.Logger
 	if logger == nil {
@@ -259,11 +286,12 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		HoldsItem:       opts.HoldsItem,
 		Checkouts:       opts.Checkouts,
 		Proc:            opts.Proc,
+		OnCall:          onCall,
 	})
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{
+	s = &Server{
 		Instance: dir, HostPath: hostPath, Store: st, Secrets: sec, Redactor: red,
 		Tokens: tokens, RPC: srv, Started: time.Now(), opts: opts, log: srv.Logger(),
 	}
@@ -295,6 +323,11 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			s.Admission.Attach(s.Machine)
 			if err := srv.Handle("work peek", s.workPeek); err != nil {
 				return nil, err
+			}
+			if opts.Agents != nil {
+				if err := s.composeSched(); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
@@ -60,6 +61,8 @@ type Admission struct {
 
 	mu      sync.Mutex
 	pending map[string]snapshot // by run id, between reservation and claim
+
+	draining atomic.Bool // SetDraining; the scheduler's drain sets it (U8)
 }
 
 // snapshot is what admission read outside the lock for one claim.
@@ -195,6 +198,9 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 	}
 	if a.items == nil {
 		return Admitted{}, internal(errors.New("admission: no machine attached"))
+	}
+	if a.draining.Load() {
+		return Admitted{}, drainingRefusal()
 	}
 	limits, ref := a.limitsFor(ctx, r.Stage)
 	if ref != nil {
@@ -397,6 +403,9 @@ type Candidate struct {
 func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate, *cli.Refusal) {
 	if a.items == nil {
 		return nil, internal(errors.New("admission: no machine attached"))
+	}
+	if a.draining.Load() {
+		return nil, nil
 	}
 	limits, ref := a.limitsFor(ctx, stage)
 	if ref != nil {

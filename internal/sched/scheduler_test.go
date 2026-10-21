@@ -1,0 +1,445 @@
+package sched
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/agenthost/fake"
+	"github.com/iantanwx/loop/internal/brief"
+	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/machine"
+)
+
+// counter counts the calls of a native job by project.
+type counter struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (c *counter) job(_ context.Context, project string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n == nil {
+		c.n = map[string]int{}
+	}
+	c.n[project]++
+	return nil
+}
+
+func (c *counter) get(project string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.n[project]
+}
+
+// Each stage and native job ticks on its throughput schedule. A project's
+// schedule override replaces it for that project only.
+func TestStagesAndJobsTickOnTheirSchedules(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, map[string]string{"implementer": "0 * * * *", "merge-handoff": "*/5 * * * *"})
+	if err := config.StoreProjectRow(w.st)(context.Background(), config.Project{ID: "beta", Repo: "iantanwx/beta", Path: "/srv/beta"}); err != nil {
+		t.Fatal(err)
+	}
+	alphaCfg := snapshot(t, "stages:\n  implementer: {schedule: \"*/10 * * * *\"}\n  merge-handoff: {schedule: \"0 * * * *\"}\nmerge:\n  mechanism: direct\n", "")
+	betaCfg := snapshot(t, "merge:\n  mechanism: direct\n", "")
+	w.cfg.Projects = func() ([]config.Project, error) {
+		return []config.Project{{ID: prj, Repo: "iantanwx/alpha", Path: w.repo}, {ID: "beta", Repo: "iantanwx/beta", Path: "/srv/beta"}}, nil
+	}
+	w.cfg.ProjectConfig = func(_ context.Context, p string) (*config.ProjectSnapshot, error) {
+		if p == "beta" {
+			return betaCfg, nil
+		}
+		return alphaCfg, nil
+	}
+	w.rebuild()
+	c := &counter{}
+	if err := w.s.RegisterJob("merge-handoff", c.job); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.s.RegisterJob("no-such-job", c.job); err == nil {
+		t.Fatal("RegisterJob accepted a name that is no native job")
+	}
+	w.ticket(machine.Todo)
+	w.clock.Set(at(t, "2026-10-21T10:00:30Z"))
+	w.tick() // the first sight sets each deadline after now
+	if c.get(prj) != 0 || c.get("beta") != 0 || len(w.host.Launches()) != 0 {
+		t.Fatal("a first tick fired")
+	}
+	w.clock.Set(at(t, "2026-10-21T10:05:30Z"))
+	w.tick()
+	if c.get("beta") != 1 || c.get(prj) != 0 {
+		t.Fatalf("at 10:05 beta = %d, alpha = %d; want 1 and 0", c.get("beta"), c.get(prj))
+	}
+	w.clock.Set(at(t, "2026-10-21T10:10:30Z"))
+	w.tick()
+	if n := len(w.host.Launches()); n != 1 {
+		t.Fatalf("the implementer override */10 started %d runs at 10:10, want 1", n)
+	}
+	w.clock.Set(at(t, "2026-10-21T11:00:30Z"))
+	w.tick()
+	if c.get(prj) != 1 || c.get("beta") != 3 {
+		t.Fatalf("at 11:00 alpha = %d, beta = %d; want 1 and 3", c.get(prj), c.get("beta"))
+	}
+}
+
+// A deadline missed while the server was down fires once on the next
+// start.
+func TestMissedDeadlineFiresOnceAfterRestart(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, map[string]string{"merge-handoff": "*/5 * * * *"})
+	c := &counter{}
+	register := func() {
+		if err := w.s.RegisterJob("merge-handoff", c.job); err != nil {
+			t.Fatal(err)
+		}
+	}
+	register()
+	w.clock.Set(at(t, "2026-10-21T10:00:30Z"))
+	w.tick()
+	w.clock.Set(at(t, "2026-10-21T11:02:00Z"))
+	w.rebuild()
+	register()
+	w.tick()
+	w.tick()
+	if c.get(prj) != 1 {
+		t.Fatalf("twelve missed deadlines fired %d times, want once", c.get(prj))
+	}
+}
+
+// leaseCheck wraps the fake host and records the item's lease owner when a
+// run starts.
+type leaseCheck struct {
+	*fake.Host
+	w     *world
+	item  string
+	owner string
+}
+
+func (h *leaseCheck) Start(ctx context.Context, spec agenthost.StartSpec) (agenthost.Session, error) {
+	h.owner = h.w.lease(h.item).Owner
+	return h.Host.Start(ctx, spec)
+}
+
+// Dispatch claims before it starts. The run's checkout holds its token,
+// its brief and its prompt, and git sees none of them.
+func TestDispatchClaimsBeforeStart(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	lc := &leaseCheck{Host: w.host, w: w, item: id}
+	w.cfg.Agents = lc
+	w.rebuild()
+	st := w.dispatch(machine.StageImplementer)
+	if lc.owner != st.RunID {
+		t.Fatalf("the lease owner at start was %q, want %s", lc.owner, st.RunID)
+	}
+	if w.status(id) != machine.InProgress || st.Item != id {
+		t.Fatalf("status %s, started %+v", w.status(id), st)
+	}
+	if s, _ := w.runState(st.RunID); s != "running" {
+		t.Fatalf("run state = %s", s)
+	}
+	tf, err := cli.ReadTokenFile(st.Checkout)
+	if err != nil || tf.RunID != st.RunID || tf.Item != id {
+		t.Fatalf("token file %+v, %v", tf, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(st.Checkout, brief.BriefJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b brief.Brief
+	if err := json.Unmarshal(raw, &b); err != nil || b.Item == nil || b.Item.ID != id || b.Attempt != 1 || len(b.AllowedNext) == 0 {
+		t.Fatalf("brief = %s", raw)
+	}
+	if out := gitIn(t, st.Checkout, "status", "--porcelain", "--untracked-files=all"); out != "" {
+		t.Fatalf("git status in the run's checkout:\n%s", out)
+	}
+	l := w.host.Launches()
+	if len(l) != 1 || l[0].Spec.Kind != agenthost.KindStage || !strings.HasSuffix(l[0].Spec.PromptFile, brief.PromptFile) {
+		t.Fatalf("launches = %+v", l)
+	}
+	if w.str(`SELECT pack_hash FROM runs WHERE run_id = ?`, st.RunID) == "" {
+		t.Fatal("the run record holds no pack hash")
+	}
+}
+
+// A start failure releases the claim and restores the frontier state. The
+// failure count does not change.
+func TestStartFailureReleasesTheClaim(t *testing.T) {
+	for name, brk := range map[string]func(w *world){
+		"never ready": func(w *world) { w.host.SetNeverReady(true) },
+		"no checkout": func(w *world) { w.co.fail.Store(true) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			id := w.ticket(machine.Todo)
+			brk(w)
+			st, ref := w.s.Dispatch(context.Background(), prj, machine.StageImplementer)
+			if ref == nil || st != nil {
+				t.Fatalf("dispatch = %+v, %+v; want a refusal", st, ref)
+			}
+			if w.status(id) != machine.Todo || w.lease(id).Owner != "" || w.failures(id) != 0 {
+				t.Fatalf("status %s, lease %+v, failures %d", w.status(id), w.lease(id), w.failures(id))
+			}
+			run := w.str(`SELECT run_id FROM runs`)
+			if _, class := w.runState(run); class != "not-ready" || w.liveToken(run) {
+				t.Fatalf("class %s, live token %v", class, w.liveToken(run))
+			}
+			if w.count(`SELECT count(*) FROM runs WHERE ended_at IS NULL`) != 0 {
+				t.Fatal("the failed start holds a cap slot")
+			}
+		})
+	}
+}
+
+// A tracked file at an injected path refuses the run with CONFIG_CONFLICT,
+// and the failure count is unchanged.
+func TestTrackedInjectedPathRefusesUncounted(t *testing.T) {
+	w := newWorld(t)
+	seed := filepath.Join(w.dir, "seed")
+	if err := os.WriteFile(filepath.Join(seed, ".loop", "brief.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, seed, "add", "-A")
+	gitIn(t, seed, "commit", "-q", "-m", "track brief")
+	gitIn(t, seed, "push", "-q", w.origin, "main")
+	gitIn(t, w.repo, "fetch", "-q", "origin")
+	id := w.ticket(machine.Todo)
+	_, ref := w.s.Dispatch(context.Background(), prj, machine.StageImplementer)
+	if ref == nil || ref.Code != cli.CodeConfigConflict || !strings.Contains(ref.Hint, ".loop/brief.json") {
+		t.Fatalf("dispatch = %+v", ref)
+	}
+	if w.failures(id) != 0 || w.status(id) != machine.Todo || len(w.host.Launches()) != 0 {
+		t.Fatalf("failures %d, status %s, launches %d", w.failures(id), w.status(id), len(w.host.Launches()))
+	}
+	run := w.str(`SELECT run_id FROM runs`)
+	if _, class := w.runState(run); class != "refused" {
+		t.Fatalf("class = %s, want refused", class)
+	}
+	if w.alerts(AlertConfigConflict) != 1 {
+		t.Fatal("no config conflict alert")
+	}
+}
+
+// AE8: a manifest secret with no stored value starts no run, puts one inbox
+// item naming it, and changes no failure count.
+func TestMissingSecretRefusesBeforeClaim(t *testing.T) {
+	w := newWorld(t)
+	w.project.set(snapshot(t, "stages:\n  implementer: {}\nmerge:\n  mechanism: direct\n",
+		"secrets:\n  - name: STRIPE_KEY\n    source: op://dev/stripe/key\n"))
+	id := w.ticket(machine.Todo)
+	for range 2 {
+		_, ref := w.s.Dispatch(context.Background(), prj, machine.StageImplementer)
+		if ref == nil || ref.Code != cli.CodeMissingSecret || !strings.Contains(ref.Hint, "STRIPE_KEY") {
+			t.Fatalf("dispatch = %+v", ref)
+		}
+	}
+	if n := w.count(`SELECT count(*) FROM runs`); n != 0 {
+		t.Fatalf("%d run rows", n)
+	}
+	if n := w.count(`SELECT count(*) FROM alerts WHERE kind = ? AND state = 'open' AND body LIKE '%STRIPE_KEY%'`, AlertMissingSecret); n != 1 {
+		t.Fatalf("%d open missing-secret items, want 1", n)
+	}
+	if w.failures(id) != 0 || w.status(id) != machine.Todo {
+		t.Fatal("the refusal moved the item or counted")
+	}
+	const value = "sk_test_value_123"
+	if err := w.sec.Set(context.Background(), prj, "STRIPE_KEY", strings.NewReader(value)); err != nil {
+		t.Fatal(err)
+	}
+	st := w.dispatch(machine.StageImplementer)
+	env, err := os.ReadFile(filepath.Join(st.Checkout, ".env"))
+	if err != nil || !strings.Contains(string(env), value) {
+		t.Fatalf(".env: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(st.Checkout, brief.BriefJSON))
+	if strings.Contains(string(raw), value) || !strings.Contains(string(raw), "STRIPE_KEY") {
+		t.Fatalf("brief: %s", raw)
+	}
+}
+
+// run finish --outcome done releases the lease and settles the checkout.
+// The next tick closes the session.
+func TestFinishDoneReleasesTheLease(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.InReview)
+	st := w.dispatch(machine.StageCodeReviewer)
+	if w.lease(id).Owner != st.RunID {
+		t.Fatal("the reviewer holds no lease")
+	}
+	res, ref := w.s.Finish(context.Background(), st.RunID, "done")
+	if ref != nil || res.Class != "done" || res.Counted || !res.Released {
+		t.Fatalf("finish = %+v, %+v", res, ref)
+	}
+	if w.lease(id).Owner != "" || w.status(id) != machine.InReview {
+		t.Fatalf("lease %+v, status %s", w.lease(id), w.status(id))
+	}
+	if w.liveToken(st.RunID) || exists(filepath.Join(st.Checkout, ".env")) {
+		t.Fatal("the token is live or .env stays")
+	}
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutSettled {
+		t.Fatalf("checkout state = %s", s)
+	}
+	again, ref := w.s.Finish(context.Background(), st.RunID, "done")
+	if ref != nil || !again.Replayed || again.Class != "done" {
+		t.Fatalf("a second finish = %+v, %+v", again, ref)
+	}
+	w.tick()
+	if inv, _ := w.host.Inventory(context.Background()); len(inv.Rows) != 0 {
+		t.Fatalf("the finished run's session is open: %+v", inv.Rows)
+	}
+}
+
+// A session that ends with no finish settles as crashed, with no CLI call.
+// It restores the stage-correct state, keeps the checkout without .env and
+// raises an inbox alert.
+func TestEndWithoutFinishSettlesCrashed(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	epoch := w.lease(id).Epoch
+	w.host.Exit(st.Session.ID, 1)
+	w.tick()
+	if _, class := w.runState(st.RunID); class != "crashed" {
+		t.Fatalf("class = %s", class)
+	}
+	if w.status(id) != machine.Todo || w.lease(id).Owner != "" || w.lease(id).Epoch <= epoch || w.failures(id) != 1 {
+		t.Fatalf("status %s, lease %+v (epoch was %d), failures %d", w.status(id), w.lease(id), epoch, w.failures(id))
+	}
+	if !exists(st.Checkout) || exists(filepath.Join(st.Checkout, ".env")) {
+		t.Fatal("the checkout is gone or .env stays")
+	}
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutKept {
+		t.Fatalf("checkout state = %s", s)
+	}
+	if w.alerts(AlertRunCrashed) != 1 || w.liveToken(st.RunID) {
+		t.Fatal("no crash alert, or a live token")
+	}
+}
+
+// An agent idle at its prompt with no finish settles as crashed after the
+// quiet period. Its session closes, its checkout stays and its slot frees.
+func TestIdleAtPromptSettlesAfterTheQuietPeriod(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.host.EndTurn(st.Session.ID)
+	w.clock.Advance(10 * time.Minute)
+	w.tick()
+	if s, _ := w.runState(st.RunID); s != "running" {
+		t.Fatalf("state after 10 quiet minutes = %s", s)
+	}
+	w.clock.Advance(25 * time.Minute)
+	w.tick()
+	if _, class := w.runState(st.RunID); class != "crashed" {
+		t.Fatalf("class = %s", class)
+	}
+	if inv, _ := w.host.Inventory(context.Background()); len(inv.Rows) != 0 || !exists(st.Checkout) {
+		t.Fatal("the session stays open, or the checkout is gone")
+	}
+	if w.count(`SELECT count(*) FROM runs WHERE ended_at IS NULL`) != 0 || w.status(id) != machine.Todo {
+		t.Fatal("the slot is held")
+	}
+}
+
+// A live run past its run budget raises one coordinator-owned alert and
+// keeps running.
+func TestRunPastBudgetAlertsAndKeepsRunning(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) { c.RunBudget = time.Hour })
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.clock.Advance(61 * time.Minute)
+	w.tick()
+	w.tick()
+	if w.alerts(AlertRunOverBudget) != 1 {
+		t.Fatalf("budget alerts = %d, want 1", w.alerts(AlertRunOverBudget))
+	}
+	if s, _ := w.runState(st.RunID); s != "running" || w.lease(id).Owner != st.RunID {
+		t.Fatal("the run over budget was stopped")
+	}
+	if inv, _ := w.host.Inventory(context.Background()); len(inv.Rows) != 1 {
+		t.Fatal("the session was closed")
+	}
+}
+
+// The liveness tick is written every interval. After a SIGKILL the next
+// start records the outage span.
+func TestLivenessTickAndOutageSpan(t *testing.T) {
+	w := newWorld(t)
+	if err := w.s.Heartbeat(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	last := w.clock.Now()
+	if got := w.count(`SELECT last_tick_at FROM liveness_ticks WHERE id = 1`); int64(got) != last.UnixMilli() {
+		t.Fatalf("last tick %d, want %d", got, last.UnixMilli())
+	}
+	if DefaultLivenessInterval != 15*time.Second {
+		t.Fatalf("liveness interval = %s", DefaultLivenessInterval)
+	}
+	// SIGKILL: no stop step runs.
+	w.clock.Advance(10 * time.Minute)
+	w.restart()
+	if n := w.count(`SELECT count(*) FROM outages WHERE started_at = ? AND ended_at = ?`, last.UnixMilli(), w.clock.Now().UnixMilli()); n != 1 {
+		t.Fatalf("outage spans matching = %d", n)
+	}
+}
+
+// A 30-minute command inside one run is not reclaimed, and no second run
+// starts on that item.
+func TestLongCommandIsNotReclaimed(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.host.StartTool(st.Session.ID)
+	for range 4 {
+		w.clock.Advance(10 * time.Minute)
+		w.tick()
+	}
+	if s, _ := w.runState(st.RunID); s != "running" || w.lease(id).Owner != st.RunID {
+		t.Fatal("the run was reclaimed")
+	}
+	if again, ref := w.s.Dispatch(context.Background(), prj, machine.StageImplementer); again != nil || ref != nil {
+		t.Fatalf("a second dispatch = %+v, %+v", again, ref)
+	}
+	if len(w.host.Launches()) != 1 {
+		t.Fatal("a second run started")
+	}
+}
+
+// The OnCall hook records a run's last CLI call, which decides infra.
+func TestOnCallRecordsLastCLICall(t *testing.T) {
+	w := newWorld(t)
+	w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.s.OnCall(context.Background(), principal(st))
+	if got := w.count(`SELECT coalesce(last_cli_call_at, 0) FROM runs WHERE run_id = ?`, st.RunID); int64(got) != w.clock.Now().UnixMilli() {
+		t.Fatalf("last_cli_call_at = %d", got)
+	}
+}
+
+// A session that ends during an outage after its last CLI call is infra,
+// which does not count.
+func TestEndDuringOutageIsInfra(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.clock.Advance(time.Minute)
+	if err := w.s.Heartbeat(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	w.clock.Advance(5 * time.Minute)
+	w.host.Exit(st.Session.ID, 1)
+	w.clock.Advance(5 * time.Minute)
+	w.restart()
+	if _, class := w.runState(st.RunID); class != "infra" || w.failures(id) != 0 || w.status(id) != machine.Todo {
+		t.Fatalf("class %s, failures %d, status %s", class, w.failures(id), w.status(id))
+	}
+}
