@@ -257,7 +257,12 @@ type change struct {
 	owner *string // the lease owner after the write; nil keeps it
 }
 
-func (c *change) param(name string) string { return c.req.Params[name] }
+func (c *change) param(name string) string {
+	if c.req == nil {
+		return ""
+	}
+	return c.req.Params[name]
+}
 
 func (c *change) fact(name string) string { return c.item.Facts[name] }
 

@@ -25,6 +25,9 @@ const (
 	FactTicket       = "ticket"        // the ticket a bug became
 	FactDuplicateOf  = "duplicate_of"  // the item a bug duplicates
 	FactEpic         = "epic"          // a child's epic
+	FactEscalation   = "escalation"    // the escalation that sent the item to a person (U12)
+	FactAnswer       = "answer"        // the last answer a person gave through the inbox (U12)
+	FactAmendment    = "amendment"     // an answer that amends the task; it enters the inputs (R10)
 )
 
 // Entry values of a todo ticket (R6).
@@ -120,6 +123,9 @@ func escalateTo(resume func(status string) (target, entry string)) setter {
 	return func(c *change) *cli.Refusal {
 		target, entry := resume(c.item.Status)
 		c.setFact(FactResume, target)
+		if e := c.param("escalation"); e != "" {
+			c.setFact(FactEscalation, e)
+		}
 		if entry != "" {
 			c.setFact(FactResumeEntry, entry)
 		} else {
@@ -141,7 +147,19 @@ func answerResume(c *change) *cli.Refusal {
 	if e := c.fact(FactResumeEntry); e != "" {
 		c.setFact(FactEntry, e)
 	}
-	c.unsetFact(FactResume, FactResumeEntry)
+	c.unsetFact(FactResume, FactResumeEntry, FactEscalation)
+	return answerFacts(c)
+}
+
+// answerFacts stores a person's answer, and an amendment of the task that
+// enters its retry identity (R10, U12).
+func answerFacts(c *change) *cli.Refusal {
+	if a := c.param("answer"); a != "" {
+		c.setFact(FactAnswer, a)
+	}
+	if a := c.param("amendment"); a != "" {
+		c.setFact(FactAmendment, a)
+	}
 	return nil
 }
 

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/base64"
 	"fmt"
 	"slices"
 	"strconv"
@@ -261,7 +262,28 @@ const (
 	// sends. The server fetches that commit from the checkout into its
 	// mirror, and it checks the sha against the content hash.
 	ExtraHead = ReservedPrefix + "head"
+	// ExtraFile is the base64 of the file a verb's --file flag names. The
+	// CLI reads it from the caller's working directory, so the server reads
+	// no path an agent chose.
+	ExtraFile = ReservedPrefix + "file"
 )
+
+// MaxFileBytes bounds the file a --file flag sends.
+const MaxFileBytes = 1 << 20
+
+// FileContent returns the content a --file flag sent, or false when the
+// call carried none or the content did not arrive intact.
+func FileContent(inv Invocation) (string, bool) {
+	raw, ok := inv.Extra[ExtraFile]
+	if !ok {
+		return "", false
+	}
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
 
 // Validate checks a call that arrives over the wire against the verb's
 // schema, the way parse checks a command line. Each flag value must already

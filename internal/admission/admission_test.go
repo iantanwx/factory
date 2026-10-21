@@ -11,6 +11,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 // With 8 implementer runs live, a ninth is refused. Repair work uses the
@@ -436,6 +437,18 @@ func TestPeek(t *testing.T) {
 	w.setCaps(map[string]int{machine.StageImplementer: 1})
 	if c, r := w.a.Peek(ctx, prj, machine.StageImplementer); c != nil || r != nil {
 		t.Fatalf("peek at the cap = %+v %+v", c, r)
+	}
+	// The fixer claims no item, and it has work only while an escalation
+	// waits for its panel (U12).
+	if c, r := w.a.Peek(ctx, prj, "fixer"); r != nil || c != nil {
+		t.Fatalf("peek of the fixer with no escalation = %+v %+v", c, r)
+	}
+	if err := w.st.Write(ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`INSERT INTO escalations (project, item, level, choice, finding, created_at, updated_at)
+			VALUES (?, 'tk-x', 4, 'inside', 'f', 0, 0)`, prj)
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
 	if c, r := w.a.Peek(ctx, prj, "fixer"); r != nil || c == nil || c.Item != "" {
 		t.Fatalf("peek of a stage with no item = %+v %+v", c, r)

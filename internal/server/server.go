@@ -19,7 +19,11 @@ import (
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/decision"
+	"github.com/iantanwx/loop/internal/escalation"
+	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/secrets"
@@ -94,6 +98,9 @@ type Options struct {
 	Agents agenthost.Host
 	// Sched holds the scheduler's optional parts.
 	Sched SchedOptions
+	// Human holds the optional parts of the inbox, escalations, decisions
+	// and rooms (U12), which the server composes with the machine.
+	Human HumanOptions
 }
 
 // Server is one composed instance.
@@ -113,8 +120,18 @@ type Server struct {
 	Admission *admission.Admission
 	// Sched is the scheduler, or nil when no agent host or no admission
 	// is composed. A Setup step registers native jobs on it.
-	Sched   *sched.Scheduler
-	Started time.Time
+	Sched *sched.Scheduler
+	// Inbox, Notifier, Escalations and Decisions are composed with the
+	// machine, and Rooms with the scheduler too (U12). Each is nil
+	// otherwise.
+	Inbox       *inbox.Inbox
+	Notifier    *inbox.Notifier
+	Escalations *escalation.Service
+	Decisions   *decision.Service
+	Rooms       *room.Service
+	Started     time.Time
+
+	human *human
 
 	opts Options
 	log  *slog.Logger
@@ -166,6 +183,11 @@ func Run(ctx context.Context, opts Options) (err error) {
 		// its loops. It stops first, and writes the last liveness tick.
 		steps = append(steps, s.Sched.Start)
 		stops = append([]Step{s.Sched.Stop}, stops...)
+	}
+	if s.human != nil {
+		// The inbox's watch loop starts last and stops first.
+		steps = append(steps, s.startHuman)
+		stops = append([]Step{s.stopHuman}, stops...)
 	}
 	for i, step := range steps {
 		if err := step(ctx); err != nil {
@@ -321,7 +343,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		}
 		if s.Admission != nil {
 			s.Admission.Attach(s.Machine)
-			if err := srv.Handle("work peek", s.workPeek); err != nil {
+			if err := srv.Handle("work peek", s.peek); err != nil {
 				return nil, err
 			}
 			if opts.Agents != nil {
@@ -329,6 +351,9 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 					return nil, err
 				}
 			}
+		}
+		if err := s.composeHuman(); err != nil {
+			return nil, err
 		}
 	}
 	ok = true

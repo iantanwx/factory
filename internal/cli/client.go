@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -184,6 +185,21 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 		req.Flags[ExtraHead] = head
 	}
 
+	if path := inv.Flags["file"]; path != "" {
+		data, err := readFileFlag(path, cc.cwd)
+		if err != nil {
+			return *usage("file_unreadable", err.Error(), inv.Verb.Path)
+		}
+		req.Flags[ExtraFile] = base64.StdEncoding.EncodeToString(data)
+	}
+	if inv.Verb.Path == "inbox wait" {
+		// The server holds the call until shortly before this deadline,
+		// then answers exit 4 (U12).
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, cc.deadline)
+		defer cancel()
+	}
+
 	var pending *Pending
 	if inv.Verb.Write && cc.token != nil {
 		p, key, res := c.reserveKey(ctx, cc, inv, req)
@@ -200,6 +216,27 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 		_ = pending.Clear(req.IdempotencyKey)
 	}
 	return res
+}
+
+// readFileFlag reads the file a --file flag names, relative to the
+// caller's working directory, up to MaxFileBytes.
+func readFileFlag(path, cwd string) ([]byte, error) {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(cwd, path)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read --file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, MaxFileBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read --file: %w", err)
+	}
+	if len(data) > MaxFileBytes {
+		return nil, fmt.Errorf("--file %s is larger than %d bytes", path, MaxFileBytes)
+	}
+	return data, nil
 }
 
 // exitOf is the exit a result seals to.

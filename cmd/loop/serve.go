@@ -18,6 +18,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
@@ -74,7 +75,9 @@ var realWiring = wiring{beads: realBeads, agents: realAgents}
 //   - with credentials.github_app.app_id set, the GitHub actor and reactor
 //     (U10): its verbs, its start-up reconcile, the base reader of
 //     admission, the manifest reader of secret import, the project config
-//     source, and the reactor as the github-reactor native job.
+//     source, and the reactor as the github-reactor native job; and the
+//     merge interface (U11) after it, with its hand-off as the
+//     merge-handoff native job.
 //
 // A host config that names none of them serves the U4 verbs only. The
 // returned cleanup stops what it started.
@@ -91,12 +94,15 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 	projects := &config.Projects{HostPath: filepath.Join(dir, config.HostConfigFile)}
 
 	var gh *server.GitHub
+	var mg *server.Merge
 	if cfg.Credentials.GitHubApp.AppID != 0 {
 		gh = &server.GitHub{}
 		if w.github != nil {
 			gh = w.github
 		}
-		opts.Setup = append(opts.Setup, gh.Setup)
+		// The merge setup uses the GitHub service, so it runs after it.
+		mg = &server.Merge{GitHub: gh}
+		opts.Setup = append(opts.Setup, gh.Setup, mg.Setup)
 		opts.Reconcile = append(opts.Reconcile, gh.Reconcile)
 		// Admission needs its base reader when the server composes, before
 		// Setup builds the service. The wrapper reads through the service.
@@ -146,10 +152,18 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 	}
 	if gh != nil {
 		opts.Setup = append(opts.Setup, func(s *server.Server) error {
-			if s.Sched == nil || gh.Reactor == nil {
+			if s.Sched == nil {
 				return nil
 			}
-			return s.Sched.RegisterInstanceJob("github-reactor", gh.Reactor.Tick)
+			if gh.Reactor != nil {
+				if err := s.Sched.RegisterInstanceJob("github-reactor", gh.Reactor.Tick); err != nil {
+					return err
+				}
+			}
+			if mg.HandOff != nil {
+				return s.Sched.RegisterJob(merge.JobName, mg.HandOff.TickProject)
+			}
+			return nil
 		})
 	}
 	return opts, cleanup, nil

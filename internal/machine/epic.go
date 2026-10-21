@@ -119,7 +119,7 @@ func epicTable() *Table {
 			When: "first_reject", when: firstPRDReject, set: bumpPRDRejects, Facts: []string{FactPRDRejects}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: Escalated, Command: "review submit",
 			When: "second_reject", when: secondPRDReject, Lease: LeaseDrop,
-			set: all(bumpPRDRejects, escalateTo(epicResumeFor)), Facts: []string{FactPRDRejects, FactResume}},
+			set: all(bumpPRDRejects, escalateTo(epicResumeFor)), Facts: []string{FactPRDRejects, FactResume, FactEscalation}},
 		{Verb: "prd_amended", From: []string{PRDAmending}, To: PRDReview, Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{PRDSignoff}, To: SpecNeeded},
 		{Verb: "adr_landed", From: []string{Architecture}, To: SpecNeeded},
@@ -130,7 +130,7 @@ func epicTable() *Table {
 		{Verb: "decomposed", From: []string{Decomposing}, To: Execution, Lease: LeaseDrop},
 		{Verb: "complete", From: []string{Execution}, To: Done, guard: childrenTerminal},
 		{Verb: "answer", From: []string{Escalated}, To: ToResume, ResumeTo: uniqueValues(epicResume),
-			set: answerResume, Facts: []string{FactResume}},
+			set: answerResume, Facts: []string{FactResume, FactEscalation, FactAnswer, FactAmendment}},
 
 		// A document merged while still in review counts as sign-off and
 		// revokes the review lease, as the outran rows of
@@ -141,9 +141,9 @@ func epicTable() *Table {
 
 		// A closed document PR escalates the epic and never cancels it.
 		{Verb: "pr_closed", From: []string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff}, To: Escalated,
-			Lease: LeaseDrop, set: escalateTo(epicResumeFor), Facts: []string{FactResume}},
+			Lease: LeaseDrop, set: escalateTo(epicResumeFor), Facts: []string{FactResume, FactEscalation}},
 		{Verb: "escalate", From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
-			set: escalateTo(epicResumeFor), Facts: []string{FactResume}},
+			set: escalateTo(epicResumeFor), Facts: []string{FactResume, FactEscalation}},
 		{Verb: "note", From: live, To: ToSame, Command: "work note", set: notePut, Facts: []string{FactNote}},
 	}
 	pairs := [][2]string{{SpecDrafting, SpecNeeded}, {Decomposing, SpecApproved},

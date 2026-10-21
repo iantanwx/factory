@@ -66,6 +66,8 @@ const (
 	CodeRemoteAhead          = "REMOTE_AHEAD"
 	CodeGitHubUnavailable    = "GITHUB_UNAVAILABLE"
 	CodeGitHubRefused        = "GITHUB_REFUSED"
+	CodeRoutedToLoop         = "ROUTED_TO_LOOP"
+	CodeNoOperatorStatement  = "NO_OPERATOR_STATEMENT"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -107,6 +109,8 @@ var baseRefusals = []RefusalCode{
 	{CodeRemoteAhead, ExitRefused, codes.FailedPrecondition, false, "the remote branch holds commits that the pushed head lacks; sync the branch first"},
 	{CodeGitHubUnavailable, ExitWait, codes.Unavailable, true, "GitHub did not answer or rate-limited the App; run the same command again after retry_after_seconds"},
 	{CodeGitHubRefused, ExitRefused, codes.FailedPrecondition, false, "GitHub refused the request; the hint holds GitHub's answer"},
+	{CodeRoutedToLoop, ExitRefused, codes.FailedPrecondition, false, "the triage rubric routes the finding back to the loop; the hint names the next step, and the item keeps its state"},
+	{CodeNoOperatorStatement, ExitRefused, codes.FailedPrecondition, false, "the room's decision file cites no operator statement; a room applies only what a person decided"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

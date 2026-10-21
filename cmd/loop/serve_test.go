@@ -17,6 +17,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
 )
@@ -109,6 +110,10 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "twice") {
 		t.Fatalf("the reactor job is not registered: %v", err)
 	}
+	err = srv.Sched.RegisterJob(merge.JobName, func(context.Context, string) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "twice") {
+		t.Fatalf("the merge hand-off job is not registered: %v", err)
+	}
 	if _, err := (lazyBase{w.github}).Files(context.Background(), "alpha", nil); err == nil {
 		t.Fatal("the base reader read a project that is not registered")
 	}
@@ -119,5 +124,16 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	cleanup()
 	if !stopped {
 		t.Fatal("cleanup did not stop beads")
+	}
+}
+
+// The binary runs `escalation judge` in the caller's own process (KTD22).
+// With no rubric it refuses before any judge or Jev is asked.
+func TestEscalationJudgeRunsInTheCallersProcess(t *testing.T) {
+	t.Chdir(t.TempDir())
+	var out strings.Builder
+	code := run(context.Background(), []string{"escalation", "judge", "--finding", "f"}, strings.NewReader(""), &out, io.Discard)
+	if code != 2 || !strings.Contains(out.String(), `"no_rubric"`) {
+		t.Fatalf("judge = %d %s", code, out.String())
 	}
 }

@@ -176,7 +176,13 @@ func (a *Admission) task(ctx context.Context, project, item string) (Task, error
 	if err != nil {
 		return Task{}, err
 	}
-	return Task{Title: is.Title, Body: is.Description}, nil
+	body := is.Description
+	// An answer that amends the task enters its inputs (U12), so a person's
+	// edit through the inbox re-admits a twice-failed item (R10).
+	if a := is.Metadata["loop."+machine.FactAmendment]; a != "" {
+		body += "\n\n" + a
+	}
+	return Task{Title: is.Title, Body: body}, nil
 }
 
 func (a *Admission) inputsOf(ctx context.Context, project, item string) (string, error) {
@@ -261,6 +267,14 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 			}
 			if holder != "" {
 				return refusalErr{mutexHeld(r.Project, r.Stage, holder)}
+			}
+		}
+		if r.Item != "" {
+			if ref, err := holdRefusal(tx, r.Project, r.Item); err != nil || ref != nil {
+				if err != nil {
+					return err
+				}
+				return refusalErr{ref}
 			}
 		}
 		if r.Stage == stageIntake {
@@ -372,6 +386,10 @@ func (a *Admission) AdmitClaim(ctx context.Context, c machine.ClaimCheck) *cli.R
 				Hint: fmt.Sprintf("run %s holds no reservation", c.RunID)}
 			return nil
 		}
+		if held, err := holdRefusal(q, c.Project, c.Item); err != nil || held != nil {
+			ref = held
+			return err
+		}
 		n, err := failuresFor(q, c.Project, c.Item, c.Stage, snap.inputs)
 		if err != nil {
 			return err
@@ -435,6 +453,13 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 		}
 		ref, err := capRefusal(q, stage, limits, 0)
 		full = ref != nil
+		if err != nil || full || stage != stageFixer {
+			return err
+		}
+		// The fixer has work only while an escalation waits for its
+		// panel (U12).
+		waiting, err := panelsWaiting(q, project)
+		full = !waiting
 		return err
 	})
 	if err != nil {
@@ -474,13 +499,17 @@ func (a *Admission) admissible(ctx context.Context, stage string, it machine.Ite
 	if ref, err := dependencyRefusal(ctx, a.cfg.Deps, it); err != nil || ref != nil {
 		return false, err
 	}
-	var held bool
+	var held, holds bool
 	if err := a.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		var err error
+		ref, err := holdRefusal(readTx{ctx, tx}, it.Project, it.ID)
+		if err != nil || ref != nil {
+			holds = ref != nil
+			return err
+		}
 		held, err = mayBeHeld(readTx{ctx, tx}, it.Project, it.ID, stage)
 		return err
-	}); err != nil || !held {
-		return err == nil, err
+	}); err != nil || holds || !held {
+		return err == nil && !holds, err
 	}
 	inputs, err := a.inputsOf(ctx, it.Project, it.ID)
 	if err != nil {

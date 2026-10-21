@@ -11,8 +11,11 @@ var (
 	coordinator      = []string{"coordinator"}
 	runOrCoordinator = []string{"run", "coordinator"}
 	runOrRoom        = []string{"run", "room"}
-	hostOnly         = []string{"host"}
-	anyone           = []string{"anyone"}
+	// readers read work items. A room reads its item too, and the CLI
+	// reads the item's status before each write of a room (KTD13).
+	readers  = []string{"run", "room", "coordinator"}
+	hostOnly = []string{"host"}
+	anyone   = []string{"anyone"}
 )
 
 func arg(name, description string) Arg {
@@ -20,14 +23,15 @@ func arg(name, description string) Arg {
 }
 
 var (
-	itemArg     = arg("item", "the work item id")
-	runArg      = arg("run", "the run id")
-	decisionArg = arg("decision", "the decision id")
-	entryArg    = arg("entry", "the inbox entry id")
-	roomArg     = arg("room", "the room id")
-	stageArg    = arg("stage", "the stage name")
-	secretArg   = arg("name", "the secret name; the value never prints")
-	projectArg  = arg("project", "the project id")
+	itemArg       = arg("item", "the work item id")
+	runArg        = arg("run", "the run id")
+	decisionArg   = arg("decision", "the decision id")
+	entryArg      = arg("entry", "the inbox entry id")
+	escalationArg = arg("escalation", "the escalation id")
+	roomArg       = arg("room", "the room id")
+	stageArg      = arg("stage", "the stage name")
+	secretArg     = arg("name", "the secret name; the value never prints")
+	projectArg    = arg("project", "the project id")
 )
 
 func server(noun, name, summary string, callers []string, args []Arg, flags ...Flag) Verb {
@@ -52,13 +56,15 @@ func write(v Verb) Verb {
 var (
 	projectFlag = Flag{Name: "project", Type: FlagString, Description: "the project id; a run's own project when absent"}
 	bodyFlag    = Flag{Name: "body", Type: FlagString, Required: true, Description: "the text to write"}
+	// fileFlag names a file the CLI reads and sends with the call (ExtraFile).
+	fileFlag = Flag{Name: "file", Type: FlagString, Required: true, Description: "the file to send, read by the CLI"}
 )
 
 var surface = []Verb{
 	server("work", "peek", "name the next item a stage would take", runOrCoordinator, nil,
 		Flag{Name: "stage", Type: FlagString, Required: true, Description: "the stage whose work query to run"}, projectFlag),
-	server("work", "show", "show one work item", runOrCoordinator, []Arg{itemArg}, projectFlag),
-	server("work", "list", "list work items", runOrCoordinator, nil, projectFlag,
+	server("work", "show", "show one work item", readers, []Arg{itemArg}, projectFlag),
+	server("work", "list", "list work items", readers, nil, projectFlag,
 		Flag{Name: "kind", Type: FlagString, Enum: []string{"ticket", "epic", "decision", "bug"}, Description: "only items of this kind"},
 		Flag{Name: "status", Type: FlagString, Description: "only items in this status"}),
 	write(server("work", "edit", "edit a work item's fields", runOrCoordinator, []Arg{itemArg})),
@@ -99,29 +105,49 @@ var surface = []Verb{
 
 	server("merge", "status", "show the merge mechanism's state", coordinator, nil),
 
-	write(server("escalation", "raise", "raise an escalation on the run's item", runOnly, nil)),
-	client("escalation", "judge", "run the triage panel in the fixer's process", []string{"fixer"}, nil),
-	write(server("escalation", "route", "submit the panel's result and route the escalation", []string{"fixer"}, nil)),
+	write(server("escalation", "raise", "raise an escalation on the run's item, scored against the triage rubric", runOnly, nil,
+		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},
+		Flag{Name: "choice", Type: FlagString, Enum: []string{"inside", "outside"}, Description: "outside when one answer acts outside the repository; inside when absent"},
+		Flag{Name: "body", Type: FlagString, Required: true, Description: "the finding and the evidence behind the score"})),
+	client("escalation", "judge", "run the triage panel in the fixer's process and write the panel file", []string{"fixer"}, nil,
+		Flag{Name: "finding", Type: FlagString, Required: true, Description: "one finding, in one sentence"},
+		Flag{Name: "out", Type: FlagString, Description: "the panel file to write; a new temporary file when absent"},
+		Flag{Name: "rubric", Type: FlagString, Description: "the triage rubric; the pack's sdlc-triage skill in the checkout when absent"}),
+	write(server("escalation", "route", "submit the panel file and route the escalation", []string{"fixer"}, []Arg{escalationArg}, fileFlag)),
 
-	write(server("decision", "file", "file a decision", runOrCoordinator, nil)),
+	write(server("decision", "file", "file a decision that waits for its trigger", runOrCoordinator, nil, projectFlag,
+		Flag{Name: "title", Type: FlagString, Required: true, Description: "the question"},
+		Flag{Name: "trigger", Type: FlagString, Required: true, Description: "the event that forces the answer, in one sentence"},
+		Flag{Name: "by", Type: FlagString, Description: "a date the trigger names, YYYY-MM-DD; decision-timers fires the decision on that day"},
+		Flag{Name: "body", Type: FlagString, Description: "the evidence behind the question"})),
 	write(server("decision", "fire", "fire a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 	write(server("decision", "defer", "defer a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 	write(server("decision", "settle", "settle a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag,
 		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
 	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 
-	server("inbox", "list", "list inbox entries", coordinator, nil),
-	write(server("inbox", "answer", "answer an inbox entry", coordinator, []Arg{entryArg})),
+	server("inbox", "list", "list inbox entries", coordinator, nil,
+		Flag{Name: "awaits", Type: FlagString, Enum: []string{"person", "coordinator"}, Description: "only entries that wait on this actor"}),
+	write(server("inbox", "answer", "answer an inbox entry", coordinator, []Arg{entryArg},
+		Flag{Name: "body", Type: FlagString, Required: true, Description: "the answer, as the operator gave it"},
+		Flag{Name: "amend", Type: FlagBool, Description: "the answer amends the task, so it enters the item's inputs"})),
 	write(server("inbox", "defer", "defer an inbox entry until a time", coordinator, []Arg{entryArg},
 		Flag{Name: "until", Type: FlagTime, Required: true, Description: "when the entry returns, RFC 3339"})),
-	write(server("inbox", "prepare", "prepare questions for the operator", coordinator, nil)),
+	write(server("inbox", "prepare", "prepare a question for the operator", coordinator, nil,
+		Flag{Name: "body", Type: FlagString, Required: true, Description: "the question, its options and their costs"},
+		Flag{Name: "entry", Type: FlagString, Description: "the inbox entry the question is about"})),
 	server("inbox", "wait", "wait for a new inbox entry; exit 4 means call again", coordinator, nil,
 		Flag{Name: "since", Type: FlagString, Description: "the cursor of the last entry seen"}),
 
-	write(server("room", "open", "open a room", coordinator, nil)),
-	write(server("room", "apply", "apply the room's decision file", []string{"room"}, []Arg{roomArg})),
+	write(server("room", "open", "open a room, or reopen an idle or interrupted one", coordinator, nil,
+		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review"}, Description: "the kind of room"},
+		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
+		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none"},
+		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"})),
+	write(server("room", "apply", "apply the room's decision file", []string{"room"}, []Arg{roomArg}, fileFlag)),
 	write(server("room", "close", "close a room", coordinator, []Arg{roomArg})),
-	server("room", "list", "list rooms", coordinator, nil),
+	server("room", "list", "list rooms", coordinator, nil,
+		Flag{Name: "all", Type: FlagBool, Description: "list closed rooms too"}),
 
 	write(server("prd", "submit", "submit a PRD for review", []string{"intake room"}, nil)),
 	write(server("epic", "decompose", "create an epic's tickets in one batch", []string{"decomposer"}, nil,
