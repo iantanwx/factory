@@ -10,8 +10,8 @@
 // for it (R48).
 //
 // The moves themselves are rows of the epic table in internal/machine.
-// This package serves the three verbs that create items: prd submit, epic
-// decompose and work create.
+// This package serves the four verbs that create items: prd submit, epic
+// create, epic decompose and work create.
 package pipeline
 
 import (
@@ -49,7 +49,7 @@ type Config struct {
 	Logger   *slog.Logger
 }
 
-// Pipeline serves prd submit, epic decompose and work create.
+// Pipeline serves prd submit, epic create, epic decompose and work create.
 type Pipeline struct {
 	cfg Config
 	log *slog.Logger
@@ -80,6 +80,7 @@ func (p *Pipeline) Handlers() map[string]rpc.Handler {
 	return map[string]rpc.Handler{
 		"prd submit":     p.prdSubmit,
 		"epic decompose": p.decompose,
+		"epic create":    p.epicCreate,
 		"work create":    p.workCreate,
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/room"
 )
@@ -254,5 +255,50 @@ func TestRoomApplyNeedsAnOperatorStatement(t *testing.T) {
 	}
 	if strings.Contains(w.run.logs.String(), humanSecret) {
 		t.Fatal("a log line holds the secret value")
+	}
+}
+
+// setIntakeCap rewrites host config with a new intake cap, as the
+// operator does. The server reads it at the next call.
+func (w *humanWorld) setIntakeCap(n int) {
+	w.t.Helper()
+	cfg, err := config.LoadHost(w.srv.HostPath)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	e := cfg.Throughput["intake"]
+	e.Cap = n
+	cfg.Throughput["intake"] = e
+	if err := config.SaveHost(w.srv.HostPath, cfg); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// KTD30: the intake cap counts the project's epics in counted document
+// states. A new intake room at the cap is refused with CAP_FULL, and no
+// room opens. A raised cap in host config applies with no restart.
+func TestIntakeRoomOpensOnlyUnderTheIntakeCap(t *testing.T) {
+	w := newRoomWorld(t)
+	ctx := context.Background()
+	is, err := w.bx.Create(ctx, beadsx.CreateSpec{Title: "Widgets", Type: "epic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.bx.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: is.Status, Status: machine.PRDReview}); err != nil {
+		t.Fatal(err)
+	}
+	w.setIntakeCap(1)
+	env, _ := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has a new idea")
+	if env["code"] != cli.CodeCapFull || !strings.Contains(fmt.Sprint(env["hint"]), "throughput.intake") {
+		t.Fatalf("an intake room at the cap = %v", env)
+	}
+	if n := w.count(`SELECT count(*) FROM rooms`); n != 0 {
+		t.Fatalf("a refused intake room left %d rooms", n)
+	}
+	// The same arguments replay the stored refusal (KTD13), so the second
+	// open states its reason again in new words.
+	w.setIntakeCap(2)
+	if r := w.openRoom("intake", "", "the operator raised the intake cap"); r["state"] != room.Live {
+		t.Fatalf("an intake room under the raised cap = %v", r)
 	}
 }

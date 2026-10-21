@@ -1,6 +1,8 @@
 package machine
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -97,9 +99,23 @@ func childrenTerminal(c *change) *cli.Refusal {
 	if err != nil {
 		return internalRefusal(err)
 	}
-	kids, err := bc.List(c.ctx, beadsx.Filter{Metadata: map[string]string{factPrefix + FactEpic: c.item.ID}})
+	_, open, err := children(c.ctx, bc, c.item.ID)
 	if err != nil {
 		return beadsRefusal(c.item.ID, err)
+	}
+	if len(open) > 0 {
+		return &cli.Refusal{Code: cli.CodeDependencyOpen, Rule: "children_open", Item: c.item.ID, CurrentStatus: c.item.Status,
+			Hint: fmt.Sprintf("%s closes only when every child is terminal; open: %s", c.item.ID, strings.Join(open, ", "))}
+	}
+	return nil
+}
+
+// children counts an epic's children and names each open one with its
+// status.
+func children(ctx context.Context, bc beadsx.Client, epic string) (int, []string, error) {
+	kids, err := bc.List(ctx, beadsx.Filter{Metadata: map[string]string{factPrefix + FactEpic: epic}})
+	if err != nil {
+		return 0, nil, err
 	}
 	var open []string
 	for _, k := range kids {
@@ -108,11 +124,48 @@ func childrenTerminal(c *change) *cli.Refusal {
 			open = append(open, k.ID+" ("+k.Status+")")
 		}
 	}
-	if len(open) > 0 {
-		return &cli.Refusal{Code: cli.CodeDependencyOpen, Rule: "children_open", Item: c.item.ID, CurrentStatus: c.item.Status,
-			Hint: fmt.Sprintf("%s closes only when every child is terminal; open: %s", c.item.ID, strings.Join(open, ", "))}
+	return len(kids), open, nil
+}
+
+// CompleteEpics applies complete to each epic of the project in execution
+// that has children, every one of them terminal. A child's terminal write
+// and its epic's complete write are two writes, so a crash or a beads
+// fault between them leaves the epic in execution. The start-up reconcile
+// and each dependency-advance tick run this sweep, so such an epic closes.
+// An epic another writer moved meanwhile is left alone.
+func (m *Machine) CompleteEpics(ctx context.Context, project string) error {
+	epics, ref := m.List(ctx, project, ListFilter{Kind: KindEpic, Status: Execution})
+	if ref != nil {
+		return fmt.Errorf("machine: list the epics in execution of %s: %s: %s", project, ref.Code, ref.Hint)
 	}
-	return nil
+	if len(epics) == 0 {
+		return nil
+	}
+	bc, err := m.cfg.Beads(project)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, ep := range epics {
+		n, open, err := children(ctx, bc, ep.ID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("machine: read the children of %s: %w", ep.ID, err))
+			continue
+		}
+		if n == 0 || len(open) > 0 {
+			continue
+		}
+		res := m.Apply(ctx, Request{Project: project, Item: ep.ID, Verb: "complete", ExpectedStatus: Execution, Actor: Server("machine")})
+		switch r := res.Refusal; {
+		case r == nil:
+			m.log.InfoContext(ctx, "completed an epic whose children are all terminal", "project", project, "item", ep.ID)
+		case r.Code == cli.CodeStatusChanged || r.Code == cli.CodeTransitionNotAllowed || r.Code == cli.CodeDependencyOpen:
+			// Another writer moved the epic or opened a child. Nothing waits.
+		default:
+			errs = append(errs, fmt.Errorf("machine: complete %s: %s: %s", ep.ID, r.Code, r.Hint))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func epicTable() *Table {
@@ -156,7 +209,7 @@ func epicTable() *Table {
 			set: all(bumpPRDRejects, escalateTo(epicResumeFor)), Facts: []string{FactPRDRejects, FactResume, FactEscalation}},
 		{Verb: "prd_amended", From: []string{PRDAmending}, To: PRDReview, Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{PRDSignoff}, To: SpecNeeded, set: mark(FactPRDMerged, "sha"), Facts: []string{FactPRDMerged}},
-		{Verb: "adr_landed", From: []string{Architecture}, To: SpecNeeded, set: mark(FactADR, "sha"), Facts: []string{FactADR}},
+		{Verb: "adr_landed", From: []string{Architecture}, To: SpecNeeded, set: mark(FactADR, "path"), Facts: []string{FactADR}},
 		{Verb: "pr_open", From: []string{SpecDrafting}, To: SpecReview, Lease: LeaseDrop,
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
 		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop},

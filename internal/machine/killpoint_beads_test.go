@@ -73,3 +73,8 @@ func TestKillPointsReal(t *testing.T) {
 	b := realBeads(t)
 	runKillPoints(t, func(t *testing.T) *world { return newWorldOn(t, b) })
 }
+
+func TestEpicCompleteKillPointReal(t *testing.T) {
+	b := realBeads(t)
+	runEpicCompleteKill(t, func(t *testing.T) *world { return newWorldOn(t, b) })
+}

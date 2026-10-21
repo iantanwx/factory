@@ -1,6 +1,7 @@
 package pipeline_test
 
 import (
+	"maps"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/secrets"
 )
 
 // submitted runs prd submit once and returns the epic and its PR number.
@@ -380,4 +382,71 @@ func TestSpecAuthorNeedsTheSignedOffPRD(t *testing.T) {
 	}
 	_, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageSpecAuthor, RunID: "run-spec"})
 	wantCode(t, res, cli.CodePRDRequired)
+}
+
+// R48 and U5: the coordinator files a bug from the operator's report, in
+// the bug's first state, so the reproducer stage admits it. A run files
+// no bug, a bug needs the operator's request, and a report that holds a
+// stored secret is refused before any write.
+func TestCoordinatorFilesABugForTheReproducer(t *testing.T) {
+	w := newWorld(t)
+	w.red.SetStored([]secrets.NamedValue{{Name: testProject + "/API_KEY", Value: "s3cr3t-value-for-bug"}})
+	bug := map[string]string{"kind": "bug", "title": "The list page shows no widgets", "project": testProject,
+		"body": "Open /widgets: the list is empty, and the API returns three widgets."}
+	run := w.run("run-x", "", machine.StageImplementer)
+	wantCode(t, w.call(run, "", "work create", bug), cli.CodeCapabilityDenied)
+	wantCode(t, w.call(w.coordinator(), "", "work create", bug), cli.CodePRDRequired)
+	bug["request"] = "Ian: the widgets list is empty again, please look"
+	bug["epic"] = "tk-1"
+	wantCode(t, w.call(w.coordinator(), "", "work create", bug), cli.CodeUsage)
+	delete(bug, "epic")
+	leaky := maps.Clone(bug)
+	leaky["body"] += " The key is s3cr3t-value-for-bug."
+	wantCode(t, w.call(w.coordinator(), "", "work create", leaky), cli.CodeSecretInOutput)
+	if n := len(w.items(machine.KindBug)); n != 0 {
+		t.Fatalf("a refused filing made %d bugs", n)
+	}
+
+	data := ok(t, w.call(w.coordinator(), "k-bug", "work create", bug))
+	it := w.show(data["item"].(string))
+	if it.Kind != machine.KindBug || it.Status != machine.Reported || it.Fact(machine.FactRequest) != bug["request"] ||
+		data["status"] != machine.Reported {
+		t.Fatalf("filed bug: %+v, answer %v", it, data)
+	}
+	again := ok(t, w.call(w.coordinator(), "k-bug", "work create", bug))
+	if again["item"] != data["item"] || len(w.items(machine.KindBug)) != 1 {
+		t.Fatalf("the retry made %v", again)
+	}
+	c, ref := w.adm.Peek(w.ctx, testProject, machine.StageReproducer)
+	if ref != nil || c == nil || c.Item != it.ID {
+		t.Fatalf("the reproducer's work query = %+v %+v, want %s", c, ref, it.ID)
+	}
+}
+
+// The coordinator creates an architecture epic. It waits in architecture
+// until an ADR that names it lands on the base. A run creates none, the
+// verb needs --architecture, and a stored secret is refused.
+func TestCoordinatorCreatesAnArchitectureEpic(t *testing.T) {
+	w := newWorld(t)
+	w.red.SetStored([]secrets.NamedValue{{Name: testProject + "/API_KEY", Value: "s3cr3t-value-for-epic"}})
+	flags := map[string]string{"title": "Move the store to Postgres", "project": testProject,
+		"body": "The operator wants the store on Postgres; an ADR records the decision."}
+	wantCode(t, w.call(w.run("run-x", "", machine.StageImplementer), "", "epic create", flags), cli.CodeCapabilityDenied)
+	wantCode(t, w.call(w.coordinator(), "", "epic create", flags), cli.CodeUsage)
+	flags["architecture"] = "true"
+	leaky := maps.Clone(flags)
+	leaky["body"] += " s3cr3t-value-for-epic"
+	wantCode(t, w.call(w.coordinator(), "", "epic create", leaky), cli.CodeSecretInOutput)
+	if n := len(w.items(machine.KindEpic)); n != 0 {
+		t.Fatalf("a refused create made %d epics", n)
+	}
+	data := ok(t, w.call(w.coordinator(), "k-arch", "epic create", flags))
+	it := w.show(data["epic"].(string))
+	if it.Kind != machine.KindEpic || it.Status != machine.Architecture || data["status"] != machine.Architecture {
+		t.Fatalf("architecture epic: %+v, answer %v", it, data)
+	}
+	again := ok(t, w.call(w.coordinator(), "k-arch", "epic create", flags))
+	if again["epic"] != data["epic"] || len(w.items(machine.KindEpic)) != 1 {
+		t.Fatalf("the retry made %v", again)
+	}
 }

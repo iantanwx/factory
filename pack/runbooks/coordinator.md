@@ -156,6 +156,10 @@ loop room open --kind intake|decision|review --project <project> --reason "<why>
 `loop room list` shows each room. Close a room with `loop room close <room>` when it applied its
 decision, or when the operator is done with it. A room never closes itself.
 
+A new intake room with no `--item` adds an epic. The server refuses it with `CAP_FULL` while the
+project's epics in counted document states fill the intake cap in host config. Tell the operator
+which epics hold the cap. Open the room when the count drops, or when the operator raises the cap.
+
 ## 8. New work
 
 Work starts with a PRD. When the operator asks for new work, open an intake room.
@@ -166,6 +170,25 @@ a chore. Quote the operator's words:
 ```bash
 loop work create --title "<title>" --body "<body>" --request "<the operator's words>"
 ```
+
+When the operator reports a bug, file the report for the reproducer stage. Quote the operator's
+words:
+
+```bash
+loop work create --kind bug --project <project> --title "<summary>" --body "<the report>" --request "<the operator's words>"
+```
+
+The reproducer shapes the bug into a ticket, closes it as a duplicate, or escalates it.
+
+When the operator asks for an architecture decision in place of a PRD, create an architecture epic:
+
+```bash
+loop epic create --architecture --project <project> --title "<title>" --body "<what the ADR decides>"
+```
+
+The epic waits until a merge to the base branch adds an ADR that names the epic id. The server
+reads each Markdown file under `docs/adr/` on the base branch. Tell the operator to write the epic
+id in the ADR. The spec author then takes the epic.
 
 Never waive the PRD on your own.
 

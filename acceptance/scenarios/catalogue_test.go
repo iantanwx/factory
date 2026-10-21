@@ -17,10 +17,7 @@ import (
 // or scheduler path performs in v1, with the unit test that applies it.
 // Every other row of the two tables must be applied end to end by a
 // scenario of a full run.
-var tableOnly = map[string]string{
-	"epic create_architecture": "internal/machine TestEveryEdgeAppliesAndEveryOtherPairRefuses: no verb creates an architecture epic in v1",
-	"epic adr_landed":          "internal/machine TestEveryEdgeAppliesAndEveryOtherPairRefuses: no path observes an ADR landing in v1",
-}
+var tableOnly = map[string]string{}
 
 // rowName names one row: its kind, verb and selector, and its edge.
 func rowName(k machine.Kind, r machine.Row) string {

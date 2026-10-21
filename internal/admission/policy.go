@@ -248,11 +248,9 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 			return Admitted{}, internal(err)
 		}
 	} else if r.Stage == stageIntake {
-		all, ref := a.items.List(ctx, r.Project, machine.ListFilter{Kind: machine.KindEpic})
-		if ref != nil {
+		if epics, ref = a.intakeEpics(ctx, r.Project); ref != nil {
 			return Admitted{}, ref
 		}
-		epics = countIntakeEpics(all)
 	}
 
 	out := Admitted{RunID: r.RunID, Project: r.Project, Stage: r.Stage, Item: r.Item, Inputs: snap.inputs, Release: a.cfg.Release}
@@ -275,9 +273,8 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 			}
 		}
 		if r.Stage == stageIntake {
-			if l := limits[0]; epics >= l.Cap {
-				return refusalErr{&cli.Refusal{Code: cli.CodeCapFull, Rule: "cap_full",
-					Hint: fmt.Sprintf("%d epics in counted document states fill the cap of %d in host config throughput.%s", epics, l.Cap, l.Name)}}
+			if ref := intakeFull(epics, limits[0]); ref != nil {
+				return refusalErr{ref}
 			}
 		} else if ref, err := capRefusal(tx, r.Stage, limits, 0); err != nil || ref != nil {
 			if err != nil {
@@ -427,11 +424,11 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 		return nil, ref
 	}
 	if stage == stageIntake {
-		all, ref := a.items.List(ctx, project, machine.ListFilter{Kind: machine.KindEpic})
+		epics, ref := a.intakeEpics(ctx, project)
 		if ref != nil {
 			return nil, ref
 		}
-		if countIntakeEpics(all) >= limits[0].Cap {
+		if intakeFull(epics, limits[0]) != nil {
 			return nil, nil
 		}
 	}

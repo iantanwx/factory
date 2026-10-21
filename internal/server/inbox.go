@@ -101,9 +101,13 @@ func (s *Server) composeHuman() error {
 		agents := s.opts.Agents
 		checkouts = func(string) sched.CheckoutHost { return agents }
 	}
-	rooms, err := room.New(room.Config{Store: s.Store, Machine: s.Machine, Agents: s.opts.Agents, Checkouts: checkouts,
+	rc := room.Config{Store: s.Store, Machine: s.Machine, Agents: s.opts.Agents, Checkouts: checkouts,
 		Secrets: s.Secrets, Tokens: s.Tokens, Redactor: s.Redactor, ProjectConfig: s.projectSource(), Pack: s.opts.Sched.Pack,
-		Harness: harness, Model: model, Release: cli.Version, Changed: changed, NewID: o.NewRoomID, Logger: s.log})
+		Harness: harness, Model: model, Release: cli.Version, Changed: changed, NewID: o.NewRoomID, Logger: s.log}
+	if s.Admission != nil {
+		rc.IntakeCap = s.Admission.IntakeCap
+	}
+	rooms, err := room.New(rc)
 	if err != nil {
 		return err
 	}

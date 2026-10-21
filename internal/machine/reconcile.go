@@ -35,7 +35,9 @@ var ErrBeadsUnavailable = errors.New("machine: beads unavailable during reconcil
 //  3. checks each item's last applied intent against its bead: a write
 //     Dolt lost is written again through the status check, and a bead
 //     that changed outside the server raises a divergence alert and is
-//     never overwritten.
+//     never overwritten;
+//  4. completes each epic in execution whose children are all terminal
+//     (CompleteEpics), which a crash between the two writes left open.
 //
 // It holds each item's lock while it works on the item, so it may also
 // run while the server serves, for example after a Dolt restart.
@@ -125,6 +127,12 @@ func (m *Machine) reconcileProject(ctx context.Context, project string) error {
 	}
 	for item := range last {
 		m.divergence(ctx, project, item, fmt.Sprintf("%s has applied transitions, and beads holds no such item", item))
+	}
+	// A crash between a child's terminal write and its epic's complete
+	// write left the epic in execution. A fault here does not stop the
+	// start: each dependency-advance tick runs the sweep again.
+	if err := m.CompleteEpics(ctx, project); err != nil {
+		m.log.WarnContext(ctx, "complete finished epics; dependency-advance tries again", "project", project, "err", err)
 	}
 	return nil
 }

@@ -3,7 +3,6 @@
 package scenarios
 
 import (
-	"context"
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
@@ -24,14 +23,8 @@ func TestStageKindsTheOtherScenariosMiss(t *testing.T) {
 		t.Fatalf("an intake dispatch = %+v, %+v", st, ref)
 	}
 
-	// The reproducer takes a raw bug report. No CLI verb files one in v1,
-	// so the report is filed through the machine, as a tracker adapter
-	// would.
-	bug, res := w.Srv.Machine.Create(context.Background(), machine.CreateRequest{Project: acceptance.Project,
-		Kind: machine.KindBug, Title: "The list page shows no widgets", Verb: "file", Actor: machine.Server("acceptance")})
-	if res.Refusal != nil {
-		t.Fatalf("file a bug: %+v", res.Refusal)
-	}
+	// The reproducer takes a raw bug report that the coordinator filed.
+	bug := fileBug(w, "The list page shows no widgets", "Open /widgets: the list is empty.")
 	run := w.Dispatch(machine.StageReproducer)
 	if run.Item != bug {
 		t.Fatalf("the reproducer took %s, want %s", run.Item, bug)

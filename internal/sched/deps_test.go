@@ -139,6 +139,34 @@ func TestDependencyAdvance(t *testing.T) {
 	})
 }
 
+// A child's terminal write and its epic's complete write are two writes.
+// When the second never landed, the next dependency-advance tick closes
+// the epic: every child is terminal.
+func TestDependencyAdvanceCompletesAFinishedEpic(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	epic, err := w.bx.Create(ctx, beadsx.CreateSpec{Title: "Widgets", Type: "epic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.bx.Update(ctx, epic.ID, beadsx.UpdateSpec{IfStatus: epic.Status, Status: machine.Execution}); err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range []string{machine.Done, machine.Canceled} {
+		id := w.ticket(st)
+		if _, err := w.bx.Update(ctx, id, beadsx.UpdateSpec{IfStatus: st,
+			SetMetadata: map[string]string{"loop." + machine.FactEpic: epic.ID}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.s.advanceDependencies(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.status(epic.ID); got != machine.Done {
+		t.Fatalf("the finished epic is %s after a dependency-advance tick, want done", got)
+	}
+}
+
 // The scheduler registers dependency-advance itself when it can read
 // beads, so the server registers nothing for it.
 func TestDependencyAdvanceRegistersWithBeads(t *testing.T) {

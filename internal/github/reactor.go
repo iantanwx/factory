@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,7 +42,8 @@ const maxPullPages = 10
 // moves any non-terminal item to done, a closed PR escalates its item, a
 // new head after a review pass returns the ticket to review, and red CI
 // on a ticket in review sends it to repair. CI cancelled by a newer push
-// is superseded, not red.
+// is superseded, not red. An ADR on the base that names an architecture
+// epic moves the epic to spec_needed.
 type Reactor struct {
 	s   *Service
 	m   *machine.Machine
@@ -191,12 +193,15 @@ func (r *Reactor) Run(ctx context.Context, every time.Duration) error {
 }
 
 func (r *Reactor) tickProject(ctx context.Context, p config.Project) error {
-	base, _, err := r.s.SyncBase(ctx, p)
+	base, sha, err := r.s.SyncBase(ctx, p)
 	if err != nil {
 		return err
 	}
 	var errs []error
 	if err := r.pollPulls(ctx, p, base); err != nil {
+		errs = append(errs, err)
+	}
+	if err := r.adrs(ctx, p, sha); err != nil {
 		errs = append(errs, err)
 	}
 	if err := r.pollCI(ctx, p); err != nil {
@@ -283,6 +288,81 @@ func (r *Reactor) pollPulls(ctx context.Context, p config.Project, base string) 
 		return r.advance(ctx, p.ID, newest)
 	}
 	return nil
+}
+
+// ADRDir is where the reactor looks for an architecture decision record:
+// every Markdown file under it on the base branch. Project config names no
+// other place in v1.
+const ADRDir = "docs/adr/"
+
+// adrs applies adr_landed to each architecture epic that an ADR on the
+// base branch names (R46): a merge that adds the ADR to the base is the
+// operator's sign-off. It reads the ADR's text in the mirror at sha, which
+// SyncBase just fetched, and never a GitHub answer. A read finds an ADR
+// that landed while the server was down too. The first ADR in path order
+// that names the epic is the one the epic records.
+func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error {
+	epics, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: machine.Architecture})
+	if ref != nil {
+		return fmt.Errorf("list architecture epics: %s", ref.Hint)
+	}
+	if len(epics) == 0 || sha == "" {
+		return nil
+	}
+	files, err := r.s.Files(ctx, p.ID, []string{ADRDir})
+	if err != nil {
+		return err
+	}
+	var paths []string
+	for path := range files {
+		if strings.HasSuffix(path, ".md") {
+			paths = append(paths, path)
+		}
+	}
+	slices.Sort(paths)
+	texts := make([]string, len(paths))
+	for i, path := range paths {
+		data, err := r.s.Mirror(p).Show(ctx, sha, path)
+		if err != nil {
+			return err
+		}
+		texts[i] = string(data)
+	}
+	var errs []error
+	for _, ep := range epics {
+		i := slices.IndexFunc(texts, func(text string) bool { return namesItem(text, ep.ID) })
+		if i < 0 {
+			continue
+		}
+		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: "adr_landed", ExpectedStatus: machine.Architecture,
+			Params: map[string]string{"path": paths[i], "sha": sha}, Actor: machine.Server("reactor")})
+		if err := settled(res); err != nil {
+			errs = append(errs, fmt.Errorf("%s adr_landed: %w", ep.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// namesItem reports whether text names the item id as a whole word: the
+// id with no id character before it, and none after it. A full stop
+// after the id ends a sentence, unless an id character follows it.
+func namesItem(text, id string) bool {
+	idChar := func(b byte) bool {
+		return b == '-' || b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
+	}
+	for from := 0; ; {
+		i := strings.Index(text[from:], id)
+		if i < 0 {
+			return false
+		}
+		start, end := from+i, from+i+len(id)
+		before := start == 0 || !idChar(text[start-1]) && text[start-1] != '.'
+		after := end == len(text) || !idChar(text[end]) && (text[end] != '.' || end+1 == len(text) || !idChar(text[end+1]))
+		if before && after {
+			return true
+		}
+		from = start + 1
+	}
 }
 
 // pollCI reads the CI of each ticket in review. A check run's end does not

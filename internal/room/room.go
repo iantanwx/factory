@@ -82,6 +82,10 @@ type Config struct {
 	Harness agenthost.Harness
 	Model   string
 	Release string
+	// IntakeCap refuses a new intake room while the project's epics in
+	// counted document states fill the intake cap (KTD30). Admission's
+	// IntakeCap is one. Optional: with none, no cap applies.
+	IntakeCap func(ctx context.Context, project string) *cli.Refusal
 	// Changed is called after each state change. Optional: the inbox wakes
 	// and the notifier rings from it.
 	Changed func()
@@ -279,6 +283,9 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 			return cli.Refuse(*ref)
 		}
 	}
+	if ref := s.intakeCap(ctx, kind, project, item); ref != nil {
+		return cli.Refuse(*ref)
+	}
 	var r Room
 	var reopen bool
 	err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
@@ -322,6 +329,27 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 		return internalErr(err)
 	}
 	return cli.Found(map[string]any{"room": got, "reopened": reopen})
+}
+
+// intakeCap applies the intake cap to a new intake room that names no
+// item: such a room submits a new epic. The reopen of an open room, and
+// an intake room on an existing epic, add no epic, so the cap passes them.
+func (s *Service) intakeCap(ctx context.Context, kind, project, item string) *cli.Refusal {
+	if kind != "intake" || item != "" || s.cfg.IntakeCap == nil {
+		return nil
+	}
+	var open int
+	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT count(*) FROM rooms WHERE project = ? AND item = '' AND kind = ? AND closed_at IS NULL`,
+			project, kind).Scan(&open)
+	})
+	if err != nil {
+		return &cli.Refusal{Code: cli.CodeInternal, Rule: "internal", Hint: err.Error()}
+	}
+	if open > 0 {
+		return nil
+	}
+	return s.cfg.IntakeCap(ctx, project)
 }
 
 // leaseFree reports whether no run holds the room's item.

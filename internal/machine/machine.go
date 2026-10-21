@@ -84,6 +84,9 @@ const (
 	pointRecorded = "recorded" // after the intent commit
 	pointWritten  = "written"  // after the beads write
 	pointMarked   = "marked"   // after the applied mark
+	// pointChildTerminal is after a child ticket's terminal write and
+	// before its epic's complete write: the two are separate writes.
+	pointChildTerminal = "child_terminal"
 )
 
 // errStopped is what a write stopped at a kill point returns.

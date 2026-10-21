@@ -1,6 +1,8 @@
 package admission
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -58,8 +60,7 @@ func capFull(stage string, l config.Limit, n int) *cli.Refusal {
 		Hint: fmt.Sprintf("%s fill the cap of %d in host config throughput.%s", what, l.Cap, l.Name)}
 }
 
-// countIntakeEpics counts a project's epics in counted states. It reads
-// beads, so no caller holds a lock.
+// countIntakeEpics counts a project's epics in counted states.
 func countIntakeEpics(epics []machine.Item) int {
 	n := 0
 	for _, e := range epics {
@@ -68,4 +69,43 @@ func countIntakeEpics(epics []machine.Item) int {
 		}
 	}
 	return n
+}
+
+// intakeEpics counts the project's epics in counted states. It reads
+// beads, so no caller holds a lock.
+func (a *Admission) intakeEpics(ctx context.Context, project string) (int, *cli.Refusal) {
+	all, ref := a.items.List(ctx, project, machine.ListFilter{Kind: machine.KindEpic})
+	if ref != nil {
+		return 0, ref
+	}
+	return countIntakeEpics(all), nil
+}
+
+// intakeFull refuses when the counted epics fill the intake cap.
+func intakeFull(epics int, l config.Limit) *cli.Refusal {
+	if epics < l.Cap {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeCapFull, Rule: "cap_full",
+		Hint: fmt.Sprintf("%d epics in counted document states fill the cap of %d in host config throughput.%s", epics, l.Cap, l.Name)}
+}
+
+// IntakeCap refuses a new intake with CAP_FULL while the project's epics
+// in counted document states fill the intake cap (KTD30). It reads host
+// config at each call, so a changed cap applies with no restart. Intake
+// runs in a room, so `room open --kind intake` asks it before the room
+// opens. It checks the cap only: a room holds no run and no stage mutex.
+func (a *Admission) IntakeCap(ctx context.Context, project string) *cli.Refusal {
+	if a.items == nil {
+		return internal(errors.New("admission: no machine attached"))
+	}
+	limits, ref := a.limitsFor(ctx, stageIntake)
+	if ref != nil {
+		return ref
+	}
+	epics, ref := a.intakeEpics(ctx, project)
+	if ref != nil {
+		return ref
+	}
+	return intakeFull(epics, limits[0])
 }

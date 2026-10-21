@@ -24,8 +24,10 @@ const DependencyAdvanceJob = "dependency-advance"
 // advanceDependencies is one tick of dependency-advance for one project. It
 // applies unblock, as the server, to each backlog ticket whose every
 // blocks edge leads to a done ticket. A ticket that another writer moved
-// meanwhile is left alone. Any other refusal or read error is reported,
-// and the next tick tries again.
+// meanwhile is left alone. It then completes each epic in execution whose
+// children are all terminal, because a child's terminal write and its
+// epic's complete write are two writes (machine.CompleteEpics). Any other
+// refusal or read error is reported, and the next tick tries again.
 func (s *Scheduler) advanceDependencies(ctx context.Context, project string) error {
 	bc, err := s.cfg.Beads(project)
 	if err != nil {
@@ -55,6 +57,9 @@ func (s *Scheduler) advanceDependencies(ctx context.Context, project string) err
 		default:
 			errs = append(errs, fmt.Errorf("sched: unblock %s: %s: %s", it.ID, r.Code, r.Hint))
 		}
+	}
+	if err := s.cfg.Machine.CompleteEpics(ctx, project); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }

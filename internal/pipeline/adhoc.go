@@ -21,7 +21,9 @@ type CreateResult struct {
 // ticket names the epic whose merged PRD it implements and the story
 // labels it cites. Only the coordinator creates a ticket with no PRD, and
 // only when it cites the operator's own request; it never waives the PRD
-// on its own. A run's PRD-less ticket is PRD_REQUIRED.
+// on its own. A run's PRD-less ticket is PRD_REQUIRED. With --kind bug the
+// coordinator files the operator's bug report in reported, the state the
+// reproducer stage claims from, under the same rule (U5).
 func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	prj, ref := project(call)
@@ -34,8 +36,24 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	if title == "" {
 		return refuse(cli.CodeUsage, "no_title", "--title names the ticket")
 	}
+	kind, verb := machine.KindTicket, "create"
 	facts := map[string]string{}
 	switch {
+	case inv.Flags["kind"] == string(machine.KindBug):
+		// A bug skips the PRD, so it follows R48 as a PRD-less ticket
+		// does: only the coordinator files one, on the operator's request.
+		kind, verb = machine.KindBug, "file"
+		switch {
+		case pr.Kind != cli.PrincipalCoordinator:
+			return refuse(cli.CodeCapabilityDenied, "coordinator_only",
+				"only the coordinator files a bug, from the operator's report; a run reports a fault in the loop with `loop fault report`")
+		case request == "":
+			return refuse(cli.CodePRDRequired, "no_operator_request",
+				"a bug skips the PRD, so it needs the operator's request: quote the operator's own words with --request")
+		case epicID != "" || len(stories) > 0:
+			return refuse(cli.CodeUsage, "bug_without_epic", "a bug cites no epic and no story; the reproducer shapes it into a ticket")
+		}
+		facts[machine.FactRequest] = request
 	case epicID != "":
 		epic, ref := p.cfg.Machine.Read(ctx, prj, epicID)
 		if ref != nil {
@@ -72,7 +90,7 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		return refuseRef(ref)
 	}
 
-	cr := machine.CreateRequest{Project: prj, Kind: machine.KindTicket, Title: title, Description: body, Facts: facts}
+	cr := machine.CreateRequest{Project: prj, Kind: kind, Title: title, Description: body, Facts: facts}
 	var it machine.Item
 	if key := call.Request.GetIdempotencyKey(); key != "" && pr.RunID != "" {
 		// A retry of the same write finds the ticket it made.
@@ -88,12 +106,15 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		return refuseRef(ref)
 	}
 	if it.Status == machine.Initial {
-		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: "create", ExpectedStatus: machine.Initial,
+		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: verb, ExpectedStatus: machine.Initial,
 			RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
 		if res.Refusal != nil {
 			return res
 		}
 		it.Status = machine.Todo
+		if kind == machine.KindBug {
+			it.Status = machine.Reported
+		}
 	}
 	return cli.Found(CreateResult{Item: it.ID, Status: it.Status, Epic: epicID})
 }
@@ -107,4 +128,60 @@ func splitStories(v string) []string {
 		}
 	}
 	return out
+}
+
+// EpicResult is what epic create answers.
+type EpicResult struct {
+	Epic   string `json:"epic"`
+	Status string `json:"status"`
+}
+
+// epicCreate is `loop epic create --architecture`: the coordinator creates
+// an epic that follows an ADR, not a PRD. It waits in architecture until
+// the GitHub reactor sees an ADR that names it on the base branch, and
+// that ADR is the operator's sign-off (R46). A PRD epic starts with prd
+// submit in an intake room instead.
+func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
+	pr, inv := call.Principal, call.Inv
+	if pr.Kind != cli.PrincipalCoordinator {
+		return refuse(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator creates an architecture epic")
+	}
+	if inv.Flags["architecture"] != "true" {
+		return refuse(cli.CodeUsage, "architecture_only",
+			"epic create makes an architecture epic only, so pass --architecture; a PRD epic starts with prd submit in an intake room")
+	}
+	prj, ref := project(call)
+	if ref != nil {
+		return refuseRef(ref)
+	}
+	title, body := strings.TrimSpace(inv.Flags["title"]), inv.Flags["body"]
+	if title == "" {
+		return refuse(cli.CodeUsage, "no_title", "--title names the epic")
+	}
+	if ref := p.secretIn(title, body); ref != nil {
+		return refuseRef(ref)
+	}
+	cr := machine.CreateRequest{Project: prj, Kind: machine.KindEpic, Title: title, Description: body, Facts: map[string]string{}}
+	var it machine.Item
+	if key := call.Request.GetIdempotencyKey(); key != "" && pr.RunID != "" {
+		cr.Facts[machine.FactCreateKey] = "epic/" + pr.RunID + "/" + key
+		it, ref = p.findOrCreate(ctx, cr)
+	} else {
+		var id string
+		if id, ref = p.cfg.Machine.CreateBead(ctx, cr); ref == nil {
+			it, ref = p.cfg.Machine.Read(ctx, prj, id)
+		}
+	}
+	if ref != nil {
+		return refuseRef(ref)
+	}
+	if it.Status == machine.Initial {
+		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: "create_architecture",
+			ExpectedStatus: machine.Initial, RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
+		if res.Refusal != nil {
+			return res
+		}
+		it.Status = machine.Architecture
+	}
+	return cli.Found(EpicResult{Epic: it.ID, Status: it.Status})
 }

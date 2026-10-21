@@ -44,10 +44,15 @@ func (m *Machine) Apply(ctx context.Context, req Request) cli.Result {
 	unlock := m.lock(req.Project, req.Item)
 	res := m.apply(ctx, &req)
 	unlock()
-	if a, ok := res.Data.(Applied); ok && !res.Replayed && a.Kind == KindTicket {
+	if a, ok := res.Data.(Applied); ok && !res.Replayed && a.Kind == KindTicket && ticketTerminal(a.Status) && !m.stop(pointChildTerminal) {
 		m.completeEpic(ctx, a)
 	}
 	return res
+}
+
+func ticketTerminal(status string) bool {
+	t, _ := TableFor(KindTicket)
+	return t.Terminal(status)
 }
 
 // completeEpic applies the epic's complete row after a child ticket moved
@@ -56,10 +61,6 @@ func (m *Machine) Apply(ctx context.Context, req Request) cli.Result {
 // and an epic in any other state refuses the row, so both refusals are
 // the expected answer and change nothing.
 func (m *Machine) completeEpic(ctx context.Context, a Applied) {
-	t, _ := TableFor(KindTicket)
-	if !t.Terminal(a.Status) {
-		return
-	}
 	it, ref := m.Read(ctx, a.Project, a.Item)
 	if ref != nil || it.Facts[FactEpic] == "" {
 		return

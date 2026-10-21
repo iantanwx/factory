@@ -2763,6 +2763,7 @@ var PrdService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	EpicService_Create_FullMethodName    = "/loop.v1.EpicService/Create"
 	EpicService_Decompose_FullMethodName = "/loop.v1.EpicService/Decompose"
 )
 
@@ -2770,6 +2771,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EpicServiceClient interface {
+	Create(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Decompose(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
@@ -2779,6 +2781,16 @@ type epicServiceClient struct {
 
 func NewEpicServiceClient(cc grpc.ClientConnInterface) EpicServiceClient {
 	return &epicServiceClient{cc}
+}
+
+func (c *epicServiceClient) Create(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, EpicService_Create_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *epicServiceClient) Decompose(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
@@ -2795,6 +2807,7 @@ func (c *epicServiceClient) Decompose(ctx context.Context, in *VerbRequest, opts
 // All implementations must embed UnimplementedEpicServiceServer
 // for forward compatibility.
 type EpicServiceServer interface {
+	Create(context.Context, *VerbRequest) (*Envelope, error)
 	Decompose(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedEpicServiceServer()
 }
@@ -2806,6 +2819,9 @@ type EpicServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedEpicServiceServer struct{}
 
+func (UnimplementedEpicServiceServer) Create(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Create not implemented")
+}
 func (UnimplementedEpicServiceServer) Decompose(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Decompose not implemented")
 }
@@ -2828,6 +2844,24 @@ func RegisterEpicServiceServer(s grpc.ServiceRegistrar, srv EpicServiceServer) {
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&EpicService_ServiceDesc, srv)
+}
+
+func _EpicService_Create_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EpicServiceServer).Create(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EpicService_Create_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EpicServiceServer).Create(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _EpicService_Decompose_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -2855,6 +2889,10 @@ var EpicService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "loop.v1.EpicService",
 	HandlerType: (*EpicServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Create",
+			Handler:    _EpicService_Create_Handler,
+		},
 		{
 			MethodName: "Decompose",
 			Handler:    _EpicService_Decompose_Handler,
