@@ -69,6 +69,14 @@ service DecisionService {
   rpc Moot(VerbRequest) returns (Envelope);
 }
 
+service FaultService {
+  rpc Report(VerbRequest) returns (Envelope);
+  rpc Show(VerbRequest) returns (Envelope);
+  rpc List(VerbRequest) returns (Envelope);
+  rpc Ack(VerbRequest) returns (Envelope);
+  rpc Resolve(VerbRequest) returns (Envelope);
+}
+
 service InboxService {
   rpc List(VerbRequest) returns (Envelope);
   rpc Answer(VerbRequest) returns (Envelope);

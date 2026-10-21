@@ -3,11 +3,14 @@ package sched
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 // FinishResult is the answer of `loop run finish`.
@@ -22,6 +25,9 @@ type FinishResult struct {
 	// Replayed is true when the run had already settled. Class is then the
 	// stored one.
 	Replayed bool `json:"replayed"`
+	// Fault is the loop fault the run's record keeps, from
+	// `run finish --fault` (KTD31).
+	Fault string `json:"fault,omitempty"`
 }
 
 // Finish settles a run by its own report (KTD7): done, failed or blocked.
@@ -29,6 +35,14 @@ type FinishResult struct {
 // stage-correct state, settles the checkout, removes .env and revokes the
 // token. The next tick closes the session and keeps the checkout.
 func (s *Scheduler) Finish(ctx context.Context, runID, outcome string) (FinishResult, *cli.Refusal) {
+	return s.FinishFault(ctx, runID, outcome, "")
+}
+
+// FinishFault is Finish with the loop fault that stopped the run (KTD31).
+// The run's record keeps the fault id. A blocked run never counts toward
+// the failure limit, with a fault or without one (KTD8). A fault id the
+// server never gave out is NOT_FOUND, and the run stays unsettled.
+func (s *Scheduler) FinishFault(ctx context.Context, runID, outcome, faultID string) (FinishResult, *cli.Refusal) {
 	switch outcome {
 	case "done", "failed", "blocked":
 	default:
@@ -44,17 +58,52 @@ func (s *Scheduler) Finish(ctx context.Context, runID, outcome string) (FinishRe
 	if err != nil {
 		return FinishResult{}, internalRef(err)
 	}
+	kept, ref := s.keepFault(ctx, runID, faultID)
+	if ref != nil {
+		return FinishResult{}, ref
+	}
 	now := s.now()
 	out, err := s.cfg.Admission.RecordOutcome(ctx, admission.Settlement{RunID: runID, Finish: outcome, Ended: now, LastCLICall: now})
 	if err != nil {
 		return FinishResult{}, internalRef(err)
 	}
-	res := FinishResult{RunID: runID, Outcome: outcome, Class: out.Class, Counted: out.Counted, Replayed: out.Replayed}
+	res := FinishResult{RunID: runID, Outcome: outcome, Class: out.Class, Counted: out.Counted, Replayed: out.Replayed, Fault: kept}
 	if out.Replayed {
 		return res, nil
 	}
 	res.Released = s.afterSettle(ctx, r, "release", CheckoutSettled)
 	return res, nil
+}
+
+// keepFault writes faultID on a run that has not ended, and returns the
+// fault id the run's record holds.
+func (s *Scheduler) keepFault(ctx context.Context, runID, faultID string) (string, *cli.Refusal) {
+	var kept string
+	missing := false
+	err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		if faultID != "" {
+			ok, err := fault.Exists(tx, faultID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				missing = true
+				return nil
+			}
+			if _, err := tx.Exec(`UPDATE runs SET fault_id = ? WHERE run_id = ? AND ended_at IS NULL`, faultID, runID); err != nil {
+				return err
+			}
+		}
+		return tx.QueryRow(`SELECT fault_id FROM runs WHERE run_id = ?`, runID).Scan(&kept)
+	})
+	if err != nil {
+		return "", internalRef(err)
+	}
+	if missing {
+		return "", &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_fault",
+			Hint: fmt.Sprintf("the server gave out no fault %s; `loop fault report` names the id", faultID)}
+	}
+	return kept, nil
 }
 
 // Register sets the handlers of the verbs the scheduler serves: run
@@ -71,7 +120,7 @@ func (s *Scheduler) runFinish(ctx context.Context, call *rpc.Call) cli.Result {
 	if p.Kind != cli.PrincipalRun || p.RunID == "" {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "run_only", Hint: "only a stage run finishes, from its own checkout"})
 	}
-	res, ref := s.Finish(ctx, p.RunID, call.Inv.Flags["outcome"])
+	res, ref := s.FinishFault(ctx, p.RunID, call.Inv.Flags["outcome"], call.Inv.Flags["fault"])
 	if ref != nil {
 		return cli.Refuse(*ref)
 	}

@@ -68,7 +68,13 @@ const file_loop_v1_services_proto_rawDesc = "" +
 	"\x04Fire\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope\x120\n" +
 	"\x05Defer\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope\x121\n" +
 	"\x06Settle\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope\x12/\n" +
-	"\x04Moot\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope2\x89\x02\n" +
+	"\x04Moot\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope2\x87\x02\n" +
+	"\fFaultService\x121\n" +
+	"\x06Report\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope\x12/\n" +
+	"\x04Show\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope\x12/\n" +
+	"\x04List\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope\x12.\n" +
+	"\x03Ack\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope\x122\n" +
+	"\aResolve\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope2\x89\x02\n" +
 	"\fInboxService\x12/\n" +
 	"\x04List\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope\x121\n" +
 	"\x06Answer\x12\x14.loop.v1.VerbRequest\x1a\x11.loop.v1.Envelope\x120\n" +
@@ -144,91 +150,101 @@ var file_loop_v1_services_proto_depIdxs = []int32{
 	0,  // 32: loop.v1.DecisionService.Defer:input_type -> loop.v1.VerbRequest
 	0,  // 33: loop.v1.DecisionService.Settle:input_type -> loop.v1.VerbRequest
 	0,  // 34: loop.v1.DecisionService.Moot:input_type -> loop.v1.VerbRequest
-	0,  // 35: loop.v1.InboxService.List:input_type -> loop.v1.VerbRequest
-	0,  // 36: loop.v1.InboxService.Answer:input_type -> loop.v1.VerbRequest
-	0,  // 37: loop.v1.InboxService.Defer:input_type -> loop.v1.VerbRequest
-	0,  // 38: loop.v1.InboxService.Prepare:input_type -> loop.v1.VerbRequest
-	0,  // 39: loop.v1.InboxService.Wait:input_type -> loop.v1.VerbRequest
-	0,  // 40: loop.v1.RoomService.Open:input_type -> loop.v1.VerbRequest
-	0,  // 41: loop.v1.RoomService.Apply:input_type -> loop.v1.VerbRequest
-	0,  // 42: loop.v1.RoomService.Close:input_type -> loop.v1.VerbRequest
-	0,  // 43: loop.v1.RoomService.List:input_type -> loop.v1.VerbRequest
-	0,  // 44: loop.v1.PrdService.Submit:input_type -> loop.v1.VerbRequest
-	0,  // 45: loop.v1.EpicService.Decompose:input_type -> loop.v1.VerbRequest
-	0,  // 46: loop.v1.StageService.Pause:input_type -> loop.v1.VerbRequest
-	0,  // 47: loop.v1.StageService.Resume:input_type -> loop.v1.VerbRequest
-	0,  // 48: loop.v1.SecretService.Check:input_type -> loop.v1.VerbRequest
-	0,  // 49: loop.v1.SecretService.Set:input_type -> loop.v1.VerbRequest
-	0,  // 50: loop.v1.SecretService.Import:input_type -> loop.v1.VerbRequest
-	0,  // 51: loop.v1.ProjectService.Add:input_type -> loop.v1.VerbRequest
-	0,  // 52: loop.v1.ProjectService.List:input_type -> loop.v1.VerbRequest
-	0,  // 53: loop.v1.ProjectService.Show:input_type -> loop.v1.VerbRequest
-	0,  // 54: loop.v1.ProjectService.Remove:input_type -> loop.v1.VerbRequest
-	0,  // 55: loop.v1.HostService.Drain:input_type -> loop.v1.VerbRequest
-	0,  // 56: loop.v1.MetaService.Schema:input_type -> loop.v1.VerbRequest
-	0,  // 57: loop.v1.MetaService.Status:input_type -> loop.v1.VerbRequest
-	0,  // 58: loop.v1.MetaService.Version:input_type -> loop.v1.VerbRequest
-	1,  // 59: loop.v1.WorkService.Peek:output_type -> loop.v1.Envelope
-	1,  // 60: loop.v1.WorkService.Show:output_type -> loop.v1.Envelope
-	1,  // 61: loop.v1.WorkService.List:output_type -> loop.v1.Envelope
-	1,  // 62: loop.v1.WorkService.Edit:output_type -> loop.v1.Envelope
-	1,  // 63: loop.v1.WorkService.Note:output_type -> loop.v1.Envelope
-	1,  // 64: loop.v1.WorkService.Block:output_type -> loop.v1.Envelope
-	1,  // 65: loop.v1.WorkService.Unblock:output_type -> loop.v1.Envelope
-	1,  // 66: loop.v1.WorkService.Cancel:output_type -> loop.v1.Envelope
-	1,  // 67: loop.v1.WorkService.Create:output_type -> loop.v1.Envelope
-	1,  // 68: loop.v1.RunService.Finish:output_type -> loop.v1.Envelope
-	1,  // 69: loop.v1.RunService.Show:output_type -> loop.v1.Envelope
-	1,  // 70: loop.v1.RunService.List:output_type -> loop.v1.Envelope
-	1,  // 71: loop.v1.RunService.Events:output_type -> loop.v1.Envelope
-	1,  // 72: loop.v1.ReviewService.Submit:output_type -> loop.v1.Envelope
-	1,  // 73: loop.v1.ReviewService.Threads:output_type -> loop.v1.Envelope
-	1,  // 74: loop.v1.ReviewService.Rounds:output_type -> loop.v1.Envelope
-	1,  // 75: loop.v1.BranchService.Push:output_type -> loop.v1.Envelope
-	1,  // 76: loop.v1.BranchService.Sync:output_type -> loop.v1.Envelope
-	1,  // 77: loop.v1.PrService.Open:output_type -> loop.v1.Envelope
-	1,  // 78: loop.v1.PrService.Show:output_type -> loop.v1.Envelope
-	1,  // 79: loop.v1.PrService.Files:output_type -> loop.v1.Envelope
-	1,  // 80: loop.v1.PrService.Diff:output_type -> loop.v1.Envelope
-	1,  // 81: loop.v1.PrService.Threads:output_type -> loop.v1.Envelope
-	1,  // 82: loop.v1.PrService.Reply:output_type -> loop.v1.Envelope
-	1,  // 83: loop.v1.PrService.Checks:output_type -> loop.v1.Envelope
-	1,  // 84: loop.v1.PrService.Logs:output_type -> loop.v1.Envelope
-	1,  // 85: loop.v1.PrService.Rerun:output_type -> loop.v1.Envelope
-	1,  // 86: loop.v1.MergeService.Status:output_type -> loop.v1.Envelope
-	1,  // 87: loop.v1.EscalationService.Raise:output_type -> loop.v1.Envelope
-	1,  // 88: loop.v1.EscalationService.Route:output_type -> loop.v1.Envelope
-	1,  // 89: loop.v1.DecisionService.File:output_type -> loop.v1.Envelope
-	1,  // 90: loop.v1.DecisionService.Fire:output_type -> loop.v1.Envelope
-	1,  // 91: loop.v1.DecisionService.Defer:output_type -> loop.v1.Envelope
-	1,  // 92: loop.v1.DecisionService.Settle:output_type -> loop.v1.Envelope
-	1,  // 93: loop.v1.DecisionService.Moot:output_type -> loop.v1.Envelope
-	1,  // 94: loop.v1.InboxService.List:output_type -> loop.v1.Envelope
-	1,  // 95: loop.v1.InboxService.Answer:output_type -> loop.v1.Envelope
-	1,  // 96: loop.v1.InboxService.Defer:output_type -> loop.v1.Envelope
-	1,  // 97: loop.v1.InboxService.Prepare:output_type -> loop.v1.Envelope
-	1,  // 98: loop.v1.InboxService.Wait:output_type -> loop.v1.Envelope
-	1,  // 99: loop.v1.RoomService.Open:output_type -> loop.v1.Envelope
-	1,  // 100: loop.v1.RoomService.Apply:output_type -> loop.v1.Envelope
-	1,  // 101: loop.v1.RoomService.Close:output_type -> loop.v1.Envelope
-	1,  // 102: loop.v1.RoomService.List:output_type -> loop.v1.Envelope
-	1,  // 103: loop.v1.PrdService.Submit:output_type -> loop.v1.Envelope
-	1,  // 104: loop.v1.EpicService.Decompose:output_type -> loop.v1.Envelope
-	1,  // 105: loop.v1.StageService.Pause:output_type -> loop.v1.Envelope
-	1,  // 106: loop.v1.StageService.Resume:output_type -> loop.v1.Envelope
-	1,  // 107: loop.v1.SecretService.Check:output_type -> loop.v1.Envelope
-	1,  // 108: loop.v1.SecretService.Set:output_type -> loop.v1.Envelope
-	1,  // 109: loop.v1.SecretService.Import:output_type -> loop.v1.Envelope
-	1,  // 110: loop.v1.ProjectService.Add:output_type -> loop.v1.Envelope
-	1,  // 111: loop.v1.ProjectService.List:output_type -> loop.v1.Envelope
-	1,  // 112: loop.v1.ProjectService.Show:output_type -> loop.v1.Envelope
-	1,  // 113: loop.v1.ProjectService.Remove:output_type -> loop.v1.Envelope
-	1,  // 114: loop.v1.HostService.Drain:output_type -> loop.v1.Envelope
-	1,  // 115: loop.v1.MetaService.Schema:output_type -> loop.v1.Envelope
-	1,  // 116: loop.v1.MetaService.Status:output_type -> loop.v1.Envelope
-	1,  // 117: loop.v1.MetaService.Version:output_type -> loop.v1.Envelope
-	59, // [59:118] is the sub-list for method output_type
-	0,  // [0:59] is the sub-list for method input_type
+	0,  // 35: loop.v1.FaultService.Report:input_type -> loop.v1.VerbRequest
+	0,  // 36: loop.v1.FaultService.Show:input_type -> loop.v1.VerbRequest
+	0,  // 37: loop.v1.FaultService.List:input_type -> loop.v1.VerbRequest
+	0,  // 38: loop.v1.FaultService.Ack:input_type -> loop.v1.VerbRequest
+	0,  // 39: loop.v1.FaultService.Resolve:input_type -> loop.v1.VerbRequest
+	0,  // 40: loop.v1.InboxService.List:input_type -> loop.v1.VerbRequest
+	0,  // 41: loop.v1.InboxService.Answer:input_type -> loop.v1.VerbRequest
+	0,  // 42: loop.v1.InboxService.Defer:input_type -> loop.v1.VerbRequest
+	0,  // 43: loop.v1.InboxService.Prepare:input_type -> loop.v1.VerbRequest
+	0,  // 44: loop.v1.InboxService.Wait:input_type -> loop.v1.VerbRequest
+	0,  // 45: loop.v1.RoomService.Open:input_type -> loop.v1.VerbRequest
+	0,  // 46: loop.v1.RoomService.Apply:input_type -> loop.v1.VerbRequest
+	0,  // 47: loop.v1.RoomService.Close:input_type -> loop.v1.VerbRequest
+	0,  // 48: loop.v1.RoomService.List:input_type -> loop.v1.VerbRequest
+	0,  // 49: loop.v1.PrdService.Submit:input_type -> loop.v1.VerbRequest
+	0,  // 50: loop.v1.EpicService.Decompose:input_type -> loop.v1.VerbRequest
+	0,  // 51: loop.v1.StageService.Pause:input_type -> loop.v1.VerbRequest
+	0,  // 52: loop.v1.StageService.Resume:input_type -> loop.v1.VerbRequest
+	0,  // 53: loop.v1.SecretService.Check:input_type -> loop.v1.VerbRequest
+	0,  // 54: loop.v1.SecretService.Set:input_type -> loop.v1.VerbRequest
+	0,  // 55: loop.v1.SecretService.Import:input_type -> loop.v1.VerbRequest
+	0,  // 56: loop.v1.ProjectService.Add:input_type -> loop.v1.VerbRequest
+	0,  // 57: loop.v1.ProjectService.List:input_type -> loop.v1.VerbRequest
+	0,  // 58: loop.v1.ProjectService.Show:input_type -> loop.v1.VerbRequest
+	0,  // 59: loop.v1.ProjectService.Remove:input_type -> loop.v1.VerbRequest
+	0,  // 60: loop.v1.HostService.Drain:input_type -> loop.v1.VerbRequest
+	0,  // 61: loop.v1.MetaService.Schema:input_type -> loop.v1.VerbRequest
+	0,  // 62: loop.v1.MetaService.Status:input_type -> loop.v1.VerbRequest
+	0,  // 63: loop.v1.MetaService.Version:input_type -> loop.v1.VerbRequest
+	1,  // 64: loop.v1.WorkService.Peek:output_type -> loop.v1.Envelope
+	1,  // 65: loop.v1.WorkService.Show:output_type -> loop.v1.Envelope
+	1,  // 66: loop.v1.WorkService.List:output_type -> loop.v1.Envelope
+	1,  // 67: loop.v1.WorkService.Edit:output_type -> loop.v1.Envelope
+	1,  // 68: loop.v1.WorkService.Note:output_type -> loop.v1.Envelope
+	1,  // 69: loop.v1.WorkService.Block:output_type -> loop.v1.Envelope
+	1,  // 70: loop.v1.WorkService.Unblock:output_type -> loop.v1.Envelope
+	1,  // 71: loop.v1.WorkService.Cancel:output_type -> loop.v1.Envelope
+	1,  // 72: loop.v1.WorkService.Create:output_type -> loop.v1.Envelope
+	1,  // 73: loop.v1.RunService.Finish:output_type -> loop.v1.Envelope
+	1,  // 74: loop.v1.RunService.Show:output_type -> loop.v1.Envelope
+	1,  // 75: loop.v1.RunService.List:output_type -> loop.v1.Envelope
+	1,  // 76: loop.v1.RunService.Events:output_type -> loop.v1.Envelope
+	1,  // 77: loop.v1.ReviewService.Submit:output_type -> loop.v1.Envelope
+	1,  // 78: loop.v1.ReviewService.Threads:output_type -> loop.v1.Envelope
+	1,  // 79: loop.v1.ReviewService.Rounds:output_type -> loop.v1.Envelope
+	1,  // 80: loop.v1.BranchService.Push:output_type -> loop.v1.Envelope
+	1,  // 81: loop.v1.BranchService.Sync:output_type -> loop.v1.Envelope
+	1,  // 82: loop.v1.PrService.Open:output_type -> loop.v1.Envelope
+	1,  // 83: loop.v1.PrService.Show:output_type -> loop.v1.Envelope
+	1,  // 84: loop.v1.PrService.Files:output_type -> loop.v1.Envelope
+	1,  // 85: loop.v1.PrService.Diff:output_type -> loop.v1.Envelope
+	1,  // 86: loop.v1.PrService.Threads:output_type -> loop.v1.Envelope
+	1,  // 87: loop.v1.PrService.Reply:output_type -> loop.v1.Envelope
+	1,  // 88: loop.v1.PrService.Checks:output_type -> loop.v1.Envelope
+	1,  // 89: loop.v1.PrService.Logs:output_type -> loop.v1.Envelope
+	1,  // 90: loop.v1.PrService.Rerun:output_type -> loop.v1.Envelope
+	1,  // 91: loop.v1.MergeService.Status:output_type -> loop.v1.Envelope
+	1,  // 92: loop.v1.EscalationService.Raise:output_type -> loop.v1.Envelope
+	1,  // 93: loop.v1.EscalationService.Route:output_type -> loop.v1.Envelope
+	1,  // 94: loop.v1.DecisionService.File:output_type -> loop.v1.Envelope
+	1,  // 95: loop.v1.DecisionService.Fire:output_type -> loop.v1.Envelope
+	1,  // 96: loop.v1.DecisionService.Defer:output_type -> loop.v1.Envelope
+	1,  // 97: loop.v1.DecisionService.Settle:output_type -> loop.v1.Envelope
+	1,  // 98: loop.v1.DecisionService.Moot:output_type -> loop.v1.Envelope
+	1,  // 99: loop.v1.FaultService.Report:output_type -> loop.v1.Envelope
+	1,  // 100: loop.v1.FaultService.Show:output_type -> loop.v1.Envelope
+	1,  // 101: loop.v1.FaultService.List:output_type -> loop.v1.Envelope
+	1,  // 102: loop.v1.FaultService.Ack:output_type -> loop.v1.Envelope
+	1,  // 103: loop.v1.FaultService.Resolve:output_type -> loop.v1.Envelope
+	1,  // 104: loop.v1.InboxService.List:output_type -> loop.v1.Envelope
+	1,  // 105: loop.v1.InboxService.Answer:output_type -> loop.v1.Envelope
+	1,  // 106: loop.v1.InboxService.Defer:output_type -> loop.v1.Envelope
+	1,  // 107: loop.v1.InboxService.Prepare:output_type -> loop.v1.Envelope
+	1,  // 108: loop.v1.InboxService.Wait:output_type -> loop.v1.Envelope
+	1,  // 109: loop.v1.RoomService.Open:output_type -> loop.v1.Envelope
+	1,  // 110: loop.v1.RoomService.Apply:output_type -> loop.v1.Envelope
+	1,  // 111: loop.v1.RoomService.Close:output_type -> loop.v1.Envelope
+	1,  // 112: loop.v1.RoomService.List:output_type -> loop.v1.Envelope
+	1,  // 113: loop.v1.PrdService.Submit:output_type -> loop.v1.Envelope
+	1,  // 114: loop.v1.EpicService.Decompose:output_type -> loop.v1.Envelope
+	1,  // 115: loop.v1.StageService.Pause:output_type -> loop.v1.Envelope
+	1,  // 116: loop.v1.StageService.Resume:output_type -> loop.v1.Envelope
+	1,  // 117: loop.v1.SecretService.Check:output_type -> loop.v1.Envelope
+	1,  // 118: loop.v1.SecretService.Set:output_type -> loop.v1.Envelope
+	1,  // 119: loop.v1.SecretService.Import:output_type -> loop.v1.Envelope
+	1,  // 120: loop.v1.ProjectService.Add:output_type -> loop.v1.Envelope
+	1,  // 121: loop.v1.ProjectService.List:output_type -> loop.v1.Envelope
+	1,  // 122: loop.v1.ProjectService.Show:output_type -> loop.v1.Envelope
+	1,  // 123: loop.v1.ProjectService.Remove:output_type -> loop.v1.Envelope
+	1,  // 124: loop.v1.HostService.Drain:output_type -> loop.v1.Envelope
+	1,  // 125: loop.v1.MetaService.Schema:output_type -> loop.v1.Envelope
+	1,  // 126: loop.v1.MetaService.Status:output_type -> loop.v1.Envelope
+	1,  // 127: loop.v1.MetaService.Version:output_type -> loop.v1.Envelope
+	64, // [64:128] is the sub-list for method output_type
+	0,  // [0:64] is the sub-list for method input_type
 	0,  // [0:0] is the sub-list for extension type_name
 	0,  // [0:0] is the sub-list for extension extendee
 	0,  // [0:0] is the sub-list for field type_name
@@ -248,7 +264,7 @@ func file_loop_v1_services_proto_init() {
 			NumEnums:      0,
 			NumMessages:   0,
 			NumExtensions: 0,
-			NumServices:   17,
+			NumServices:   18,
 		},
 		GoTypes:           file_loop_v1_services_proto_goTypes,
 		DependencyIndexes: file_loop_v1_services_proto_depIdxs,

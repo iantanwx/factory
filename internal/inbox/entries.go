@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/iantanwx/loop/internal/escalation"
+	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/sched"
 )
@@ -99,7 +100,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			}
 			out = append(out, e)
 		}
-		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts} {
+		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults} {
 			es, err := read(ctx, tx)
 			if err != nil {
 				return err
@@ -339,4 +340,32 @@ func (in *Inbox) alerts(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 		out = append(out, e)
 	}
 	return out, rs.Err()
+}
+
+// faults shows each open or acknowledged loop fault (KTD31). It waits on
+// the coordinator, which triages it with `loop fault ack` and
+// `loop fault resolve`. A fault has no item or pull request, so its entry
+// has no link. Its id names the fault.
+func (in *Inbox) faults(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
+	fs, err := fault.Pending(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Entry, 0, len(fs))
+	for _, f := range fs {
+		by := f.Reporter
+		if f.Stage != "" {
+			by += " of stage " + f.Stage
+		}
+		if f.Project != "" {
+			by += " on project " + f.Project
+		}
+		out = append(out, Entry{ID: KindFault + "/" + f.ID, Kind: KindFault, Awaits: AwaitsCoordinator, Project: f.Project, Item: f.Item,
+			Status: f.Status, Title: fmt.Sprintf("loop fault %s, reported by %s %s under release %s", f.ID, by, f.RunID, f.Release),
+			Text: "The report:\n\n" + AgentText(f.RunID, f.Text),
+			Next: fmt.Sprintf("`loop fault ack %s`, then `loop fault resolve %s` with --fixed-in <release>, --duplicate-of <id>, or --not-a-fault --reason <text>",
+				f.ID, f.ID),
+			At: f.ReportedAt})
+	}
+	return out, nil
 }

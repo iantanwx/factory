@@ -132,6 +132,10 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	if r := in.secretIn("answer", body); r != nil {
 		return *r
 	}
+	if strings.HasPrefix(id, KindFault+"/") {
+		f := strings.TrimPrefix(id, KindFault+"/")
+		return refuse(cli.CodeUsage, "fault_entry", fmt.Sprintf("a fault entry settles with `loop fault ack %s` and `loop fault resolve %s`, not with an answer", f, f))
+	}
 	kind, project, item, row, ok := parseEntry(id)
 	if !ok {
 		return refuse(cli.CodeUsage, "bad_entry", fmt.Sprintf("%q is no entry id that `loop inbox list` prints", id))

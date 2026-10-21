@@ -14,6 +14,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
@@ -216,6 +217,13 @@ func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *conf
 		RunID: ad.RunID, Project: ad.Project, Stage: ad.Stage, Role: ad.Stage, Harness: string(prof.Harness), Model: prof.Model,
 		BaseBranch: DefaultBaseBranch, Attempt: ad.Attempt,
 		Secrets: brief.Secrets{Present: snap.Manifest.Names(), Missing: []string{}},
+	}
+	// The brief names the loop faults filed from this project and stage
+	// (KTD31), so the run learns their status without asking.
+	if fs, err := fault.ForBrief(ctx, s.cfg.Store, ad.Project, ad.Stage, s.now()); err != nil {
+		s.log.WarnContext(ctx, "brief: read the loop faults", "err", err)
+	} else {
+		b.Faults = fs
 	}
 	if ad.Item == "" {
 		return b

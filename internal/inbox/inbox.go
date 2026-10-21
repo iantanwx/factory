@@ -39,6 +39,7 @@ const (
 	KindQuestion   = "question"   // a question the coordinator prepared
 	KindRoom       = "room"       // a room that is not closed
 	KindAlert      = "alert"      // an open alert
+	KindFault      = "fault"      // an open or acknowledged loop fault
 )
 
 // Defaults.

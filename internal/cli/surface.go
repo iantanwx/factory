@@ -32,6 +32,7 @@ var (
 	stageArg      = arg("stage", "the stage name")
 	secretArg     = arg("name", "the secret name; the value never prints")
 	projectArg    = arg("project", "the project id")
+	faultArg      = arg("fault", "the fault id, F-<n>")
 )
 
 func server(noun, name, summary string, callers []string, args []Arg, flags ...Flag) Verb {
@@ -81,7 +82,8 @@ var surface = []Verb{
 		projectFlag)),
 
 	write(server("run", "finish", "report the run's outcome and release its lease", runOnly, nil,
-		Flag{Name: "outcome", Type: FlagString, Required: true, Enum: []string{"done", "failed", "blocked"}, Description: "how the run ended"})),
+		Flag{Name: "outcome", Type: FlagString, Required: true, Enum: []string{"done", "failed", "blocked"}, Description: "how the run ended"},
+		Flag{Name: "fault", Type: FlagString, Description: "the loop fault that stopped the run, F-<n>; the run's record keeps it"})),
 	server("run", "show", "show one run", coordinator, []Arg{runArg}),
 	server("run", "list", "list runs", coordinator, nil),
 	server("run", "events", "list one run's events", coordinator, []Arg{runArg}),
@@ -131,6 +133,20 @@ var surface = []Verb{
 	write(server("decision", "settle", "settle a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag,
 		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
 	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
+
+	write(server("fault", "report", "report a fault in the loop itself, not in the project; the answer names its fault id", readers, nil,
+		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report file, at any path, read by the CLI: the command, its envelope and what you expected; 64 KiB at most"})),
+	server("fault", "show", "show one loop fault: its status, its resolution and the release this host runs", readers, []Arg{faultArg}),
+	server("fault", "list", "list loop faults, newest first", readers, nil,
+		Flag{Name: "project", Type: FlagString, Description: "only faults filed from this project"},
+		Flag{Name: "stage", Type: FlagString, Description: "only faults filed from this stage"},
+		Flag{Name: "status", Type: FlagString, Enum: []string{"open", "acknowledged", "fixed", "duplicate", "not-a-fault"}, Description: "only faults in this status"}),
+	write(server("fault", "ack", "acknowledge an open loop fault", coordinator, []Arg{faultArg})),
+	write(server("fault", "resolve", "resolve a loop fault with exactly one resolution", coordinator, []Arg{faultArg},
+		Flag{Name: "fixed-in", Type: FlagString, Description: "the release that fixes the fault"},
+		Flag{Name: "duplicate-of", Type: FlagString, Description: "the fault this one repeats, F-<n>"},
+		Flag{Name: "not-a-fault", Type: FlagBool, Description: "the report names no fault in the loop; needs --reason"},
+		Flag{Name: "reason", Type: FlagString, Description: "why the report is not a fault"})),
 
 	server("inbox", "list", "list inbox entries", coordinator, nil,
 		Flag{Name: "awaits", Type: FlagString, Enum: []string{"person", "coordinator"}, Description: "only entries that wait on this actor"}),

@@ -1861,6 +1861,260 @@ var DecisionService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	FaultService_Report_FullMethodName  = "/loop.v1.FaultService/Report"
+	FaultService_Show_FullMethodName    = "/loop.v1.FaultService/Show"
+	FaultService_List_FullMethodName    = "/loop.v1.FaultService/List"
+	FaultService_Ack_FullMethodName     = "/loop.v1.FaultService/Ack"
+	FaultService_Resolve_FullMethodName = "/loop.v1.FaultService/Resolve"
+)
+
+// FaultServiceClient is the client API for FaultService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type FaultServiceClient interface {
+	Report(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Show(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	List(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Ack(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Resolve(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+}
+
+type faultServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewFaultServiceClient(cc grpc.ClientConnInterface) FaultServiceClient {
+	return &faultServiceClient{cc}
+}
+
+func (c *faultServiceClient) Report(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, FaultService_Report_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *faultServiceClient) Show(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, FaultService_Show_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *faultServiceClient) List(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, FaultService_List_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *faultServiceClient) Ack(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, FaultService_Ack_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *faultServiceClient) Resolve(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, FaultService_Resolve_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FaultServiceServer is the server API for FaultService service.
+// All implementations must embed UnimplementedFaultServiceServer
+// for forward compatibility.
+type FaultServiceServer interface {
+	Report(context.Context, *VerbRequest) (*Envelope, error)
+	Show(context.Context, *VerbRequest) (*Envelope, error)
+	List(context.Context, *VerbRequest) (*Envelope, error)
+	Ack(context.Context, *VerbRequest) (*Envelope, error)
+	Resolve(context.Context, *VerbRequest) (*Envelope, error)
+	mustEmbedUnimplementedFaultServiceServer()
+}
+
+// UnimplementedFaultServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedFaultServiceServer struct{}
+
+func (UnimplementedFaultServiceServer) Report(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Report not implemented")
+}
+func (UnimplementedFaultServiceServer) Show(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Show not implemented")
+}
+func (UnimplementedFaultServiceServer) List(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method List not implemented")
+}
+func (UnimplementedFaultServiceServer) Ack(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Ack not implemented")
+}
+func (UnimplementedFaultServiceServer) Resolve(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Resolve not implemented")
+}
+func (UnimplementedFaultServiceServer) mustEmbedUnimplementedFaultServiceServer() {}
+func (UnimplementedFaultServiceServer) testEmbeddedByValue()                      {}
+
+// UnsafeFaultServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to FaultServiceServer will
+// result in compilation errors.
+type UnsafeFaultServiceServer interface {
+	mustEmbedUnimplementedFaultServiceServer()
+}
+
+func RegisterFaultServiceServer(s grpc.ServiceRegistrar, srv FaultServiceServer) {
+	// If the following call panics, it indicates UnimplementedFaultServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&FaultService_ServiceDesc, srv)
+}
+
+func _FaultService_Report_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FaultServiceServer).Report(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FaultService_Report_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FaultServiceServer).Report(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FaultService_Show_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FaultServiceServer).Show(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FaultService_Show_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FaultServiceServer).Show(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FaultService_List_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FaultServiceServer).List(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FaultService_List_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FaultServiceServer).List(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FaultService_Ack_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FaultServiceServer).Ack(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FaultService_Ack_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FaultServiceServer).Ack(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FaultService_Resolve_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FaultServiceServer).Resolve(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FaultService_Resolve_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FaultServiceServer).Resolve(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// FaultService_ServiceDesc is the grpc.ServiceDesc for FaultService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var FaultService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "loop.v1.FaultService",
+	HandlerType: (*FaultServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Report",
+			Handler:    _FaultService_Report_Handler,
+		},
+		{
+			MethodName: "Show",
+			Handler:    _FaultService_Show_Handler,
+		},
+		{
+			MethodName: "List",
+			Handler:    _FaultService_List_Handler,
+		},
+		{
+			MethodName: "Ack",
+			Handler:    _FaultService_Ack_Handler,
+		},
+		{
+			MethodName: "Resolve",
+			Handler:    _FaultService_Resolve_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "loop/v1/services.proto",
+}
+
+const (
 	InboxService_List_FullMethodName    = "/loop.v1.InboxService/List"
 	InboxService_Answer_FullMethodName  = "/loop.v1.InboxService/Answer"
 	InboxService_Defer_FullMethodName   = "/loop.v1.InboxService/Defer"

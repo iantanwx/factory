@@ -21,6 +21,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/decision"
 	"github.com/iantanwx/loop/internal/escalation"
+	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/room"
@@ -129,7 +130,10 @@ type Server struct {
 	Escalations *escalation.Service
 	Decisions   *decision.Service
 	Rooms       *room.Service
-	Started     time.Time
+	// Faults keeps loop fault reports (U18). Every server composes it: a
+	// fault belongs to the instance, not to a project's beads.
+	Faults  *fault.Service
+	Started time.Time
 
 	human *human
 
@@ -323,6 +327,10 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		RemoveHooks: []config.RemoveHook{sec.PurgeProject},
 	}
 	if err := s.wire(); err != nil {
+		return nil, err
+	}
+	s.Faults = &fault.Service{Store: st, Redactor: red, Release: cli.Version}
+	if err := s.Faults.Register(srv); err != nil {
 		return nil, err
 	}
 	if opts.Beads != nil {

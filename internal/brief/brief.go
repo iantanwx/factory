@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/cli"
@@ -55,6 +56,20 @@ type Brief struct {
 	Handoff       []string `json:"handoff,omitempty"`
 	AllowedNext   []string `json:"allowed_next"`
 	Secrets       Secrets  `json:"secrets"`
+	// Faults lists the loop faults filed from this project and stage that
+	// are open, acknowledged, or fixed in the last FaultWindow (KTD31).
+	Faults []Fault `json:"faults,omitempty"`
+}
+
+// FaultWindow is how long a fixed fault stays in the briefs.
+const FaultWindow = 14 * 24 * time.Hour
+
+// Fault is one loop fault as a brief names it. `loop fault show <id>`
+// prints the whole report.
+type Fault struct {
+	ID      string `json:"id"`
+	Status  string `json:"status"`
+	FixedIn string `json:"fixed_in,omitempty"`
 }
 
 // Item is the work item a run holds.
@@ -114,6 +129,20 @@ func (b Brief) Markdown() string {
 	}
 	for _, h := range b.Handoff {
 		line("- Handoff note: %s", h)
+	}
+	if len(b.Faults) > 0 {
+		line("")
+		line("## Loop faults from this project and stage")
+		line("")
+		for _, f := range b.Faults {
+			if f.FixedIn != "" {
+				line("- %s: %s in %s", f.ID, f.Status, f.FixedIn)
+			} else {
+				line("- %s: %s", f.ID, f.Status)
+			}
+		}
+		line("")
+		line("`loop fault show <id>` prints a fault's report, its resolution and the release this host runs.")
 	}
 	line("")
 	line("Allowed next moves: %s", orNone(b.AllowedNext))
