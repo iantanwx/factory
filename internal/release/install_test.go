@@ -244,3 +244,27 @@ func TestLaunchdPlistRunsFromTheInstance(t *testing.T) {
 		t.Fatal("an instance path with a space was accepted")
 	}
 }
+
+// TestInstallFinishesAHalfInstall: an install that stopped before the
+// service ever ran leaves current on its version. A newer install moves
+// current to itself and finishes.
+func TestInstallFinishesAHalfInstall(t *testing.T) {
+	w := newInstallWorld(t)
+	ctx := context.Background()
+	if err := os.MkdirAll(w.in.Layout.VersionDir("v0.9.0"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.in.Layout.Binary("v0.9.0"), []byte("loop binary v0.9.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.in.Layout.SetCurrent("v0.9.0"); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := w.in.Install(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Current != "v1.0.0" || len(rep.Drift) != 0 {
+		t.Fatalf("current = %q, drift %v", rep.Current, rep.Drift)
+	}
+}

@@ -69,7 +69,11 @@ func (in *Installer) Install(ctx context.Context) (InstallReport, error) {
 	if err := in.placeSelf(); err != nil {
 		return InstallReport{}, err
 	}
-	if _, err := in.Layout.CurrentVersion(); errors.Is(err, fs.ErrNotExist) {
+	// Point current at this binary when nothing runs yet: no current, or
+	// an install that stopped before the server ever made its database.
+	// Otherwise current is an upgrade's to move.
+	_, dbErr := os.Stat(in.Layout.DB())
+	if _, err := in.Layout.CurrentVersion(); errors.Is(err, fs.ErrNotExist) || (err == nil && errors.Is(dbErr, fs.ErrNotExist)) {
 		if err := in.Layout.SetCurrent(in.Meta.Version); err != nil {
 			return InstallReport{}, err
 		}

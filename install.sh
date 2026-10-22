@@ -42,7 +42,9 @@ gh release download "$version" -R "$repo" -D "$dir" --clobber \
 )
 chmod +x "$dir/$asset"
 
-if [ -x "$instance/current/loop" ]; then
+# Upgrade only an instance whose install finished. A half-finished one
+# gets the install again, which completes it.
+if [ -x "$instance/current/loop" ] && "$instance/current/loop" install --check >/dev/null 2>&1; then
 	LOOP_RELEASE_BASE=$cache exec "$instance/current/loop" upgrade "$version"
 fi
 # The GitHub App step reads a pasted address from the terminal; this
