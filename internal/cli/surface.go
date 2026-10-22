@@ -219,8 +219,10 @@ var surface = []Verb{
 	server("project", "show", "show one project", hostOnly, []Arg{projectArg}),
 	write(server("project", "remove", "remove a project", hostOnly, []Arg{projectArg})),
 
-	topLevel(client("host", "install", "install the service unit", hostOnly, nil,
-		Flag{Name: "check", Type: FlagBool, Description: "report drift and change nothing"})),
+	topLevel(client("host", "install", "install the service, set up the host and create the loop GitHub App", hostOnly, nil,
+		Flag{Name: "check", Type: FlagBool, Description: "report drift and change nothing"},
+		Flag{Name: "github-owner", Type: FlagString, Description: "the organisation that owns the new GitHub App; the operator's own account when absent"},
+		Flag{Name: "no-github-app", Type: FlagBool, Description: "create no GitHub App"})),
 	topLevel(client("host", "upgrade", "install a signed release", hostOnly,
 		[]Arg{{Name: "version", Description: "the release to install; the latest when absent"}})),
 	topLevel(client("host", "rollback", "return to an earlier installed version", hostOnly, nil)),

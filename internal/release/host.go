@@ -35,6 +35,7 @@ const (
 	CodeReleaseUnavailable = "RELEASE_UNAVAILABLE"
 	CodeDrift              = "DRIFT"
 	CodeDoctorFailed       = "DOCTOR_FAILED"
+	CodeAppNotCreated      = "APP_NOT_CREATED"
 )
 
 // Refusals are the codes the host verbs add to the registry.
@@ -47,6 +48,7 @@ func Refusals() []cli.RefusalCode {
 		{Code: CodeReleaseUnavailable, Exit: cli.ExitWait, GRPC: codes.Unavailable, Retryable: true, Meaning: "the release could not be fetched; run the same command again later"},
 		{Code: CodeDrift, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "the installed service, binaries or config differ from what loop install writes; the hint lists each difference"},
 		{Code: CodeDoctorFailed, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "a loop doctor check failed; the hint lists each failed check"},
+		{Code: CodeAppNotCreated, Exit: cli.ExitWait, GRPC: codes.Unavailable, Retryable: true, Meaning: "loop install waited, and no GitHub App was created; run loop install again"},
 	}
 }
 

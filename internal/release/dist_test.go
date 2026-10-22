@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,20 +89,18 @@ func TestEmbeddedKeysParse(t *testing.T) {
 	}
 }
 
-// TestReleaseWorkflowHoldsNoKey: the workflow builds an unsigned draft and
-// holds no signing key (KTD26).
-func TestReleaseWorkflowHoldsNoKey(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
+// TestCIReleasesAfterBothJobs: the release job runs on main only, after
+// gates and acceptance pass. It reads the key from its one secret, signs
+// and verifies against the trusted keys, and publishes after that (KTD26).
+func TestCIReleasesAfterBothJobs(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var wf struct {
-		On struct {
-			Push struct {
-				Tags []string `yaml:"tags"`
-			} `yaml:"push"`
-		} `yaml:"on"`
 		Jobs map[string]struct {
+			If    string   `yaml:"if"`
+			Needs []string `yaml:"needs"`
 			Steps []struct {
 				Run string            `yaml:"run"`
 				Env map[string]string `yaml:"env"`
@@ -111,35 +110,35 @@ func TestReleaseWorkflowHoldsNoKey(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &wf); err != nil {
 		t.Fatal(err)
 	}
-	if len(wf.On.Push.Tags) == 0 {
-		t.Fatal("the workflow does not start on a tag")
+	job, ok := wf.Jobs["release"]
+	if !ok {
+		t.Fatal("ci.yml has no release job")
 	}
-	// The header comment explains the offline step; the checks read only
-	// what the workflow runs.
-	var code []string
-	for _, l := range strings.Split(string(raw), "\n") {
-		if !strings.HasPrefix(strings.TrimSpace(l), "#") {
-			code = append(code, l)
-		}
+	if !strings.Contains(job.If, "refs/heads/main") || !slices.Contains(job.Needs, "gates") || !slices.Contains(job.Needs, "acceptance") {
+		t.Fatalf("the release job runs without main and both checks: if %q, needs %v", job.If, job.Needs)
 	}
-	text := strings.Join(code, "\n")
-	for _, banned := range []string{"secrets.", "RELEASE_KEY", "release-sign", "minisig", " sign "} {
-		if strings.Contains(text, banned) {
-			t.Errorf("the release workflow holds %q", banned)
-		}
+	if n := strings.Count(string(raw), "secrets."); n != 1 || !strings.Contains(string(raw), "${{ secrets.LOOP_RELEASE_KEY }}") {
+		t.Fatalf("ci.yml reads %d secrets; it reads LOOP_RELEASE_KEY only", n)
 	}
-	draft := false
-	for _, job := range wf.Jobs {
-		for _, s := range job.Steps {
-			if strings.Contains(s.Run, "gh release create") {
-				draft = strings.Contains(s.Run, "--draft")
-			}
-			if strings.Contains(s.Run, "gh release edit") || strings.Contains(s.Run, "--draft=false") {
-				t.Error("the workflow publishes the release")
+	signed, published := -1, -1
+	for i, st := range job.Steps {
+		if strings.Contains(st.Run, "make release-sign") {
+			signed = i
+			if st.Env["LOOP_RELEASE_KEY"] == "" {
+				t.Error("the signing step does not get the key")
 			}
 		}
+		if strings.Contains(st.Run, "gh release create") {
+			published = i
+			if strings.Contains(st.Run, "--draft") || !strings.Contains(st.Run, "install.sh") {
+				t.Errorf("the release is not published with install.sh: %s", st.Run)
+			}
+		}
+		if strings.Contains(st.Run, "set -x") {
+			t.Errorf("a step may print the key: %s", st.Run)
+		}
 	}
-	if !draft {
-		t.Fatal("the workflow does not create a draft release")
+	if signed < 0 || published < 0 || signed > published {
+		t.Fatalf("sign step %d, publish step %d: the job must sign before it publishes", signed, published)
 	}
 }

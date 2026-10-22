@@ -31,62 +31,89 @@ checkout, so a merge to a project's `main` never changes the running loop.
 
 ## Install
 
-1. Download the release for your platform: `loop-linux-amd64`,
-   `loop-linux-arm64` or `loop-darwin-arm64`, with `checksums.txt` and
-   `checksums.txt.minisig`.
-2. Check the files before the first run. Later upgrades check them for you.
+Run one command on the host. It needs `gh`, logged in to an account that
+can read the loop repository:
 
-   ```sh
-   minisign -Vm checksums.txt -P <the loop release public key>
-   sha256sum -c --ignore-missing checksums.txt
-   ```
+```sh
+gh release download -R slothware-labs/factorio -p install.sh -O - | sh
+```
 
-3. Run the install:
+`install.sh` downloads the newest release for this platform, checks the
+binary's sha256 against `checksums.txt`, and runs `loop install`. Pass
+`loop install` flags after `sh -s --`. For example, `sh -s -- --github-owner
+acme` makes the organisation `acme` own the App. On a host that already runs
+the loop, the script runs `loop upgrade` instead, and the upgrade checks
+the release's signature.
 
-   ```sh
-   chmod +x loop-linux-amd64
-   ./loop-linux-amd64 install
-   ```
-
-`loop install` does these steps:
+`loop install` does these steps. Each one leaves alone what is already
+set, so running install again only repairs drift:
 
 - It copies itself into `versions/<v>/` and points `current` at it.
 - It downloads the pinned `bd` and `dolt`. It refuses a download whose
   sha256 differs from the hash built into the binary.
-- It writes the default `host.yaml`, with every throughput entry. It never
+- It writes the default `host.yaml`, with every throughput entry, and the
+  orca agent host with its checkouts under `~/orca/workspaces`. It never
   replaces an existing `host.yaml`.
 - It creates the key file and the host-admin credential file. It never
   replaces either one.
+- On Linux, it runs `loginctl enable-linger $USER`, so the service keeps
+  running after you log out. A host without logind gets a line in the
+  report naming the command instead.
+- It sets up the harnesses, as the next section says.
+- It creates the loop GitHub App, unless `host.yaml` already names one, or
+  you pass `--no-github-app`. See "Create the GitHub App" below.
 - It writes the service unit and starts the service. Linux uses a systemd
   user unit with `Type=notify` and `Restart=on-failure`. macOS uses a
   launchd agent. No unit and no environment file holds the credential.
+
+The report's `setup` list names each change made outside the instance
+directory, and each step left to you.
 
 Run `loop install --check` at any time. It changes nothing. It exits 0 when
 the instance matches what install writes. It exits 3 with code `DRIFT`, and
 the hint lists each difference. Run `loop install` again to repair drift.
 
-On Linux, run `loginctl enable-linger $USER` once. Without it, systemd stops
-the user service when you log out.
+## Create the GitHub App
 
-Today only linux/amd64 has measured hashes for `bd` and `dolt`. On
-linux/arm64 and darwin/arm64, install refuses until the operator records
-both the archive and the binary sha256 in `internal/release/provision.go`
-and ships a release with them.
+Install creates the App through GitHub's manifest flow. The App gets no
+webhook, because the reactor polls, and it gets exactly the permissions
+`loop doctor` allows: contents, pull requests, statuses, workflows and
+actions (read and write), and checks and metadata (read).
+
+1. Install prints a link to a local page, `http://127.0.0.1:47123/`, which
+   opens GitHub's form with every setting filled in. Click **Create GitHub
+   App**.
+2. GitHub sends the browser back to that local address. Install stores
+   the App's private key in the secret store as `_host/GITHUB_APP_KEY`, and
+   writes the App's id into `host.yaml`.
+3. The browser lands on the App's installation page. Pick **Only select
+   repositories**, choose the project repositories, and click **Install**.
+   `loop doctor` fails an installation on all repositories.
+
+When the browser runs on another machine, forward the port first
+(`ssh -L 47123:127.0.0.1:47123 <host>`), or paste the `data:` link install
+prints into the browser's address bar. GitHub then sends the browser to an
+address it cannot reach. Copy that address from the address bar and paste
+it into the terminal. Install waits 30 minutes, then exits 4 with code
+`APP_NOT_CREATED`, and the next install tries again.
+
+A private App installs only on its owner's repositories. When the projects
+belong to an organisation, pass `--github-owner <org>`.
 
 ## Prepare the harnesses
 
 Runs start with no person present. A harness that shows an update prompt or
-a trust dialog stops the run. Set these once on each host:
+a trust dialog stops the run. Install sets these for you:
 
-- Claude Code: set `"env": {"DISABLE_AUTOUPDATER": "1"}` in
-  `~/.claude/settings.json`. Accept the trust dialog once for the agent
-  host's checkout root, or for a directory above it.
-- Codex: put `check_for_update_on_startup = false` at the top of
-  `~/.codex/config.toml`. Add a `[projects."<checkout root>"]` table with
-  `trust_level = "trusted"`.
+- Claude Code: `"env": {"DISABLE_AUTOUPDATER": "1"}` in
+  `~/.claude/settings.json`, and the trust dialog accepted for the agent
+  host's checkout root in `~/.claude.json`.
+- Codex, when `~/.codex` exists: `check_for_update_on_startup = false` at
+  the top of `~/.codex/config.toml`, and a `[projects."<checkout root>"]`
+  table with `trust_level = "trusted"`.
 
-These files belong to the vendors, and their keys can change. `loop doctor`
-reads them and says what it found.
+Install keeps every other key in these files. They belong to the vendors,
+and their keys can change. `loop doctor` reads them and says what it found.
 
 ## Check the host
 
@@ -128,11 +155,8 @@ Rules, then Rulesets, and make a branch ruleset for the default branch:
 3. Add yourself to the bypass list. You sign off a PRD or a spec by merging
    its pull request, and that merge carries no `loop/eligible` status.
 
-Install the App on the selected repositories only. Grant it contents, pull
-requests, statuses and workflows (read and write), checks and actions
-(read), and metadata. Never grant administration, secrets or members.
-`loop doctor` fails on any other permission, and on an installation set to
-all repositories.
+Install the App on this repository too, from the App's settings on GitHub,
+under **Install App**. Keep the installation on selected repositories.
 
 ## Choose a merge mechanism
 
@@ -158,11 +182,11 @@ merge-queue rule.
 
 ## Import secrets
 
-Platform credentials live in the encrypted store, not in files. Store one
-by hand from stdin:
+Platform credentials live in the encrypted store, not in files. Install
+stores the App's key itself. Store another one by hand from stdin:
 
 ```sh
-loop secret set GITHUB_APP_KEY --project _host < app-private-key.pem
+loop secret set MERGIFY_TOKEN --project _host < token.txt
 ```
 
 Import a project's secrets from 1Password:
@@ -203,11 +227,13 @@ lists `no_rollback` reasons, if any.
 
 ## Upgrade by cron
 
-The upgrade never prompts, so the host's own cron can run it:
+The upgrade never prompts, so the host's own cron can run it. The loop
+repository is private, so the cron line fetches through `gh`, as install
+does:
 
 ```cron
 # Each night at 03:17, install the newest release.
-17 3 * * * flock -n /tmp/loop-upgrade.lock $HOME/.local/state/loop/current/loop upgrade >> $HOME/.local/state/loop/log/upgrade.log 2>&1
+17 3 * * * flock -n /tmp/loop-upgrade.lock sh -c 'gh release download -R slothware-labs/factorio -p install.sh -O - | sh' >> $HOME/.local/state/loop/log/upgrade.log 2>&1
 ```
 
 Exit 1 means the newest release is already installed. Exit 3 means a check
@@ -218,51 +244,16 @@ Know this effect first. The retry rule keys on the loop release (R10). Each
 new release admits every twice-failed ticket again. A nightly upgrade that
 installs a new release therefore retries each such ticket once.
 
-## Sign a release
+## Releases
 
-The signing key never touches the devbox or CI.
+Releases need no step from you. Each push to `main` that passes the
+`gates` and `acceptance` jobs becomes the next patch release: CI builds the
+three binaries, signs `checksums.txt` with the `LOOP_RELEASE_KEY` Actions
+secret, and publishes them with `install.sh`. Hosts install it with
+`install.sh`, or overnight through the cron line above.
 
-Once, on an offline machine, make the key:
-
-```sh
-go run ./internal/release/cmd/loop-release keygen -pub loop-release.pub -sec loop-release.sec
-```
-
-Keep `loop-release.sec` offline, at mode 0600. Put the second line of
-`loop-release.pub` into `internal/release/trusted_keys.pub` and merge it.
-Binaries built after that merge trust the key. The first binary with the
-key goes on by `loop install`, because a binary with no key refuses every
-upgrade.
-
-For each release:
-
-1. Tag it: `git tag v1.2.3 && git push origin v1.2.3`. The release workflow
-   builds the three binaries, `release.json` and `checksums.txt` into a draft
-   release. It holds no key and publishes nothing.
-2. Download the draft's assets into `dist/v1.2.3/` with
-   `gh release download v1.2.3 -D dist/v1.2.3`, and move them to the offline
-   machine.
-3. Sign: `make release-sign VERSION=v1.2.3 RELEASE_KEY=/path/to/loop-release.sec`.
-   It checks every asset's sha256, signs `checksums.txt` with the version in
-   the trusted comment, and verifies the result against
-   `internal/release/trusted_keys.pub`.
-4. Upload the signature and publish:
-
-   ```sh
-   gh release upload v1.2.3 dist/v1.2.3/checksums.txt.minisig
-   gh release edit v1.2.3 --draft=false
-   ```
-
-Set `NO_ROLLBACK=1` on the `release-dist` run to mark a release by hand. A
-release that bumps the `bd` or `dolt` pin, or that adds a migration an older
-binary cannot read, is no-rollback without the mark.
-
-To rotate the key, add the next key's line to `trusted_keys.pub` and ship
-that release signed with the old key. Sign the releases after it with the
-new key.
-
-`make release-dry` runs the whole path with a throwaway key in a temporary
-directory.
+A release that bumps the `bd` or `dolt` pin, or that adds a migration an
+older binary cannot read, is marked no-rollback by itself.
 
 ## Roll back
 

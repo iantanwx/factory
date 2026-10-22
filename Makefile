@@ -94,11 +94,10 @@ pack-check:
 
 gates: $(GATES)
 
-# Releases (U16, KTD26). A tag starts .github/workflows/release.yml, which
-# runs release-dist and uploads an unsigned draft. The operator signs on
-# an offline machine with release-sign, which reads the secret key from
-# RELEASE_KEY and never runs in CI. release-dry runs the whole path with a
-# throwaway key in a temporary directory.
+# Releases (U16, KTD26). The release job in .github/workflows/ci.yml runs
+# release-dist on each green push to main, then release-sign with the key
+# from the LOOP_RELEASE_KEY secret, and publishes. release-dry runs the whole path
+# with a throwaway key in a temporary directory.
 DIST         ?= dist/$(VERSION)
 RELEASE_TOOL := $(GO) run ./internal/release/cmd/loop-release
 TRUSTED_KEYS := internal/release/trusted_keys.pub
@@ -112,7 +111,7 @@ release-dist:
 	$(RELEASE_TOOL) dist -dir $(DIST) -version $(VERSION) $(if $(MIN_FROM),-min-from $(MIN_FROM)) $(if $(NO_ROLLBACK),-no-rollback)
 
 release-sign:
-	@test -n "$(RELEASE_KEY)" || { echo "set RELEASE_KEY to the offline secret key file" >&2; exit 1; }
+	@test -n "$(RELEASE_KEY)" || { echo "set RELEASE_KEY to the secret key file" >&2; exit 1; }
 	$(RELEASE_TOOL) sign -dir $(DIST) -key $(RELEASE_KEY)
 	$(RELEASE_TOOL) verify -dir $(DIST) -pub $(TRUSTED_KEYS)
 

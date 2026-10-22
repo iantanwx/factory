@@ -45,22 +45,29 @@ func doltURL(goos, goarch string) string {
 
 // pinTable holds the pinned binaries of every release platform. An empty
 // hash is a pin nobody measured yet: provisioning refuses that platform
-// until the operator records both hashes. The bd archive hashes come from
-// beads' own checksums.txt for 1.3.1. The linux/amd64 binary hashes are
-// the binaries docs/evidence/beads-contract.md records.
+// until both hashes are recorded. The bd archive hashes come from beads'
+// own checksums.txt for 1.3.1. The linux/amd64 binary hashes are the
+// binaries docs/evidence/beads-contract.md records. The arm64 hashes were
+// measured from the vendors' archives on 2026-10-22.
 var pinTable = []Pin{
 	{Name: "bd", Version: beadsx.PinnedBD, Platform: "linux/amd64", URL: beadsURL("linux", "amd64"), Member: "bd",
 		ArchiveSHA256: "3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c",
 		BinarySHA256:  "a8f48d771b9e11eccfced4aed72923b59eda746f7a9b425e7ca1af7a51251653"},
 	{Name: "bd", Version: beadsx.PinnedBD, Platform: "linux/arm64", URL: beadsURL("linux", "arm64"), Member: "bd",
-		ArchiveSHA256: "c3b32c71a6c0cd6358a12c28272b17e6818db991da192f87df52339c222e423a"},
+		ArchiveSHA256: "c3b32c71a6c0cd6358a12c28272b17e6818db991da192f87df52339c222e423a",
+		BinarySHA256:  "213518569a3648c1a520bced38733a08c66b693c53aa8801f49c644de0a44330"},
 	{Name: "bd", Version: beadsx.PinnedBD, Platform: "darwin/arm64", URL: beadsURL("darwin", "arm64"), Member: "bd",
-		ArchiveSHA256: "508ba807996e2b9c992c538a6f405f2fc7d2e16cf8b4e5b0d1bf9fe860367007"},
+		ArchiveSHA256: "508ba807996e2b9c992c538a6f405f2fc7d2e16cf8b4e5b0d1bf9fe860367007",
+		BinarySHA256:  "c06a59fda589d1fc00e394027ee90992d5083aea487c301c9e9eaf592e22e8b4"},
 	{Name: "dolt", Version: beadsx.PinnedDolt, Platform: "linux/amd64", URL: doltURL("linux", "amd64"), Member: "dolt-linux-amd64/bin/dolt",
 		ArchiveSHA256: "1f7ad8c2622995789420a3fb0f2d16b4aa7430000a825dd91d5938f36480cbf6",
 		BinarySHA256:  "72352f1d882472a7a8d6124e9c4dc12f80e2c2359ea95f1424c032e9250e35e6"},
-	{Name: "dolt", Version: beadsx.PinnedDolt, Platform: "linux/arm64", URL: doltURL("linux", "arm64"), Member: "dolt-linux-arm64/bin/dolt"},
-	{Name: "dolt", Version: beadsx.PinnedDolt, Platform: "darwin/arm64", URL: doltURL("darwin", "arm64"), Member: "dolt-darwin-arm64/bin/dolt"},
+	{Name: "dolt", Version: beadsx.PinnedDolt, Platform: "linux/arm64", URL: doltURL("linux", "arm64"), Member: "dolt-linux-arm64/bin/dolt",
+		ArchiveSHA256: "a49a566d7c1ee9fdff553644855737f9d87047557c1ce1951aa7e7053277f4af",
+		BinarySHA256:  "54fc2bb6cf02fef77ccc4ba61298ae41c5f31eed58df34d885330a394e8da028"},
+	{Name: "dolt", Version: beadsx.PinnedDolt, Platform: "darwin/arm64", URL: doltURL("darwin", "arm64"), Member: "dolt-darwin-arm64/bin/dolt",
+		ArchiveSHA256: "c6737dc2c5806e2eeef4839ad76c28167c861f878af3071df1242a6589d81267",
+		BinarySHA256:  "2c775333f7085821e95136d2066fa3d63e0926087b4b6878f68d0a4d78343690"},
 }
 
 // PinsFor returns the pins of one platform from pins: bd, then dolt. It

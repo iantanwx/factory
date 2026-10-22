@@ -12,10 +12,8 @@ On a Mac with Apple silicon:
 1. Build or download `loop-darwin-arm64` for the release under test.
 2. `./loop-darwin-arm64 version` prints one JSON envelope with the release
    version and `"platform": "darwin/arm64"`.
-3. `./loop-darwin-arm64 install` writes
-   `~/Library/LaunchAgents/dev.loop.loop.plist` and loads it. Before this can
-   pass, `internal/release/provision.go` needs the measured darwin/arm64
-   archive and binary sha256 of `bd` and `dolt`.
+3. `./loop-darwin-arm64 install --no-github-app` writes
+   `~/Library/LaunchAgents/dev.loop.loop.plist` and loads it.
 4. `loop install --check` exits 0.
 5. `loop status` answers from the launchd-started server.
 6. `loop doctor` runs and lists its lines.

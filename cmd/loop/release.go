@@ -8,6 +8,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -47,10 +49,12 @@ type hostVerbs struct {
 	home func() (string, error)
 	// platform is GOOS/GOARCH.
 	platform string
+	// setup makes install's host steps. Nil skips them.
+	setup func(inv cli.Invocation) (*release.HostSetup, error)
 }
 
 func newHostVerbs(r *cli.Registry, c *cli.Client) *hostVerbs {
-	return &hostVerbs{
+	h := &hostVerbs{
 		reg: r, client: c,
 		service: release.HostServiceManager,
 		source: func() release.Source {
@@ -61,6 +65,8 @@ func newHostVerbs(r *cli.Registry, c *cli.Client) *hostVerbs {
 		home:     os.UserHomeDir,
 		platform: runtime.GOOS + "/" + runtime.GOARCH,
 	}
+	h.setup = h.hostSetup
+	return h
 }
 
 func (h *hostVerbs) register() error {
@@ -154,6 +160,11 @@ func (h *hostVerbs) install(ctx context.Context, inv cli.Invocation) cli.Result 
 	if inv.Flags["check"] == "true" {
 		rep, err = in.Check(ctx)
 	} else {
+		if h.setup != nil {
+			if in.Setup, err = h.setup(inv); err != nil {
+				return fail(err)
+			}
+		}
 		rep, err = in.Install(ctx)
 	}
 	if err != nil {
@@ -163,6 +174,54 @@ func (h *hostVerbs) install(ctx context.Context, inv cli.Invocation) cli.Result 
 		return cli.Reject(release.CodeDrift, "drift", strings.Join(rep.Drift, "; "))
 	}
 	return cli.Found(rep)
+}
+
+// hostSetup makes install's host steps for the operator's own account.
+// The App flow talks to the operator on stderr, because stdout carries the
+// envelope, and reads a pasted address from stdin when it is a terminal.
+func (h *hostVerbs) hostSetup(inv cli.Invocation) (*release.HostSetup, error) {
+	home, err := h.home()
+	if err != nil {
+		return nil, err
+	}
+	s := &release.HostSetup{Home: home, GOOS: strings.Split(h.platform, "/")[0], Run: release.ExecRunner}
+	if u, err := user.Current(); err == nil {
+		s.User = u.Username
+	}
+	for _, p := range []string{"orca", filepath.Join(home, ".config", "orca", "cli", "bin", "orca")} {
+		if abs, err := exec.LookPath(p); err == nil {
+			if s.Orca, err = filepath.Abs(abs); err == nil {
+				break
+			}
+		}
+	}
+	if inv.Flags["no-github-app"] == "true" {
+		return s, nil
+	}
+	flow := &release.AppFlow{
+		Owner: inv.Flags["github-owner"], Name: "loop-" + hexid.Random(3), Homepage: release.Homepage,
+		Web: "https://github.com", API: "https://api.github.com",
+		Out: os.Stderr, Open: openBrowser, Timeout: 30 * time.Minute,
+	}
+	if st, err := os.Stdin.Stat(); err == nil && st.Mode()&os.ModeCharDevice != 0 {
+		flow.Paste = os.Stdin
+	}
+	s.App = flow.Create
+	return s, nil
+}
+
+// openBrowser shows url in the desktop's browser when this host has one.
+// Without one it does nothing: the flow has printed the link.
+func openBrowser(url string) {
+	for _, name := range []string{os.Getenv("BROWSER"), "xdg-open", "open"} {
+		if name == "" {
+			continue
+		}
+		if path, err := exec.LookPath(name); err == nil {
+			_ = exec.Command(path, url).Start()
+			return
+		}
+	}
 }
 
 func (h *hostVerbs) upgrade(ctx context.Context, inv cli.Invocation) cli.Result {

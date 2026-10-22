@@ -64,3 +64,53 @@ jobs:
           echo "LOOP_DOLT=$dir/bin/dolt" >> "$GITHUB_ENV"
       - run: make beads-contract
       - run: make acceptance
+
+  # Every push to main that passes both jobs becomes a release: the next
+  # patch version, signed with the LOOP_RELEASE_KEY secret, published with
+  # install.sh. Hosts pick it up with install.sh (docs/operating.md).
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [gates, acceptance]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency: release
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+      - name: Pick the next version
+        run: |
+          set -euo pipefail
+          if git describe --tags --exact-match --match 'v*.*.*' HEAD >/dev/null 2>&1; then
+            echo "this commit is already released"
+            exit 0
+          fi
+          last=$(git tag -l 'v*.*.*' --sort=-v:refname | head -1)
+          last=${last:-v0.0.0}
+          IFS=. read -r major minor patch <<< "${last#v}"
+          echo "VERSION=v$major.$minor.$((patch + 1))" >> "$GITHUB_ENV"
+      - name: Build and sign
+        if: env.VERSION != ''
+        env:
+          LOOP_RELEASE_KEY: ${{ secrets.LOOP_RELEASE_KEY }}
+        run: |
+          set -euo pipefail
+          make release-dist VERSION="$VERSION"
+          umask 077
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$LOOP_RELEASE_KEY" > "$key"
+          make release-sign VERSION="$VERSION" RELEASE_KEY="$key"
+      - name: Publish the release
+        if: env.VERSION != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$VERSION" --target "$GITHUB_SHA"
+          --title "$VERSION"
+          --notes "Install or upgrade: gh release download -R $GITHUB_REPOSITORY -p install.sh -O - | sh"
+          dist/"$VERSION"/* install.sh

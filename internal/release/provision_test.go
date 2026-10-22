@@ -135,11 +135,14 @@ func TestProvisionRefusesAChecksumMismatch(t *testing.T) {
 }
 
 func TestPinsForRefusesAnUnmeasuredPlatform(t *testing.T) {
-	if _, err := PinsFor(pinTable, "linux/amd64"); err != nil {
-		t.Fatalf("linux/amd64: %v", err)
+	for _, p := range []string{"linux/amd64", "linux/arm64", "darwin/arm64"} {
+		if _, err := PinsFor(pinTable, p); err != nil {
+			t.Fatalf("%s: %v", p, err)
+		}
 	}
-	if _, err := PinsFor(pinTable, "darwin/arm64"); err == nil || !strings.Contains(err.Error(), "record both") {
-		t.Fatalf("darwin/arm64: %v", err)
+	unmeasured := []Pin{{Name: "bd", Version: "1.3.1", Platform: "linux/riscv64", ArchiveSHA256: strings.Repeat("a", 64)}}
+	if _, err := PinsFor(unmeasured, "linux/riscv64"); err == nil || !strings.Contains(err.Error(), "record both") {
+		t.Fatalf("linux/riscv64: %v", err)
 	}
 	if _, err := PinsFor(pinTable, "windows/amd64"); err == nil {
 		t.Fatal("windows has no pin")

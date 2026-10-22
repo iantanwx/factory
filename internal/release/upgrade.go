@@ -15,10 +15,13 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
+// Homepage is the loop repository.
+const Homepage = "https://github.com/slothware-labs/factorio"
+
 // DefaultReleaseBase is where `loop upgrade` reads releases: the GitHub
 // release download path of the loop repository. The release's signature,
 // not this location, decides whether a release is trusted.
-const DefaultReleaseBase = "https://github.com/iantanwx/loop/releases/download"
+const DefaultReleaseBase = Homepage + "/releases/download"
 
 // ReleaseBaseEnv overrides DefaultReleaseBase with another URL or an
 // absolute directory that holds <version>/<asset>. It names a location

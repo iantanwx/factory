@@ -29,6 +29,8 @@ type Installer struct {
 	Self string
 	// Meta is the running binary's release metadata.
 	Meta Metadata
+	// Setup does the host steps outside the instance. Nil skips them.
+	Setup *HostSetup
 }
 
 // InstallReport is the JSON of `loop install`.
@@ -40,6 +42,9 @@ type InstallReport struct {
 	Binaries   []Provisioned `json:"binaries,omitempty"`
 	Credential string        `json:"credential_file"`
 	HostConfig string        `json:"host_config"`
+	// Setup lists each change install made outside the instance, and
+	// each step it left to the operator.
+	Setup []string `json:"setup,omitempty"`
 	// Drift lists each difference from what install writes. Install
 	// reports what remains after it ran. --check changes nothing.
 	Drift []string `json:"drift"`
@@ -83,6 +88,9 @@ func (in *Installer) Install(ctx context.Context) (InstallReport, error) {
 	if _, err := os.Stat(in.Layout.HostConfig()); errors.Is(err, fs.ErrNotExist) {
 		cfg := config.DefaultHost(dir)
 		cfg.Beads = config.BeadsConfig{BD: in.Layout.Bin("bd"), Dolt: in.Layout.Bin("dolt")}
+		if in.Setup != nil {
+			in.Setup.defaultAgentHost(cfg)
+		}
 		if err := config.SaveHost(in.Layout.HostConfig(), cfg); err != nil {
 			return InstallReport{}, err
 		}
@@ -93,15 +101,33 @@ func (in *Installer) Install(ctx context.Context) (InstallReport, error) {
 	if _, err := rpc.EnsureAdminCredential(dir); err != nil {
 		return InstallReport{}, err
 	}
+	var notes []string
+	appAdded := false
+	if in.Setup != nil {
+		if notes, appAdded, err = in.Setup.run(ctx, in.Layout); err != nil {
+			return InstallReport{}, err
+		}
+	}
 	unit, err := in.Service.Unit(dir)
 	if err != nil {
 		return InstallReport{}, err
 	}
+	_, statErr := os.Stat(in.Service.UnitPath())
 	if err := in.Service.Register(ctx, unit); err != nil {
 		return InstallReport{}, fmt.Errorf("release: register the service: %w", err)
 	}
+	// A service that was already running read host config before the App
+	// was in it.
+	if appAdded && statErr == nil {
+		if err := in.Service.Stop(ctx); err != nil {
+			return InstallReport{}, err
+		}
+		if err := in.Service.Start(ctx); err != nil {
+			return InstallReport{}, err
+		}
+	}
 	rep, err := in.Check(ctx)
-	rep.Binaries = bins
+	rep.Binaries, rep.Setup = bins, notes
 	return rep, err
 }
 
