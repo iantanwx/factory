@@ -17,9 +17,8 @@ You need `gh`, logged in to an account that can read `slothware-labs/factorio`.
   owns the App, and a private App installs only on its owner's
   repositories.
 - [ ] In the browser, click **Create GitHub App**, then pick the project
-      repositories and click **Install**. If your browser runs on another
-      machine, use the link the installer prints instead, and paste the
-      address of the page after Create back into the terminal.
+      repositories and click **Install**. On a Tailscale host, any browser
+      on the tailnet can open the link the installer prints.
 - [ ] Run `loop doctor` and fix any line it fails.
 
 The same command upgrades a host that already runs the loop.

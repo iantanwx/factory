@@ -80,9 +80,10 @@ webhook, because the reactor polls, and it gets exactly the permissions
 `loop doctor` allows: contents, pull requests, statuses, workflows and
 actions (read and write), and checks and metadata (read).
 
-1. Install prints a link to a local page, `http://127.0.0.1:47123/`, which
-   opens GitHub's form with every setting filled in. Click **Create GitHub
-   App**.
+1. Install prints a link to a page it serves on port 47123, which opens
+   GitHub's form with every setting filled in. On a Tailscale host the page
+   is on the host's tailnet address, so any browser on the tailnet reaches
+   it. Elsewhere it is on `127.0.0.1`. Click **Create GitHub App**.
 2. GitHub sends the browser back to that local address. Install stores
    the App's private key in the secret store as `_host/GITHUB_APP_KEY`, and
    writes the App's id into `host.yaml`.
@@ -90,7 +91,8 @@ actions (read and write), and checks and metadata (read).
    repositories**, choose the project repositories, and click **Install**.
    `loop doctor` fails an installation on all repositories.
 
-When the browser runs on another machine, forward the port first
+When the browser runs on another machine and the host has no Tailscale,
+forward the port first
 (`ssh -L 47123:127.0.0.1:47123 <host>`), or paste the `data:` link install
 prints into the browser's address bar. GitHub then sends the browser to an
 address it cannot reach. Copy that address from the address bar and paste

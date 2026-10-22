@@ -201,13 +201,31 @@ func (h *hostVerbs) hostSetup(inv cli.Invocation) (*release.HostSetup, error) {
 	flow := &release.AppFlow{
 		Owner: inv.Flags["github-owner"], Name: "loop-" + hexid.Random(3), Homepage: release.Homepage,
 		Web: "https://github.com", API: "https://api.github.com",
-		Out: os.Stderr, Open: openBrowser, Timeout: 30 * time.Minute,
+		Listen: appListen(), Out: os.Stderr, Open: openBrowser, Timeout: 30 * time.Minute,
 	}
 	if st, err := os.Stdin.Stat(); err == nil && st.Mode()&os.ModeCharDevice != 0 {
 		flow.Paste = os.Stdin
 	}
 	s.App = flow.Create
 	return s, nil
+}
+
+// appListen is where the App flow listens. On a Tailscale host it is the
+// tailnet address, so a browser on another tailnet machine reaches the
+// page and GitHub's redirect. Elsewhere it is loopback.
+func appListen() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "tailscale", "ip", "-4").Output()
+	if err != nil {
+		return release.AppListen
+	}
+	ip, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	if net.ParseIP(ip) == nil {
+		return release.AppListen
+	}
+	_, port, _ := net.SplitHostPort(release.AppListen)
+	return net.JoinHostPort(ip, port)
 }
 
 // openBrowser shows url in the desktop's browser when this host has one.
