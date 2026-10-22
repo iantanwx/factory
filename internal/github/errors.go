@@ -30,10 +30,12 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("github: %s %s answered %d: %s", e.Method, e.Path, e.Status, e.Message)
 }
 
-// Transient reports whether a retry can cure the answer: a 502, 503 or 504.
+// Transient reports whether a retry can cure the answer: a 500, 502, 503
+// or 504. GitHub answers 500 during an incident, and the same call later
+// succeeds.
 func (e *APIError) Transient() bool {
-	return e.Status == http.StatusBadGateway || e.Status == http.StatusServiceUnavailable ||
-		e.Status == http.StatusGatewayTimeout
+	return e.Status == http.StatusInternalServerError || e.Status == http.StatusBadGateway ||
+		e.Status == http.StatusServiceUnavailable || e.Status == http.StatusGatewayTimeout
 }
 
 // RateLimitError means the shared cooldown holds every call until Until
@@ -82,12 +84,21 @@ func (e *ScanError) Error() string {
 }
 
 // RefusedError is a request the loop itself refuses before it reaches
-// GitHub or git, for example a push of the base branch.
+// GitHub or git, for example a push of the base branch. AllowedNext names
+// the verbs that recover.
 type RefusedError struct {
-	Code string
-	Rule string
-	Hint string
+	Code        string
+	Rule        string
+	Hint        string
+	AllowedNext []string
 }
+
+// The verbs a refusal names in allowed_next, spelled as the CLI registers
+// them.
+const (
+	verbBranchSync      = "branch sync"
+	verbEscalationRaise = "escalation raise"
+)
 
 func (e *RefusedError) Error() string { return "github: " + e.Hint }
 
@@ -125,9 +136,14 @@ func Refusal(err error) cli.Refusal {
 		return cli.Refusal{Code: se.Code, Rule: "secret_in_text",
 			Hint: fmt.Sprintf("%s holds the value of %s; remove it and run the command again", se.Where, strings.Join(se.Names, ", "))}
 	case errors.As(err, &sc):
-		return cli.Refusal{Code: sc.Code, Rule: sc.Rule, Hint: sc.Error()}
+		ref := cli.Refusal{Code: sc.Code, Rule: sc.Rule, Hint: sc.Error()}
+		if sc.Code == cli.CodeUnsafePath {
+			// Only the operator makes that change, so the run asks a person.
+			ref.AllowedNext = []string{verbEscalationRaise}
+		}
+		return ref
 	case errors.As(err, &rf):
-		return cli.Refusal{Code: rf.Code, Rule: rf.Rule, Hint: rf.Hint}
+		return cli.Refusal{Code: rf.Code, Rule: rf.Rule, Hint: rf.Hint, AllowedNext: rf.AllowedNext}
 	case errors.Is(err, ErrNotConfigured):
 		return cli.Refusal{Code: cli.CodeMissingSecret, Rule: "github_app_not_configured", Hint: err.Error()}
 	case errors.As(err, &api):
@@ -137,7 +153,8 @@ func Refusal(err error) cli.Refusal {
 		case api.Status == http.StatusNotFound:
 			return cli.Refusal{Code: cli.CodeNotFound, Rule: "github_not_found", Hint: api.Error()}
 		case api.Status >= 400 && api.Status < 500:
-			return cli.Refusal{Code: cli.CodeGitHubRefused, Rule: "github_refused", Hint: api.Error()}
+			return cli.Refusal{Code: cli.CodeGitHubRefused, Rule: "github_refused", Hint: api.Error(),
+				AllowedNext: []string{verbEscalationRaise}}
 		}
 	}
 	return *cli.InternalRefusal(err)

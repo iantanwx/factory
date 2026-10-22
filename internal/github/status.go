@@ -42,13 +42,20 @@ func (s *Service) PostStatus(ctx context.Context, p config.Project, sha, context
 	return err
 }
 
+// eligibleRevive is how long a failed loop/eligible post waits before the
+// next enqueue makes it runnable again. Its alert stays open meanwhile.
+const eligibleRevive = time.Hour
+
 // EnqueueEligibility makes sure every ticket that passed review holds an
 // outbox effect that posts loop/eligible on its reviewed head (KTD15). A
-// review pass writes reviewed_head with the state change. The effect
-// joins the intent of that pass, and it is idempotent by its natural key,
-// so a crash between the pass and the post leaves nothing behind: the
-// next tick or start-up finds the pass and enqueues the post again. It
-// posts on the reviewed sha only, never on a later head.
+// review pass writes reviewed_head with the state change, and the bead is
+// the record: a restore that lost the pass's history still enqueues. The
+// effect joins the intent of that pass when SQLite holds it. It is
+// idempotent by its natural key, so a crash between the pass and the post
+// leaves nothing behind: the next tick or start-up enqueues the post
+// again. A post that failed is made runnable again eligibleRevive after
+// its failure, while the ticket waits at the same head. It posts on the
+// reviewed sha only, never on a later head.
 func (s *Service) EnqueueEligibility(ctx context.Context, p config.Project) (int, error) {
 	m := s.cfg.Machine
 	if m == nil {
@@ -73,19 +80,25 @@ func (s *Service) EnqueueEligibility(ctx context.Context, p config.Project) (int
 		if err != nil {
 			return added, err
 		}
+		key := statusKey(p.ID, sha, EligibleContext)
 		err = s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-			var intent int64
-			err := tx.QueryRow(`SELECT intent_id FROM transitions WHERE project = ? AND item = ? AND verb = 'review_pass'
-				ORDER BY seq DESC LIMIT 1`, p.ID, it.ID).Scan(&intent)
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil
-			}
+			now := tx.Now().UnixMilli()
+			res, err := tx.Exec(`UPDATE outbox SET state = 'runnable', attempts = 0, next_attempt_at = 0, updated_at = ?
+				WHERE effect_kind = ? AND natural_key = ? AND state = 'failed' AND updated_at <= ?`,
+				now, EffectStatus, key, now-eligibleRevive.Milliseconds())
 			if err != nil {
 				return err
 			}
-			now := tx.Now().UnixMilli()
-			res, err := tx.Exec(`INSERT OR IGNORE INTO outbox (intent_id, effect_kind, natural_key, payload, state, created_at, updated_at)
-				VALUES (?, ?, ?, ?, 'runnable', ?, ?)`, intent, EffectStatus, statusKey(p.ID, sha, EligibleContext), string(payload), now, now)
+			if n, _ := res.RowsAffected(); n > 0 {
+				added += int(n)
+				return nil
+			}
+			intent, err := eligibleIntent(tx, p.ID, it.ID)
+			if err != nil || intent == 0 {
+				return err
+			}
+			res, err = tx.Exec(`INSERT OR IGNORE INTO outbox (intent_id, effect_kind, natural_key, payload, state, created_at, updated_at)
+				VALUES (?, ?, ?, ?, 'runnable', ?, ?)`, intent, EffectStatus, key, string(payload), now, now)
 			if err != nil {
 				return err
 			}
@@ -98,6 +111,24 @@ func (s *Service) EnqueueEligibility(ctx context.Context, p config.Project) (int
 		}
 	}
 	return added, nil
+}
+
+// eligibleIntent names the intent a ticket's loop/eligible effect joins:
+// its last review pass. A restore can lose that row while the bead keeps
+// the pass, so the ticket's last intent stands in, then the project's.
+// The effect is runnable from its insert, so no settlement reads the
+// link. 0 means SQLite holds no intent to join yet.
+func eligibleIntent(tx *store.Tx, project, item string) (int64, error) {
+	var intent sql.NullInt64
+	err := tx.QueryRow(`SELECT coalesce(
+			(SELECT intent_id FROM transitions WHERE project = ? AND item = ? AND verb = 'review_pass' ORDER BY seq DESC LIMIT 1),
+			(SELECT max(id) FROM intents WHERE project = ? AND item = ?),
+			(SELECT max(id) FROM intents WHERE project = ?))`,
+		project, item, project, item, project).Scan(&intent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return intent.Int64, err
 }
 
 // maxEffectAttempts bounds the retries of one effect GitHub keeps
@@ -115,7 +146,8 @@ type effect struct {
 // when GitHub answered success. An unknown answer (a timeout, a 5xx, a
 // rate limit) leaves it runnable for a later attempt, because a status
 // post is idempotent by sha and context. A 4xx after maxEffectAttempts
-// fails the effect and raises an alert.
+// fails the effect and raises an alert. EnqueueEligibility revives a failed
+// loop/eligible post later, and a repeat failure counts on the open alert.
 func (s *Service) RunStatusEffects(ctx context.Context) error {
 	var due []effect
 	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {

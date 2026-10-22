@@ -17,6 +17,11 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	if _, _, ok := acceptance.BeadsBinaries(); !ok {
 		fmt.Println(acceptance.SkipMessage)
+		// CI provisions both binaries, so a miss there is a fault, never
+		// a pass. A box without them still skips.
+		if os.Getenv("CI") != "" {
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 	dir, err := os.MkdirTemp("", "accbin")

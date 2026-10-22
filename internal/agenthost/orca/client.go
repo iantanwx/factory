@@ -42,16 +42,36 @@ type Runner interface {
 	Run(ctx context.Context, args []string) (Output, error)
 }
 
+// DefaultCallTimeout bounds one orca call when the caller's context has no
+// deadline. No caller of a tick sets one, so without it a hung orca holds
+// the tick.
+const DefaultCallTimeout = 30 * time.Second
+
+// CheckoutCallTimeout bounds `worktree create` when the caller's context has
+// no deadline. That call checks out a whole tree, which can take longer
+// than any other call.
+const CheckoutCallTimeout = 3 * time.Minute
+
 // ExecRunner runs the orca binary at Bin.
 type ExecRunner struct {
 	Bin string
+	// Timeout bounds one call when ctx has no deadline. Zero means
+	// DefaultCallTimeout, or CheckoutCallTimeout for `worktree create`.
+	Timeout time.Duration
 	// WaitDelay bounds the wait for output after the context ends. Zero
 	// means two seconds.
 	WaitDelay time.Duration
 }
 
-// Run runs Bin with args. Cancelling ctx kills a hung call.
+// Run runs Bin with args. Cancelling ctx kills a hung call, and so does the
+// end of the timeout when ctx has no deadline. Either reads as an error,
+// which the host reports as agenthost.ErrHostUnavailable.
 func (r ExecRunner) Run(ctx context.Context, args []string) (Output, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.timeout(args))
+		defer cancel()
+	}
 	cmd := exec.CommandContext(ctx, r.Bin, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -73,6 +93,16 @@ func (r ExecRunner) Run(ctx context.Context, args []string) (Output, error) {
 		return out, fmt.Errorf("orca %s: %w", verb(args), err)
 	}
 	return out, nil
+}
+
+func (r ExecRunner) timeout(args []string) time.Duration {
+	switch {
+	case r.Timeout > 0:
+		return r.Timeout
+	case verb(args) == "worktree create":
+		return CheckoutCallTimeout
+	}
+	return DefaultCallTimeout
 }
 
 // Config configures the orca host.

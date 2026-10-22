@@ -32,14 +32,17 @@ func (s *Scheduler) Reconcile(ctx context.Context) error {
 }
 
 // sweepLeases frees each lease whose owner run has settled. A settlement
-// that met a beads fault leaves one, and this retries it. A run that
-// ended with no report is reclaimed. Every other is released.
+// that met a beads fault leaves one, and this retries it. A lease whose
+// owner has no run row counts as settled: admission writes the row before
+// the claim, so only a lost row leaves such an owner. A run that ended
+// with no report is reclaimed. Every other is released.
 func (s *Scheduler) sweepLeases(ctx context.Context) error {
 	type held struct{ project, item, run, class string }
 	var rows []held
 	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		rs, err := tx.QueryContext(ctx, `SELECT l.project, l.item, l.owner_run_id, coalesce(r.outcome_class, '')
-			FROM leases l JOIN runs r ON r.run_id = l.owner_run_id WHERE r.ended_at IS NOT NULL`)
+			FROM leases l LEFT JOIN runs r ON r.run_id = l.owner_run_id
+			WHERE l.owner_run_id IS NOT NULL AND l.owner_run_id <> '' AND (r.run_id IS NULL OR r.ended_at IS NOT NULL)`)
 		if err != nil {
 			return err
 		}

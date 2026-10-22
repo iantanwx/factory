@@ -221,9 +221,18 @@ guard refuses:
 ## Dolt supervision
 
 - Dolt 2.2.0 always opens a TCP listener and refuses port 0. The supervisor
-  binds 127.0.0.1 on a free port beside the socket. Warning: the root user has
-  no password, so any local user can reach that port. U4 and U16 should
-  assume a single-user host, or add a Dolt user.
+  binds 127.0.0.1 on a free port beside the socket. Any local user can reach
+  that port, so root has a password. Dolt 2.2.0 sets it from
+  `DOLT_ROOT_PASSWORD` only when it creates root, on a data directory with no
+  `.doltcfg/privileges.db`. On a data directory that has one, Dolt ignores the
+  variable, and an offline `dolt sql` that reads `ALTER USER` on stdin sets
+  the password. bd 1.3.1 reads `BEADS_DOLT_PASSWORD` and connects over the
+  socket with it. Measured: a client with no password or a wrong one gets
+  error 1045 on TCP, and bd with no password gets the same error on the
+  socket. Neither bd nor Dolt writes the password into the workspace or the
+  data directory. The supervisor keeps it in `root.password` beside `data/`
+  (`TestBDWithoutThePasswordIsRefused`, `TestLostPasswordFileGetsANewPassword`:
+  PASS).
 - After a SIGKILL, Dolt leaves its socket file. A new server then logs "unix
   socket set up failed: file already in use" and serves TCP only. The
   supervisor removes the stale socket before each start of its own process,

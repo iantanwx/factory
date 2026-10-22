@@ -188,6 +188,23 @@ func (t *Tx) MarkRefused(intentID int64, result json.RawMessage) error {
 	return t.settle(intentID, IntentRefused, OutboxCancelled, result)
 }
 
+// MarkRefusedUnkeyed settles a pending intent as refused with an answer
+// that holds only for the moment, such as INTERNAL. It stores result on the
+// intent and frees the intent's idempotency key, so a retry with that key
+// runs the write again and does not replay the answer.
+func (t *Tx) MarkRefusedUnkeyed(intentID int64, result json.RawMessage) error {
+	if err := t.settle(intentID, IntentRefused, OutboxCancelled, result); err != nil {
+		return err
+	}
+	if _, err := t.Exec(`DELETE FROM idempotency WHERE intent_id = ?`, intentID); err != nil {
+		return fmt.Errorf("store: free the key of intent %d: %w", intentID, err)
+	}
+	if _, err := t.Exec(`UPDATE intents SET idem_key = NULL WHERE id = ?`, intentID); err != nil {
+		return fmt.Errorf("store: free the key of intent %d: %w", intentID, err)
+	}
+	return nil
+}
+
 func (t *Tx) settle(intentID int64, to IntentState, outboxTo OutboxState, result json.RawMessage) error {
 	var state string
 	err := t.QueryRow(`SELECT state FROM intents WHERE id = ?`, intentID).Scan(&state)

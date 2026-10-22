@@ -32,6 +32,9 @@ type BDConfig struct {
 	Home      string        // the isolated HOME for bd (Layout.Home)
 	Actor     string        // the audit actor; empty means "loop"
 	Timeout   time.Duration // per call; zero means DefaultTimeout
+	// PasswordFile holds the Dolt root password (Supervisor.PasswordFile).
+	// Empty means a server with no password, as the stub tests run.
+	PasswordFile string
 }
 
 // BD is the Client around the pinned `bd --json`.
@@ -55,6 +58,15 @@ func NewBD(ctx context.Context, cfg BDConfig) (*BD, error) {
 		cfg.Timeout = DefaultTimeout
 	}
 	b := &BD{cfg: cfg, env: bdEnv(cfg.Home, filepath.Join(cfg.Workspace, ".beads"), cfg.Actor)}
+	if cfg.PasswordFile != "" {
+		raw, err := os.ReadFile(cfg.PasswordFile)
+		if err != nil {
+			return nil, fmt.Errorf("%w: read the Dolt password: %w", ErrInvalid, err)
+		}
+		// bd reads the password from its environment, which only this OS
+		// user can read. bd never writes it into the workspace.
+		b.env = append(b.env, "BEADS_DOLT_PASSWORD="+strings.TrimSpace(string(raw)))
+	}
 	v, err := b.Version(ctx)
 	if err != nil {
 		return nil, err

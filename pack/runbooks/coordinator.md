@@ -77,6 +77,14 @@ read with the event you blame. Read the state back after each write you report.
   it with `loop stage resume <stage>`. Report each one.
 - **The same item stands still wake after wake.** Say so in the report. Never escalate it a second
   time. A duplicate changes nothing.
+- **A backlog ticket waits on a canceled blocker, or on no blocking edge.** The server never frees
+  that ticket alone. Read the ticket and each blocker with `loop work show <item>`. When the ticket
+  still holds without the canceled work, run `loop work unblock <item>`. When it does not, bring
+  it to the operator.
+- **The operator drops an escalated item.** Run `loop work cancel <item>`, and quote the
+  operator's words in the report.
+- **An eligible pull request does not merge.** Read `loop merge status`. It shows the state of the
+  merge mechanism. Name what it shows in the report.
 - Never claim an item, and never take over a live run. The server holds every claim.
 
 ## 4. Act, or ask first

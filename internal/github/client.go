@@ -22,6 +22,15 @@ const DefaultAPI = "https://api.github.com"
 // than this is cut by its own reader first.
 const maxBody = 16 << 20
 
+// RequestTimeout bounds one request, its answer included, when the Client
+// sets no Timeout. The reactor and start-up reconcile pass a context with no
+// deadline, so a stalled connection would otherwise hold them.
+const RequestTimeout = 60 * time.Second
+
+// defaultHTTP is the client when Client.HTTP is nil. Its timeout is a second
+// bound beside the per-request context.
+var defaultHTTP = &http.Client{Timeout: RequestTimeout}
+
 // retryDelays are the waits before each retry of a read. Two entries, so
 // one read makes at most three attempts. Ported from RETRY_DELAYS_MS in
 // scripts/sdlc/github-retry.ts (alpha).
@@ -33,8 +42,11 @@ var retryDelays = []time.Duration{time.Second, 3 * time.Second}
 // passes the redactor first (KTD27).
 type Client struct {
 	Base     string
-	HTTP     *http.Client
+	HTTP     *http.Client // nil means a client with RequestTimeout
 	Cooldown *Cooldown
+	// Timeout bounds one request when the caller's context has no earlier
+	// deadline. Zero means RequestTimeout.
+	Timeout  time.Duration
 	Redactor *secrets.Redactor
 	// Sleep waits between retries. A test replaces it.
 	Sleep func(ctx context.Context, d time.Duration) error
@@ -119,10 +131,16 @@ func transient(err error) bool {
 	return errors.As(err, &ua)
 }
 
-func (cl *Client) once(ctx context.Context, c Call, body []byte, out any) (*Response, error) {
+func (cl *Client) once(parent context.Context, c Call, body []byte, out any) (*Response, error) {
 	if err := cl.Cooldown.Check(); err != nil {
 		return nil, err
 	}
+	timeout := cl.Timeout
+	if timeout <= 0 {
+		timeout = RequestTimeout
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
 	base := cl.Base
 	if base == "" {
 		base = DefaultAPI
@@ -150,12 +168,14 @@ func (cl *Client) once(ctx context.Context, c Call, body []byte, out any) (*Resp
 	}
 	hc := cl.HTTP
 	if hc == nil {
-		hc = http.DefaultClient
+		hc = defaultHTTP
 	}
 	res, err := hc.Do(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
+		// The caller's own end is no fault of GitHub's. The request's
+		// timeout is, and a read retries it.
+		if parent.Err() != nil {
+			return nil, parent.Err()
 		}
 		// The error text names the URL and never a header.
 		return nil, &UnavailableError{Err: fmt.Errorf("%s %s: %w", c.Method, c.Path, err)}

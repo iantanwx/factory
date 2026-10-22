@@ -3,6 +3,8 @@ package beadsx
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -52,13 +55,14 @@ type Supervisor struct {
 	cfg      DoltConfig
 	restarts chan RestartEvent
 
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	exited  chan struct{} // closed when cmd exits
-	count   int
-	started bool
-	stop    chan struct{}
-	done    chan struct{}
+	mu       sync.Mutex
+	password string // the root password; never logged or printed
+	cmd      *exec.Cmd
+	exited   chan struct{} // closed when cmd exits
+	count    int
+	started  bool
+	stop     chan struct{}
+	done     chan struct{}
 }
 
 // NewSupervisor validates the configuration. It starts nothing.
@@ -98,6 +102,10 @@ func NewSupervisor(cfg DoltConfig) (*Supervisor, error) {
 
 // Socket is the unix socket path bd connects to.
 func (s *Supervisor) Socket() string { return s.cfg.Socket }
+
+// PasswordFile is the file that holds the Dolt root password. Start writes
+// it, and bd reads it through BDConfig.PasswordFile.
+func (s *Supervisor) PasswordFile() string { return filepath.Join(s.cfg.Dir, PasswordFileName) }
 
 // Restarts delivers one event for each restart. The channel holds 64 events.
 // When it is full the supervisor drops the event, and RestartCount still
@@ -150,6 +158,13 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	if probe(s.cfg.Socket) == nil {
 		return fmt.Errorf("%w: socket %s is already served by another process", ErrRefused, s.cfg.Socket)
 	}
+	pw, err := s.ensurePassword(ctx)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.password = pw
+	s.mu.Unlock()
 	if err := s.spawn(); err != nil {
 		return err
 	}
@@ -166,7 +181,8 @@ func (s *Supervisor) Start(ctx context.Context) error {
 }
 
 // Stop stops the server by its own PID: SIGTERM, then SIGKILL when ctx ends.
-// It removes the socket file the server leaves.
+// It removes the socket file the server leaves. A ctx with no deadline can
+// wait forever on a server that ignores SIGTERM, so a caller bounds it.
 func (s *Supervisor) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	stop, done := s.stop, s.done
@@ -179,7 +195,14 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 	default:
 		close(stop)
 	}
-	<-done
+	select {
+	case <-done:
+	case <-ctx.Done():
+		// The watch loop is still inside a start. Kill that server, so the
+		// loop sees it exit and returns.
+		s.killCurrent()
+		<-done
+	}
 	s.mu.Lock()
 	cmd, exited := s.cmd, s.exited
 	s.mu.Unlock()
@@ -227,6 +250,68 @@ func (s *Supervisor) prepare() error {
 	return writeFileAtomic(path, b, 0o600)
 }
 
+// PasswordFileName names the root password file in the supervisor's
+// directory. The file lives outside data/, so no Dolt database holds it.
+const PasswordFileName = "root.password"
+
+var passwordPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// ensurePassword returns the root password, and makes one on the first
+// start. Dolt 2.2.0 always opens a TCP listener on loopback, and any local
+// user can reach it. A root without a password lets that user read and
+// write every beads database.
+//
+// A new data directory takes the password from DOLT_ROOT_PASSWORD when the
+// server creates root. A server that ran before keeps root in its
+// privileges file and ignores that variable, so an offline ALTER USER sets
+// the password there first.
+func (s *Supervisor) ensurePassword(ctx context.Context) (string, error) {
+	path := s.PasswordFile()
+	b, err := os.ReadFile(path)
+	if err == nil {
+		pw := strings.TrimSpace(string(b))
+		if !passwordPattern.MatchString(pw) {
+			return "", fmt.Errorf("%w: %s holds no valid password; delete it to make a new one", ErrRefused, path)
+		}
+		return pw, os.Chmod(path, 0o600)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	pw := hex.EncodeToString(raw)
+	if _, err := os.Stat(filepath.Join(s.dataDir(), ".doltcfg", "privileges.db")); err == nil {
+		if err := s.setRootPassword(ctx, pw); err != nil {
+			return "", err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if err := writeFileAtomic(path, []byte(pw+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	return pw, nil
+}
+
+// setRootPassword runs `dolt sql` with no server. The statement reaches dolt
+// on stdin, so no argv holds the password. Dolt echoes a failed statement,
+// so its output is discarded.
+func (s *Supervisor) setRootPassword(ctx context.Context, pw string) error {
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.StartTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, s.cfg.Binary, "sql")
+	cmd.Dir = s.dataDir()
+	cmd.Env = s.doltEnv()
+	cmd.Stdin = strings.NewReader("ALTER USER 'root'@'localhost' IDENTIFIED BY '" + pw + "';\n")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%w: dolt sql could not set the root password: %v", ErrUnavailable, err)
+	}
+	return nil
+}
+
 func (s *Supervisor) doltEnv() []string {
 	return []string{
 		"PATH=" + os.Getenv("PATH"),
@@ -257,8 +342,12 @@ func (s *Supervisor) spawn() error {
 	cmd := exec.Command(s.cfg.Binary, "sql-server",
 		"--socket="+s.cfg.Socket, "--host=127.0.0.1", "--port="+strconv.Itoa(port),
 		"--data-dir="+s.dataDir())
+	s.mu.Lock()
+	pw := s.password
+	s.mu.Unlock()
 	cmd.Dir = s.dataDir()
-	cmd.Env = s.doltEnv()
+	// The environment, unlike argv, is readable only by this OS user.
+	cmd.Env = append(s.doltEnv(), "DOLT_ROOT_PASSWORD="+pw)
 	cmd.Stdout, cmd.Stderr = logf, logf
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -360,6 +449,14 @@ func (s *Supervisor) restart(reason string) bool {
 		}
 		if err := s.spawn(); err == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), s.cfg.StartTimeout)
+			// Stop ends the wait at once, so no stop waits for a whole start.
+			go func() {
+				select {
+				case <-s.stop:
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
 			err = s.waitReady(ctx)
 			cancel()
 			if err == nil {

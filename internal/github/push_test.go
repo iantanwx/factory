@@ -123,6 +123,9 @@ func TestPushRefusedWhenTheRemoteHoldsCommitsHeadLacks(t *testing.T) {
 	if got := refusalCode(t, err); got != cli.CodeRemoteAhead {
 		t.Fatalf("code %s, want %s: %v", got, cli.CodeRemoteAhead, err)
 	}
+	if next := Refusal(err).AllowedNext; len(next) != 1 || next[0] != "branch sync" {
+		t.Fatalf("allowed_next = %v, want branch sync", next)
+	}
 	if e.remoteSHA("loop/tk-1") != foreign {
 		t.Fatal("the push overwrote the foreign commit")
 	}
@@ -296,5 +299,33 @@ func TestRebasedBranchPushes(t *testing.T) {
 	}
 	if e.remoteSHA("loop/tk-1") != head {
 		t.Fatal("the rebased head did not land")
+	}
+}
+
+// Each refusal that a run recovers from with another verb names that verb,
+// and the CLI registers it.
+func TestRefusalsNameTheirRecoveryVerb(t *testing.T) {
+	reg := cli.Surface()
+	cases := map[string]struct {
+		err  error
+		code string
+		next string
+	}{
+		"remote ahead": {&RefusedError{Code: cli.CodeRemoteAhead, Rule: "remote_holds_more", AllowedNext: []string{verbBranchSync}},
+			cli.CodeRemoteAhead, "branch sync"},
+		"unsafe path":    {&ScanError{Code: cli.CodeUnsafePath, Rule: "gitmodules"}, cli.CodeUnsafePath, "escalation raise"},
+		"github refused": {&APIError{Method: "POST", Path: "/x", Status: 422}, cli.CodeGitHubRefused, "escalation raise"},
+	}
+	for name, c := range cases {
+		ref := Refusal(c.err)
+		if ref.Code != c.code || len(ref.AllowedNext) != 1 || ref.AllowedNext[0] != c.next {
+			t.Errorf("%s: %s %v, want %s [%s]", name, ref.Code, ref.AllowedNext, c.code, c.next)
+		}
+		if _, ok := reg.Verb(c.next); !ok {
+			t.Errorf("%s: the CLI registers no verb %q", name, c.next)
+		}
+	}
+	if ref := Refusal(&APIError{Status: 500}); ref.Code != cli.CodeGitHubUnavailable {
+		t.Errorf("a 500 is %s, want %s", ref.Code, cli.CodeGitHubUnavailable)
 	}
 }

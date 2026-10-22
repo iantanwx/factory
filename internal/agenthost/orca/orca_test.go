@@ -949,6 +949,38 @@ func TestHungOrcaIsCancelledAndUnknown(t *testing.T) {
 	}
 }
 
+// A scheduler tick passes a context with no deadline. The runner's own
+// timeout then kills a hung orca, and the call reads as Unknown.
+func TestHungOrcaWithNoDeadlineTimesOut(t *testing.T) {
+	run := orca.ExecRunner{Bin: script(t, "exec sleep 30"), Timeout: 200 * time.Millisecond}
+	h, err := orca.New(orca.Config{Runner: run, CheckoutRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	begin := time.Now()
+	st, err := h.Settle(context.Background(), idA)
+	if took := time.Since(begin); took > 5*time.Second {
+		t.Fatalf("a hung orca call ran %s with no deadline", took)
+	}
+	if st.Liveness != agenthost.Unknown || !errors.Is(err, agenthost.ErrHostUnavailable) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Settle = %+v, %v", st, err)
+	}
+}
+
+// A caller's earlier deadline still wins over the runner's timeout.
+func TestCallerDeadlineBeatsTheRunnerTimeout(t *testing.T) {
+	run := orca.ExecRunner{Bin: script(t, "exec sleep 30"), Timeout: time.Minute}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	begin := time.Now()
+	if _, err := run.Run(ctx, []string{"terminal", "list"}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run = %v", err)
+	}
+	if took := time.Since(begin); took > 5*time.Second {
+		t.Fatalf("a hung orca call ran %s after the caller's deadline", took)
+	}
+}
+
 func TestMissingCLIIsUnknownNeverExited(t *testing.T) {
 	h, err := orca.New(orca.Config{Bin: filepath.Join(t.TempDir(), "orca"), CheckoutRoot: t.TempDir()})
 	if err != nil {

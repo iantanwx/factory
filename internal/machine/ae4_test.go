@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/rpc"
 )
@@ -221,5 +224,43 @@ func TestAE3RefusedMoveExits3(t *testing.T) {
 	}
 	if r.w.show(id).Status != InProgress {
 		t.Fatal("the state changed")
+	}
+}
+
+// failOnce fails the next update with a bd failure no rule classifies,
+// as a Dolt lock error does, and writes nothing.
+type failOnce struct {
+	beadsx.Client
+	armed atomic.Bool
+}
+
+func (c *failOnce) Update(ctx context.Context, id string, spec beadsx.UpdateSpec) (beadsx.Issue, error) {
+	if c.armed.Swap(false) {
+		return beadsx.Issue{}, fmt.Errorf("%w: database is locked", beadsx.ErrFailed)
+	}
+	return c.Client.Update(ctx, id, spec)
+}
+
+// An unclassified bd failure answers INTERNAL and keeps no answer under
+// the key. The same command then writes again and is no replay.
+func TestInternalRefusalIsNotReplayed(t *testing.T) {
+	r := newRig(t)
+	id := r.implementing("run-1")
+	flaky := &failOnce{Client: r.w.bx}
+	flaky.armed.Store(true)
+	r.w.bc = flaky
+	env, code := r.run(context.Background(), nil, "work", "note", id, "--body", "hello")
+	if code != int(cli.ExitUndecided) || env["code"] != cli.CodeInternal {
+		t.Fatalf("the first run: exit %d %v", code, env)
+	}
+	env, code = r.run(context.Background(), nil, "work", "note", id, "--body", "hello")
+	if code != 0 || env["replayed"] == true {
+		t.Fatalf("the re-run: exit %d %v", code, env)
+	}
+	if it := r.w.show(id); it.Fact(FactNote) != "hello" {
+		t.Fatalf("the note did not land: %+v", it)
+	}
+	if _, history := r.w.verbCount(id, "note", "applied"); history != 1 {
+		t.Fatalf("%d notes landed, want 1", history)
 	}
 }

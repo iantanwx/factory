@@ -353,13 +353,21 @@ func (m *Machine) markApplied(ctx context.Context, in store.Intent, f facts) (cl
 	return res, true
 }
 
+// markRefused settles an intent as refused. An INTERNAL answer, such as a
+// bd failure that no rule classifies, may not hold on a retry, so it is
+// not stored under the caller's key: the same command runs the write again.
 func (m *Machine) markRefused(ctx context.Context, in store.Intent, f facts, ref *cli.Refusal) (cli.Result, bool) {
 	res := ref.Result()
 	env, err := m.seal(f, res)
 	if err != nil {
 		return cli.Internal(err), false
 	}
-	err = m.cfg.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error { return tx.MarkRefused(in.ID, env) })
+	err = m.cfg.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
+		if ref.Code == cli.CodeInternal {
+			return tx.MarkRefusedUnkeyed(in.ID, env)
+		}
+		return tx.MarkRefused(in.ID, env)
+	})
 	if errors.Is(err, store.ErrIntentSettled) {
 		return m.settledResult(ctx, in.ID)
 	}

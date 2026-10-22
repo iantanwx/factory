@@ -24,11 +24,12 @@ jobs:
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
       - run: make gates
 
-  # The parity suite (U17) on the real server and real beads. It provisions
-  # the bd and dolt that internal/release/provision.go pins for
-  # linux/amd64, and it checks each archive and binary against those
-  # sha256 values. The vendor may move a URL, so the hashes decide. Keep the
-  # values here in step with the pin table.
+  # The beads contract and the parity suite (U17) on the real server and
+  # real beads. The job provisions the bd and dolt that
+  # internal/release/provision.go pins for linux/amd64, and it checks each
+  # archive and binary against those sha256 values. The vendor may move a
+  # URL, so the hashes decide. Keep the values here in step with the pin
+  # table.
   acceptance:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -61,4 +62,5 @@ jobs:
           chmod 0755 "$dir/bin/bd" "$dir/bin/dolt"
           echo "LOOP_BD=$dir/bin/bd" >> "$GITHUB_ENV"
           echo "LOOP_DOLT=$dir/bin/dolt" >> "$GITHUB_ENV"
+      - run: make beads-contract
       - run: make acceptance

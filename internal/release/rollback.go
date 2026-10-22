@@ -46,14 +46,17 @@ func (r *Rollback) Run(ctx context.Context) (RollbackReport, error) {
 	toMeta, terr := r.Layout.Metadata(to)
 	if ferr != nil || terr != nil {
 		return rep, refuse(CodeNoRollback, "metadata_missing",
-			"the release metadata of %s or %s cannot be read, so no rule proves the rollback safe; use loop restore", from, to)
+			"the release metadata of %s or %s cannot be read, so no rule proves the rollback safe; no verb repoints current at an older release, and loop restore recovers the database but keeps %s current",
+			from, to, from)
 	}
 	dbMin, err := DatabaseMinReader(ctx, r.Layout.DB())
 	if err != nil {
 		return rep, err
 	}
 	if why := RollbackBlockers(fromMeta, toMeta, dbMin); len(why) > 0 {
-		return rep, refuse(CodeNoRollback, "no_rollback", "%s; use loop restore with a snapshot taken before %s", strings.Join(why, "; "), from)
+		return rep, refuse(CodeNoRollback, "no_rollback",
+			"%s; no rollback past %s is possible, and no verb repoints current at an older release; loop restore recovers the database but keeps %s current",
+			strings.Join(why, "; "), from, from)
 	}
 
 	lock, err := r.stop(ctx)

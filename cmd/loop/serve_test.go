@@ -67,7 +67,13 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	stopped := false
 	w := wiring{
 		beads: func(context.Context, *config.HostConfig) (machine.BeadsResolver, func(context.Context) error, error) {
-			return func(string) (beadsx.Client, error) { return bx, nil }, func(context.Context) error { stopped = true; return nil }, nil
+			stop := func(ctx context.Context) error {
+				// A stop with no deadline waits forever on a Dolt that
+				// ignores SIGTERM.
+				_, stopped = ctx.Deadline()
+				return nil
+			}
+			return func(string) (beadsx.Client, error) { return bx, nil }, stop, nil
 		},
 		agents: func(c *config.HostConfig, _ *config.Projects) (agenthost.Host, func(string) sched.CheckoutHost, error) {
 			if c.AgentHost.CheckoutRoot != root {
@@ -131,7 +137,7 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	}
 	cleanup()
 	if !stopped {
-		t.Fatal("cleanup did not stop beads")
+		t.Fatal("cleanup did not stop beads with a bounded context")
 	}
 }
 

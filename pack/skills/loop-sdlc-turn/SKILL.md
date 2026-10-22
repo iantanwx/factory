@@ -33,6 +33,7 @@ again.
 
 Every command is `loop <noun> <verb>`. Each one prints one JSON envelope. `loop schema` prints every
 verb, flag, exit code and refusal code. `loop <noun> <verb> --help` prints the schema of one verb.
+Write a value that starts with `-` in the `--flag=value` form, such as `--body=<text>`.
 
 | Exit | Name | What it means | What you do |
 | --- | --- | --- | --- |
@@ -56,6 +57,12 @@ codes cannot.
 - `TRANSITION_NOT_ALLOWED`: the move does not start from the item's state. Read `allowed_next`.
 - `CAPABILITY_DENIED`: your run may not use this verb on this item. Never look for another way.
 - `USAGE`: the command does not match its schema. Read `loop <noun> <verb> --help`.
+- `REMOTE_AHEAD`: the remote item branch holds commits that your head does not hold. Run
+  `loop branch sync`, and bring the item head in by section 4. Merge it, and push again.
+- `UNSAFE_PATH`: your push changes `.gitmodules`, a gitlink, or a filter or LFS line in
+  `.gitattributes`. Only the operator makes that change. Escalate it with `loop escalation raise`.
+- `GITHUB_REFUSED`: GitHub refused the request, and `hint` holds its answer. Never send the same
+  request again. Escalate it with `loop escalation raise`.
 - `SERVER_UNAVAILABLE`, `DRAINING`, `BEADS_UNAVAILABLE` and `GITHUB_UNAVAILABLE` exit 4. Run
   the same command again.
 

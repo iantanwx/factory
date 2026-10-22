@@ -323,7 +323,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 	delete(a.pending, r.RunID)
 	a.mu.Unlock()
 	if res.Refusal != nil {
-		if err := a.unreserve(ctx, r.RunID); err != nil {
+		if err := a.unreserve(ctx, r.Project, r.Item, r.RunID); err != nil {
 			return Admitted{}, cli.InternalRefusal(errors.Join(fmt.Errorf("admission: %s: %s", res.Refusal.Code, res.Refusal.Hint), err))
 		}
 		return Admitted{}, res.Refusal
@@ -337,13 +337,27 @@ func retryLimit(item, status string, n int) *cli.Refusal {
 		Hint: fmt.Sprintf("%s: %d failed attempts for current inputs; edit the item, change a declared file or cited document on the base, or install a new release", item, n)}
 }
 
-// unreserve drops a reservation whose claim the machine refused.
-func (a *Admission) unreserve(ctx context.Context, run string) error {
+// unreserve drops a reservation whose claim the machine refused. A claim
+// whose intent stayed recorded, such as one that met a beads outage, may
+// still land and give the lease to this run. That run's row is kept and
+// settled not-ready instead, so the lease sweep frees the lease once the
+// claim lands.
+func (a *Admission) unreserve(ctx context.Context, project, item, run string) error {
 	return a.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM failures WHERE run_id = ? AND class = ?`, run, attemptPending); err != nil {
 			return err
 		}
 		if err := releaseMutexes(tx, run); err != nil {
+			return err
+		}
+		var recorded int
+		if err := tx.QueryRow(`SELECT count(*) FROM intents WHERE project = ? AND item = ? AND run_id = ? AND state <> 'refused'`,
+			project, item, run).Scan(&recorded); err != nil {
+			return err
+		}
+		if recorded > 0 {
+			_, err := tx.Exec(`UPDATE runs SET state = 'settled', outcome_class = ?, ended_at = ? WHERE run_id = ? AND ended_at IS NULL`,
+				string(ClassNotReady), tx.Now().UnixMilli(), run)
 			return err
 		}
 		_, err := tx.Exec(`DELETE FROM runs WHERE run_id = ? AND state = 'admitted'`, run)

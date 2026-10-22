@@ -45,6 +45,20 @@ func flagName(t string) string {
 	return name
 }
 
+// isValue reports whether t, after a flag that takes a value, is that
+// value. Only a flag of the verb or "--" ends the flag, so a body such as
+// "--- notes" or "-1" is a value.
+func isValue(specs []Flag, t string) bool {
+	if t == "--" {
+		return false
+	}
+	if !isFlagToken(t) {
+		return true
+	}
+	_, known := findFlag(specs, flagName(t))
+	return !known
+}
+
 func findFlag(flags []Flag, name string) (Flag, bool) {
 	i := slices.IndexFunc(flags, func(f Flag) bool { return f.Name == name })
 	if i < 0 {
@@ -174,13 +188,13 @@ func parseFlags(v *Verb, rest []string) ([]string, map[string]string, *Result) {
 		}
 		f, ok := findFlag(specs, flagName(t))
 		if !ok {
-			return nil, nil, usage("unknown_flag", fmt.Sprintf("%s has no flag %s", v.Path, t), v.Path)
+			return nil, nil, usage("unknown_flag", fmt.Sprintf("%s has no flag %s; a value that starts with - goes in the --flag=value form", v.Path, t), v.Path)
 		}
 		_, value, hasValue := strings.Cut(t, "=")
 		if !hasValue && f.Type != FlagBool {
-			if i+1 == len(rest) || strings.HasPrefix(rest[i+1], "--") {
+			if i+1 == len(rest) || !isValue(specs, rest[i+1]) {
 				if valueFault == nil {
-					valueFault = usage("missing_value", fmt.Sprintf("--%s needs a value", f.Name), v.Path)
+					valueFault = usage("missing_value", fmt.Sprintf("--%s needs a value; write --%s=<value> when the value is a flag name", f.Name, f.Name), v.Path)
 				}
 				continue
 			}

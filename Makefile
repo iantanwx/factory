@@ -40,8 +40,8 @@ lint:
 	$(GO) vet ./...
 	$(GO) vet -tags '$(LINT_TAGS)' ./...
 
-# The beads contract runs the pinned bd and dolt (LOOP_BD, LOOP_DOLT). It
-# joins GATES once release provisioning (U16) installs them in CI.
+# The beads contract runs the pinned bd and dolt (LOOP_BD, LOOP_DOLT). CI
+# runs it in the acceptance job, which provisions both.
 beads-contract:
 	$(GO) test -tags beads -count=1 ./internal/beadsx/...
 

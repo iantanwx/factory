@@ -25,6 +25,9 @@ func (l Layout) Home() string { return filepath.Join(l.Root(), "home") }
 // DoltDir is the supervisor's directory (DoltConfig.Dir).
 func (l Layout) DoltDir() string { return filepath.Join(l.Root(), "dolt") }
 
+// DoltPassword is the root password file the supervisor writes in DoltDir.
+func (l Layout) DoltPassword() string { return filepath.Join(l.DoltDir(), PasswordFileName) }
+
 // Workspace is the directory that holds one project's .beads.
 func (l Layout) Workspace(project string) string {
 	return filepath.Join(l.Root(), "ws", project)
@@ -95,7 +98,8 @@ func EnsureWorkspace(ctx context.Context, spec WorkspaceSpec) (*BD, error) {
 	if err := os.MkdirAll(ws, 0o700); err != nil {
 		return nil, err
 	}
-	b, err := NewBD(ctx, BDConfig{Binary: spec.BD, Workspace: ws, Home: home, Actor: spec.Actor})
+	b, err := NewBD(ctx, BDConfig{Binary: spec.BD, Workspace: ws, Home: home, Actor: spec.Actor,
+		PasswordFile: spec.Layout.DoltPassword()})
 	if err != nil {
 		return nil, err
 	}

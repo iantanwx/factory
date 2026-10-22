@@ -195,6 +195,72 @@ func TestSupervisorRefusesServedSocket(t *testing.T) {
 	}
 }
 
+// Dolt 2.2.0 always listens on loopback TCP, where any local user can
+// connect. Root has a password, so a bd without it reads nothing.
+func TestBDWithoutThePasswordIsRefused(t *testing.T) {
+	in := startInstance(t, beadsx.DoltConfig{})
+	b := in.workspace(t, "pw")
+	ctx := context.Background()
+	is, err := b.Create(ctx, beadsx.CreateSpec{Title: "private", Type: "ticket"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, err := beadsx.NewBD(ctx, beadsx.BDConfig{Binary: bdBin, Workspace: in.layout.Workspace("pw"), Home: in.layout.Home()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := bare.Get(ctx, is.ID); err == nil || errors.Is(err, beadsx.ErrNotFound) {
+		t.Fatalf("a bd with no password read %+v, %v", got, err)
+	}
+}
+
+// A lost password file gets a new password at the next start. Dolt keeps
+// root in its privileges file, so the supervisor sets the new password
+// there, and the old one stops working.
+func TestLostPasswordFileGetsANewPassword(t *testing.T) {
+	in := startInstance(t, beadsx.DoltConfig{})
+	b := in.workspace(t, "lp")
+	ctx := context.Background()
+	is, err := b.Create(ctx, beadsx.CreateSpec{Title: "kept", Type: "ticket"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	if err := in.sup.Stop(sctx); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.ReadFile(in.layout.DoltPassword())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(in.layout.DoltPassword()); err != nil {
+		t.Fatal(err)
+	}
+	sup, err := beadsx.NewSupervisor(beadsx.DoltConfig{Binary: doltBin, Dir: in.layout.DoltDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		_ = sup.Stop(sctx)
+	})
+	now, err := os.ReadFile(in.layout.DoltPassword())
+	if err != nil || string(now) == string(old) {
+		t.Fatalf("the password file was not renewed: %v", err)
+	}
+	if _, err := b.Get(ctx, is.ID); err == nil {
+		t.Fatal("the old password still reads")
+	}
+	if got, err := in.workspace(t, "lp").Get(ctx, is.ID); err != nil || got.Title != "kept" {
+		t.Fatalf("read with the new password: %+v, %v", got, err)
+	}
+}
+
 func TestPinnedVersionsAccepted(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := beadsx.NewBD(context.Background(), beadsx.BDConfig{Binary: bdBin, Workspace: dir, Home: dir}); err != nil {

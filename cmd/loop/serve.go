@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/agenthost"
@@ -138,7 +139,11 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 	}
 	opts.Beads = resolver
 	cleanup = func() {
-		if err := stopBeads(context.Background()); err != nil {
+		// SIGTERM first. A Dolt that has not exited when the bound ends
+		// gets SIGKILL, so serve always returns.
+		sctx, cancel := context.WithTimeout(context.Background(), beadsStopTimeout)
+		defer cancel()
+		if err := stopBeads(sctx); err != nil {
 			fmt.Fprintln(os.Stderr, "loop serve: stop beads:", err)
 		}
 	}
@@ -195,6 +200,9 @@ func (l lazyBase) Files(ctx context.Context, project string, prefixes []string) 
 }
 
 var _ admission.BaseReader = lazyBase{}
+
+// beadsStopTimeout bounds the wait for Dolt to exit on SIGTERM at shutdown.
+const beadsStopTimeout = 15 * time.Second
 
 // realBeads starts the instance's Dolt sql-server and resolves each
 // project's workspace on its first use (KTD3).

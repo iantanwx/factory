@@ -118,7 +118,7 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 			return res, err
 		}
 		if len(lacking) > 0 {
-			return res, &RefusedError{Code: cli.CodeRemoteAhead, Rule: "remote_holds_more",
+			return res, &RefusedError{Code: cli.CodeRemoteAhead, Rule: "remote_holds_more", AllowedNext: []string{verbBranchSync},
 				Hint: fmt.Sprintf("%s holds %d commit(s) that HEAD lacks; run `loop branch sync`, merge, and push again", req.Branch, len(lacking))}
 		}
 	}
@@ -142,7 +142,7 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 			if serr := s.settlePush(ctx, id, "abandoned"); serr != nil {
 				return res, serr
 			}
-			return res, &RefusedError{Code: cli.CodeRemoteAhead, Rule: "lease_lost",
+			return res, &RefusedError{Code: cli.CodeRemoteAhead, Rule: "lease_lost", AllowedNext: []string{verbBranchSync},
 				Hint: fmt.Sprintf("%s moved on the remote during the push; run `loop branch sync` and push again", req.Branch)}
 		}
 		// The result is unknown: the intent stays pending, and the next

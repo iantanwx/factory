@@ -43,7 +43,7 @@ func Refusals() []cli.RefusalCode {
 		{Code: CodeSignatureInvalid, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "the release's checksum file is not signed by a key this binary trusts"},
 		{Code: CodeChecksumMismatch, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "a release asset, or a pinned bd or dolt, differs from its signed or embedded sha256"},
 		{Code: CodeVersionRefused, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "the version rules refuse this release: a trusted-comment mismatch, a version below the highest installed, or a schema rule"},
-		{Code: CodeNoRollback, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "the rollback would pass a release marked no-rollback, or an older binary cannot read the database; use loop restore"},
+		{Code: CodeNoRollback, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "the rollback would pass a release marked no-rollback, or an older binary cannot read the database; loop restore recovers the database but keeps the current release"},
 		{Code: CodeReleaseUnavailable, Exit: cli.ExitWait, GRPC: codes.Unavailable, Retryable: true, Meaning: "the release could not be fetched; run the same command again later"},
 		{Code: CodeDrift, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "the installed service, binaries or config differ from what loop install writes; the hint lists each difference"},
 		{Code: CodeDoctorFailed, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "a loop doctor check failed; the hint lists each failed check"},

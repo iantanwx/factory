@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // Git runs every server git command (KTD14). The server never runs an
@@ -38,6 +40,35 @@ type Git struct {
 	Binary    string
 	Home      string   // an empty directory the server owns
 	Protocols []string // allowed transport protocols besides file
+	// Timeout bounds a local command when ctx has no earlier deadline.
+	// Zero means GitTimeout.
+	Timeout time.Duration
+	// TransferTimeout bounds a fetch, a push or an ls-remote the same
+	// way. Zero means GitTransferTimeout.
+	TransferTimeout time.Duration
+}
+
+// GitTimeout bounds a local git command. The reactor and the verbs pass a
+// context with no deadline, and a hung git holds the per-key lock.
+const GitTimeout = time.Minute
+
+// GitTransferTimeout bounds a git command that moves objects.
+const GitTransferTimeout = 5 * time.Minute
+
+func (g *Git) timeout(args []string) time.Duration {
+	if len(args) > 0 {
+		switch args[0] {
+		case "fetch", "push", "ls-remote":
+			if g.TransferTimeout > 0 {
+				return g.TransferTimeout
+			}
+			return GitTransferTimeout
+		}
+	}
+	if g.Timeout > 0 {
+		return g.Timeout
+	}
+	return GitTimeout
 }
 
 // gitRun is one git command.
@@ -99,6 +130,8 @@ type GitError struct {
 	Err    error
 }
 
+func (e *GitError) Unwrap() error { return e.Err }
+
 func (e *GitError) Error() string {
 	return fmt.Sprintf("github: git %s: %v: %s", strings.Join(e.Args, " "), e.Err, strings.TrimSpace(e.Stderr))
 }
@@ -108,15 +141,25 @@ func (g *Git) run(ctx context.Context, r gitRun) ([]byte, error) {
 	if bin == "" {
 		bin = "git"
 	}
+	ctx, cancel := context.WithTimeout(ctx, g.timeout(r.args))
+	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, r.args...)
 	cmd.Dir = r.dir
 	cmd.Env = g.env(r)
+	// git starts helpers such as git-remote-https. Kill the whole group, so
+	// no helper outlives the call or holds its output open.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 2 * time.Second
 	if r.stdin != nil {
 		cmd.Stdin = bytes.NewReader(r.stdin)
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			err = fmt.Errorf("%w (%v)", ctx.Err(), err)
+		}
 		return stdout.Bytes(), &GitError{Args: r.args, Stderr: stderr.String(), Err: err}
 	}
 	return stdout.Bytes(), nil

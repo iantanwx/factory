@@ -23,6 +23,8 @@ credential.
 | `snapshots/` | Database snapshots. Each upgrade takes one |
 | `release-state.json` | The highest version this instance ever installed |
 | `previous_version` | The release the current one replaced |
+| `beads/` | The beads workspaces and the supervised Dolt server's data |
+| `beads/dolt/root.password` | The Dolt root password, mode 0600. The server makes it at the first start |
 
 The server runs from this directory. It never runs from a project
 checkout, so a merge to a project's `main` never changes the running loop.
@@ -272,7 +274,11 @@ It points `current` at the installed version below the current one and
 restarts the service. It restores nothing, so every write after the upgrade
 survives. It exits 3 with code `NO_ROLLBACK` when the newer release is
 marked no-rollback, bumped the `bd` or `dolt` pin, or wrote a schema the
-older binary cannot read. Use `loop restore` then.
+older binary cannot read. No rollback past that release is possible: no verb
+points `current` at an older release, and `loop upgrade` refuses a version
+below the highest one installed. `loop restore` then recovers the database,
+but it keeps the current release. That release migrates the restored
+database forward again when it starts.
 
 ## Restore the database
 
@@ -318,3 +324,11 @@ A value that a run printed can also stay where the loop cannot reach it:
 
 Removing a checkout's `.env` does not erase those copies. Rotate a secret
 that you think a run printed.
+
+Another OS user on the host is outside this gap. Dolt 2.2.0 always listens
+on a loopback TCP port beside its socket, and any local user can connect to
+that port. So the Dolt root user has a password. The server makes it at the
+first start and keeps it in `beads/dolt/root.password`, mode 0600. The
+server gives it to Dolt and to `bd` in their environment, never in argv. The
+file is outside Dolt's data, and the server never prints it. When the file
+is lost, the next start makes a new password and sets it in Dolt.
