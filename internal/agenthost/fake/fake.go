@@ -499,26 +499,32 @@ func (h *Host) Ended(_ context.Context, sess agenthost.Session) (agenthost.EndRe
 	defer h.mu.Unlock()
 	st, err := h.settleLocked(sess.ID)
 	if err != nil {
-		return agenthost.EndReport{Reason: "liveness unknown: " + err.Error()}, err
+		return agenthost.EndReport{Reason: "liveness unknown: " + err.Error(), Settlement: &st}, err
 	}
+	rep := h.endedLocked(sess, st)
+	rep.Settlement = &st
+	return rep, nil
+}
+
+func (h *Host) endedLocked(sess agenthost.Session, st agenthost.Settlement) agenthost.EndReport {
 	s, _ := h.resolve(sess.ID)
 	if st.Liveness == agenthost.Exited {
-		return agenthost.EndReport{Ended: true, Cause: agenthost.EndExited, Since: s.lastWrite, Reason: "harness process exited"}, nil
+		return agenthost.EndReport{Ended: true, Cause: agenthost.EndExited, Since: s.lastWrite, Reason: "harness process exited"}
 	}
 	switch s.turn {
 	case ToolRunning:
-		return agenthost.EndReport{Reason: "a tool call is still running"}, nil
+		return agenthost.EndReport{Reason: "a tool call is still running"}
 	case Working:
-		return agenthost.EndReport{Reason: "its last turn has not ended"}, nil
+		return agenthost.EndReport{Reason: "its last turn has not ended"}
 	}
 	idle := h.clock.Now().Sub(s.lastWrite)
 	if idle < h.quiet {
-		return agenthost.EndReport{Reason: fmt.Sprintf("quiet for %s of %s", idle, h.quiet)}, nil
+		return agenthost.EndReport{Reason: fmt.Sprintf("quiet for %s of %s", idle, h.quiet)}
 	}
 	return agenthost.EndReport{
 		Ended: true, Cause: agenthost.EndQuiet, Since: s.lastWrite,
 		Reason: fmt.Sprintf("last turn ended and the checkout stayed quiet for %s", idle),
-	}, nil
+	}
 }
 
 // Stop closes the session and reports Exited, which the fake always proves.

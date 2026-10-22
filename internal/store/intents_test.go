@@ -99,12 +99,12 @@ func TestRecordIntentStoresIntentOutboxAndCursorTogether(t *testing.T) {
 			string(got.Facts) != `{"pr":7}` || got.Epoch != 4 || got.RunID != "run-1" || got.Actor != "implementer" {
 			t.Fatalf("GetIntent = %+v", got)
 		}
-		rows, err := tx.OutboxFor(in.ID)
+		rows, err := outboxFor(tx, in.ID)
 		if err != nil {
 			return err
 		}
 		if len(rows) != 2 || rows[0].State != OutboxHeld || string(rows[0].Payload) != `{"state":"pending"}` || string(rows[1].Payload) != `{}` {
-			t.Fatalf("OutboxFor = %+v", rows)
+			t.Fatalf("outboxFor = %+v", rows)
 		}
 		var cursor string
 		if err := tx.QueryRow(`SELECT cursor FROM github_cursors WHERE project = 'p' AND stream = 'pulls'`).Scan(&cursor); err != nil {
@@ -128,7 +128,7 @@ func TestOutboxBecomesRunnableOnlyAfterApplied(t *testing.T) {
 		var rows []OutboxRow
 		err := s.Write(context.Background(), func(tx *Tx) error {
 			var err error
-			rows, err = tx.RunnableOutbox(10)
+			rows, err = runnableOutbox(tx, 10)
 			return err
 		})
 		if err != nil {
@@ -178,7 +178,7 @@ func TestRefusedIntentCancelsItsOutboxAndStoresTheRefusal(t *testing.T) {
 		if err := tx.MarkRefused(in.ID, json.RawMessage(`{"code":"LEASE_NOT_HELD"}`)); err != nil {
 			return err
 		}
-		rows, err := tx.OutboxFor(in.ID)
+		rows, err := outboxFor(tx, in.ID)
 		if err != nil {
 			return err
 		}
@@ -310,9 +310,9 @@ func TestRetriedEffectBecomesDueAtItsNextAttempt(t *testing.T) {
 	apply(t, s, in.ID)
 	var id int64
 	err := s.Write(context.Background(), func(tx *Tx) error {
-		rows, err := tx.RunnableOutbox(1)
+		rows, err := runnableOutbox(tx, 1)
 		if err != nil || len(rows) != 1 {
-			t.Fatalf("RunnableOutbox = %+v, %v", rows, err)
+			t.Fatalf("runnableOutbox = %+v, %v", rows, err)
 		}
 		id = rows[0].ID
 		return tx.MarkEffectRetry(id, base.Add(time.Minute), "502")
@@ -322,7 +322,7 @@ func TestRetriedEffectBecomesDueAtItsNextAttempt(t *testing.T) {
 	}
 	s.now = func() time.Time { return base.Add(time.Minute) }
 	err = s.Write(context.Background(), func(tx *Tx) error {
-		rows, err := tx.RunnableOutbox(5)
+		rows, err := runnableOutbox(tx, 5)
 		if err != nil || len(rows) != 1 || rows[0].Attempts != 1 || rows[0].LastError != "502" || !rows[0].NextAttemptAt.Equal(base.Add(time.Minute)) {
 			t.Fatalf("due retry = %+v, %v", rows, err)
 		}
@@ -332,7 +332,7 @@ func TestRetriedEffectBecomesDueAtItsNextAttempt(t *testing.T) {
 		if err := tx.MarkEffectDone(id); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("MarkEffectDone on a failed row err = %v, want ErrNotFound", err)
 		}
-		rows, err = tx.OutboxFor(in.ID)
+		rows, err = outboxFor(tx, in.ID)
 		if err != nil || rows[0].State != OutboxFailed || rows[0].Attempts != 2 {
 			t.Fatalf("failed row = %+v, %v", rows, err)
 		}

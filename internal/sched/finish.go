@@ -149,3 +149,17 @@ func (s *Scheduler) OnCall(ctx context.Context, p rpc.Principal) {
 
 // callWriteGap bounds how often one run's calls are written.
 const callWriteGap = 5 * time.Second
+
+// pruneCalls forgets each run's last call that is callWriteGap old or
+// more. Such an entry holds back no write, so forgetting it changes no
+// answer, and a settled run leaves nothing behind.
+func (s *Scheduler) pruneCalls() {
+	now := s.now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for run, at := range s.lastCall {
+		if now.Sub(at) >= callWriteGap {
+			delete(s.lastCall, run)
+		}
+	}
+}

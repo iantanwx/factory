@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
 )
@@ -45,12 +46,14 @@ type Redactor struct {
 	mu     sync.Mutex // serialises rebuilds
 	stored []NamedValue
 	live   map[string]string
+	expiry map[string]time.Time // when each expiring live value leaves
+	now    func() time.Time
 	m      atomic.Pointer[matcher]
 }
 
 // NewRedactor returns a redactor that matches nothing yet.
 func NewRedactor() *Redactor {
-	r := &Redactor{live: map[string]string{}}
+	r := &Redactor{live: map[string]string{}, expiry: map[string]time.Time{}, now: time.Now}
 	r.m.Store(buildMatcher(nil))
 	return r
 }
@@ -84,6 +87,7 @@ func (r *Redactor) SetLive(name, value string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.live[name] = value
+	delete(r.expiry, name)
 	r.rebuild()
 }
 
@@ -92,10 +96,33 @@ func (r *Redactor) DropLive(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.live, name)
+	delete(r.expiry, name)
 	r.rebuild()
 }
 
+// ExpireLive keeps matching each short-lived value whose name starts with
+// prefix for after, then drops it. It does not rebuild the matcher: the
+// next rebuild drops every value whose time passed, so many expiries cost
+// no rebuild each. A value matched past its time only redacts more.
+func (r *Redactor) ExpireLive(prefix string, after time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	at := r.now().Add(after)
+	for name := range r.live {
+		if strings.HasPrefix(name, prefix) {
+			r.expiry[name] = at
+		}
+	}
+}
+
 func (r *Redactor) rebuild() {
+	now := r.now()
+	for name, at := range r.expiry {
+		if !now.Before(at) {
+			delete(r.live, name)
+			delete(r.expiry, name)
+		}
+	}
 	vals := append([]NamedValue(nil), r.stored...)
 	for name, v := range r.live {
 		vals = append(vals, NamedValue{Name: name, Value: v})

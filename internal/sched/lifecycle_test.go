@@ -2,16 +2,20 @@ package sched
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/agenthost/fake"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 func principal(st *Started) rpc.Principal {
@@ -236,5 +240,112 @@ func TestOrphanAdmittedRunIsReleasedOnStart(t *testing.T) {
 	w.restart()
 	if _, class := w.runState(ad.RunID); class != "not-ready" || w.status(id) != machine.Todo || w.lease(id).Owner != "" {
 		t.Fatalf("class %s, status %s", class, w.status(id))
+	}
+}
+
+// probes wraps the fake host and counts the scheduler's own liveness and
+// inventory reads. The fake's Ended reads liveness without Settle.
+type probes struct {
+	*fake.Host
+	settles, inventories atomic.Int64
+	failInventory        atomic.Bool
+}
+
+func (h *probes) Settle(ctx context.Context, id agenthost.RunID) (agenthost.Settlement, error) {
+	h.settles.Add(1)
+	return h.Host.Settle(ctx, id)
+}
+
+func (h *probes) Inventory(ctx context.Context) (agenthost.Inventory, error) {
+	h.inventories.Add(1)
+	if h.failInventory.Load() {
+		return agenthost.Inventory{}, errors.New("the inventory read failed")
+	}
+	return h.Host.Inventory(ctx)
+}
+
+// A watch reads each run's liveness once, through Ended, and reads the
+// inventory at most once, even when that read fails.
+func TestWatchReadsLivenessAndInventoryOnce(t *testing.T) {
+	w := newWorld(t)
+	h := &probes{Host: w.host}
+	w.cfg.Agents = h
+	w.rebuild()
+	w.ticket(machine.Todo)
+	w.ticket(machine.InReview)
+	a := w.dispatch(machine.StageImplementer)
+	b := w.dispatch(machine.StageCodeReviewer)
+	h.settles.Store(0)
+	h.inventories.Store(0)
+	w.tick()
+	if n := h.settles.Load(); n != 0 {
+		t.Fatalf("a watch of two live runs called Settle %d times, want 0", n)
+	}
+	if n := h.inventories.Load(); n != 1 {
+		t.Fatalf("a watch read the inventory %d times, want 1", n)
+	}
+	h.failInventory.Store(true)
+	w.tick()
+	if n := h.inventories.Load(); n != 2 {
+		t.Fatalf("a watch with a failed inventory read it %d more times, want 1", n-1)
+	}
+	for _, st := range []*Started{a, b} {
+		if s, _ := w.runState(st.RunID); s != "running" {
+			t.Fatalf("run %s state = %s, want running", st.RunID, s)
+		}
+	}
+}
+
+// A tick forgets each run's last call once the call is older than the
+// write gap, so the map holds only runs that called recently.
+func TestTickPrunesOldLastCalls(t *testing.T) {
+	w := newWorld(t)
+	w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.s.OnCall(context.Background(), principal(st))
+	calls := func() int {
+		w.s.mu.Lock()
+		defer w.s.mu.Unlock()
+		return len(w.s.lastCall)
+	}
+	w.tick()
+	if n := calls(); n != 1 {
+		t.Fatalf("last calls inside the gap = %d, want 1", n)
+	}
+	w.clock.Advance(callWriteGap)
+	w.tick()
+	if n := calls(); n != 0 {
+		t.Fatalf("last calls past the gap = %d, want 0", n)
+	}
+	w.s.OnCall(context.Background(), principal(st))
+	if got := w.count(`SELECT coalesce(last_cli_call_at, 0) FROM runs WHERE run_id = ?`, st.RunID); int64(got) != w.clock.Now().UnixMilli() {
+		t.Fatalf("a call after the prune was not written: last_cli_call_at = %d", got)
+	}
+}
+
+// The cleanup pass purges the idempotency keys whose expiry passed, and
+// keeps a key with no expiry.
+func TestCleanupPurgesExpiredKeys(t *testing.T) {
+	w := newWorld(t)
+	err := w.st.Write(context.Background(), func(tx *store.Tx) error {
+		for key, expires := range map[string]time.Time{"gone": tx.Now().Add(-time.Minute), "kept": {}} {
+			if err := tx.StoreResult(store.IdemRecord{Key: key, Fingerprint: store.Fingerprint{RunID: "r-x", Verb: "work move"},
+				Result: []byte(`{}`), ExpiresAt: expires}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.tick()
+	if n := w.count(`SELECT count(*) FROM idempotency`); n != 2 {
+		t.Fatalf("keys before the cleanup interval = %d, want 2", n)
+	}
+	w.clock.Advance(DefaultCleanupInterval)
+	w.tick()
+	if w.count(`SELECT count(*) FROM idempotency WHERE key = 'gone'`) != 0 || w.count(`SELECT count(*) FROM idempotency WHERE key = 'kept'`) != 1 {
+		t.Fatal("the cleanup did not purge only the expired key")
 	}
 }

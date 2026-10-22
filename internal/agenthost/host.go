@@ -320,6 +320,10 @@ type EndReport struct {
 	Since time.Time `json:"since,omitzero"`
 	// Reason says what keeps the session, or the evidence that ended it.
 	Reason string `json:"reason"`
+	// Settlement is the liveness read the answer rests on, when the host
+	// made one, so the caller need not read it again. A failed read is
+	// Unknown.
+	Settlement *Settlement `json:"settlement,omitempty"`
 }
 
 // ModelReceipt compares the requested model with the harness's own record.
@@ -361,7 +365,8 @@ type Host interface {
 	// not list everything, and the error then says why when a read failed.
 	Inventory(ctx context.Context) (Inventory, error)
 	// Ended reports whether the session ended (KTD8). A session with a tool
-	// call still running, or with Unknown liveness, has not ended.
+	// call still running, or with Unknown liveness, has not ended. The
+	// report carries the liveness read it made.
 	Ended(ctx context.Context, s Session) (EndReport, error)
 	// Settle reads the session's liveness. A stale handle reads Unknown.
 	Settle(ctx context.Context, id RunID) (Settlement, error)

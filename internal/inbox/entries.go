@@ -67,6 +67,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	type sourced struct {
 		kind string
 		item machine.Item
+		link string
 	}
 	var items []sourced
 	var out []Entry
@@ -86,7 +87,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 					break
 				}
 				for _, it := range got {
-					items = append(items, sourced{kind: src.kind, item: it})
+					items = append(items, sourced{kind: src.kind, item: it, link: in.cfg.ItemLink(it)})
 				}
 			}
 		}
@@ -102,6 +103,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			if err != nil {
 				return err
 			}
+			e.Link = it.link
 			out = append(out, e)
 		}
 		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults} {
@@ -115,6 +117,12 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	// A panel's link may read beads, so it is set after the transaction.
+	for i := range out {
+		if out[i].Kind == KindPanel {
+			out[i].Link = in.cfg.Link(out[i].Project, out[i].Item)
+		}
 	}
 	shown := out[:0]
 	for _, e := range out {
@@ -172,7 +180,7 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 		return Entry{}, err
 	}
 	e := Entry{ID: itemEntry(kind, it.Project, it.ID), Kind: kind, Awaits: AwaitsPerson, Project: it.Project, Item: it.ID,
-		Status: it.Status, Title: it.Title, Link: in.cfg.Link(it.Project, it.ID), At: at}
+		Status: it.Status, Title: it.Title, At: at}
 	var text []string
 	switch kind {
 	case KindEscalation:
@@ -248,7 +256,7 @@ func (in *Inbox) panels(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 			Title: fmt.Sprintf("escalation %d on %s waits for the fixer's panel", id, item),
 			Text: fmt.Sprintf("Raised at level %d %s, choice %s. The fixer's next run judges it, and no stage takes the item until then. The finding:",
 				level, name, choice) + "\n\n" + AgentText(run, finding),
-			Link: in.cfg.Link(project, item), Next: "the fixer runs `loop escalation judge` and `loop escalation route`", At: at})
+			Next: "the fixer runs `loop escalation judge` and `loop escalation route`", At: at})
 	}
 	return out, rs.Err()
 }

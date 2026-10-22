@@ -371,9 +371,9 @@ func (m *Machine) markRefused(ctx context.Context, in store.Intent, f facts, ref
 
 func (m *Machine) settledResult(ctx context.Context, id int64) (cli.Result, bool) {
 	var in store.Intent
-	err := m.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+	err := m.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		var err error
-		in, err = tx.GetIntent(id)
+		in, err = store.ReadIntent(ctx, tx, id)
 		return err
 	})
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/pipeline"
 	"github.com/iantanwx/loop/internal/secrets"
 )
 
@@ -77,6 +78,26 @@ func TestPRDSubmitRefusals(t *testing.T) {
 	wantCode(t, w.call(w.intakeRoom(), "", "prd submit", other), cli.CodeUsage)
 	if n := len(w.api.World.PRs()); n != 0 {
 		t.Fatalf("a refused submit opened %d PRs", n)
+	}
+}
+
+// A listed sign-off links to its PR from the item the inbox listed. The
+// inbox reads no item a second time for its link.
+func TestSignoffLinkReusesTheListedItem(t *testing.T) {
+	w := newWorld(t)
+	epic, n := w.submitted()
+	w.review(epic, "pass")
+	in := inbox.New(inbox.Config{Store: w.st, Machine: w.m, Projects: w.projects.List, ItemLink: pipeline.ItemLink(w.projects),
+		Link: func(project, item string) string {
+			t.Errorf("the inbox read %s/%s again for its link", project, item)
+			return ""
+		}})
+	es, err := in.Entries(w.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := entry(es, "signoff/"+testProject+"/"+epic); e == nil || e.Link != "https://github.com/"+gt.Repo+"/pull/"+strconv.Itoa(n) {
+		t.Fatalf("sign-off entry = %+v", e)
 	}
 }
 

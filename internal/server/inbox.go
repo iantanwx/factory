@@ -11,6 +11,7 @@ import (
 	"github.com/iantanwx/loop/internal/decision"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/inbox"
+	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/pipeline"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -64,12 +65,13 @@ func (s *Server) composeHuman() error {
 	h := &human{pokes: make(chan struct{}, 1)}
 	s.human = h
 	link := o.Link
+	var itemLink func(machine.Item) string
 	if link == nil {
 		// An epic's entry links to its current document PR.
-		link = pipeline.Link(s.Machine, s.Projects)
+		link, itemLink = pipeline.Link(s.Machine, s.Projects), pipeline.ItemLink(s.Projects)
 	}
 	s.Inbox = inbox.New(inbox.Config{Store: s.Store, Machine: s.Machine, Projects: s.Projects.List, Redactor: s.Redactor,
-		Link: link, Now: now, PollInterval: o.PollInterval, Logger: s.log})
+		Link: link, ItemLink: itemLink, Now: now, PollInterval: o.PollInterval, Logger: s.log})
 	changed := func() {
 		s.Inbox.Changed()
 		select {

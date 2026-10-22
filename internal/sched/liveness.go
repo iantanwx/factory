@@ -83,9 +83,11 @@ func (s *Scheduler) watch(ctx context.Context, hc *config.HostConfig, startup bo
 	if err != nil {
 		return err
 	}
+	// One inventory read serves the whole watch. A failed read is an
+	// incomplete inventory, which never reads a session as absent.
 	var (
-		inv    agenthost.Inventory
-		invErr = errors.New("no inventory read")
+		inv  agenthost.Inventory
+		read bool
 	)
 	for _, r := range runs {
 		if r.Rec.Session == nil {
@@ -94,9 +96,10 @@ func (s *Scheduler) watch(ctx context.Context, hc *config.HostConfig, startup bo
 			}
 			continue
 		}
-		if invErr != nil && inv.Epoch == "" {
-			inv, invErr = s.cfg.Agents.Inventory(ctx)
-			if invErr != nil {
+		if !read {
+			read = true
+			var err error
+			if inv, err = s.cfg.Agents.Inventory(ctx); err != nil {
 				inv.Complete = false
 			}
 		}
@@ -105,7 +108,8 @@ func (s *Scheduler) watch(ctx context.Context, hc *config.HostConfig, startup bo
 	return nil
 }
 
-// check decides one run: ended, live or unknown.
+// check decides one run: ended, live or unknown. It reuses the liveness
+// read Ended made, so each run's liveness is read once a watch.
 func (s *Scheduler) check(ctx context.Context, hc *config.HostConfig, r runRow, inv agenthost.Inventory) {
 	sess := *r.Rec.Session
 	rep, err := s.cfg.Agents.Ended(ctx, sess)
@@ -117,7 +121,14 @@ func (s *Scheduler) check(ctx context.Context, hc *config.HostConfig, r runRow, 
 		s.settleEnded(ctx, r, end, rep.Reason)
 		return
 	}
-	st, err := s.cfg.Agents.Settle(ctx, sess.ID)
+	var st agenthost.Settlement
+	if rep.Settlement != nil {
+		// A failed read carries Unknown, which the switch treats as an
+		// error does.
+		st, err = *rep.Settlement, nil
+	} else {
+		st, err = s.cfg.Agents.Settle(ctx, sess.ID)
+	}
 	switch {
 	case err == nil && st.Liveness == agenthost.Exited:
 		s.settleEnded(ctx, r, s.now(), st.Reason)

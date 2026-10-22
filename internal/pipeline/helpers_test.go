@@ -297,7 +297,8 @@ func (w *world) tick() {
 
 func (w *world) inbox() []inbox.Entry {
 	w.t.Helper()
-	in := inbox.New(inbox.Config{Store: w.st, Machine: w.m, Projects: w.projects.List, Link: pipeline.Link(w.m, w.projects)})
+	in := inbox.New(inbox.Config{Store: w.st, Machine: w.m, Projects: w.projects.List, Link: pipeline.Link(w.m, w.projects),
+		ItemLink: pipeline.ItemLink(w.projects)})
 	es, err := in.Entries(w.ctx)
 	if err != nil {
 		w.t.Fatal(err)

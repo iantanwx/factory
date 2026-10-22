@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/hexid"
@@ -24,6 +25,10 @@ var (
 // tokenPrefix marks a run token, so a person who finds one in a log knows
 // what it is.
 const tokenPrefix = "loopt_"
+
+// RevokedTokenRetention is how long the redactor keeps matching a revoked
+// run token, so a late echo of one is still caught (KTD27).
+const RevokedTokenRetention = 24 * time.Hour
 
 // Principal is the caller of one call (KTD12). Every transition the call
 // makes records Actor() as its actor.
@@ -88,7 +93,10 @@ type Tokens struct {
 
 func hashToken(token string) string { return hexid.SHA256([]byte(token)) }
 
-func liveName(runID, hash string) string { return "run_token/" + runID + "/" + hash[:8] }
+func liveName(runID, hash string) string { return livePrefix(runID) + hash[:8] }
+
+// livePrefix starts the redactor name of every token of runID.
+func livePrefix(runID string) string { return "run_token/" + runID + "/" }
 
 // Issue creates a token for r and returns it. The caller writes it into
 // the checkout with cli.WriteTokenFile, or calls IssueToCheckout.
@@ -178,7 +186,7 @@ func (t *Tokens) Verify(ctx context.Context, token string) (Principal, error) {
 // Revoke revokes every token of runID at settlement. In the same
 // transaction it sets the expiry of the run's idempotency keys to now plus
 // the CLI wait budget (KTD13). The redactor keeps matching the revoked
-// tokens until the server restarts, so a late echo of one is still caught.
+// tokens for RevokedTokenRetention, or until the server restarts.
 func (t *Tokens) Revoke(ctx context.Context, runID string) (int64, error) {
 	var n int64
 	err := t.Store.Write(ctx, func(tx *store.Tx) error {
@@ -193,6 +201,9 @@ func (t *Tokens) Revoke(ctx context.Context, runID string) (int64, error) {
 	})
 	if err != nil {
 		return 0, fmt.Errorf("rpc: revoke the tokens of %s: %w", runID, err)
+	}
+	if t.Redactor != nil {
+		t.Redactor.ExpireLive(livePrefix(runID), RevokedTokenRetention)
 	}
 	return n, nil
 }

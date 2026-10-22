@@ -304,7 +304,8 @@ func (s *Scheduler) Wait() { s.wg.Wait() }
 // Tick is one pass: it watches every live run, closes the sessions of
 // finished runs, frees leases a settlement could not release, keeps the
 // coordinator session up, fires each due stage and job, and cleans
-// checkouts up. One step's fault does not stop the others.
+// checkouts and expired idempotency keys up. One step's fault does not
+// stop the others.
 func (s *Scheduler) Tick(ctx context.Context) error {
 	s.tickMu.Lock()
 	defer s.tickMu.Unlock()
@@ -325,6 +326,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	if err := s.fireDue(ctx, hc); err != nil {
 		s.log.ErrorContext(ctx, "fire due stages", "err", err)
 	}
+	s.pruneCalls()
 	s.mu.Lock()
 	clean := s.now().Sub(s.lastClean) >= s.cfg.CleanupInterval
 	if clean {
@@ -333,8 +335,27 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	s.mu.Unlock()
 	if clean {
 		s.CleanCheckouts(ctx)
+		s.purgeKeys(ctx)
 	}
 	return nil
+}
+
+// purgeKeys deletes each idempotency key whose wait budget passed after
+// its run settled (KTD13). A key whose write is in flight stays.
+func (s *Scheduler) purgeKeys(ctx context.Context) {
+	var n int64
+	err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		var err error
+		n, err = tx.PurgeExpiredKeys(tx.Now())
+		return err
+	})
+	if err != nil {
+		s.log.ErrorContext(ctx, "purge expired idempotency keys", "err", err)
+		return
+	}
+	if n > 0 {
+		s.log.InfoContext(ctx, "purged expired idempotency keys", "keys", n)
+	}
 }
 
 // stageKey names one project's stage or job.

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 var pctLower = regexp.MustCompile(`%[0-9A-F]{2}`)
@@ -72,6 +73,38 @@ func TestRedactorFindsEveryForm(t *testing.T) {
 	}
 	if ok, _ := r.Find("an ordinary log line with nothing secret"); ok {
 		t.Fatal("a clean line matched")
+	}
+}
+
+func TestRedactorExpiresLiveValuesAtTheNextRebuild(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	r := NewRedactor()
+	r.now = func() time.Time { return now }
+	old, other := "run_token_value_of_r1", "run_token_value_of_r10"
+	r.SetLive("run_token/r1/aaaaaaaa", old)
+	r.SetLive("run_token/r10/bbbbbbbb", other)
+
+	r.ExpireLive("run_token/r1/", time.Hour)
+	now = now.Add(30 * time.Minute)
+	r.SetLive("unrelated", "an_unrelated_live_value")
+	if ok, _ := r.Find("x " + old); !ok {
+		t.Fatal("a value inside its retention stopped matching")
+	}
+
+	// Past the retention the value still matches until a rebuild drops it.
+	now = now.Add(time.Hour)
+	if ok, _ := r.Find("x " + old); !ok {
+		t.Fatal("an expiry rebuilt the matcher at once")
+	}
+	r.SetLive("unrelated", "another_unrelated_value")
+	if ok, _ := r.Find("x " + old); ok {
+		t.Fatal("an expired value still matched after a rebuild")
+	}
+	if ok, names := r.Find("x " + other); !ok || names[0] != "run_token/r10/bbbbbbbb" {
+		t.Fatalf("a value of another run with a longer id = %v %v", ok, names)
+	}
+	if len(r.live) != 2 || len(r.expiry) != 0 {
+		t.Fatalf("live = %d, expiry = %d; want 2 and 0", len(r.live), len(r.expiry))
 	}
 }
 

@@ -31,8 +31,15 @@ import (
 func (h *Host) Ended(ctx context.Context, s agenthost.Session) (agenthost.EndReport, error) {
 	st, err := h.Settle(ctx, s.ID)
 	if err != nil {
-		return agenthost.EndReport{Reason: "liveness unknown: " + err.Error()}, err
+		return agenthost.EndReport{Reason: "liveness unknown: " + err.Error(), Settlement: &st}, err
 	}
+	rep, err := h.ended(s, st)
+	rep.Settlement = &st
+	return rep, err
+}
+
+// ended is Ended after a liveness read that succeeded.
+func (h *Host) ended(s agenthost.Session, st agenthost.Settlement) (agenthost.EndReport, error) {
 	now := h.cfg.Now()
 	if st.Liveness == agenthost.Exited {
 		return agenthost.EndReport{Ended: true, Cause: agenthost.EndExited, Since: now, Reason: st.Reason}, nil

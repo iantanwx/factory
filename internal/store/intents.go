@@ -253,7 +253,16 @@ func scanIntent(r Scanner) (Intent, error) {
 
 // GetIntent returns one intent, or an error that matches ErrNotFound.
 func (t *Tx) GetIntent(id int64) (Intent, error) {
-	in, err := scanIntent(t.QueryRow(`SELECT `+intentColumns+` FROM intents WHERE id = ?`, id))
+	return getIntent(t.QueryRow(`SELECT `+intentColumns+` FROM intents WHERE id = ?`, id), id)
+}
+
+// ReadIntent is GetIntent inside a read transaction.
+func ReadIntent(ctx context.Context, tx *sql.Tx, id int64) (Intent, error) {
+	return getIntent(tx.QueryRowContext(ctx, `SELECT `+intentColumns+` FROM intents WHERE id = ?`, id), id)
+}
+
+func getIntent(row *sql.Row, id int64) (Intent, error) {
+	in, err := scanIntent(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Intent{}, fmt.Errorf("%w: intent %d", ErrNotFound, id)
 	}
@@ -309,61 +318,6 @@ func (t *Tx) RaiseItemSeq(project, item string, atLeast int64) error {
 		return fmt.Errorf("store: raise intent sequence of %s/%s: %w", project, item, err)
 	}
 	return nil
-}
-
-const outboxColumns = `id, intent_id, effect_kind, natural_key, payload, state, attempts, next_attempt_at,
-	last_error, created_at, updated_at`
-
-func scanOutbox(r Scanner) (OutboxRow, error) {
-	var (
-		ob                        OutboxRow
-		payload, state            string
-		next, createdAt, updateAt int64
-	)
-	err := r.Scan(&ob.ID, &ob.IntentID, &ob.EffectKind, &ob.NaturalKey, &payload, &state, &ob.Attempts, &next,
-		&ob.LastError, &createdAt, &updateAt)
-	if err != nil {
-		return OutboxRow{}, err
-	}
-	ob.Payload = json.RawMessage(payload)
-	ob.State = OutboxState(state)
-	if next != 0 {
-		ob.NextAttemptAt = time.UnixMilli(next)
-	}
-	ob.CreatedAt = time.UnixMilli(createdAt)
-	ob.UpdatedAt = time.UnixMilli(updateAt)
-	return ob, nil
-}
-
-func (t *Tx) listOutbox(query string, args ...any) ([]OutboxRow, error) {
-	rows, err := t.Query(`SELECT `+outboxColumns+` FROM outbox `+query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("store: list outbox: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var out []OutboxRow
-	for rows.Next() {
-		ob, err := scanOutbox(rows)
-		if err != nil {
-			return nil, fmt.Errorf("store: scan outbox: %w", err)
-		}
-		out = append(out, ob)
-	}
-	return out, rows.Err()
-}
-
-// OutboxFor returns every outbox row of one intent in record order.
-func (t *Tx) OutboxFor(intentID int64) ([]OutboxRow, error) {
-	return t.listOutbox(`WHERE intent_id = ? ORDER BY id`, intentID)
-}
-
-// RunnableOutbox returns up to limit runnable rows whose next attempt is due
-// at the transaction's time, oldest first.
-func (t *Tx) RunnableOutbox(limit int) ([]OutboxRow, error) {
-	if limit <= 0 {
-		return nil, nil
-	}
-	return t.listOutbox(`WHERE state = 'runnable' AND next_attempt_at <= ? ORDER BY id LIMIT ?`, t.now.UnixMilli(), limit)
 }
 
 // MarkEffectDone records that a runnable effect happened.

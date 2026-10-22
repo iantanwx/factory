@@ -79,8 +79,12 @@ type Config struct {
 	Projects func() ([]config.Project, error)
 	Redactor *secrets.Redactor
 	// Link returns the link of a project's item. A `loop work show` line
-	// when nil. The server links an epic to its current document PR.
+	// when nil. The server links an epic to its current document PR. The
+	// inbox calls it outside a store transaction.
 	Link func(project, item string) string
+	// ItemLink returns the link of an item the inbox already listed, so
+	// the inbox reads the item once. Link of the item's ids when nil.
+	ItemLink func(it machine.Item) string
 	// Now is the inbox clock. time.Now when nil.
 	Now          func() time.Time
 	PollInterval time.Duration
@@ -106,6 +110,10 @@ func New(cfg Config) *Inbox {
 	}
 	if cfg.Link == nil {
 		cfg.Link = func(project, item string) string { return "loop work show " + item + " --project " + project }
+	}
+	if cfg.ItemLink == nil {
+		link := cfg.Link
+		cfg.ItemLink = func(it machine.Item) string { return link(it.Project, it.ID) }
 	}
 	log := cfg.Logger
 	if log == nil {
