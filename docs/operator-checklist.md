@@ -25,8 +25,6 @@ The same command upgrades a host that already runs the loop.
 
 ## Add a project
 
-- [ ] Make sure the repository's CI has run at least once on its default
-      branch.
 - [ ] In the project's clone, run `loop init`.
 
 ## Open items

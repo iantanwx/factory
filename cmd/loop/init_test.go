@@ -5,9 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/iantanwx/loop/internal/config"
 )
@@ -94,5 +98,70 @@ func TestProjectID(t *testing.T) {
 		if got := projectID(repo); got != want {
 			t.Errorf("%s: %q, want %q", repo, got, want)
 		}
+	}
+}
+
+func TestCIWorkflowFitsTheStack(t *testing.T) {
+	for name, tc := range map[string]struct {
+		files map[string]string
+		want  []string
+	}{
+		"go":     {map[string]string{"go.mod": "module x\n"}, []string{"go-version-file: go.mod", "run: go test ./..."}},
+		"pnpm":   {map[string]string{"package.json": `{"scripts":{"test":"vitest","build":"vite build","dev":"vite"}}`, "pnpm-lock.yaml": ""}, []string{"run: corepack enable", "run: pnpm install --frozen-lockfile", "run: pnpm run test", "run: pnpm run build"}},
+		"python": {map[string]string{"pyproject.toml": "", "tests/test_x.py": ""}, []string{"run: pip install -e .", "run: pip install pytest && pytest"}},
+		"make":   {map[string]string{"Makefile": "build:\n\tcc x.c\ntest: build\n\t./x\n"}, []string{"run: make test"}},
+		"none":   {map[string]string{"README.md": ""}, []string{"loop init found no build or test command"}},
+	} {
+		root := t.TempDir()
+		for f, body := range tc.files {
+			p := filepath.Join(root, f)
+			if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		data := ciWorkflow(root, "main")
+		var wf struct {
+			On   map[string]any `yaml:"on"`
+			Jobs map[string]struct {
+				Steps []map[string]any `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal(data, &wf); err != nil {
+			t.Fatalf("%s: %v\n%s", name, err, data)
+		}
+		if len(wf.Jobs[CIJob].Steps) < 2 || wf.On["pull_request"] == nil && !strings.Contains(string(data), "pull_request:") {
+			t.Fatalf("%s: workflow %+v\n%s", name, wf, data)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(string(data), w) {
+				t.Errorf("%s: lacks %q:\n%s", name, w, data)
+			}
+		}
+		if name == "pnpm" && strings.Contains(string(data), "run dev") {
+			t.Errorf("pnpm: runs the dev script:\n%s", data)
+		}
+	}
+}
+
+func TestInitCommitsCIWhenNoneRan(t *testing.T) {
+	gh := &fakeGH{stdin: map[string][]byte{}, answers: map[string]string{
+		"gh api -X PUT repos/me/app/contents/.github/workflows/loop-ci.yml --input - --silent": ``,
+	}}
+	h := &hostVerbs{cmd: gh.run}
+	rep := InitReport{Repo: "me/app", Branch: "trunk", Path: t.TempDir()}
+	got, err := h.ensureFile(context.Background(), rep, CIWorkflowPath, "ci", func() ([]byte, error) { return ciWorkflow(rep.Path, rep.Branch), nil })
+	if err != nil || got != "created" {
+		t.Fatalf("ensureFile = %q %v", got, err)
+	}
+	var put struct{ Branch, Content string }
+	if err := json.Unmarshal(gh.stdin["gh api -X PUT repos/me/app/contents/.github/workflows/loop-ci.yml --input - --silent"], &put); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := base64.StdEncoding.DecodeString(put.Content)
+	if put.Branch != "trunk" || !strings.Contains(string(body), "branches: [trunk]") {
+		t.Fatalf("workflow on %q:\n%s", put.Branch, body)
 	}
 }

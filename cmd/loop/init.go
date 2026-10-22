@@ -54,14 +54,17 @@ func execCmd(ctx context.Context, dir string, stdin []byte, name string, args ..
 
 // InitReport is the JSON of `loop init`.
 type InitReport struct {
-	Project string   `json:"project"`
-	Repo    string   `json:"repo"`
-	Path    string   `json:"path"`
-	Branch  string   `json:"branch"`
-	Config  string   `json:"config"`  // "created" or "present"
-	Ruleset string   `json:"ruleset"` // "created" or "updated"
-	CI      []string `json:"ci"`
-	Added   bool     `json:"added"` // false when the project was registered already
+	Project string `json:"project"`
+	Repo    string `json:"repo"`
+	Path    string `json:"path"`
+	Branch  string `json:"branch"`
+	Config  string `json:"config"` // "created" or "present"
+	// CIWorkflow is "created" or "present" when the default branch had no
+	// check, so init made one; empty when the repository's own CI ran.
+	CIWorkflow string   `json:"ci_workflow,omitempty"`
+	Ruleset    string   `json:"ruleset"` // "created" or "updated"
+	CI         []string `json:"ci"`
+	Added      bool     `json:"added"` // false when the project was registered already
 }
 
 // initProject is `loop init`: it makes the git clone it runs in a loop
@@ -115,10 +118,13 @@ func (h *hostVerbs) initProject(ctx context.Context, inv cli.Invocation) cli.Res
 			return fail(err)
 		}
 	}
+	// No CI has run on the default branch: commit one, and require its job.
 	if len(rep.CI) == 0 {
-		return cli.Reject(cli.CodeUsage, "no_ci_check", fmt.Sprintf(
-			"%s has no check on %s yet; add a CI workflow, let it run once on %s, and run loop init again, or name the check with --ci",
-			rep.Repo, rep.Branch, rep.Branch))
+		if rep.CIWorkflow, err = h.ensureFile(ctx, rep, CIWorkflowPath, "ci: add the loop CI workflow",
+			func() ([]byte, error) { return ciWorkflow(rep.Path, rep.Branch), nil }); err != nil {
+			return fail(err)
+		}
+		rep.CI = []string{CIJob}
 	}
 	if rep.Config, err = h.ensureProjectConfig(ctx, rep); err != nil {
 		return fail(err)
@@ -179,10 +185,16 @@ func (h *hostVerbs) ciChecks(ctx context.Context, rep InitReport) ([]string, err
 }
 
 // ensureProjectConfig commits the default project config to the default
-// branch through the contents API, so the clone's working tree is
-// untouched. A config already there stays.
+// branch. A config already there stays.
 func (h *hostVerbs) ensureProjectConfig(ctx context.Context, rep InitReport) (string, error) {
-	path := "repos/" + rep.Repo + "/contents/" + config.ProjectConfigPath
+	return h.ensureFile(ctx, rep, config.ProjectConfigPath, "chore: add loop project config", defaultProjectConfig)
+}
+
+// ensureFile commits one file to the default branch through the contents
+// API, so the clone's working tree is untouched. A file already there
+// stays. It answers "created" or "present".
+func (h *hostVerbs) ensureFile(ctx context.Context, rep InitReport, file, message string, body func() ([]byte, error)) (string, error) {
+	path := "repos/" + rep.Repo + "/contents/" + file
 	_, err := h.cmd(ctx, rep.Path, nil, "gh", "api", path+"?ref="+rep.Branch, "--silent")
 	if err == nil {
 		return "present", nil
@@ -190,13 +202,12 @@ func (h *hostVerbs) ensureProjectConfig(ctx context.Context, rep InitReport) (st
 	if !strings.Contains(err.Error(), "404") {
 		return "", err
 	}
-	body, err := defaultProjectConfig()
+	data, err := body()
 	if err != nil {
 		return "", err
 	}
 	req, err := json.Marshal(map[string]string{
-		"message": "chore: add loop project config", "branch": rep.Branch,
-		"content": base64.StdEncoding.EncodeToString(body),
+		"message": message, "branch": rep.Branch, "content": base64.StdEncoding.EncodeToString(data),
 	})
 	if err != nil {
 		return "", err

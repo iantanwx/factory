@@ -147,10 +147,14 @@ is already right, so you can run it again:
   the GitHub API, when the branch has none. The config uses the `direct`
   merge mechanism and enables the implementer, reviewer, amender,
   spec-author, decomposer and fixer stages. Pull to see it.
-- It keeps a ruleset named `loop` on the default branch, as the next
-  section says. The CI checks are the checks that ran on the head of the
-  default branch, or the ones you name with `--ci test,lint`. The
-  repository's CI must have run once on the default branch first.
+- It finds the CI checks: the ones you name with `--ci test,lint`, or the
+  checks that ran on the head of the default branch. When none ran, it
+  commits `.github/workflows/loop-ci.yml`, with a `ci` job that fits the
+  repository: Go, Node (npm, pnpm, yarn or bun), Rust, Python, or a
+  Makefile `test` target. Edit its steps as you like, and keep the job
+  name.
+- It keeps a ruleset named `loop` on the default branch that requires
+  those checks, as the next section says.
 - It registers the project with the server, with the repository name as
   its id. Give another id as `loop init <id>`.
 
