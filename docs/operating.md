@@ -133,41 +133,42 @@ reports them as one failed `github` line marked unchecked.
 
 ## Add a project
 
-Run `loop init` in the project's local clone:
+Run `loop register` in the project's local clone:
 
 ```sh
-cd ~/src/alpha && loop init
+cd ~/src/alpha && loop register
 ```
 
 It uses your `gh` login and does these steps. Each one leaves alone what
 is already right, so you can run it again:
 
-- It reads the repository and its default branch from the clone.
-- It commits a default `.loop/config.yaml` to the default branch through
-  the GitHub API, when the branch has none. The config uses the `direct`
-  merge mechanism and enables the implementer, reviewer, amender,
-  spec-author, decomposer and fixer stages. Pull to see it.
-- It finds the CI checks: the ones you name with `--ci test,lint`, or the
-  checks that ran on the head of the default branch. When none ran, it
-  commits `.github/workflows/loop-ci.yml`, with a `ci` job that fits the
-  repository: Go, Node (npm, pnpm, yarn or bun), Rust, Python, or a
-  Makefile `test` target. Edit its steps as you like, and keep the job
-  name.
-- It keeps a ruleset named `loop` on the default branch that requires
-  those checks, as the next section says.
+- It reads the repository and its default branch from the clone. An empty
+  repository is fine.
+- It keeps a ruleset named `loop` on the default branch, as the next
+  section says. The ruleset requires the checks that ran on the head of
+  the default branch. GitHub offers no rulesets for a private repository
+  on a free plan. Then the report says `unavailable`, and the loop reads
+  CI itself before each direct merge.
+- It writes the loop skills into the clone, under `.claude/skills` and
+  `.agents/skills`, and lists them in `.git/info/exclude`.
 - It registers the project with the server, with the repository name as
-  its id. Give another id as `loop init <id>`.
+  its id. Give another id as `loop register <id>`.
 
 The loop App must be installed on the repository. When it is not, the
 registration fails and says so.
 
+When the project has no tests or CI yet, start Claude Code or Codex in the
+clone and run the `loop-init` skill. It asks you for the stack, then makes
+a scaffold with one passing test, a CI workflow with a `ci` job, and
+`.loop/config.yaml`. It pushes them, waits for CI to pass, and runs
+`loop register` again, so the ruleset requires the `ci` check.
+
 `loop project add alpha --repo owner/alpha --path /home/me/src/alpha` does
-the registration step alone. It refuses when the default branch lacks a
-rule the loop needs.
+the registration step alone.
 
 ## Set the default-branch ruleset
 
-`loop init` makes this ruleset. To make it by hand, open Settings, then
+`loop register` makes this ruleset. To make it by hand, open Settings, then
 Rules, then Rulesets in GitHub, and make a branch ruleset for the default
 branch:
 

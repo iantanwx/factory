@@ -81,6 +81,18 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	if res, ok := merge.Terminal(cur); ok {
 		return res, nil
 	}
+	// A repository with no rulesets lets any merge through, so the loop
+	// reads CI on the reviewed head itself before it merges.
+	ci, err := d.gh.Checks(ctx, pr.Project, pr.Head)
+	if err != nil {
+		return merge.Result{}, err
+	}
+	switch ci.State {
+	case github.CIRed:
+		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Red, Detail: "CI failed on the reviewed head"}, nil
+	case github.CIPending:
+		return merge.Result{Outcome: merge.Pending, Detail: "CI still runs on the reviewed head"}, nil
+	}
 	sha, err := d.gh.MergePR(ctx, pr.Project, pr.Number, pr.Head)
 	if err == nil {
 		return merge.Result{Outcome: merge.Merged, SHA: sha}, nil
@@ -99,7 +111,7 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	if fresh.Head.SHA != pr.Head {
 		return merge.Result{Outcome: merge.Pending, Detail: "the head moved after review"}, nil
 	}
-	ci, err := d.gh.Checks(ctx, pr.Project, fresh.Head.SHA)
+	ci, err = d.gh.Checks(ctx, pr.Project, fresh.Head.SHA)
 	if err != nil {
 		return merge.Result{}, err
 	}

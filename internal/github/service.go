@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -340,19 +342,34 @@ func (s *Service) SyncBase(ctx context.Context, p config.Project) (string, strin
 
 // AddHook is the config.AddHook of `project add`: it creates the bare
 // mirror, fetches the default branch and checks the branch rules. A
-// missing rule fails the add with one checklist line for each rule.
+// missing rule fails the add with one checklist line for each rule. A
+// missing CI check does not: a bare project has no CI yet, and loop
+// doctor reports it until it does. An empty repository has nothing to
+// fetch or check, so it registers as it is.
 func (s *Service) AddHook(ctx context.Context, p config.Project) error {
 	if err := s.Mirror(p).Init(ctx); err != nil {
 		return err
 	}
 	if _, _, err := s.SyncBase(ctx, p); err != nil {
+		if s.empty(ctx, p) {
+			return nil
+		}
 		return err
 	}
 	lines, err := s.CheckRules(ctx, p)
 	if err != nil {
 		return err
 	}
-	return failing(lines)
+	return failing(slices.DeleteFunc(lines, func(l CheckLine) bool { return l.Check == "ci_required" }))
+}
+
+// empty reports whether the repository has no commit: GitHub answers 409
+// for its commit list.
+func (s *Service) empty(ctx context.Context, p config.Project) bool {
+	var commits []json.RawMessage
+	err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/commits?per_page=1"), &commits)
+	var api *APIError
+	return errors.As(err, &api) && api.Status == http.StatusConflict
 }
 
 // Files returns the blob id of every file on the base branch in the

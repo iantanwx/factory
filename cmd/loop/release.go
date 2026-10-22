@@ -51,7 +51,7 @@ type hostVerbs struct {
 	platform string
 	// setup makes install's host steps. Nil skips them.
 	setup func(inv cli.Invocation) (*release.HostSetup, error)
-	// cmd runs git and gh for init.
+	// cmd runs git and gh for register.
 	cmd cmdRunner
 }
 
@@ -79,7 +79,7 @@ func (h *hostVerbs) register() error {
 		}
 	}
 	for path, fn := range map[string]cli.Handler{
-		"install": h.install, "init": h.initProject, "upgrade": h.upgrade, "rollback": h.rollback, "restore": h.restore, "doctor": h.doctor,
+		"install": h.install, "register": h.registerProject, "upgrade": h.upgrade, "rollback": h.rollback, "restore": h.restore, "doctor": h.doctor,
 	} {
 		if err := h.reg.SetHandler(path, fn); err != nil {
 			return err

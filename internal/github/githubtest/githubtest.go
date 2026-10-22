@@ -170,7 +170,8 @@ func (a *API) SetInstall(selection string, perms map[string]string) {
 	a.install = map[string]any{"id": InstallID, "repository_selection": selection, "permissions": perms}
 }
 
-// SetRules changes the rules of the default branch.
+// SetRules changes the rules of the default branch. Nil answers 404, as
+// GitHub does for a plan with no rulesets.
 func (a *API) SetRules(rules []any) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -229,6 +230,11 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		rules := a.rules
 		a.mu.Unlock()
+		if rules == nil {
+			// A private repository on a free plan has no rulesets.
+			WriteJSON(w, 404, map[string]string{"message": "Not Found"})
+			return
+		}
 		WriteJSON(w, 200, rules)
 	case a.World.serve(w, r):
 	default:

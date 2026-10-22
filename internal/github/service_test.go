@@ -109,7 +109,11 @@ func TestAddHookChecksTheBranchRules(t *testing.T) {
 			map[string]any{"type": "required_status_checks", "parameters": map[string]any{
 				"required_status_checks": []any{map[string]any{"context": "ci"}, map[string]any{"context": EligibleContext}}}},
 		}, []string{"eligible_source"}},
-		"nothing": {[]any{}, []string{"ci_required", "eligible_required", "direct_push_blocked"}},
+		// A bare project has no CI yet: loop doctor reports it, and the
+		// add goes ahead.
+		"nothing": {[]any{}, []string{"eligible_required", "direct_push_blocked"}},
+		// A plan with no rulesets: the direct merge checks CI itself.
+		"no rulesets on the plan": {nil, nil},
 		// An unknown rule type and unknown fields change nothing: the
 		// check asserts the rules, not the layout.
 		"extra fields": {[]any{

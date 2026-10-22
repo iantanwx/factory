@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,22 +13,17 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
+	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
+	"github.com/iantanwx/loop/internal/pack"
 )
 
-// RulesetName is the name of the ruleset `loop init` keeps on a project's
-// default branch.
+// RulesetName is the name of the ruleset `loop register` keeps on a
+// project's default branch.
 const RulesetName = "loop"
-
-// defaultStages are the stages a new project config enables.
-var defaultStages = []string{
-	config.StageImplementer, config.StageCodeReviewer, config.StageDocReviewer, config.StageAmender,
-	config.StageSpecAuthor, config.StageDecomposer, config.StageFixer,
-}
 
 // cmdRunner runs one command in dir with stdin and returns its stdout. An
 // error holds the command's stderr.
@@ -52,27 +46,30 @@ func execCmd(ctx context.Context, dir string, stdin []byte, name string, args ..
 	return out, nil
 }
 
-// InitReport is the JSON of `loop init`.
-type InitReport struct {
+// RegisterReport is the JSON of `loop register`.
+type RegisterReport struct {
 	Project string `json:"project"`
 	Repo    string `json:"repo"`
 	Path    string `json:"path"`
-	Branch  string `json:"branch"`
-	Config  string `json:"config"` // "created" or "present"
-	// CIWorkflow is "created" or "present" when the default branch had no
-	// check, so init made one; empty when the repository's own CI ran.
-	CIWorkflow string   `json:"ci_workflow,omitempty"`
-	Ruleset    string   `json:"ruleset"` // "created" or "updated"
-	CI         []string `json:"ci"`
-	Added      bool     `json:"added"` // false when the project was registered already
+	// Branch is the default branch; empty while the repository has no
+	// commit.
+	Branch string `json:"branch"`
+	// Ruleset is "created", "updated", or "unavailable" when GitHub offers
+	// no rulesets on the repository's plan.
+	Ruleset string   `json:"ruleset"`
+	CI      []string `json:"ci"`
+	Skills  []string `json:"skills"`
+	Added   bool     `json:"added"` // false when the project was registered already
+	Next    string   `json:"next,omitempty"`
 }
 
-// initProject is `loop init`: it makes the git clone it runs in a loop
-// project. It commits a default .loop/config.yaml when the default branch
-// has none, keeps the loop ruleset on the default branch with the
-// operator's gh login, and registers the project with the server. Each
-// step leaves alone what is already right, so it can run again.
-func (h *hostVerbs) initProject(ctx context.Context, inv cli.Invocation) cli.Result {
+// registerProject is `loop register`: it tells the loop about the git clone it
+// runs in. It keeps the loop ruleset on the default branch with the
+// operator's gh login, registers the project with the server, and writes
+// the loop skills into the clone, so a harness session there can run
+// loop-init. Each step leaves alone what is already right, so it runs
+// again after loop-init adds CI.
+func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli.Result {
 	dir, ctl, res := h.prepare(ctx, inv)
 	if res != nil {
 		return *res
@@ -95,9 +92,9 @@ func (h *hostVerbs) initProject(ctx context.Context, inv cli.Invocation) cli.Res
 	}
 	top, err := h.cmd(ctx, cwd, nil, "git", "rev-parse", "--show-toplevel")
 	if err != nil {
-		return cli.Reject(cli.CodeUsage, "not_a_clone", "run loop init inside the project's git clone: "+err.Error())
+		return cli.Reject(cli.CodeUsage, "not_a_clone", "run loop register inside the project's git clone: "+err.Error())
 	}
-	rep := InitReport{Path: filepath.Clean(strings.TrimSpace(string(top)))}
+	rep := RegisterReport{Path: filepath.Clean(strings.TrimSpace(string(top)))}
 	var view struct {
 		NameWithOwner    string `json:"nameWithOwner"`
 		DefaultBranchRef struct {
@@ -113,24 +110,19 @@ func (h *hostVerbs) initProject(ctx context.Context, inv cli.Invocation) cli.Res
 		rep.Project = projectID(rep.Repo)
 	}
 
-	if rep.CI = splitList(inv.Flags["ci"]); len(rep.CI) == 0 {
+	if rep.Branch != "" {
 		if rep.CI, err = h.ciChecks(ctx, rep); err != nil {
 			return fail(err)
 		}
 	}
-	// No CI has run on the default branch: commit one, and require its job.
-	if len(rep.CI) == 0 {
-		if rep.CIWorkflow, err = h.ensureFile(ctx, rep, CIWorkflowPath, "ci: add the loop CI workflow",
-			func() ([]byte, error) { return ciWorkflow(rep.Path, rep.Branch), nil }); err != nil {
-			return fail(err)
-		}
-		rep.CI = []string{CIJob}
-	}
-	if rep.Config, err = h.ensureProjectConfig(ctx, rep); err != nil {
-		return fail(err)
-	}
 	if rep.Ruleset, err = h.ensureRuleset(ctx, rep, appID); err != nil {
 		return fail(err)
+	}
+	if rep.Skills, err = installSkills(ctx, rep.Path); err != nil {
+		return fail(err)
+	}
+	if len(rep.CI) == 0 {
+		rep.Next = "the repository has no CI yet; start a harness session in " + rep.Path + " and run the loop-init skill"
 	}
 
 	for _, p := range host.Projects {
@@ -146,15 +138,39 @@ func (h *hostVerbs) initProject(ctx context.Context, inv cli.Invocation) cli.Res
 	added := ctl.client().Remote(ctx, cli.Invocation{Verb: v, Args: []string{rep.Project},
 		Flags: map[string]string{"repo": rep.Repo, "path": rep.Path}, RequestID: newRequestID()})
 	if r := added.Refusal; r != nil {
-		return cli.Reject(r.Code, r.Rule, r.Hint+"; is the loop App installed on "+rep.Repo+"? Add it from the App's page on GitHub, then run loop init again")
+		return cli.Reject(r.Code, r.Rule, r.Hint+"; is the loop App installed on "+rep.Repo+"? Add it from the App's page on GitHub, then run loop register again")
 	}
 	rep.Added = true
 	return cli.Found(rep)
 }
 
+// installSkills writes the loop skills into the clone for Claude Code and
+// Codex, and keeps them out of git through info/exclude, as a run's
+// checkout does.
+func installSkills(ctx context.Context, clone string) ([]string, error) {
+	p, err := pack.Brief()
+	if err != nil {
+		return nil, err
+	}
+	skills, err := p.Skills()
+	if err != nil {
+		return nil, err
+	}
+	var dirs []string
+	for _, h := range []agenthost.Harness{agenthost.Claude, agenthost.Codex} {
+		if err := p.Write(clone, h); err != nil {
+			return nil, err
+		}
+		for _, s := range skills {
+			dirs = append(dirs, brief.SkillRoot(h)+"/"+s)
+		}
+	}
+	return skills, brief.Exclude(ctx, clone, nil, dirs)
+}
+
 // ciChecks names the checks that ran on the head of the default branch:
 // check runs and commit statuses, except loop/eligible.
-func (h *hostVerbs) ciChecks(ctx context.Context, rep InitReport) ([]string, error) {
+func (h *hostVerbs) ciChecks(ctx context.Context, rep RegisterReport) ([]string, error) {
 	ref := "repos/" + rep.Repo + "/commits/" + rep.Branch
 	var runs struct {
 		CheckRuns []struct {
@@ -184,61 +200,13 @@ func (h *hostVerbs) ciChecks(ctx context.Context, rep InitReport) ([]string, err
 	return slices.Compact(out), nil
 }
 
-// ensureProjectConfig commits the default project config to the default
-// branch. A config already there stays.
-func (h *hostVerbs) ensureProjectConfig(ctx context.Context, rep InitReport) (string, error) {
-	return h.ensureFile(ctx, rep, config.ProjectConfigPath, "chore: add loop project config", defaultProjectConfig)
-}
-
-// ensureFile commits one file to the default branch through the contents
-// API, so the clone's working tree is untouched. A file already there
-// stays. It answers "created" or "present".
-func (h *hostVerbs) ensureFile(ctx context.Context, rep InitReport, file, message string, body func() ([]byte, error)) (string, error) {
-	path := "repos/" + rep.Repo + "/contents/" + file
-	_, err := h.cmd(ctx, rep.Path, nil, "gh", "api", path+"?ref="+rep.Branch, "--silent")
-	if err == nil {
-		return "present", nil
-	}
-	if !strings.Contains(err.Error(), "404") {
-		return "", err
-	}
-	data, err := body()
-	if err != nil {
-		return "", err
-	}
-	req, err := json.Marshal(map[string]string{
-		"message": message, "branch": rep.Branch, "content": base64.StdEncoding.EncodeToString(data),
-	})
-	if err != nil {
-		return "", err
-	}
-	if _, err := h.cmd(ctx, rep.Path, req, "gh", "api", "-X", "PUT", path, "--input", "-", "--silent"); err != nil {
-		return "", err
-	}
-	return "created", nil
-}
-
-func defaultProjectConfig() ([]byte, error) {
-	cfg := config.ProjectConfig{Merge: config.MergeConfig{Mechanism: config.MergeDirect}, Stages: map[string]config.StageConfig{}}
-	for _, s := range defaultStages {
-		cfg.Stages[s] = config.StageConfig{}
-	}
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return nil, err
-	}
-	data = append([]byte("# Loop project config. docs/operating.md in the loop repository explains each field.\n"), data...)
-	if _, err := config.ParseProjectConfig(data); err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
 // ensureRuleset creates or updates the loop ruleset on the default
 // branch: a pull request with no approvals, the CI checks, and
 // loop/eligible from the loop App. Repository admins bypass it, so the
-// operator signs off a PRD or spec by merging it.
-func (h *hostVerbs) ensureRuleset(ctx context.Context, rep InitReport, appID int64) (string, error) {
+// operator signs off a PRD or spec by merging it. A plan with no rulesets
+// answers "unavailable", and the loop checks CI itself before a direct
+// merge.
+func (h *hostVerbs) ensureRuleset(ctx context.Context, rep RegisterReport, appID int64) (string, error) {
 	checks := []map[string]any{}
 	for _, c := range rep.CI {
 		checks = append(checks, map[string]any{"context": c})
@@ -268,6 +236,9 @@ func (h *hostVerbs) ensureRuleset(ctx context.Context, rep InitReport, appID int
 		Name string `json:"name"`
 	}
 	if err := h.ghJSON(ctx, rep.Path, &existing, "api", "repos/"+rep.Repo+"/rulesets"); err != nil {
+		if strings.Contains(err.Error(), "Upgrade to GitHub Pro") || strings.Contains(err.Error(), "HTTP 403") {
+			return "unavailable", nil
+		}
 		return "", err
 	}
 	for _, r := range existing {
@@ -298,14 +269,4 @@ func projectID(repo string) string {
 		id = "p-" + id
 	}
 	return id
-}
-
-func splitList(s string) []string {
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

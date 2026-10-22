@@ -123,3 +123,28 @@ func TestDirectMergesOneAtATimeForEachProject(t *testing.T) {
 	e.wantStatus(a, machine.Done)
 	e.wantStatus(b, machine.Done)
 }
+
+// With no ruleset to stop it, the direct merge reads CI on the reviewed
+// head first: pending waits, and red dequeues with no merge call.
+func TestDirectChecksCIBeforeItMerges(t *testing.T) {
+	e := newDirect(t)
+	id, pr := e.reviewed(sha('1'), true)
+	poll := func() merge.Result {
+		r, err := e.mech.Poll(e.ctx, merge.PR{Project: e.project, Item: id, Number: pr.Number, Head: sha('1'), Base: "main"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	e.world.SetRuns(sha('1'), map[string]any{"id": 1, "name": "ci", "head_sha": sha('1'), "status": "in_progress"})
+	if r := poll(); r.Outcome != merge.Pending {
+		t.Fatalf("poll with CI running = %+v", r)
+	}
+	e.world.SetRuns(sha('1'), map[string]any{"id": 2, "name": "ci", "head_sha": sha('1'), "status": "completed", "conclusion": "failure"})
+	if r := poll(); r.Outcome != merge.Dequeued || r.Reason != merge.Red {
+		t.Fatalf("poll with red CI = %+v", r)
+	}
+	if got := e.world.Merges(); len(got) != 0 {
+		t.Fatalf("merge calls = %+v; want none", got)
+	}
+}

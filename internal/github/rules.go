@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -83,6 +84,14 @@ func (s *Service) CheckRules(ctx context.Context, p config.Project) ([]CheckLine
 	}
 	var rules []rule
 	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/rules/branches/"+pathEscapeBranch(base)), &rules); err != nil {
+		// GitHub answers 404 when the repository's plan has no rulesets: a
+		// private repository on a free account. Nothing enforces the rules
+		// there, so the direct merge checks CI itself.
+		var api *APIError
+		if errors.As(err, &api) && api.Status == http.StatusNotFound {
+			return []CheckLine{{Check: "branch_rules", OK: true,
+				Detail: fmt.Sprintf("GitHub offers no rulesets for %s on its plan; the loop checks CI itself before a direct merge", p.Repo)}}, nil
+		}
 		return nil, err
 	}
 	var required []requiredCheck
