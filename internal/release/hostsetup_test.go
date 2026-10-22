@@ -40,6 +40,9 @@ func TestInstallSetsUpTheHostSoTheDoctorPasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got, err := os.Readlink(filepath.Join(home, ".local", "bin", "loop")); err != nil || got != filepath.Join(w.dir, "current", BinaryName) {
+		t.Fatalf("~/.local/bin/loop = %q %v", got, err)
+	}
 	if !slices.Contains(w.rec.list(), "loginctl enable-linger op") {
 		t.Fatalf("linger was not set: %q", w.rec.list())
 	}

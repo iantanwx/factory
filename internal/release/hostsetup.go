@@ -63,6 +63,11 @@ func (s *HostSetup) run(ctx context.Context, l Layout) (notes []string, appAdded
 			notes = append(notes, fmt.Sprintf("linger is not set, so the service stops at logout; run loginctl enable-linger %s: %v", s.User, err))
 		}
 	}
+	if note, err := s.linkCLI(l); err != nil {
+		return notes, false, err
+	} else if note != "" {
+		notes = append(notes, note)
+	}
 	cfg, err := config.LoadHost(l.HostConfig())
 	if err != nil {
 		return notes, false, err
@@ -93,6 +98,32 @@ func (s *HostSetup) run(ctx context.Context, l Layout) (notes []string, appAdded
 	}
 	notes = append(notes, fmt.Sprintf("created the GitHub App %s (id %d); install it on each project repository at %s", app.Slug, app.ID, app.InstallURL))
 	return notes, true, nil
+}
+
+// linkCLI puts loop on the operator's PATH: ~/.local/bin/loop links to
+// the instance's current binary, so each upgrade moves it too. A file
+// there that is not a symlink stays.
+func (s *HostSetup) linkCLI(l Layout) (string, error) {
+	link := filepath.Join(s.Home, ".local", "bin", "loop")
+	target := filepath.Join(l.Dir, "current", BinaryName)
+	have, err := os.Readlink(link)
+	switch {
+	case err == nil && have == target:
+		return "", nil
+	case err == nil:
+		if err := os.Remove(link); err != nil {
+			return "", err
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return fmt.Sprintf("%s exists and is not a symlink, so loop is not linked there; run %s instead", link, target), nil
+	}
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.Symlink(target, link); err != nil {
+		return "", err
+	}
+	return "linked " + link + " to " + target, nil
 }
 
 // storeHostSecret writes one platform credential into the secret store

@@ -25,12 +25,9 @@ The same command upgrades a host that already runs the loop.
 
 ## Add a project
 
-- [ ] On the repository's default branch, add a ruleset:
-  - require the CI check, plus `loop/eligible` with the loop App as its source;
-  - require a pull request, with 0 approvals;
-  - put yourself on the bypass list.
-- [ ] Commit `.loop/config.yaml`.
-- [ ] Run `loop project add <id> --repo <owner/name> --path <clone>`.
+- [ ] Make sure the repository's CI has run at least once on its default
+      branch.
+- [ ] In the project's clone, run `loop init`.
 
 ## Open items
 

@@ -56,6 +56,8 @@ set, so running install again only repairs drift:
   replaces an existing `host.yaml`.
 - It creates the key file and the host-admin credential file. It never
   replaces either one.
+- It links `~/.local/bin/loop` to `current/loop`, so `loop` is on your
+  PATH and follows each upgrade.
 - On Linux, it runs `loginctl enable-linger $USER`, so the service keeps
   running after you log out. A host without logind gets a line in the
   report naming the command instead.
@@ -131,22 +133,39 @@ reports them as one failed `github` line marked unchecked.
 
 ## Add a project
 
+Run `loop init` in the project's local clone:
+
 ```sh
-loop project add alpha --repo owner/alpha --path /home/me/src/alpha
+cd ~/src/alpha && loop init
 ```
 
-The path is the project's local clone, an absolute path. The command
-refuses when the default branch lacks a rule the loop needs. Set the rules
-first, as the next section says.
+It uses your `gh` login and does these steps. Each one leaves alone what
+is already right, so you can run it again:
 
-The project needs `.loop/config.yaml` on its default branch. It names the
-merge mechanism, the gates and the stages. For `mergify`, the loop proposes
-`.mergify.yml` through its own pull request when the repository has none.
+- It reads the repository and its default branch from the clone.
+- It commits a default `.loop/config.yaml` to the default branch through
+  the GitHub API, when the branch has none. The config uses the `direct`
+  merge mechanism and enables the implementer, reviewer, amender,
+  spec-author, decomposer and fixer stages. Pull to see it.
+- It keeps a ruleset named `loop` on the default branch, as the next
+  section says. The CI checks are the checks that ran on the head of the
+  default branch, or the ones you name with `--ci test,lint`. The
+  repository's CI must have run once on the default branch first.
+- It registers the project with the server, with the repository name as
+  its id. Give another id as `loop init <id>`.
+
+The loop App must be installed on the repository. When it is not, the
+registration fails and says so.
+
+`loop project add alpha --repo owner/alpha --path /home/me/src/alpha` does
+the registration step alone. It refuses when the default branch lacks a
+rule the loop needs.
 
 ## Set the default-branch ruleset
 
-Do this once for each project repository. In GitHub, open Settings, then
-Rules, then Rulesets, and make a branch ruleset for the default branch:
+`loop init` makes this ruleset. To make it by hand, open Settings, then
+Rules, then Rulesets in GitHub, and make a branch ruleset for the default
+branch:
 
 1. Require status checks to pass. Add the CI check. Add `loop/eligible`,
    and set its source to the loop App. The loop posts `loop/eligible` only
