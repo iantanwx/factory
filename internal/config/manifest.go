@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"path"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -22,6 +24,30 @@ type ManifestEntry struct {
 	Name       string `yaml:"name"`
 	Source     string `yaml:"source,omitempty"`     // a 1Password reference, op://vault/item[/section]/field; absent for a value set by hand
 	Production bool   `yaml:"production,omitempty"` // marks a production secret for later per-stage scoping (R34)
+	// Dir is the directory whose .env holds the secret, relative to the
+	// checkout root with slashes, such as apps/web. Absent for the root, so
+	// a key that one app uses reaches that app's .env only (parity 9.3).
+	Dir string `yaml:"dir,omitempty"`
+	// Stages names the stages whose runs receive the secret. Absent for
+	// every stage (parity 11.2).
+	Stages []string `yaml:"stages,omitempty"`
+}
+
+// manifestStages are the stages an entry may name: each stage that runs an
+// agent, and each room. The room package's Kinds give the room names, and
+// its test holds the two lists equal.
+var manifestStages = append(RunStages(), "intake-room", "decision-room", "review-room")
+
+// ForStage returns the entries a run of stage receives: each entry with no
+// stages, and each entry that names stage, in manifest order.
+func (m *Manifest) ForStage(stage string) *Manifest {
+	out := &Manifest{}
+	for _, e := range m.Secrets {
+		if e.Stages == nil || slices.Contains(e.Stages, stage) {
+			out.Secrets = append(out.Secrets, e)
+		}
+	}
+	return out
 }
 
 // Vault returns the 1Password vault of the entry's source reference.
@@ -65,6 +91,22 @@ func ParseManifest(data []byte) (*Manifest, error) {
 			ck.fail(f+".name", "names a secret twice")
 		}
 		seen[e.Name] = true
+		if e.Dir != "" {
+			if reason := checkEnvDir(e.Dir); reason != "" {
+				ck.fail(f+".dir", "%s", reason)
+			}
+		}
+		if e.Stages != nil && len(e.Stages) == 0 {
+			ck.fail(f+".stages", "must name at least one stage; leave it out for every stage")
+		}
+		for j, st := range e.Stages {
+			switch {
+			case !slices.Contains(manifestStages, st):
+				ck.fail(fmt.Sprintf("%s.stages[%d]", f, j), "is not a stage of this loop: one of %s", strings.Join(manifestStages, ", "))
+			case slices.Contains(e.Stages[:j], st):
+				ck.fail(fmt.Sprintf("%s.stages[%d]", f, j), "names a stage twice")
+			}
+		}
 		if e.Source == "" {
 			continue // set by hand with loop secret set
 		}
@@ -110,6 +152,20 @@ func refuseValueFields(source string, data []byte) error {
 		}
 	}
 	return nil
+}
+
+// checkEnvDir returns why dir cannot hold a run's .env, or "" when it can.
+// The directory stays inside the checkout and outside .git.
+func checkEnvDir(dir string) string {
+	switch {
+	case strings.ContainsRune(dir, '\\') || HasControl(dir):
+		return "must use slashes and hold no control character"
+	case path.IsAbs(dir) || path.Clean(dir) != dir || dir == "." || dir == ".." || strings.HasPrefix(dir, "../"):
+		return "must be a clean path relative to the checkout root, such as apps/web, inside the checkout"
+	case dir == ".git" || strings.HasPrefix(dir, ".git/"):
+		return "must not be inside .git"
+	}
+	return ""
 }
 
 // checkOpRef returns why ref is not a usable 1Password secret reference, or

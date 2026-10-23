@@ -302,3 +302,34 @@ func TestIntakeRoomOpensOnlyUnderTheIntakeCap(t *testing.T) {
 		t.Fatalf("an intake room under the raised cap = %v", r)
 	}
 }
+
+// A room receives only the secrets its room's stage receives, each in the
+// .env of the entry's directory (parity 9.3, 11.2). An implementer secret
+// with no stored value does not stop an intake room.
+func TestRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
+	w := newHumanWorld(t, roomManifest+"  - name: INTAKE_KEY\n    dir: apps/web\n    stages: [intake-room]\n"+
+		"  - name: IMPL_KEY\n    stages: [implementer]\n")
+	ctx := context.Background()
+	for name, v := range map[string]string{"API_KEY": humanSecret, "INTAKE_KEY": "intake_value_1"} {
+		if err := w.srv.Secrets.Set(ctx, "alpha", name, strings.NewReader(v)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := w.openRoom("intake", "", "the operator wants widgets")
+	if r["state"] != room.Live {
+		t.Fatalf("room = %v", r)
+	}
+	co := r["checkout"].(string)
+	root, err := os.ReadFile(filepath.Join(co, brief.EnvFile))
+	if err != nil || string(root) != "API_KEY='"+humanSecret+"'\n" {
+		t.Fatalf(".env = %v", err)
+	}
+	web, err := os.ReadFile(filepath.Join(co, "apps/web", brief.EnvFile))
+	if err != nil || string(web) != "INTAKE_KEY='intake_value_1'\n" {
+		t.Fatalf("apps/web/.env = %q, %v", web, err)
+	}
+	w.coordinator("room", "close", r["room"].(string))
+	if _, err := os.Stat(filepath.Join(co, "apps/web", brief.EnvFile)); !os.IsNotExist(err) {
+		t.Fatalf("a closed room kept apps/web/.env: %v", err)
+	}
+}
