@@ -444,7 +444,11 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 		}
 		out := []any{}
 		for i := (page - 1) * per; i < len(list) && i < page*per; i++ {
-			out = append(out, list[i].json())
+			// GitHub's list leaves out the mergeable state, which only
+			// the read of one PR computes.
+			j := list[i].json()
+			delete(j, "mergeable_state")
+			out = append(out, j)
 		}
 		WriteJSON(rw, 200, out)
 	case r.Method == http.MethodPost && path == "/repos/"+Repo+"/pulls":

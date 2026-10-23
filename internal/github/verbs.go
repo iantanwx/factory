@@ -189,10 +189,20 @@ func (s *Service) itemPR(ctx context.Context, call *rpc.Call, item string) (conf
 	return prj, pr, nil
 }
 
+// prShow shows the item's PR. GitHub's PR list carries no mergeable
+// state, and the implementer reads it here to learn whether to merge the
+// base, so an open PR is read again by number.
 func (s *Service) prShow(ctx context.Context, call *rpc.Call) cli.Result {
-	_, pr, res := s.itemPR(ctx, call, "")
+	prj, pr, res := s.itemPR(ctx, call, "")
 	if res != nil {
 		return *res
+	}
+	if pr.State == "open" {
+		cur, err := s.GetPR(ctx, prj, pr.Number)
+		if err != nil {
+			return Refuse(err)
+		}
+		pr = &cur
 	}
 	return cli.Found(pr.View())
 }

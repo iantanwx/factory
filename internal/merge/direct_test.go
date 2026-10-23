@@ -56,17 +56,48 @@ func TestDirectRefusesAMovedHeadAndReturnsTheTicketToReview(t *testing.T) {
 	}
 }
 
-// A branch behind the base moves the ticket to todo with entry rework.
+// A branch that GitHub refuses to merge because it is behind the base
+// moves the ticket to todo with entry rework: with no queue, only a
+// merge of the base into the branch lands it.
 func TestDirectSendsABranchBehindTheBaseToRework(t *testing.T) {
 	e := newDirect(t)
 	id, pr := e.reviewed(sha('1'), true)
 	e.tick()
-	e.world.Update(pr, func(p *gt.PR) { p.MergeableState = "behind" })
+	e.world.Update(pr, func(p *gt.PR) { p.MergeableState = merge.MergeableBehind })
 	e.tick()
 	it := e.wantStatus(id, machine.Todo)
 	if it.Fact(machine.FactEntry) != machine.EntryRework {
 		t.Fatalf("entry = %q; want rework", it.Fact(machine.FactEntry))
 	}
+}
+
+// A refused merge while GitHub still computes the mergeable state is no
+// verdict: the PR stays queued, and the next poll tries again.
+func TestDirectRetriesARefusalWhileTheMergeableStateIsUnknown(t *testing.T) {
+	rt := &afterMerge{}
+	e := newDirect(t, func(c *github.Config) { c.HTTP = &http.Client{Transport: rt} })
+	id, pr := e.reviewed(sha('1'), true)
+	e.tick()
+	// GitHub refuses the merge, and the read after it is not settled.
+	e.world.Update(pr, func(p *gt.PR) { p.MergeableState = "blocked" })
+	rt.fn = func() { e.world.Update(pr, func(p *gt.PR) { p.MergeableState = merge.MergeableUnknown }) }
+	e.tick()
+	e.wantStatus(id, machine.Queued)
+	e.wantTracked(pr, "handed", "", 1)
+	if n := len(e.world.Merges()); n != 1 {
+		t.Fatalf("%d merge calls; want 1", n)
+	}
+}
+
+// afterMerge runs fn after each merge request.
+type afterMerge struct{ fn func() }
+
+func (a *afterMerge) RoundTrip(r *http.Request) (*http.Response, error) {
+	res, err := http.DefaultTransport.RoundTrip(r)
+	if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/merge") && a.fn != nil {
+		a.fn()
+	}
+	return res, err
 }
 
 // slowMerges holds each merge request open for a while and records how

@@ -177,6 +177,8 @@ func (h *HandOff) findPR(ctx context.Context, p config.Project, item string) (*g
 // head. The enqueue row's guard checks the head again inside the write.
 // The hand-off follows the move, so a crash between the two leaves a
 // queued ticket with no hand-off, which the next tick's advance repairs.
+// The machine sends a conflicted PR to rework from queued only, so a PR
+// that conflicts at the hand-off is enqueued and then dequeued.
 func (h *HandOff) handOff(ctx context.Context, p config.Project, mech Mechanism, it machine.Item) error {
 	reviewed := it.Fact(machine.FactReviewedHead)
 	pr, err := h.findPR(ctx, p, it.ID)
@@ -192,11 +194,29 @@ func (h *HandOff) handOff(ctx context.Context, p config.Project, mech Mechanism,
 	if res.Refusal != nil {
 		return machine.Settled(res)
 	}
-	return h.give(ctx, mech, h.prOf(p, it, pr))
+	return h.start(ctx, mech, h.prOf(p, it, pr))
 }
 
 func (h *HandOff) prOf(p config.Project, it machine.Item, pr *github.PR) PR {
 	return PR{Project: p, Item: it.ID, Number: pr.Number, Head: it.Fact(machine.FactReviewedHead), Base: pr.Base.Ref}
+}
+
+// start hands a queued ticket's PR to the mechanism, or sends the ticket
+// to rework when the PR conflicts with its base: no mechanism merges a
+// conflicted PR, and the github-queue mechanism cannot even enqueue one.
+// The PR list that findPR reads carries no mergeable state, so start
+// reads the PR itself. While GitHub still computes the state, the ticket
+// waits in queued with no hand-off, and the next tick's advance asks
+// again.
+func (h *HandOff) start(ctx context.Context, mech Mechanism, pr PR) error {
+	cur, err := h.cfg.GitHub.GetPR(ctx, pr.Project, pr.Number)
+	if err != nil || cur.MergeableState == MergeableUnknown {
+		return err
+	}
+	if res, ok := Conflicting(cur); ok {
+		return h.dequeued(ctx, mech, pr, nil, res)
+	}
+	return h.give(ctx, mech, pr)
 }
 
 // give hands one PR off and records it.
@@ -204,7 +224,7 @@ func (h *HandOff) give(ctx context.Context, mech Mechanism, pr PR) error {
 	if err := mech.HandOff(ctx, pr); err != nil {
 		return fmt.Errorf("hand off #%d to %s: %w", pr.Number, mech.Name(), err)
 	}
-	return h.record(ctx, pr, mech.Name(), stateHanded)
+	return h.record(ctx, pr, mech.Name(), stateHanded, "")
 }
 
 // advance reads the outcome of one queued ticket's PR and makes the move
@@ -234,7 +254,7 @@ func (h *HandOff) advance(ctx context.Context, p config.Project, mech Mechanism,
 		return err
 	}
 	if t == nil || t.head != mp.Head || (t.state != stateHanded && t.state != stateRequeued) {
-		return h.give(ctx, mech, mp) // the hand-off a crash left undone
+		return h.start(ctx, mech, mp) // the hand-off a crash or an unknown mergeable state left undone
 	}
 	r, err := mech.Poll(ctx, mp)
 	if err != nil {
@@ -253,7 +273,7 @@ func (h *HandOff) advance(ctx context.Context, p config.Project, mech Mechanism,
 
 // dequeued makes the move of one dequeue reason. A dequeue that is
 // neither a conflict nor red CI re-queues once for each head, then
-// escalates.
+// escalates. t is nil only for a conflict found before the hand-off.
 func (h *HandOff) dequeued(ctx context.Context, mech Mechanism, pr PR, t *track, r Result) error {
 	verb := ""
 	switch r.Reason {
@@ -262,11 +282,11 @@ func (h *HandOff) dequeued(ctx context.Context, mech Mechanism, pr PR, t *track,
 	case Red:
 		verb = "dequeue_red"
 	default:
-		if t.state != stateRequeued {
+		if t == nil || t.state != stateRequeued {
 			if err := mech.Requeue(ctx, pr); err != nil {
 				return fmt.Errorf("requeue #%d in %s: %w", pr.Number, mech.Name(), err)
 			}
-			return h.record(ctx, pr, mech.Name(), stateRequeued)
+			return h.record(ctx, pr, mech.Name(), stateRequeued, r.Reason)
 		}
 		verb = "escalate"
 	}
@@ -279,7 +299,7 @@ func (h *HandOff) dequeued(ctx context.Context, mech Mechanism, pr PR, t *track,
 	if verb == "escalate" {
 		state = stateEscalated
 	}
-	return h.record(ctx, pr, mech.Name(), state)
+	return h.record(ctx, pr, mech.Name(), state, r.Reason)
 }
 
 // merged moves the ticket for a merge the mechanism reports. The reactor
@@ -294,7 +314,7 @@ func (h *HandOff) merged(ctx context.Context, pr PR, mech config.MergeMechanism,
 	if res.Refusal != nil && res.Refusal.Code != cli.CodeNotFound {
 		return fmt.Errorf("#%d merged: %s: %s", pr.Number, res.Refusal.Code, res.Refusal.Hint)
 	}
-	return h.record(ctx, pr, mech, stateMerged)
+	return h.record(ctx, pr, mech, stateMerged, "")
 }
 
 // withdrawStale lets go of every PR whose ticket left queued since its
@@ -318,7 +338,7 @@ func (h *HandOff) withdrawStale(ctx context.Context, p config.Project, cur Mecha
 		}
 		pr := PR{Project: p, Item: t.item, Number: t.pr, Head: t.head}
 		if it.Status == machine.Done {
-			errs = append(errs, h.record(ctx, pr, config.MergeMechanism(t.mechanism), stateMerged))
+			errs = append(errs, h.record(ctx, pr, config.MergeMechanism(t.mechanism), stateMerged, ""))
 			continue
 		}
 		mech := cur
@@ -410,20 +430,30 @@ func (h *HandOff) open(ctx context.Context, project string) ([]track, error) {
 	return out, err
 }
 
-// record writes the PR's hand-off state. A hand-off sets enqueued_at.
-func (h *HandOff) record(ctx context.Context, pr PR, mech config.MergeMechanism, state string) error {
+// record writes the PR's hand-off state. A hand-off sets enqueued_at,
+// and a hand-off or a re-queue counts one attempt. A dequeue reason
+// stays until the next dequeue replaces it, so `merge status` still
+// names why a PR came back after it is handed off again.
+func (h *HandOff) record(ctx context.Context, pr PR, mech config.MergeMechanism, state string, reason Reason) error {
 	return h.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		now := tx.Now().UnixMilli()
 		var enq any
 		if state == stateHanded {
 			enq = now
 		}
-		_, err := tx.Exec(`INSERT INTO merge_tracking (project, pr_number, item, head_sha, mechanism, state, enqueued_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		attempts := 0
+		if state == stateHanded || state == stateRequeued {
+			attempts = 1
+		}
+		_, err := tx.Exec(`INSERT INTO merge_tracking (project, pr_number, item, head_sha, mechanism, state, reason, attempts,
+				enqueued_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (project, pr_number) DO UPDATE SET item = excluded.item, head_sha = excluded.head_sha,
 				mechanism = excluded.mechanism, state = excluded.state,
+				reason = CASE excluded.reason WHEN '' THEN merge_tracking.reason ELSE excluded.reason END,
+				attempts = merge_tracking.attempts + excluded.attempts,
 				enqueued_at = coalesce(excluded.enqueued_at, merge_tracking.enqueued_at), updated_at = excluded.updated_at`,
-			pr.Project.ID, pr.Number, pr.Item, pr.Head, string(mech), state, enq, now)
+			pr.Project.ID, pr.Number, pr.Item, pr.Head, string(mech), state, string(reason), attempts, enq, now)
 		return err
 	})
 }

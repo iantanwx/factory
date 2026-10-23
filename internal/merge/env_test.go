@@ -219,6 +219,26 @@ func (e *env) mergeCalls() []string {
 	return out
 }
 
+// wantTracked checks the PR's row in `merge status --all`.
+func (e *env) wantTracked(pr *gt.PR, state string, reason merge.Reason, attempts int) merge.Tracked {
+	e.t.Helper()
+	rows, err := merge.Status(e.ctx, e.st, testProject, true)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.PR != pr.Number {
+			continue
+		}
+		if r.State != state || r.Reason != string(reason) || r.Attempts != attempts {
+			e.t.Fatalf("merge status of #%d = %+v; want %s, reason %q, %d attempts", pr.Number, r, state, reason, attempts)
+		}
+		return r
+	}
+	e.t.Fatalf("merge status holds no #%d: %+v", pr.Number, rows)
+	return merge.Tracked{}
+}
+
 func failing(head string) map[string]any {
 	return gt.CheckRun("ci", head, "completed", "failure", time.Date(2026, 10, 21, 10, 0, 0, 0, time.UTC))
 }

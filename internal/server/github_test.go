@@ -179,8 +179,11 @@ func TestRunPushesAndOpensItsPRThroughTheServer(t *testing.T) {
 	if strings.Contains(strings.Join(w.api.Calls(), "\n"), "/comments") && len(w.api.World.Comments(1)) != 0 {
 		t.Fatal("the secret reached GitHub")
 	}
+	// The implementer reads a conflict here. GitHub's PR list carries no
+	// mergeable state, so pr show reads the PR by number.
+	w.api.World.Update(w.api.World.PR(1), func(p *gt.PR) { p.MergeableState = "dirty" })
 	env = w.run("pr", "show")
-	if data, _ := env["data"].(map[string]any); env["ok"] != true || data["head_sha"] != head {
+	if data, _ := env["data"].(map[string]any); env["ok"] != true || data["head_sha"] != head || data["mergeable_state"] != "dirty" {
 		t.Fatalf("pr show = %v", env)
 	}
 }

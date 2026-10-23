@@ -69,6 +69,34 @@ func TestMergifyRequeuesOncePerHeadThenEscalates(t *testing.T) {
 	}
 }
 
+// A dequeued PR that is only behind its base keeps its review: Mergify
+// tests it on the current base, so it re-queues as any other dequeue
+// does (alpha 3668b32ae). While GitHub still computes the mergeable
+// state, the job reads it again on the next tick before it re-queues.
+func TestMergifyRequeuesABranchBehindTheBase(t *testing.T) {
+	e := newMergify(t)
+	id, pr := e.reviewed(sha('1'), true)
+	e.tick()
+	e.world.Update(pr, func(p *gt.PR) {
+		p.Labels = append(p.Labels, mergify.DequeuedLabel)
+		p.MergeableState = merge.MergeableUnknown
+	})
+	e.tick()
+	e.wantStatus(id, machine.Queued)
+	if n := queueComments(e, pr.Number); n != 0 {
+		t.Fatalf("%d queue commands while the mergeable state is unknown; want none", n)
+	}
+	e.wantTracked(pr, "handed", "", 1)
+
+	e.world.Update(pr, func(p *gt.PR) { p.MergeableState = merge.MergeableBehind })
+	e.tick()
+	e.wantStatus(id, machine.Queued)
+	if n := queueComments(e, pr.Number); n != 1 {
+		t.Fatalf("%d queue commands; want 1", n)
+	}
+	e.wantTracked(pr, "requeued", merge.Other, 2)
+}
+
 // `project add` on a repository with no Mergify config opens one template
 // PR through the App, and a repeated add opens no second one.
 func TestMergifyProjectAddOpensOneTemplatePR(t *testing.T) {

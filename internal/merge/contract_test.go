@@ -153,6 +153,54 @@ func TestContract(t *testing.T) {
 				}
 			})
 
+			t.Run("a PR that conflicts at the hand-off goes to rework and is never handed off", func(t *testing.T) {
+				e := newEnv(t, d.mech)
+				id, pr := e.reviewed(sha('1'), true)
+				e.world.Update(pr, func(p *gt.PR) { p.MergeableState = merge.MergeableDirty })
+				e.tick()
+				it := e.wantStatus(id, machine.Todo)
+				if it.Fact(machine.FactEntry) != machine.EntryRework {
+					t.Fatalf("entry = %q; want rework", it.Fact(machine.FactEntry))
+				}
+				if calls := e.mergeCalls(); len(calls) != 0 {
+					t.Fatalf("hand-off calls for a conflicted PR: %v", calls)
+				}
+				e.wantTracked(pr, "dequeued", merge.Conflict, 0)
+			})
+
+			t.Run("a PR that conflicts while the mechanism holds it goes to rework", func(t *testing.T) {
+				if d.name == "fake" {
+					t.Skip("the fake reads no GitHub")
+				}
+				e := newEnv(t, d.mech)
+				id, pr := e.reviewed(sha('1'), true)
+				e.tick()
+				e.wantStatus(id, machine.Queued)
+				// The mechanism neither merges nor dequeues the PR: the
+				// Mergify template's -conflict condition skips it.
+				e.world.Update(pr, func(p *gt.PR) { p.MergeableState = merge.MergeableDirty })
+				e.tick()
+				e.wantStatus(id, machine.Todo)
+				e.wantTracked(pr, "dequeued", merge.Conflict, 1)
+			})
+
+			t.Run("an unknown mergeable state waits for the next tick", func(t *testing.T) {
+				e := newEnv(t, d.mech)
+				id, pr := e.reviewed(sha('1'), true)
+				e.world.Update(pr, func(p *gt.PR) { p.MergeableState = merge.MergeableUnknown })
+				e.tick()
+				e.wantStatus(id, machine.Queued)
+				if calls := e.mergeCalls(); len(calls) != 0 {
+					t.Fatalf("hand-off calls before GitHub computed the mergeable state: %v", calls)
+				}
+				e.world.Update(pr, func(p *gt.PR) { p.MergeableState = "clean" })
+				e.tick()
+				e.wantStatus(id, machine.Queued)
+				if !d.handedOff(e, pr) {
+					t.Fatalf("%s did not take the PR once GitHub computed its state", d.name)
+				}
+			})
+
 			t.Run("red CI moves the ticket to repair", func(t *testing.T) {
 				e := newEnv(t, d.mech)
 				id, pr := e.reviewed(sha('1'), true)

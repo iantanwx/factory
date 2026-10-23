@@ -15,6 +15,9 @@ var (
 	// reads the item's status before each write of a room (KTD13).
 	readers  = []string{"run", "room", "coordinator"}
 	hostOnly = []string{"host"}
+	// coordinatorOrHost read the instance's state: the coordinator, and
+	// the operator's own shell.
+	coordinatorOrHost = []string{"coordinator", "host"}
 	// faultCallers may report and read loop faults: every agent, and the
 	// operator's own shell.
 	faultCallers = []string{"run", "room", "coordinator", "host"}
@@ -144,7 +147,9 @@ var surface = []Verb{
 		Flag{Name: "job", Type: FlagInt, Description: "one CI job id; every failed job of the head when absent"}),
 	write(server("pr", "rerun", "rerun the pull request's failed checks", runOrRoom, nil)),
 
-	server("merge", "status", "show the merge mechanism's state", coordinator, nil),
+	server("merge", "status", "list each pull request a merge mechanism holds, longest wait first: its state, since when, its hand-offs and its last dequeue reason", coordinatorOrHost, nil,
+		Flag{Name: "project", Type: FlagString, Description: "only this project's pull requests; every project when absent"},
+		Flag{Name: "all", Type: FlagBool, Description: "list the pull requests that left the merge pipeline too"}),
 
 	write(server("escalation", "raise", "raise an escalation on the run's item, scored against the triage rubric", runOnly, nil,
 		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},

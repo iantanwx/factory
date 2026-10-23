@@ -28,8 +28,9 @@ const (
 type Reason string
 
 // The dequeue reasons. Conflict sends the ticket to todo with entry
-// rework, Red sends it to repair, and Other re-queues it once for each
-// head and then escalates it.
+// rework, so the implementer merges the base into the branch. Red sends
+// it to repair, and Other re-queues it once for each head and then
+// escalates it.
 const (
 	Conflict Reason = "conflict"
 	Red      Reason = "ci_red"
@@ -95,16 +96,43 @@ func Terminal(cur github.PR) (res Result, ok bool) {
 	return Result{}, false
 }
 
-// Classify maps what GitHub reports about a dequeued PR to a reason: a
-// PR that conflicts with its base or is behind it is a conflict, red CI
-// at its head is red, and anything else is other. It reads GitHub's
-// outcomes, never a vendor's message text.
-func Classify(mergeableState, ci string) Reason {
-	switch {
-	case mergeableState == "dirty" || mergeableState == "behind":
-		return Conflict
-	case ci == github.CIRed:
-		return Red
+// GitHub's mergeable states that the loop reads. GitHub computes a PR's
+// mergeability lazily, after a read asks for it, so unknown means "read
+// it again later", never a conflict. Only the read of one PR carries the
+// state: GitHub's PR list leaves it out.
+const (
+	MergeableDirty   = "dirty"   // the PR conflicts with its base
+	MergeableBehind  = "behind"  // the base moved on, with no conflict
+	MergeableUnknown = "unknown" // GitHub has not computed it yet
+)
+
+// Conflicting is the result of an open PR that conflicts with its base.
+// ok is false for any other PR. A mechanism's poll reads it first: no
+// queue merges a conflicted PR, and a queue that skips one, as the
+// Mergify template's -conflict condition does, never dequeues it either,
+// so the PR would wait forever.
+func Conflicting(cur github.PR) (res Result, ok bool) {
+	if cur.MergeableState != MergeableDirty {
+		return Result{}, false
 	}
-	return Other
+	return Result{Outcome: Dequeued, Reason: Conflict, Detail: "the PR conflicts with its base"}, true
+}
+
+// Classify maps what GitHub reports about a dequeued PR to a result: a PR
+// that conflicts with its base is a conflict, red CI at its head is red,
+// and anything else is other. A PR behind its base has no conflict: a
+// queue tests it on the current base (alpha 3668b32ae). A PR whose
+// mergeable state GitHub has not computed yet stays pending, so the next
+// poll reads it again before it re-queues a PR that may conflict. It
+// reads GitHub's outcomes, never a vendor's message text.
+func Classify(mergeableState, ci string) Result {
+	switch {
+	case mergeableState == MergeableDirty:
+		return Result{Outcome: Dequeued, Reason: Conflict}
+	case ci == github.CIRed:
+		return Result{Outcome: Dequeued, Reason: Red}
+	case mergeableState == MergeableUnknown:
+		return Result{Outcome: Pending, Detail: "GitHub has not computed the PR's mergeable state yet"}
+	}
+	return Result{Outcome: Dequeued, Reason: Other}
 }

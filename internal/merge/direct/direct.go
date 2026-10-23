@@ -67,10 +67,13 @@ func (d *Direct) lock(project string) func() {
 }
 
 // Poll merges the PR at its reviewed head, one merge at a time for each
-// project. A head that moved is refused by GitHub, and the PR stays
-// pending until the hand-off job or the reactor returns the ticket to
-// review. Any other refusal is read from what GitHub reports about the
-// PR: a conflict, a branch behind the base, or red CI.
+// project. A PR that conflicts with its base goes to rework with no merge
+// call. A head that moved is refused by GitHub, and the PR stays pending
+// until the hand-off job or the reactor returns the ticket to review. Any
+// other refusal is read from what GitHub reports about the PR: a
+// conflict, a branch behind the base, or red CI. A refusal while GitHub
+// still computes the mergeable state stays pending, and the next poll
+// tries again.
 func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	unlock := d.lock(pr.Project.ID)
 	defer unlock()
@@ -79,6 +82,9 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 		return merge.Result{}, err
 	}
 	if res, ok := merge.Terminal(cur); ok {
+		return res, nil
+	}
+	if res, ok := merge.Conflicting(cur); ok {
 		return res, nil
 	}
 	// A repository with no rulesets lets any merge through, so the loop
@@ -111,9 +117,19 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	if fresh.Head.SHA != pr.Head {
 		return merge.Result{Outcome: merge.Pending, Detail: "the head moved after review"}, nil
 	}
+	if fresh.MergeableState == merge.MergeableBehind {
+		// The base's rules need an up-to-date branch. No queue tests
+		// the PR on the current base here, so only a merge of the base
+		// into the branch lands it.
+		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Conflict, Detail: api.Message}, nil
+	}
 	ci, err = d.gh.Checks(ctx, pr.Project, fresh.Head.SHA)
 	if err != nil {
 		return merge.Result{}, err
 	}
-	return merge.Result{Outcome: merge.Dequeued, Reason: merge.Classify(fresh.MergeableState, ci.State), Detail: api.Message}, nil
+	res := merge.Classify(fresh.MergeableState, ci.State)
+	if res.Outcome == merge.Dequeued {
+		res.Detail = api.Message
+	}
+	return res, nil
 }

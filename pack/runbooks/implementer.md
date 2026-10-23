@@ -35,9 +35,12 @@ each earlier verdict. Each round holds the reviewer's comment in `body`. The las
 Read every handoff note and every earlier failure before you work. A note can hold an answer that
 a person already gave. Never escalate a question that a recorded answer settles.
 
-When the status says rework, and no round holds a reject with a comment, do not build. A rework
-without its rejection repeats the rejected work. The state is then ahead of the record. Report a
-loop fault, and finish `blocked`.
+A pull request that conflicts with its base comes back as rework with no reject. Then
+`loop pr show` reports a conflict. Merge the base as section 2 states, and change nothing else.
+
+When the status says rework, no round holds a reject with a comment, and the pull request has no
+conflict, do not build. A rework without its rejection repeats the rejected work. The state is then
+ahead of the record. Report a loop fault, and finish `blocked`.
 
 ## 2. Prepare the checkout
 
@@ -45,9 +48,10 @@ When a pull request exists, bring its head into the checkout first. The turn ski
 Inspect its diff before you change anything. Never reset, clean or discard work on the item branch.
 An unpushed commit can be the only copy.
 
-Merge the base only when `loop pr show` reports a conflict. The merge mechanism already tests each
-pull request on the current base. A merge you do not need changes the reviewed head, and it costs a
-new build and a new review.
+Merge the base only when `loop pr show` reports a conflict: `mergeable_state` is `dirty`. A
+`behind` state is no conflict. The merge mechanism already tests each pull request on the current
+base. A merge you do not need changes the reviewed head, and it costs a new build and a new review.
+When the state is `unknown`, GitHub did not compute it yet. Run `loop pr show` again.
 
 To merge the base:
 

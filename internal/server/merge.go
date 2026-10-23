@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/merge/direct"
 	"github.com/iantanwx/loop/internal/merge/ghqueue"
 	"github.com/iantanwx/loop/internal/merge/mergify"
+	"github.com/iantanwx/loop/internal/rpc"
 )
 
 // Merge wires the merge interface into a server. Pass Setup in
@@ -20,8 +22,9 @@ import (
 //	mg := &server.Merge{GitHub: gh}
 //	opts.Setup = append(opts.Setup, gh.Setup, mg.Setup)
 //
-// Setup composes the three mechanisms and the merge-handoff job, and it
-// adds the mechanism check to `project add`. The scheduler registers
+// Setup composes the three mechanisms and the merge-handoff job, adds the
+// mechanism check to `project add` and serves `merge status`. The
+// scheduler registers
 // HandOff.TickProject as the merge-handoff native job.
 type Merge struct {
 	GitHub *GitHub
@@ -73,5 +76,17 @@ func (m *Merge) Setup(s *Server) error {
 	}
 	s.Projects.AddHooks = append(s.Projects.AddHooks, job.AddHook)
 	m.HandOff = job
-	return nil
+	return s.RPC.Handle("merge status", mergeStatus(s))
+}
+
+// mergeStatus answers `loop merge status` from the hand-off job's record.
+// It reads no GitHub, so it answers while GitHub is down or rate limited.
+func mergeStatus(s *Server) rpc.Handler {
+	return func(ctx context.Context, call *rpc.Call) cli.Result {
+		out, err := merge.Status(ctx, s.Store, call.Inv.Flags["project"], call.Inv.Flags["all"] == "true")
+		if err != nil {
+			return cli.Internal(err)
+		}
+		return cli.List(out)
+	}
 }

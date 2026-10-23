@@ -117,15 +117,20 @@ func (q *Queue) Withdraw(ctx context.Context, pr merge.PR) error {
 	return q.gh.GraphQL(ctx, pr.Project, github.ScopeMerge, dequeueMutation, map[string]any{"pr": e.id}, nil)
 }
 
-// Poll reads the PR's outcome. A PR that is open, unmerged and no longer
-// in the queue was dequeued, and the reason comes from what GitHub
-// reports about it: a conflict with the base, or red CI at the head.
+// Poll reads the PR's outcome. A PR that conflicts with its base is
+// dequeued as a conflict, whether or not GitHub still lists it in the
+// queue. A PR that is open, unmerged and no longer in the queue was
+// dequeued, and the reason comes from what GitHub reports about it: a
+// conflict with the base, or red CI at the head.
 func (q *Queue) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	cur, err := q.gh.GetPR(ctx, pr.Project, pr.Number)
 	if err != nil {
 		return merge.Result{}, err
 	}
 	if res, ok := merge.Terminal(cur); ok {
+		return res, nil
+	}
+	if res, ok := merge.Conflicting(cur); ok {
 		return res, nil
 	}
 	e, err := q.entry(ctx, pr)
@@ -139,5 +144,5 @@ func (q *Queue) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	if err != nil {
 		return merge.Result{}, err
 	}
-	return merge.Result{Outcome: merge.Dequeued, Reason: merge.Classify(cur.MergeableState, ci.State)}, nil
+	return merge.Classify(cur.MergeableState, ci.State), nil
 }
