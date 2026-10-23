@@ -221,6 +221,32 @@ type Comment struct {
 	InReplyTo   int64     `json:"in_reply_to,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	URL         string    `json:"url"`
+	// Thread is the review thread of a review comment. A conversation
+	// comment belongs to no thread.
+	Thread *ThreadState `json:"thread,omitempty"`
+}
+
+// ThreadState is one review thread as GitHub's GraphQL reads it. Ported
+// from threadsFrom in scripts/sdlc/github-pull.ts:154-184 (alpha).
+type ThreadState struct {
+	// ID is the thread's root review comment, the id `pr reply --thread`
+	// takes.
+	ID       int64 `json:"id"`
+	Resolved bool  `json:"resolved"`
+	Outdated bool  `json:"outdated"`
+	// AwaitingUs is true while the thread is open and the last word is
+	// not the loop App's. It needs no status field: a person comments and
+	// the thread is ours, the App replies and it is theirs. An outdated
+	// thread still counts, because the comment was about something real.
+	AwaitingUs bool `json:"awaiting_us"`
+}
+
+// root is the id of the review thread's first comment.
+func (c Comment) root() int64 {
+	if c.InReplyTo != 0 {
+		return c.InReplyTo
+	}
+	return c.ID
 }
 
 type rawComment struct {
@@ -276,8 +302,8 @@ func (s *Service) comments(ctx context.Context, p config.Project, path, kind str
 	return out, nil
 }
 
-// Threads reads a PR's review comments and its conversation comments.
-func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]Comment, error) {
+// allComments reads a PR's review comments and its conversation comments.
+func (s *Service) allComments(ctx context.Context, p config.Project, number int) ([]Comment, error) {
 	review, err := s.comments(ctx, p, fmt.Sprintf("/pulls/%d/comments", number), "review")
 	if err != nil {
 		return nil, err
@@ -287,6 +313,104 @@ func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]
 		return nil, err
 	}
 	return append(review, talk...), nil
+}
+
+// Threads reads a PR's review comments and its conversation comments,
+// and gives each review comment the state of its thread.
+func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]Comment, error) {
+	cs, err := s.allComments(ctx, p, number)
+	if err != nil {
+		return nil, err
+	}
+	// The comments are read first, so GraphQL names the thread of each
+	// one that still exists.
+	states, err := s.threadStates(ctx, p, number)
+	if err != nil {
+		return nil, err
+	}
+	last := map[int64]Comment{}
+	for _, c := range cs {
+		if c.Kind != "review" {
+			continue
+		}
+		root := c.root()
+		if _, ok := states[root]; !ok {
+			return nil, &UnavailableError{Err: fmt.Errorf("GitHub names no review thread for comment %d of #%d", root, number)}
+		}
+		if l, ok := last[root]; !ok || !c.CreatedAt.Before(l.CreatedAt) {
+			last[root] = c
+		}
+	}
+	for i, c := range cs {
+		if c.Kind != "review" {
+			continue
+		}
+		root := c.root()
+		t := states[root]
+		cs[i].Thread = &ThreadState{ID: root, Resolved: t.Resolved, Outdated: t.Outdated,
+			AwaitingUs: !t.Resolved && last[root].AuthorClass != AuthorApp}
+	}
+	return cs, nil
+}
+
+const threadsQuery = `query LoopReviewThreads($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { isResolved isOutdated comments(first: 1) { nodes { databaseId } } }
+      }
+    }
+  }
+}`
+
+// threadStates reads the state of each review thread of a PR, keyed by
+// the database id of the thread's root comment, which REST names.
+func (s *Service) threadStates(ctx context.Context, p config.Project, number int) (map[int64]ThreadState, error) {
+	own, name, _ := strings.Cut(p.Repo, "/")
+	out := map[int64]ThreadState{}
+	var after any
+	for page := 1; page <= maxCommentPages; page++ {
+		var ans struct {
+			Repository struct {
+				PullRequest *struct {
+					ReviewThreads struct {
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+						Nodes []struct {
+							IsResolved bool `json:"isResolved"`
+							IsOutdated bool `json:"isOutdated"`
+							Comments   struct {
+								Nodes []struct {
+									DatabaseID int64 `json:"databaseId"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		}
+		if err := s.GraphQL(ctx, p, ScopeRead, threadsQuery,
+			map[string]any{"owner": own, "name": name, "number": number, "after": after}, &ans); err != nil {
+			return nil, err
+		}
+		pr := ans.Repository.PullRequest
+		if pr == nil {
+			return nil, &UnavailableError{Err: fmt.Errorf("GitHub names no PR #%d", number)}
+		}
+		for _, t := range pr.ReviewThreads.Nodes {
+			if len(t.Comments.Nodes) > 0 {
+				out[t.Comments.Nodes[0].DatabaseID] = ThreadState{Resolved: t.IsResolved, Outdated: t.IsOutdated}
+			}
+		}
+		if !pr.ReviewThreads.PageInfo.HasNextPage {
+			break
+		}
+		after = pr.ReviewThreads.PageInfo.EndCursor
+	}
+	return out, nil
 }
 
 // marker is the natural key of one comment the server posts (KTD6). It
@@ -299,7 +423,7 @@ func marker(key string) string { return "<!-- loop:comment " + key + " -->" }
 // and the call answers replayed.
 func (s *Service) Reply(ctx context.Context, p config.Project, number int, thread int64, body, key string) (Comment, bool, error) {
 	mark := marker(key)
-	existing, err := s.Threads(ctx, p, number)
+	existing, err := s.allComments(ctx, p, number)
 	if err != nil {
 		return Comment{}, false, err
 	}

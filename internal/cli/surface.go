@@ -127,7 +127,7 @@ var surface = []Verb{
 		Flag{Name: "verdict", Type: FlagString, Required: true, Enum: []string{"pass", "reject"}, Description: "pass or reject"},
 		Flag{Name: "head", Type: FlagString, Description: "the PR head sha the review read; a ticket's pass needs it"},
 		Flag{Name: "body", Type: FlagString, Description: "the review comment; the server posts it on the item's pull request and records it with the verdict"})),
-	server("review", "threads", "list review threads", []string{"reviewer run"}, []Arg{itemArg}),
+	server("review", "threads", "list the pull request's comments, each review comment with its thread's resolved, outdated and awaiting-us state", []string{"reviewer run"}, []Arg{itemArg}),
 	server("review", "rounds", "list review rounds", []string{"reviewer run"}, []Arg{itemArg}),
 
 	write(server("branch", "push", "push the item's branch through the server", runOrRoom, nil)),
@@ -139,7 +139,7 @@ var surface = []Verb{
 	server("pr", "show", "show the item's pull request", runOrRoom, nil),
 	server("pr", "files", "list the pull request's changed files", runOrRoom, nil),
 	server("pr", "diff", "print the pull request's diff", runOrRoom, nil),
-	server("pr", "threads", "list the pull request's threads", runOrRoom, nil),
+	server("pr", "threads", "list the pull request's comments, each review comment with its thread's resolved, outdated and awaiting-us state", runOrRoom, nil),
 	write(server("pr", "reply", "reply on a pull request thread, or comment on the pull request", runOrRoom, nil, bodyFlag,
 		Flag{Name: "thread", Type: FlagInt, Description: "the review comment id to reply to; a conversation comment when absent"})),
 	server("pr", "checks", "list the pull request's checks", runOrRoom, nil),

@@ -303,6 +303,18 @@ func (w *World) serveGraphQL(rw http.ResponseWriter, r *http.Request) {
 		}
 		WriteJSON(rw, 200, map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{
 			"id": nodeID(p.Number), "headRefOid": p.HeadSHA, "mergeQueueEntry": entry}}}})
+	case strings.Contains(body.Query, "LoopReviewThreads"):
+		num, _ := body.Variables["number"].(float64)
+		nodes := []any{}
+		for _, c := range w.review[int(num)] {
+			id := c["id"].(int64)
+			if t := w.threads[id]; c["in_reply_to_id"] == int64(0) && !t.hidden {
+				nodes = append(nodes, map[string]any{"isResolved": t.resolved, "isOutdated": t.outdated,
+					"comments": map[string]any{"nodes": []any{map[string]any{"databaseId": id}}}})
+			}
+		}
+		WriteJSON(rw, 200, map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{
+			"reviewThreads": map[string]any{"pageInfo": map[string]any{"hasNextPage": false}, "nodes": nodes}}}}})
 	case strings.Contains(body.Query, "LoopEnqueue"):
 		p := byNode()
 		head, _ := body.Variables["head"].(string)

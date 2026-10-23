@@ -301,6 +301,8 @@ type World struct {
 	runs     map[string][]map[string]any
 	statuses []string
 	comments map[int][]map[string]any
+	review   map[int][]map[string]any
+	threads  map[int64]*threadState
 	files    int
 	failNext map[string]int
 	clock    time.Time
@@ -313,7 +315,7 @@ type World struct {
 // NewWorld returns an empty world.
 func NewWorld() *World {
 	return &World{runs: map[string][]map[string]any{}, failNext: map[string]int{}, comments: map[int][]map[string]any{},
-		clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
+		review: map[int][]map[string]any{}, threads: map[int64]*threadState{}, clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
 }
 
 func (w *World) tick() time.Time {
@@ -376,6 +378,46 @@ func (w *World) Comments(n int) []map[string]any {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return slices.Clone(w.comments[n])
+}
+
+// threadState is the state GraphQL reads for one review thread.
+type threadState struct{ resolved, outdated, hidden bool }
+
+// Review stores a review comment on PR n by login and returns its id. The
+// loop App wrote it when app is true, else the repository owner did.
+// inReplyTo names the root comment of its thread; zero opens a thread.
+func (w *World) Review(n int, login string, app bool, inReplyTo int64, body string) int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.addReview(n, login, app, inReplyTo, body)["id"].(int64)
+}
+
+func (w *World) addReview(n int, login string, app bool, inReplyTo int64, body string) map[string]any {
+	id := int64(5000)
+	for _, cs := range w.review {
+		id += int64(len(cs))
+	}
+	c := map[string]any{"id": id, "body": body, "path": "a.go", "line": 1, "in_reply_to_id": inReplyTo,
+		"user": map[string]any{"login": login, "type": "User"}, "author_association": "OWNER",
+		"created_at": w.tick().Format(time.RFC3339)}
+	if app {
+		c["user"] = map[string]any{"login": login, "type": "Bot"}
+		c["author_association"] = "NONE"
+		c["performed_via_github_app"] = map[string]any{"id": AppID}
+	}
+	if inReplyTo == 0 {
+		w.threads[id] = &threadState{}
+	}
+	w.review[n] = append(w.review[n], c)
+	return c
+}
+
+// SetThread sets the state of the review thread whose root comment is
+// root. A hidden thread is one GraphQL does not name.
+func (w *World) SetThread(root int64, resolved, outdated, hidden bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.threads[root] = &threadState{resolved: resolved, outdated: outdated, hidden: hidden}
 }
 
 // SetRuns sets the check runs of a sha.
@@ -495,6 +537,12 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 				out = append(out, c)
 			}
 			WriteJSON(rw, 200, out)
+		case page == 1:
+			out := []any{}
+			for _, c := range w.review[n] {
+				out = append(out, c)
+			}
+			WriteJSON(rw, 200, out)
 		default:
 			WriteJSON(rw, 200, []any{})
 		}
@@ -505,7 +553,11 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 		if m := rePullSub.FindStringSubmatch(path); m != nil {
 			n, _ = strconv.Atoi(m[2])
 		} else {
-			n, _ = strconv.Atoi(reReplies.FindStringSubmatch(path)[1])
+			m := reReplies.FindStringSubmatch(path)
+			n, _ = strconv.Atoi(m[1])
+			root, _ := strconv.ParseInt(m[2], 10, 64)
+			WriteJSON(rw, 201, w.addReview(n, "loop[bot]", true, root, body["body"]))
+			return true
 		}
 		c := map[string]any{"id": 1000 + len(w.comments[n]), "body": body["body"],
 			"user": map[string]any{"login": "loop[bot]", "type": "Bot"}, "performed_via_github_app": map[string]any{"id": AppID},
