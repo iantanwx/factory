@@ -198,7 +198,7 @@ type Result struct {
 // and .env. A tracked injected path returns a *ConflictError and writes
 // nothing. The token file is the caller's to write.
 func Inject(ctx context.Context, in Injection) (Result, error) {
-	dirs, err := packDirs(in.Harness, in.Pack)
+	agents, dirs, err := packPaths(in.Harness, in.Pack)
 	if err != nil {
 		return Result{}, err
 	}
@@ -212,6 +212,7 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 			files = append(files, p)
 		}
 	}
+	files = append(files, agents...)
 	if err := CheckTracked(ctx, in.Checkout, files, dirs); err != nil {
 		return Result{}, err
 	}
@@ -249,34 +250,39 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 // RefreshPack writes the pack into the checkout of a session that already
 // runs, with the checks Inject makes, and leaves the brief alone.
 func RefreshPack(ctx context.Context, checkout string, h agenthost.Harness, p Pack) error {
-	dirs, err := packDirs(h, p)
+	agents, dirs, err := packPaths(h, p)
 	if err != nil {
 		return err
 	}
-	if err := CheckTracked(ctx, checkout, nil, dirs); err != nil {
+	if err := CheckTracked(ctx, checkout, agents, dirs); err != nil {
 		return err
 	}
-	if err := Exclude(ctx, checkout, nil, dirs); err != nil {
+	if err := Exclude(ctx, checkout, agents, dirs); err != nil {
 		return err
 	}
 	return p.Write(checkout, h)
 }
 
-// packDirs lists the pack's skill directories as the harness reads them.
-func packDirs(h agenthost.Harness, p Pack) ([]string, error) {
+// packPaths lists the pack's agent files and skill directories as the
+// harness reads them.
+func packPaths(h agenthost.Harness, p Pack) (agents, dirs []string, err error) {
 	root := SkillRoot(h)
 	if root == "" {
-		return nil, fmt.Errorf("brief: no skill directory for harness %q", h)
+		return nil, nil, fmt.Errorf("brief: no skill directory for harness %q", h)
 	}
 	skills, err := p.Skills()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	dirs := make([]string, 0, len(skills))
+	dirs = make([]string, 0, len(skills))
 	for _, s := range skills {
 		dirs = append(dirs, root+"/"+s)
 	}
-	return dirs, nil
+	agents, err = p.AgentFiles(h)
+	if err != nil {
+		return nil, nil, err
+	}
+	return agents, dirs, nil
 }
 
 func writeBrief(checkout string, b Brief) error {

@@ -253,6 +253,19 @@ branch. A branch link moves when the branch moves.
 
 ## 11. Subagents
 
+The pack ships four read-only subagents for you. Each one reads, and returns a finding or a
+prepared question. You make each write after you read the result.
+
+| Agent | Dispatch it for |
+| --- | --- |
+| `loop-escalation-prep` | One inbox entry that waits on the operator. It returns one to three questions with costed options |
+| `loop-alert-root-cause` | One open alert that holds no finding. It returns the root cause and the act that ends it |
+| `loop-doctor` | One stage that starts no run, finishes no run, or keeps failing to start one |
+| `loop-checkout-forensics` | One checkout that stands too long, or one that vanished |
+
+Claude Code reads them from `.claude/agents`. When your harness lists no agent of that name, do
+the same reads yourself, and keep the same limits.
+
 Mark each fact in a subagent's brief as measured or assumed. Name a branch or a pull request, not a
 commit you have not read. Give a command the subagent can run, not a number you copied. Wait for
 each subagent's result, and never report a result it did not return. A subagent never opens or
