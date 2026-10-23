@@ -157,21 +157,57 @@ func RemoveEnv(checkout string) error {
 		return fmt.Errorf("brief: open the checkout: %w", err)
 	}
 	defer func() { _ = root.Close() }()
-	names := []string{EnvFile}
-	data, err := root.ReadFile(EnvRecord)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("brief: read %s: %w", EnvRecord, err)
-	}
-	for _, l := range strings.Split(string(data), "\n") {
-		if l != "" && l != EnvFile && path.Base(l) == EnvFile {
-			names = append(names, l)
-		}
+	names, err := envNames(root)
+	if err != nil {
+		return err
 	}
 	var errs []error
 	for _, n := range append(names, EnvRecord) {
 		errs = append(errs, removeIn(root, n))
 	}
 	return errors.Join(errs...)
+}
+
+// PresentEnv returns each .env that RemoveEnv would remove from the
+// checkout and that is on disk, relative to the checkout with slashes. A
+// file it cannot stat is returned too, so the caller can name it. A
+// missing checkout holds none.
+func PresentEnv(checkout string) ([]string, error) {
+	root, err := os.OpenRoot(checkout)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("brief: open the checkout: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	names, err := envNames(root)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, n := range names {
+		if _, err := root.Lstat(n); !errors.Is(err, fs.ErrNotExist) {
+			out = append(out, n)
+		}
+	}
+	return out, nil
+}
+
+// envNames returns the root .env and each .env the checkout's record
+// names.
+func envNames(root *os.Root) ([]string, error) {
+	names := []string{EnvFile}
+	data, err := root.ReadFile(EnvRecord)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("brief: read %s: %w", EnvRecord, err)
+	}
+	for _, l := range strings.Split(string(data), "\n") {
+		if l != "" && l != EnvFile && path.Base(l) == EnvFile {
+			names = append(names, l)
+		}
+	}
+	return names, nil
 }
 
 func removeIn(root *os.Root, name string) error {

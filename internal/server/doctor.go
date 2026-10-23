@@ -3,11 +3,8 @@ package server
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -18,7 +15,6 @@ import (
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/rpc"
-	"github.com/iantanwx/loop/internal/secrets"
 )
 
 // requiredPermissions is the App's granted set (KTD15). `loop doctor`
@@ -106,25 +102,40 @@ const StaleEnvCheck = "stale_env"
 // already removes .env; this finds the one a settlement missed. The
 // server answers it because only the store knows which runs live.
 func (s *Server) doctorEnv(ctx context.Context, call *rpc.Call) cli.Result {
-	paths, err := s.staleEnvFiles(ctx)
+	dirs, err := s.staleEnvCheckouts(ctx)
 	if err != nil {
 		return cli.Internal(err)
 	}
 	fix := call.Inv.Flags["fix"] == "true"
 	lines := []github.CheckLine{}
-	for _, p := range paths {
-		line := github.CheckLine{Check: StaleEnvCheck}
-		switch {
-		case !fix:
-			line.Detail = p + ": no live run holds this checkout; loop doctor --fix removes it"
-		default:
-			if err := secrets.RemoveEnvFile(p); err != nil {
-				line.Detail = p + ": the removal failed: " + err.Error()
-			} else {
+	for _, d := range dirs {
+		// A checkout's root .env and each .env its record names, the
+		// same files a settlement removes (parity 9.3).
+		names, err := brief.PresentEnv(d)
+		if err != nil {
+			lines = append(lines, github.CheckLine{Check: StaleEnvCheck, Detail: d + ": " + err.Error()})
+			continue
+		}
+		if len(names) == 0 {
+			continue
+		}
+		var rerr error
+		if fix {
+			rerr = brief.RemoveEnv(d)
+		}
+		for _, n := range names {
+			p := filepath.Join(d, filepath.FromSlash(n))
+			line := github.CheckLine{Check: StaleEnvCheck}
+			switch {
+			case !fix:
+				line.Detail = p + ": no live run holds this checkout; loop doctor --fix removes it"
+			case rerr != nil:
+				line.Detail = p + ": the removal failed: " + rerr.Error()
+			default:
 				line.OK, line.Detail = true, "removed "+p
 			}
+			lines = append(lines, line)
 		}
-		lines = append(lines, line)
 	}
 	if len(lines) == 0 {
 		lines = append(lines, github.CheckLine{Check: StaleEnvCheck, OK: true, Detail: "no checkout without a live run holds a .env"})
@@ -132,12 +143,12 @@ func (s *Server) doctorEnv(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.List(lines)
 }
 
-// staleEnvFiles lists the .env of each checkout the loop made that no live
-// run holds. A checkout is held by its run until the run ends, and by its
+// staleEnvCheckouts lists each checkout the loop made that no live run
+// holds. A checkout is held by its run until the run ends, and by its
 // room while the room is open or live: an idle or interrupted room has
 // none (KTD17). The coordinator's checkout, known by its token, never
-// gets a .env.
-func (s *Server) staleEnvFiles(ctx context.Context) ([]string, error) {
+// gets a .env, so a .env there is listed even while it runs.
+func (s *Server) staleEnvCheckouts(ctx context.Context) ([]string, error) {
 	var dirs []string
 	err := s.Store.Read(ctx, func(tx *sql.Tx) error {
 		rs, err := tx.QueryContext(ctx, `SELECT c.path FROM checkouts c
@@ -158,17 +169,5 @@ func (s *Server) staleEnvFiles(ctx context.Context) ([]string, error) {
 		}
 		return rs.Err()
 	})
-	if err != nil {
-		return nil, err
-	}
-	// A .env the server cannot stat is listed too, so --fix names why
-	// it stays.
-	var out []string
-	for _, d := range dirs {
-		p := filepath.Join(d, brief.EnvFile)
-		if _, err := os.Lstat(p); !errors.Is(err, fs.ErrNotExist) {
-			out = append(out, p)
-		}
-	}
-	return out, nil
+	return dirs, err
 }

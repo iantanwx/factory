@@ -80,8 +80,9 @@ func TestDoctorChecksGitHubOnTheServer(t *testing.T) {
 
 // staleEnvWorld is one checkout of each kind the loop makes, each with a
 // .env: a live run, a settled run, a crashed run kept for a person, a live
-// room, an idle room and the coordinator. It returns the server's
-// instance and the checkout paths by kind.
+// room, an idle room and the coordinator. A second settled run holds only
+// the .env of a manifest dir (parity 9.3), named in its record. It returns
+// the server's instance and the checkout paths by kind.
 func staleEnvWorld(t *testing.T) (string, map[string]string) {
 	t.Helper()
 	dir := instanceDir(t)
@@ -95,14 +96,28 @@ func staleEnvWorld(t *testing.T) (string, map[string]string) {
 	}
 	root := t.TempDir()
 	paths := map[string]string{}
-	for _, kind := range []string{"live_run", "settled_run", "kept_run", "live_room", "idle_room", "coordinator"} {
+	for _, kind := range []string{"live_run", "settled_run", "kept_run", "live_room", "idle_room", "coordinator", "nested_run"} {
 		paths[kind] = filepath.Join(root, kind)
 		if err := os.Mkdir(paths[kind], 0o700); err != nil {
 			t.Fatal(err)
 		}
+		if kind == "nested_run" {
+			continue
+		}
 		if err := os.WriteFile(filepath.Join(paths[kind], brief.EnvFile), []byte("API_KEY=v\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	for _, d := range []string{"web", ".loop"} {
+		if err := os.Mkdir(filepath.Join(paths["nested_run"], d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(paths["nested_run"], "web", brief.EnvFile), []byte("API_KEY=v\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paths["nested_run"], brief.EnvRecord), []byte("web/.env\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	err := srv.Store.Write(context.Background(), func(tx *store.Tx) error {
 		for _, q := range []struct {
@@ -112,14 +127,16 @@ func staleEnvWorld(t *testing.T) (string, map[string]string) {
 			{`INSERT INTO runs (run_id, project, stage, state, started_at, ended_at) VALUES
 				('r-live', 'alpha', 'implementer', 'running', 1, NULL),
 				('r-settled', 'alpha', 'implementer', 'finished', 1, 2),
-				('r-kept', 'alpha', 'implementer', 'crashed', 1, 2)`, nil},
+				('r-kept', 'alpha', 'implementer', 'crashed', 1, 2),
+				('r-nested', 'alpha', 'implementer', 'finished', 1, 2)`, nil},
 			{`INSERT INTO checkouts (id, project, path, run_id, state, created_at, updated_at) VALUES
 				('r-live', 'alpha', ?, 'r-live', 'active', 1, 1),
 				('r-settled', 'alpha', ?, 'r-settled', 'settled', 1, 1),
 				('r-kept', 'alpha', ?, 'r-kept', 'kept', 1, 1),
 				('m-live', 'alpha', ?, 'm-live', 'active', 1, 1),
-				('m-idle', 'alpha', ?, 'm-idle', 'active', 1, 1)`,
-				[]any{paths["live_run"], paths["settled_run"], paths["kept_run"], paths["live_room"], paths["idle_room"]}},
+				('m-idle', 'alpha', ?, 'm-idle', 'active', 1, 1),
+				('r-nested', 'alpha', ?, 'r-nested', 'settled', 1, 1)`,
+				[]any{paths["live_run"], paths["settled_run"], paths["kept_run"], paths["live_room"], paths["idle_room"], paths["nested_run"]}},
 			{`INSERT INTO rooms (id, project, checkout_id, state, opened_at) VALUES
 				('m-live', 'alpha', 'm-live', 'live', 1), ('m-idle', 'alpha', 'm-idle', 'idle', 1)`, nil},
 			{`INSERT INTO run_tokens (token_hash, run_id, kind, checkout, issued_at) VALUES ('h', 'coordinator-1', 'coordinator', ?, 1)`,
@@ -139,11 +156,16 @@ func staleEnvWorld(t *testing.T) (string, map[string]string) {
 
 // loop doctor lists each .env in a checkout with no live run (KTD17): a
 // settled run's, a kept crashed run's, an idle room's and the
-// coordinator's. A live run's and a live room's are no fault. --fix
-// removes each stale one and leaves the live ones.
+// coordinator's, and the .env of a manifest dir its record names. A live
+// run's and a live room's are no fault. --fix removes each stale one with
+// its record and leaves the live ones.
 func TestDoctorListsEachStaleEnvAndFixRemovesIt(t *testing.T) {
 	dir, paths := staleEnvWorld(t)
-	stale := []string{"settled_run", "kept_run", "idle_room", "coordinator"}
+	stale := map[string]string{}
+	for _, kind := range []string{"settled_run", "kept_run", "idle_room", "coordinator"} {
+		stale[kind] = filepath.Join(paths[kind], brief.EnvFile)
+	}
+	stale["nested_run"] = filepath.Join(paths["nested_run"], "web", brief.EnvFile)
 
 	env, code, out := call(t, dir, time.Second, nil, "doctor-env")
 	if code != 0 {
@@ -161,11 +183,11 @@ func TestDoctorListsEachStaleEnvAndFixRemovesIt(t *testing.T) {
 	if len(listed) != len(stale) {
 		t.Fatalf("listed %q, want the .env of %q", listed, stale)
 	}
-	for _, kind := range stale {
-		if !slices.ContainsFunc(listed, func(d string) bool { return strings.HasPrefix(d, filepath.Join(paths[kind], brief.EnvFile)+":") }) {
+	for kind, p := range stale {
+		if !slices.ContainsFunc(listed, func(d string) bool { return strings.HasPrefix(d, p+":") }) {
 			t.Errorf("the %s .env is not listed: %q", kind, listed)
 		}
-		if _, err := os.Stat(filepath.Join(paths[kind], brief.EnvFile)); err != nil {
+		if _, err := os.Stat(p); err != nil {
 			t.Errorf("the listing removed the %s .env: %v", kind, err)
 		}
 	}
@@ -179,10 +201,13 @@ func TestDoctorListsEachStaleEnvAndFixRemovesIt(t *testing.T) {
 			t.Fatalf("fixed line = %v", l)
 		}
 	}
-	for _, kind := range stale {
-		if _, err := os.Stat(filepath.Join(paths[kind], brief.EnvFile)); !errors.Is(err, fs.ErrNotExist) {
+	for kind, p := range stale {
+		if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("--fix left the %s .env: %v", kind, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(paths["nested_run"], brief.EnvRecord)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("--fix left the nested_run record: %v", err)
 	}
 	for _, kind := range []string{"live_run", "live_room"} {
 		if _, err := os.Stat(filepath.Join(paths[kind], brief.EnvFile)); err != nil {
