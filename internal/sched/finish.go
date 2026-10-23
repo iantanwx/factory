@@ -2,12 +2,15 @@ package sched
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
@@ -72,7 +75,66 @@ func (s *Scheduler) FinishFault(ctx context.Context, runID, outcome, faultID str
 		return res, nil
 	}
 	res.Released = s.afterSettle(ctx, r, "release", CheckoutSettled)
+	s.alertHeld(ctx, r, out, kept)
 	return res, nil
+}
+
+// alertHeld raises the inbox alert of an item that a settlement stopped at
+// the run's stage, so no item waits in silence. Two counted failures with
+// unchanged inputs stop it (R13). The alert names each failed run, and
+// only changed inputs admit the item again. A blocked finish stops it too,
+// unless an escalation or a room already holds the item, or the item left
+// the states the stage takes. That alert is the hold itself
+// (admission.BlockedKey): changed inputs, a move of the item, or an answer
+// to the alert lifts it. A second blocked finish at the same inputs counts
+// up on the open alert.
+func (s *Scheduler) alertHeld(ctx context.Context, r runRow, out admission.Outcome, faultID string) {
+	if r.Item == "" || out.Inputs == "" {
+		return
+	}
+	if out.Counted && len(out.Failures) >= admission.FailureLimit {
+		var runs []string
+		for _, f := range out.Failures {
+			line := fmt.Sprintf("- run %s ended %s", f.RunID, f.Class)
+			if f.Note != "" {
+				line += ": " + f.Note
+			}
+			runs = append(runs, line)
+		}
+		s.raise(ctx, config.Alert{Project: r.Project, Kind: AlertRetryLimit,
+			DedupeKey: AlertRetryLimit + ":" + r.Project + "/" + r.Item + "/" + r.Stage + "/" + out.Inputs,
+			Subject:   fmt.Sprintf("%s stopped taking %s after %d failed attempts at the same inputs", r.Stage, r.Item, len(out.Failures)),
+			Body: strings.Join(runs, "\n") + "\n\n" + fmt.Sprintf("`loop work show %s` shows the item's last note, and `loop run show <run>` shows each run. "+
+				"Only changed inputs admit a new attempt: `loop work edit %s --title <title> --body <body>`, a change of a declared file "+
+				"or a cited document on the base, or a new release. The count never resets. Answer this entry with what changed.", r.Item, r.Item)})
+		return
+	}
+	if out.Class != admission.ClassBlocked {
+		return
+	}
+	var held bool
+	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM escalations WHERE run_id = ?)
+			OR EXISTS (SELECT 1 FROM holds WHERE project = ? AND item = ?)`, r.ID, r.Project, r.Item).Scan(&held)
+	})
+	if err != nil {
+		s.log.ErrorContext(ctx, "read the holds of a blocked run", "run", r.ID, "err", err)
+	}
+	if held {
+		return
+	}
+	// An item that cannot be read is held all the same: an alert too many
+	// costs less than an item that runs blocked on every tick.
+	if it, ref := s.cfg.Machine.Show(ctx, r.Project, r.Item); ref == nil && !admission.Takes(r.Stage, it) {
+		return
+	}
+	body := fmt.Sprintf("No %s run takes %s until its inputs or its status change, or until an answer to this entry. "+
+		"`loop run show %s` and `loop work show %s` show why it stopped.", r.Stage, r.Item, r.ID, r.Item)
+	if faultID != "" {
+		body += fmt.Sprintf(" The run named loop fault %s. A release that fixes it changes the inputs.", faultID)
+	}
+	s.raise(ctx, config.Alert{Project: r.Project, Kind: AlertRunBlocked, DedupeKey: admission.BlockedKey(r.Project, r.Item, r.Stage, out.Inputs),
+		Subject: fmt.Sprintf("%s run %s on %s finished blocked", r.Stage, r.ID, r.Item), Body: body})
 }
 
 // keepFault writes faultID on a run that has not ended, and returns the

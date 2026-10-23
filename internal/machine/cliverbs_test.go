@@ -316,6 +316,21 @@ func TestWorkSupersedeClosesOnCheckedEvidence(t *testing.T) {
 	}
 }
 
+// The reproducer cancels a report it routes as a loop fault, so the
+// report never returns to its queue. A raw report that no run holds
+// stays.
+func TestWorkCancelEndsALoopFaultReport(t *testing.T) {
+	w := newWorld(t)
+	raw := w.create(KindBug, "file", nil)
+	wantCode(t, w.call("work cancel", coord(), []string{raw}, nil), cli.CodeTransitionNotAllowed)
+	bug := w.create(KindBug, "file", nil)
+	run := w.claimAs(bug, StageReproducer, "repro")
+	mustOK(t, w.call("work cancel", run, []string{bug}, nil))
+	if it := w.show(bug); it.Status != Canceled || it.Owner != "" {
+		t.Fatalf("after cancel: %s, owner %q", it.Status, it.Owner)
+	}
+}
+
 // A run reaches an item it does not hold only through the fixer's
 // allowance, which the capability check grants for the escalated item.
 // Even then the machine lets it note the item, and nothing else but the

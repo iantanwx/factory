@@ -202,8 +202,9 @@ func TestRetryLimitAndInputChanges(t *testing.T) {
 				if ad.Attempt != i+1 {
 					t.Fatalf("attempt = %d, want %d", ad.Attempt, i+1)
 				}
-				if out := w.settle(ad, Settlement{Finish: "failed"}); !out.Counted {
-					t.Fatalf("a failed finish did not count: %+v", out)
+				out := w.settle(ad, Settlement{Finish: "failed"})
+				if !out.Counted || out.Inputs != ad.Inputs || len(out.Failures) != i+1 || out.Failures[i].RunID != ad.RunID {
+					t.Fatalf("a failed finish did not count, or names the wrong failures: %+v", out)
 				}
 			}
 			_, ref := w.admit(machine.StageImplementer, id)
@@ -278,6 +279,84 @@ func TestNonCountingClassesLeaveTheCount(t *testing.T) {
 	if ad.Attempt != 1 {
 		t.Fatalf("attempt = %d, want 1", ad.Attempt)
 	}
+}
+
+// A blocked finish holds the item at its stage while the blocked alert is
+// open, and neither the inputs nor the item's status changed. Changed
+// inputs, a move away and back, or an answer to the alert lift the hold.
+// Another stage still takes the item.
+func TestBlockedFinishHoldsTheItemAtItsStage(t *testing.T) {
+	ctx := context.Background()
+	move := func(w *world, id, verb string) {
+		if res := w.m.Apply(ctx, machine.Request{Project: prj, Item: id, Verb: verb, Actor: machine.Server("test"),
+			Params: map[string]string{"head": "h2"}}); res.Refusal != nil {
+			t.Fatalf("%s: %+v", verb, res.Refusal)
+		}
+	}
+	cases := map[string]struct {
+		change func(w *world, id string)
+		admits bool
+	}{
+		"nothing changed":    {func(*world, string) {}, false},
+		"an unrelated merge": {func(w *world, _ string) { w.base.set("unrelated.txt", "blob9") }, false},
+		"a work edit":        {func(w *world, id string) { w.workEdit(id, "body", declaredBody+"\nChanged contract.") }, true},
+		"a new release":      {func(w *world, _ string) { w.build("v2") }, true},
+		"red CI, then a fix": {func(w *world, id string) { move(w, id, machine.VerbCIRed); move(w, id, "fix_pushed") }, true},
+		"an answer": {func(w *world, _ string) {
+			if err := w.st.Write(ctx, func(tx *store.Tx) error {
+				_, err := tx.Exec(`UPDATE alerts SET state = 'closed' WHERE kind = ?`, AlertBlocked)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			id := w.ticket(machine.InReview)
+			ad := w.mustAdmit(machine.StageCodeReviewer, id)
+			out := w.settle(ad, Settlement{Finish: "blocked"})
+			if out.Counted || out.Inputs != ad.Inputs || len(out.Failures) != 0 {
+				t.Fatalf("blocked outcome = %+v", out)
+			}
+			// The scheduler raises the alert after the release.
+			if err := config.StoreAlerter(w.st).Raise(ctx, config.Alert{Project: prj, Kind: AlertBlocked,
+				DedupeKey: BlockedKey(prj, id, machine.StageCodeReviewer, out.Inputs), Subject: "blocked"}); err != nil {
+				t.Fatal(err)
+			}
+			_, ref := w.admit(machine.StageCodeReviewer, id)
+			wantRefusal(t, ref, cli.CodeMutexHeld)
+			if c, r := w.a.Peek(ctx, prj, machine.StageCodeReviewer); c != nil || r != nil {
+				t.Fatalf("peek of a held item = %+v %+v", c, r)
+			}
+			c.change(w, id)
+			_, ref = w.admit(machine.StageCodeReviewer, id)
+			if !c.admits {
+				wantRefusal(t, ref, cli.CodeMutexHeld)
+				if ref.Rule != "blocked_hold" {
+					t.Fatalf("rule = %s", ref.Rule)
+				}
+				return
+			}
+			if ref != nil {
+				t.Fatalf("admit after %s: %+v", name, ref)
+			}
+		})
+	}
+	t.Run("another stage", func(t *testing.T) {
+		w := newWorld(t)
+		id := w.ticket(machine.Todo)
+		out := w.settle(w.mustAdmit(machine.StageImplementer, id), Settlement{Finish: "blocked"})
+		if err := config.StoreAlerter(w.st).Raise(ctx, config.Alert{Project: prj, Kind: AlertBlocked,
+			DedupeKey: BlockedKey(prj, id, machine.StageCodeReviewer, out.Inputs), Subject: "blocked"}); err != nil {
+			t.Fatal(err)
+		}
+		if c, r := w.a.Peek(ctx, prj, machine.StageImplementer); r != nil || c == nil || c.Item != id {
+			t.Fatalf("peek = %+v %+v, want %s", c, r, id)
+		}
+		w.mustAdmit(machine.StageImplementer, id)
+	})
 }
 
 // A crashed run counts once, even when reconcile replays its settlement.

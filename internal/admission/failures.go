@@ -3,6 +3,8 @@ package admission
 import (
 	"context"
 	"database/sql"
+
+	"github.com/iantanwx/loop/internal/store"
 )
 
 // FailureLimit is the number of counted failures with unchanged inputs
@@ -49,4 +51,24 @@ func mayBeHeld(q querier, project, item, stage string) (bool, error) {
 		WHERE project = ? AND item = ? AND stage = ? AND class IN `+counted+` GROUP BY inputs_hash)`,
 		project, item, stage).Scan(&n)
 	return n >= FailureLimit, err
+}
+
+// countedFailures lists the counted failures of one item and stage with
+// these inputs, oldest first.
+func countedFailures(tx *store.Tx, project, item, stage, inputs string) ([]Failure, error) {
+	rs, err := tx.Query(`SELECT run_id, class, note FROM failures WHERE project = ? AND item = ? AND stage = ? AND inputs_hash = ?
+		AND class IN `+counted+` ORDER BY recorded_at, run_id`, project, item, stage, inputs)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rs.Close() }()
+	var out []Failure
+	for rs.Next() {
+		var f Failure
+		if err := rs.Scan(&f.RunID, &f.Class, &f.Note); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rs.Err()
 }

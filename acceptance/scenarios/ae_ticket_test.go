@@ -11,6 +11,7 @@ import (
 	"github.com/iantanwx/loop/acceptance"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/sched"
 )
 
 // AE1 (R8, R12): a ticket passed review at sha A and is ready to merge.
@@ -149,6 +150,22 @@ func TestAE9ALoopFaultReportReachesTheCoordinatorAndItsResolutionReachesRuns(t *
 		t.Fatalf("fault entries = %v", faults)
 	}
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "blocked", "--fault", "F-1"))
+
+	// The blocked finish holds the ticket at its stage, and an alert says
+	// so. An answer to the alert lifts the hold.
+	if st, ref := w.TryDispatch(machine.StageImplementer); st != nil || ref != nil {
+		t.Fatalf("the blocked ticket started again: %+v %+v", st, ref)
+	}
+	held := ""
+	for _, e := range w.Entries("coordinator") {
+		if e["kind"] == "alert" && e["status"] == sched.AlertRunBlocked {
+			held, _ = e["entry"].(string)
+		}
+	}
+	if held == "" {
+		t.Fatal("no alert names the blocked ticket")
+	}
+	w.Must(w.Coordinator("inbox", "answer", held, "--body", "F-1 is in triage. Run the ticket again."))
 
 	later := w.Dispatch(machine.StageImplementer)
 	if r := w.Must(w.In(later.Checkout, "fault", "show", "F-1")); r.Str("status") != "open" {

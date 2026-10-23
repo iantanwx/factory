@@ -186,8 +186,8 @@ func (a *Admission) inputsOf(ctx context.Context, project, item string) (string,
 	return computeInputs(ctx, a.cfg.Base, project, t, a.cfg.Release)
 }
 
-// Admit admits one run: the dependency rule, the stage mutex, the caps and
-// the retry limit, in that order. It reserves the run in the runs table,
+// Admit admits one run: the dependency rule, the stage mutex, the holds,
+// the caps and the retry limit, in that order. It reserves the run in the runs table,
 // then claims the item through the machine. A refused claim drops the
 // reservation. A crash between the two leaves a run row with no lease,
 // which the scheduler's reconcile settles as not-ready.
@@ -261,10 +261,14 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 			}
 		}
 		if r.Item != "" {
-			if ref, err := holdRefusal(tx, r.Project, r.Item); err != nil || ref != nil {
-				if err != nil {
-					return err
-				}
+			ref, err := holdRefusal(tx, r.Project, r.Item)
+			if err == nil && ref == nil {
+				ref, err = blockedRefusal(tx, r.Project, r.Item, r.Stage, snap.inputs)
+			}
+			if err != nil {
+				return err
+			}
+			if ref != nil {
 				return refusalErr{ref}
 			}
 		}
@@ -394,6 +398,10 @@ func (a *Admission) AdmitClaim(ctx context.Context, c machine.ClaimCheck) *cli.R
 			ref = held
 			return err
 		}
+		if held, err := blockedRefusal(q, c.Project, c.Item, c.Stage, snap.inputs); err != nil || held != nil {
+			ref = held
+			return err
+		}
 		n, err := failuresFor(q, c.Project, c.Item, c.Stage, snap.inputs)
 		if err != nil {
 			return err
@@ -503,16 +511,19 @@ func (a *Admission) admissible(ctx context.Context, stage string, it machine.Ite
 	if ref, err := dependencyRefusal(ctx, a.cfg.Deps, it); err != nil || ref != nil {
 		return false, err
 	}
-	var held, holds bool
+	var held, blocked, holds bool
 	if err := a.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		ref, err := holdRefusal(readTx{ctx, tx}, it.Project, it.ID)
 		if err != nil || ref != nil {
 			holds = ref != nil
 			return err
 		}
-		held, err = mayBeHeld(readTx{ctx, tx}, it.Project, it.ID, stage)
+		if held, err = mayBeHeld(readTx{ctx, tx}, it.Project, it.ID, stage); err != nil {
+			return err
+		}
+		blocked, err = mayBeBlocked(readTx{ctx, tx}, it.Project, it.ID, stage)
 		return err
-	}); err != nil || holds || !held {
+	}); err != nil || holds || !held && !blocked {
 		return err == nil && !holds, err
 	}
 	inputs, err := a.inputsOf(ctx, it.Project, it.ID)
@@ -520,10 +531,19 @@ func (a *Admission) admissible(ctx context.Context, stage string, it machine.Ite
 		return false, err
 	}
 	var n int
+	var ref *cli.Refusal
 	err = a.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		var err error
-		n, err = failuresFor(readTx{ctx, tx}, it.Project, it.ID, stage, inputs)
+		if n, err = failuresFor(readTx{ctx, tx}, it.Project, it.ID, stage, inputs); err != nil {
+			return err
+		}
+		ref, err = blockedRefusal(readTx{ctx, tx}, it.Project, it.ID, stage, inputs)
 		return err
 	})
-	return err == nil && n < FailureLimit, err
+	return err == nil && n < FailureLimit && ref == nil, err
+}
+
+// Takes reports whether the stage claims an item of its kind in its status.
+func Takes(stage string, it machine.Item) bool {
+	return slices.Contains(claimStates(stage), stateOf{it.Kind, it.Status})
 }

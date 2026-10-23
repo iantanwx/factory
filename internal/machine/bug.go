@@ -35,7 +35,10 @@ func bugTable() *Table {
 		{Verb: VerbEscalate, From: open, To: Escalated, Lease: LeaseDrop, set: escalateTo(bugResume), Facts: []string{FactResume, FactEscalation}},
 		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: []string{Reported}, set: answerResume,
 			Facts: []string{FactResume, FactEscalation, FactAnswer, FactAmendment}},
-		{Verb: "cancel", From: []string{Escalated}, To: Canceled, Command: "work cancel"},
+		// The reproducer cancels a report whose symptom is in the loop, after
+		// it reports the loop fault. Released to reported, the report
+		// would only run again.
+		{Verb: "cancel", From: []string{Reproducing, Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop},
 		{Verb: VerbNote, From: []string{Reported, Reproducing, Escalated}, To: ToSame, Command: "work note", set: notePut,
 			Facts: []string{FactNote}},
 		editRow([]string{Reported, Reproducing, Escalated}),

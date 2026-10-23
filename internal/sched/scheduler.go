@@ -49,6 +49,12 @@ const (
 	AlertRunOverBudget  = "run_over_budget"      // coordinator-owned
 	AlertRunUnknown     = "run_liveness_unknown" // coordinator-owned
 	AlertCoordinator    = "coordinator_start_failed"
+	// AlertRetryLimit names an item that a stage stopped taking after
+	// admission.FailureLimit counted failures with unchanged inputs.
+	AlertRetryLimit = "retry_limit"
+	// AlertRunBlocked names an item a run left blocked. While it is open,
+	// it holds the item at that stage (admission.BlockedKey).
+	AlertRunBlocked = admission.AlertBlocked
 )
 
 // HostSource returns the current host config. *config.HostLoader is one.

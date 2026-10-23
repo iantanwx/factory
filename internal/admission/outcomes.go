@@ -107,6 +107,20 @@ type Outcome struct {
 	// Replayed means an earlier call settled the run, and this call wrote
 	// nothing. The class is the stored one.
 	Replayed bool `json:"replayed"`
+	// Inputs is the retry identity of the run's attempt. It is empty for a
+	// run with no item, and for a replay.
+	Inputs string `json:"inputs,omitempty"`
+	// Failures are the counted failures of the run's item and stage at
+	// those inputs, oldest first, when this run counted. FailureLimit of
+	// them stop the stage from taking the item (R13).
+	Failures []Failure `json:"failures,omitempty"`
+}
+
+// Failure is one counted failure of an item at a stage.
+type Failure struct {
+	RunID string `json:"run_id"`
+	Class Class  `json:"class"`
+	Note  string `json:"note,omitempty"`
 }
 
 // ErrUnknownRun is a settlement of a run that admission never admitted.
@@ -116,7 +130,9 @@ var ErrUnknownRun = errors.New("admission: no admitted run with that id")
 // the run's row with its class, turns the attempt into a counted failure
 // or drops it, and frees any stage mutex the run holds. A replay returns
 // the stored class and changes nothing, so a run counts once (KTD6). A run
-// with an unknown end settles nothing.
+// with an unknown end settles nothing. The outcome names the attempt's
+// inputs, and each counted failure at them when this run counted, so the
+// scheduler can tell the operator that the item stopped.
 func (a *Admission) RecordOutcome(ctx context.Context, s Settlement) (Outcome, error) {
 	var out Outcome
 	err := a.cfg.Store.Write(ctx, func(tx *store.Tx) error {
@@ -151,13 +167,23 @@ func (a *Admission) RecordOutcome(ctx context.Context, s Settlement) (Outcome, e
 			string(c), s.Ended.UnixMilli(), s.RunID); err != nil {
 			return err
 		}
-		if c.Counted() {
-			_, err = tx.Exec(`UPDATE failures SET class = ?, note = ?, recorded_at = ? WHERE run_id = ?`,
-				string(c), s.Note, now, s.RunID)
-		} else {
-			_, err = tx.Exec(`DELETE FROM failures WHERE run_id = ? AND class = ?`, s.RunID, attemptPending)
+		var project, item, stage string
+		err = tx.QueryRow(`SELECT project, item, stage, inputs_hash FROM failures WHERE run_id = ?`, s.RunID).
+			Scan(&project, &item, &stage, &out.Inputs)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
 		}
-		if err != nil {
+		if c.Counted() {
+			if _, err := tx.Exec(`UPDATE failures SET class = ?, note = ?, recorded_at = ? WHERE run_id = ?`,
+				string(c), s.Note, now, s.RunID); err != nil {
+				return err
+			}
+			if out.Inputs != "" {
+				if out.Failures, err = countedFailures(tx, project, item, stage, out.Inputs); err != nil {
+					return err
+				}
+			}
+		} else if _, err := tx.Exec(`DELETE FROM failures WHERE run_id = ? AND class = ?`, s.RunID, attemptPending); err != nil {
 			return err
 		}
 		return releaseMutexes(tx, s.RunID)

@@ -17,6 +17,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 // counter counts the calls of a native job by project.
@@ -295,6 +296,76 @@ func TestFinishDoneReleasesTheLease(t *testing.T) {
 	w.tick()
 	if inv, _ := w.host.Inventory(context.Background()); len(inv.Rows) != 0 {
 		t.Fatalf("the finished run's session is open: %+v", inv.Rows)
+	}
+}
+
+// A blocked finish holds the item at its stage and raises one alert that
+// says so, instead of a new run on every tick. An answer to the alert
+// lifts the hold. A run that escalated leaves the hold to its escalation.
+func TestBlockedFinishHoldsTheItemAndAlerts(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	id := w.ticket(machine.InReview)
+	st := w.dispatch(machine.StageCodeReviewer)
+	if _, ref := w.s.FinishFault(ctx, st.RunID, "blocked", ""); ref != nil {
+		t.Fatal(ref)
+	}
+	if w.alerts(AlertRunBlocked) != 1 || w.status(id) != machine.InReview {
+		t.Fatalf("blocked alerts = %d, status %s", w.alerts(AlertRunBlocked), w.status(id))
+	}
+	if again, ref := w.s.Dispatch(ctx, prj, machine.StageCodeReviewer); again != nil || ref != nil {
+		t.Fatalf("the held item started again: %+v %+v", again, ref)
+	}
+	if err := w.st.Write(ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`UPDATE alerts SET state = 'closed' WHERE kind = ?`, AlertRunBlocked)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	next := w.dispatch(machine.StageCodeReviewer)
+	if next.Item != id {
+		t.Fatalf("the answered item did not start: %+v", next)
+	}
+	if err := w.st.Write(ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`INSERT INTO escalations (project, item, run_id, level, choice, finding, created_at, updated_at)
+			VALUES (?, ?, ?, 5, 'inside', 'f', 0, 0)`, prj, id, next.RunID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ref := w.s.Finish(ctx, next.RunID, "blocked"); ref != nil {
+		t.Fatal(ref)
+	}
+	if n := w.count(`SELECT count(*) FROM alerts WHERE kind = ? AND state = 'open'`, AlertRunBlocked); n != 0 {
+		t.Fatalf("a run that escalated raised %d blocked alerts", n)
+	}
+}
+
+// The second counted failure with unchanged inputs raises one alert that
+// names the item, the stage and both failed runs.
+func TestRetryLimitAlertsOnce(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	var runs []string
+	for range 2 {
+		st := w.dispatch(machine.StageImplementer)
+		runs = append(runs, st.RunID)
+		if _, ref := w.s.Finish(ctx, st.RunID, "failed"); ref != nil {
+			t.Fatal(ref)
+		}
+		if len(runs) == 1 && w.alerts(AlertRetryLimit) != 0 {
+			t.Fatal("one failure raised the retry-limit alert")
+		}
+	}
+	if w.alerts(AlertRetryLimit) != 1 {
+		t.Fatalf("retry-limit alerts = %d, want 1", w.alerts(AlertRetryLimit))
+	}
+	subject := w.str(`SELECT subject FROM alerts WHERE kind = ?`, AlertRetryLimit)
+	body := w.str(`SELECT body FROM alerts WHERE kind = ?`, AlertRetryLimit)
+	if !strings.Contains(subject, id) || !strings.Contains(subject, machine.StageImplementer) ||
+		!strings.Contains(body, runs[0]) || !strings.Contains(body, runs[1]) || !strings.Contains(body, "loop work edit "+id) {
+		t.Fatalf("alert = %q / %q", subject, body)
 	}
 }
 

@@ -228,6 +228,7 @@ func (s *Scheduler) settleEnded(ctx context.Context, r runRow, ended time.Time, 
 		}
 		s.afterSettle(ctx, r, "reclaim", CheckoutKept)
 		s.alertEnded(ctx, r, out.Class, reason)
+		s.alertHeld(ctx, r, out, "")
 	}
 	s.closeSession(ctx, r)
 }
