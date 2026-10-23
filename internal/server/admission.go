@@ -38,7 +38,12 @@ func (s *Server) workPeek(ctx context.Context, call *rpc.Call) cli.Result {
 	if ref != nil {
 		return ref.Result()
 	}
-	c, ref := s.Admission.Peek(ctx, project, call.Inv.Flags["stage"])
+	// A run asks for its own work, so its own live run fills no cap here.
+	var caller string
+	if call.Principal.Kind == cli.PrincipalRun {
+		caller = call.Principal.RunID
+	}
+	c, ref := s.Admission.PeekAs(ctx, project, call.Inv.Flags["stage"], caller)
 	if ref != nil {
 		return ref.Result()
 	}
