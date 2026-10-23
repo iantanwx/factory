@@ -227,6 +227,9 @@ func TestTheHostReportsAFault(t *testing.T) {
 	if code != 0 || env["data"].(map[string]any)["reporter"] != cli.PrincipalHost {
 		t.Fatalf("fault report from the host: %d %v", code, env)
 	}
+	if env, code, _ := call(t, dir, time.Second, nil, "fault", "list"); code != 0 || len(env["data"].([]any)) != 1 {
+		t.Fatalf("fault list from the host: %d %v", code, env)
+	}
 }
 
 func TestSecretSetReadsStdinAndNeverEchoes(t *testing.T) {

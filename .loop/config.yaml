@@ -1,0 +1,28 @@
+# The loop works on its own repository. Agents run each gate before they
+# push, and CI runs `make gates` and the acceptance job on each pull
+# request.
+setup: go mod download
+merge:
+  mechanism: direct
+gates:
+  - name: format
+    run: test -z "$(gofmt -l $(git ls-files '*.go'))"
+  - name: lint
+    run: make lint pack-check proto-check
+  - name: audit
+    run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+  - name: typecheck
+    run: go build ./...
+  - name: test
+    run: make test race
+  - name: build
+    run: make build-all
+stages:
+  implementer: {}
+  code-reviewer: {}
+  doc-reviewer: {}
+  amender: {}
+  spec-author: {}
+  decomposer: {}
+  fixer: {}
+  reproducer: {}

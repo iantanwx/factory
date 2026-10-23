@@ -206,7 +206,10 @@ A run, a room or you report each loop fault. Triage each open one:
 
 1. Read it with `loop fault show <fault>`. Acknowledge it with `loop fault ack <fault>`.
 2. Find its cause. Read the run that reported it.
-3. Resolve it with exactly one resolution:
+3. When a project policy authorizes it, file the fault as a bug in that project with
+   `loop work create --kind bug --project <project>`. Put the fault id in the body, and quote the
+   authorization's words with `--request`. File one bug for each fault.
+4. Resolve it with exactly one resolution:
    - `loop fault resolve <fault> --fixed-in <release>`, when a release ends the fault.
    - `loop fault resolve <fault> --duplicate-of <fault>`, when an older fault holds it.
    - `loop fault resolve <fault> --not-a-fault --reason "<why>"`, when the loop kept its contract.

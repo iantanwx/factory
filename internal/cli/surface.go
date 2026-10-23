@@ -15,10 +15,10 @@ var (
 	// reads the item's status before each write of a room (KTD13).
 	readers  = []string{"run", "room", "coordinator"}
 	hostOnly = []string{"host"}
-	// faultReporters may report a loop fault: every agent, and the
+	// faultCallers may report and read loop faults: every agent, and the
 	// operator's own shell.
-	faultReporters = []string{"run", "room", "coordinator", "host"}
-	anyone         = []string{"anyone"}
+	faultCallers = []string{"run", "room", "coordinator", "host"}
+	anyone       = []string{"anyone"}
 )
 
 // Run finish outcomes: the values of `run finish --outcome`.
@@ -161,10 +161,10 @@ var surface = []Verb{
 		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
 	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 
-	write(server("fault", "report", "report a fault in the loop itself, not in the project; the answer names its fault id", faultReporters, nil,
+	write(server("fault", "report", "report a fault in the loop itself, not in the project; the answer names its fault id", faultCallers, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report file, at any path, read by the CLI: the command, its envelope and what you expected; 64 KiB at most"})),
-	server("fault", "show", "show one loop fault: its status, its resolution and the release this host runs", readers, []Arg{faultArg}),
-	server("fault", "list", "list loop faults, newest first", readers, nil,
+	server("fault", "show", "show one loop fault: its status, its resolution and the release this host runs", faultCallers, []Arg{faultArg}),
+	server("fault", "list", "list loop faults, newest first", faultCallers, nil,
 		Flag{Name: "project", Type: FlagString, Description: "only faults filed from this project"},
 		Flag{Name: "stage", Type: FlagString, Description: "only faults filed from this stage"},
 		Flag{Name: "status", Type: FlagString, Enum: []string{"open", "acknowledged", "fixed", "duplicate", "not-a-fault"}, Description: "only faults in this status"}),
