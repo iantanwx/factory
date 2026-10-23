@@ -150,6 +150,30 @@ func TestAddHookChecksTheBranchRules(t *testing.T) {
 
 // After the add hook the mirror holds the base, and admission's reader
 // returns the blob id of each declared path.
+// Through the App's token, GitHub answers 403 with an upgrade message
+// for a private repository on a free plan. The add goes ahead.
+func TestAddHookTakesAPlanWithNoRulesets(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusForbidden} {
+		e := newEnv(t)
+		e.api.SetRules(nil)
+		e.api.SetNoRulesStatus(status)
+		if err := e.svc.AddHook(context.Background(), e.project); err != nil {
+			t.Fatalf("%d: add = %v", status, err)
+		}
+		lines, err := e.svc.CheckRules(context.Background(), e.project)
+		if err != nil || len(lines) != 1 || !lines[0].OK || lines[0].Check != "branch_rules" {
+			t.Fatalf("%d: rules = %+v %v", status, lines, err)
+		}
+	}
+	// Any other 403 still fails.
+	e := newEnv(t)
+	e.api.SetRules(nil)
+	e.api.SetNoRulesStatus(http.StatusUnauthorized)
+	if err := e.svc.AddHook(context.Background(), e.project); err == nil {
+		t.Fatal("a 401 on the rules passed")
+	}
+}
+
 func TestMirrorReadsTheBase(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()

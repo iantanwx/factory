@@ -84,11 +84,12 @@ func (s *Service) CheckRules(ctx context.Context, p config.Project) ([]CheckLine
 	}
 	var rules []rule
 	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/rules/branches/"+pathEscapeBranch(base)), &rules); err != nil {
-		// GitHub answers 404 when the repository's plan has no rulesets: a
-		// private repository on a free account. Nothing enforces the rules
-		// there, so the direct merge checks CI itself.
+		// A private repository on a free account has no rulesets. GitHub
+		// answers 404, or 403 with an upgrade message. Nothing enforces the
+		// rules there, so the direct merge checks CI itself.
 		var api *APIError
-		if errors.As(err, &api) && api.Status == http.StatusNotFound {
+		if errors.As(err, &api) && (api.Status == http.StatusNotFound ||
+			api.Status == http.StatusForbidden && strings.Contains(api.Message, "Upgrade to GitHub Pro")) {
 			return []CheckLine{{Check: "branch_rules", OK: true,
 				Detail: fmt.Sprintf("GitHub offers no rulesets for %s on its plan; the loop checks CI itself before a direct merge", p.Repo)}}, nil
 		}

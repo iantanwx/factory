@@ -103,7 +103,9 @@ type API struct {
 	mints   []map[string]any
 	install map[string]any
 	rules   []any
-	World   *World
+	// noRulesStatus is what the rules endpoint answers with nil rules.
+	noRulesStatus int
+	World         *World
 }
 
 // NewAPI starts the API with a good installation and good branch rules,
@@ -113,7 +115,7 @@ func NewAPI(t testing.TB) *API {
 		install: map[string]any{"id": InstallID, "repository_selection": "selected",
 			"permissions": map[string]string{"contents": "write", "pull_requests": "write", "statuses": "write",
 				"workflows": "write", "checks": "read", "actions": "read", "metadata": "read"}},
-		rules: GoodRules(),
+		rules: GoodRules(), noRulesStatus: 404,
 		World: NewWorld()}
 	a.srv = httptest.NewServer(http.HandlerFunc(a.serve))
 	t.Cleanup(a.srv.Close)
@@ -170,12 +172,19 @@ func (a *API) SetInstall(selection string, perms map[string]string) {
 	a.install = map[string]any{"id": InstallID, "repository_selection": selection, "permissions": perms}
 }
 
-// SetRules changes the rules of the default branch. Nil answers 404, as
-// GitHub does for a plan with no rulesets.
+// SetRules changes the rules of the default branch. Nil answers as GitHub
+// does for a plan with no rulesets: 404, or the status SetNoRulesStatus set.
 func (a *API) SetRules(rules []any) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.rules = rules
+}
+
+// SetNoRulesStatus sets what the rules endpoint answers for nil rules.
+func (a *API) SetNoRulesStatus(status int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.noRulesStatus = status
 }
 
 // ValidToken reports whether the API minted tok.
@@ -228,11 +237,11 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, 200, map[string]any{"full_name": Repo, "default_branch": "main"})
 	case key == "GET /repos/"+Repo+"/rules/branches/main":
 		a.mu.Lock()
-		rules := a.rules
+		rules, status := a.rules, a.noRulesStatus
 		a.mu.Unlock()
 		if rules == nil {
 			// A private repository on a free plan has no rulesets.
-			WriteJSON(w, 404, map[string]string{"message": "Not Found"})
+			WriteJSON(w, status, map[string]string{"message": "Upgrade to GitHub Pro or make this repository public to enable this feature."})
 			return
 		}
 		WriteJSON(w, 200, rules)

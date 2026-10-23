@@ -138,7 +138,11 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 	added := ctl.client().Remote(ctx, cli.Invocation{Verb: v, Args: []string{rep.Project},
 		Flags: map[string]string{"repo": rep.Repo, "path": rep.Path}, RequestID: newRequestID()})
 	if r := added.Refusal; r != nil {
-		return cli.Reject(r.Code, r.Rule, r.Hint+"; is the loop App installed on "+rep.Repo+"? Add it from the App's page on GitHub, then run loop register again")
+		hint := r.Hint
+		if strings.Contains(hint, "installation") {
+			hint += "; install the loop App on " + rep.Repo + " from the App's page on GitHub, then run loop register again"
+		}
+		return cli.Reject(r.Code, r.Rule, hint)
 	}
 	rep.Added = true
 	return cli.Found(rep)
