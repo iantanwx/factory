@@ -191,15 +191,18 @@ type Request struct {
 // Item is one work item as the machine reads it: beads holds the status
 // and the facts, and SQLite holds the lease owner.
 type Item struct {
-	Project string            `json:"project"`
-	ID      string            `json:"item"`
-	Kind    Kind              `json:"kind"`
-	Title   string            `json:"title"`
-	Status  string            `json:"status"`
-	Seq     int64             `json:"seq"`
-	Epoch   int64             `json:"epoch"`
-	Owner   string            `json:"owner"`
-	Facts   map[string]string `json:"facts"`
+	Project string `json:"project"`
+	ID      string `json:"item"`
+	Kind    Kind   `json:"kind"`
+	Title   string `json:"title"`
+	// Body is the item's task text, as TaskText reads it. work show
+	// answers it; List leaves it empty.
+	Body   string            `json:"body,omitempty"`
+	Status string            `json:"status"`
+	Seq    int64             `json:"seq"`
+	Epoch  int64             `json:"epoch"`
+	Owner  string            `json:"owner"`
+	Facts  map[string]string `json:"facts"`
 	// AllowedNext names the verbs the table allows from Status.
 	AllowedNext []string `json:"allowed_next"`
 }
@@ -221,9 +224,9 @@ func view(project string, is beadsx.Issue) (Item, *Table, error) {
 	if err != nil {
 		return Item{}, nil, err
 	}
-	title, _ := TaskText(is)
+	title, body := TaskText(is)
 	it := Item{
-		Project: project, ID: is.ID, Kind: t.Kind, Title: title, Status: is.Status,
+		Project: project, ID: is.ID, Kind: t.Kind, Title: title, Body: body, Status: is.Status,
 		Seq: seq, Epoch: epoch, Facts: map[string]string{}, AllowedNext: t.AllowedNext(is.Status),
 	}
 	for k, v := range is.Metadata {

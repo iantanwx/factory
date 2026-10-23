@@ -202,6 +202,27 @@ func TestHoldsItemHookDecides(t *testing.T) {
 	wantRefusal(t, env, code, 3, cli.CodeCapabilityDenied, "item_not_held")
 }
 
+// The ReadsItem hook opens a read verb on an item the run does not hold,
+// and never a write verb.
+func TestReadsItemHookOpensReadsOnly(t *testing.T) {
+	h := newHarness(t, func(o *Options) {
+		o.ReadsItem = func(_ context.Context, p Principal, item string) (bool, error) {
+			return p.RunID == "run-a" && item == "E-1", nil
+		}
+	})
+	h.handle("work show", found)
+	h.handle("work block", found)
+	h.start()
+	a := h.issue("run-a", cli.PrincipalRun, "T-A")
+	if env, code := h.run(a, "work", "show", "E-1"); code != 0 {
+		t.Fatalf("the hook opens work show of E-1: %v", env)
+	}
+	env, code := h.run(a, "work", "block", "E-1")
+	wantRefusal(t, env, code, 3, cli.CodeCapabilityDenied, "item_not_held")
+	env, code = h.run(a, "work", "show", "E-2")
+	wantRefusal(t, env, code, 3, cli.CodeCapabilityDenied, "item_not_held")
+}
+
 func TestRunTokenCannotCallHostVerbs(t *testing.T) {
 	h := newHarness(t)
 	if _, err := EnsureAdminCredential(h.dir); err != nil {

@@ -312,9 +312,12 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		PreviousVersion: readPreviousVersion(dir),
 		Logger:          logger,
 		HoldsItem:       holdsItem(st, opts.HoldsItem),
-		Checkouts:       opts.Checkouts,
-		Proc:            opts.Proc,
-		OnCall:          onCall,
+		ReadsItem: func(ctx context.Context, p rpc.Principal, item string) (bool, error) {
+			return readsEpic(ctx, s.Machine, p, item)
+		},
+		Checkouts: opts.Checkouts,
+		Proc:      opts.Proc,
+		OnCall:    onCall,
 	})
 	if err != nil {
 		return nil, err
@@ -382,6 +385,23 @@ func readPreviousVersion(dir string) string {
 // server calls it after secret set, secret import and project remove.
 func (s *Server) RefreshRedactor(ctx context.Context) error {
 	return s.Redactor.Refresh(ctx, s.Secrets)
+}
+
+// readsEpic opens a read of the held item's epic (KTD12 binds moves, not
+// reads): a ticket names its epic in its epic fact, and a run reads the
+// epic before it builds the ticket.
+func readsEpic(ctx context.Context, m *machine.Machine, p rpc.Principal, item string) (bool, error) {
+	if m == nil || p.Item == "" || item == "" {
+		return false, nil
+	}
+	held, ref := m.Read(ctx, p.Project, p.Item)
+	if ref != nil {
+		if ref.Code == cli.CodeNotFound {
+			return false, nil
+		}
+		return false, fmt.Errorf("read %s: %s", p.Item, ref.Hint)
+	}
+	return held.Fact(machine.FactEpic) == item, nil
 }
 
 // holdsItem is the item check of the capability matrix (KTD12): next, or
