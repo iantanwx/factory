@@ -19,15 +19,18 @@ factorio-o2w holds the report. Tickertown is the repository at
   `neon` and `neon-postgres`. `skills-lock.json` pins the source repository and a hash of each.
 - Git tracks `.agents/skills/` and `.claude/skills/`. Each entry in `.claude/skills/` is a symlink
   to `.agents/skills/`. So a checkout of tickertown holds all 25 skills.
-- Each of 9 skills holds `disable-model-invocation: true`: `bro`, `boundaries`, `commit`,
-  `least-code`, `unslop`, `reader-load`, `verifiable-units`, `test-behavior-not-implementation` and
-  `domain-modeling`. A model reads one of them only when a runbook or a person names it.
+- Each of 10 skills holds `disable-model-invocation: true`: `bro`, `boundaries`, `commit`,
+  `least-code`, `unslop`, `reader-load`, `verifiable-units`, `test-behavior-not-implementation`,
+  `domain-modeling` and `encode-lessons`. A model reads one of them only when a runbook or a person
+  names it.
 
 **What the loop ships.** Measured in this repository:
 
 - `pack/manifest.json` lists 10 skills, each a directory `pack/skills/loop-*`. Plan unit U15 ported
   7 of the 25 tickertown skills: `sdlc-turn`, `sdlc-glossary`, `sdlc-review`, `sdlc-split`,
-  `sdlc-triage`, `reflect` and `encode-lessons`.
+  `sdlc-triage`, `reflect` and `encode-lessons`. The port dropped the flag from `encode-lessons`.
+  `grep -rl disable-model-invocation pack/` prints nothing. The `amender` and `coordinator`
+  runbooks list `loop-encode-lessons` in `pack/manifest.json`.
 - The release embeds the pack (`pack/embed.go`). At each run start, `brief.Pack.Write` writes it
   into the checkout under the harness's skill root: `.claude/skills` or `.agents/skills`
   (`internal/brief/pack.go`). `loop register` writes it into the clone too
@@ -64,10 +67,32 @@ factorio-o2w holds the report. Tickertown is the repository at
   `LICENSE` file.
 - Tickertown tracks `.claude/skills/impeccable` and `.claude/skills/unslop` under the bare names.
 
+**Where the third-party text names a skill or a path.** Measured in source with grep:
+
+- `impeccable`: 17 of its 59 files name the path `.agents/skills/impeccable/scripts/impeccable`.
+  33 files name that path or the shortcut `$impeccable`. Its `SKILL.md` line 17 resolves each such
+  path from the directory that holds `SKILL.md`, and uses the literal path only when the runtime
+  reports no base directory. The launcher finds its own directory from `$0`
+  (`scripts/impeccable` line 28).
+- `neon` names its sibling `neon-postgres` in `SKILL.md` lines 86 and 121 and in
+  `references/claimable-neon.md` line 16. Its `SKILL.md` line 135 says to look for a named skill in
+  the skill list, and to install a missing one with `neon skills -s <skill-name>`. `neon-postgres`
+  names `neon` in `SKILL.md` lines 9, 18 and 20. Line 20 says to fetch the `neon` skill from
+  `neon.com` when it is not installed. The same file uses the word `neon` for a Postgres extension,
+  in lines 145 and 169.
+- `asd-ste100` names `~/.claude/skills/asd-ste100` once, in an install command in `README.md`.
+- Tickertown's `skills/README.md` lines 152-153 run `.agents/skills/impeccable/scripts/impeccable`
+  by path. That file stays in tickertown.
+
 **What I assumed, and did not measure:**
 
 - The upstream repositories of `impeccable`, `neon` and `neon-postgres` permit a host to fetch and
   use their skills. Nobody here read their licences.
+- The harnesses tell a model the base directory of each skill, so the path fallback in `impeccable`
+  does not run. A model that reads `the neon skill` finds `loop-neon` in its skill list, and does
+  not fetch it again.
+- `neon skills -s <skill-name>` writes the skill into the project when it runs without `--global`.
+  I did not run it.
 - A skill description costs context in each session that lists it. The descriptions of the 13
   skills this ADR adds hold about 4,400 characters in total. I did not measure the token cost.
 
@@ -81,12 +106,17 @@ factorio-o2w holds the report. Tickertown is the repository at
 2. **Name every injected skill with the `loop-` prefix, a third-party skill too.** I rejected the
    upstream names. Tickertown tracks `.claude/skills/impeccable` and `.claude/skills/unslop`. So
    `CONFIG_CONFLICT` would refuse every tickertown run, and the push scan would not see the paths
-   as injected.
+   as injected. The writer changes the `name:` line alone, and the body text keeps the upstream
+   names and paths. I rejected a rewrite of those references at write time. A path rewrite saves
+   only the fallback that line 17 of `impeccable` already avoids. A name rewrite cannot tell the
+   `neon` skill from the `neon` extension.
 
-3. **Keep `disable-model-invocation: true` on each ported skill, and name each one from at least
-   one runbook in `pack/manifest.json`.** I rejected skills that a model loads on its own judgement.
-   An unattended run then reads rules that no runbook chose. A skill that no runbook names reaches
-   no unattended run, so the manifest must name it. A person can still start one by name.
+3. **Keep `disable-model-invocation: true` on each ported skill, put it back on
+   `loop-encode-lessons`, and name each one from at least one runbook in `pack/manifest.json`.** I
+   rejected skills that a model loads on its own judgement. An unattended run then reads rules
+   that no runbook chose. A skill that no runbook names reaches no unattended run, so the manifest
+   must name it. A person can still start one by name. The `amender` and `coordinator` runbooks
+   already list `loop-encode-lessons`, so each run that reads it now still reads it.
 
 4. **Do not port `sdlc-decisions`, `willis-decisions` or `design-ticket`.** They are tickertown
    policy, and the plan puts "design issues, and the Willis routing in
@@ -95,9 +125,11 @@ factorio-o2w holds the report. Tickertown is the repository at
    rejected a port with the names taken out. The rules route to one named person, so nothing is
    left once the names go.
 
-5. **Do not port `file-bug` as a skill.** `pack/runbooks/coordinator.md:189` already holds its loop
-   part. Screenshots on a bug wait on epic factorio-9wh, which decides the work-item fields. I
-   rejected a second copy of the coordinator's steps, because two copies drift.
+5. **Do not port `file-bug` as a skill.** Its Linear ticket and its assignee are tickertown's
+   tracker, and the plan defers tracker adapters, Linear among them (plan, Scope Boundaries,
+   "Deferred for later"). `pack/runbooks/coordinator.md:189` already holds its loop part.
+   Screenshots on a bug wait on epic factorio-9wh, which decides the work-item fields. I rejected a
+   second copy of the coordinator's steps, because two copies drift.
 
 6. **Do not port `sdlc-intake` here.** The plan defers intake from a configured source, such as
    tickertown's locked sources (plan, Scope Boundaries, "Deferred for later"). The epic order
@@ -126,6 +158,7 @@ Files and commands that change, for the spec of epic factorio-cd4:
   their `skills` list, and in their text by `../loop-<name>/SKILL.md`. The spec chooses each
   reader. Tickertown's readers are the starting point: the implementer reads `commit`, the
   decomposer reads `bro` and `unslop`.
+- `pack/skills/loop-encode-lessons/SKILL.md`: holds `disable-model-invocation: true` again.
 - `internal/pack`: the manifest check fails a skill with `disable-model-invocation: true` that no
   runbook lists.
 - `pack/third-party.json`: new. It pins `asd-ste100`, `impeccable`, `neon` and `neon-postgres`.
@@ -133,7 +166,8 @@ Files and commands that change, for the spec of epic factorio-cd4:
   check its hash. A failed fetch or a wrong hash refuses the install or the upgrade, and the host
   keeps the release it runs.
 - `brief.Pack`: the pack the server writes holds the fetched skills as `loop-<name>`. The writer
-  changes only the `name:` line of each `SKILL.md`. The pack hash in the brief covers their bytes.
+  changes only the `name:` line of each `SKILL.md`, and no other byte. The pack hash in the brief
+  covers their bytes.
 - Stages: no stage changes. Each run of every stage receives 13 more skills.
 
 What this makes easy: each loop-managed project receives the same 13 skills at the same version, with
@@ -145,6 +179,15 @@ What this makes hard:
   another name.
 - An install or an upgrade needs the network to reach GitHub.
 - `impeccable` downloads a platform binary on first use, inside a run.
+- The fetched text names skills and paths that do not exist in the checkout: `$impeccable`,
+  `.agents/skills/impeccable/...`, `neon` and `neon-postgres`. A runtime that reports no skill
+  base directory runs `impeccable` by a path that does not exist, and the command fails. A model
+  that does not match `neon` to `loop-neon` fetches `neon` from `neon.com` (`neon-postgres`
+  line 20). A model that does not match `neon-postgres` to `loop-neon-postgres` can install it with
+  `neon skills -s neon-postgres`, and that writes a skill directory into the checkout. This is
+  acceptable. A failed path fails loud. A fetch reads the same upstream text. A written directory
+  shows in the diff of the pull request, where the code-reviewer sees it. Only a run that works on
+  a Neon database reads the `neon` text.
 
 Postponed on purpose:
 
@@ -174,6 +217,8 @@ Each line runs from the repository root, and each one can fail on the day this A
 These criteria wait on later work, and epic factorio-cd4 owns each one:
 
 - `pack/manifest.json` lists `loop-<name>` for each of the 9 generic skills.
+- `grep -L '^disable-model-invocation: true' pack/skills/loop-encode-lessons/SKILL.md` prints
+  nothing.
 - `pack/third-party.json` pins the 4 third-party skills, each with a commit and a sha256.
 - `loop upgrade` refuses a release whose fetched skill fails its hash, and the acceptance suite
   proves it.
