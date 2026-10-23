@@ -120,6 +120,7 @@ service ProjectService {
   rpc List(VerbRequest) returns (Envelope);
   rpc Show(VerbRequest) returns (Envelope);
   rpc Remove(VerbRequest) returns (Envelope);
+  rpc Move(VerbRequest) returns (Envelope);
 }
 
 service HostService {

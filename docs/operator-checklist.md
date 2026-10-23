@@ -13,9 +13,8 @@ You need `gh`, logged in to an account that can read `slothware-labs/factorio`.
   ```
 
   For an App owned by an organisation, end the command with
-  `sh -s -- --github-owner <org>` instead. Without it, your personal account
-  owns the App, and a private App installs only on its owner's
-  repositories.
+  `sh -s -- --github-owner <org>` instead. The App is public, so it
+  installs on your account and on each organisation that holds a project.
 - [ ] In the browser, click **Create GitHub App**, then pick the project
       repositories and click **Install**. On a Tailscale host, any browser
       on the tailnet can open the link the installer prints.

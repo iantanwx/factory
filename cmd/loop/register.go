@@ -60,7 +60,10 @@ type RegisterReport struct {
 	CI      []string `json:"ci"`
 	Skills  []string `json:"skills"`
 	Added   bool     `json:"added"` // false when the project was registered already
-	Next    string   `json:"next,omitempty"`
+	// MovedFrom is the repository the project named before this register
+	// moved it.
+	MovedFrom string `json:"moved_from,omitempty"`
+	Next      string `json:"next,omitempty"`
 }
 
 // registerProject is `loop register`: it tells the loop about the git clone it
@@ -131,21 +134,36 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 			return cli.Found(rep)
 		}
 	}
-	v, ok := h.reg.Verb("project add")
-	if !ok {
-		return fail(errors.New("this build has no project add verb"))
-	}
-	added := ctl.client().Remote(ctx, cli.Invocation{Verb: v, Args: []string{rep.Project},
-		Flags: map[string]string{"repo": rep.Repo, "path": rep.Path}, RequestID: newRequestID()})
-	if r := added.Refusal; r != nil {
-		hint := r.Hint
-		if strings.Contains(hint, "installation") {
-			hint += "; install the loop App on " + rep.Repo + " from the App's page on GitHub, then run loop register again"
+	// The project of this clone names another repository: the repository
+	// moved on GitHub, and origin follows it.
+	for _, p := range host.Projects {
+		if p.Path == rep.Path {
+			rep.Project, rep.MovedFrom = p.ID, p.Repo
+			if res := h.remote(ctx, ctl, "project move", []string{p.ID}, map[string]string{"repo": rep.Repo}); res.Refusal != nil {
+				return res
+			}
+			return cli.Found(rep)
 		}
-		return cli.Reject(r.Code, r.Rule, hint)
+	}
+	if res := h.remote(ctx, ctl, "project add", []string{rep.Project}, map[string]string{"repo": rep.Repo, "path": rep.Path}); res.Refusal != nil {
+		return res
 	}
 	rep.Added = true
 	return cli.Found(rep)
+}
+
+// remote sends one server verb, and returns its answer with the App hint
+// on a refusal that names the installation.
+func (h *hostVerbs) remote(ctx context.Context, ctl *serverControl, path string, args []string, flags map[string]string) cli.Result {
+	v, ok := h.reg.Verb(path)
+	if !ok {
+		return fail(errors.New("this build has no " + path + " verb"))
+	}
+	res := ctl.client().Remote(ctx, cli.Invocation{Verb: v, Args: args, Flags: flags, RequestID: newRequestID()})
+	if r := res.Refusal; r != nil && strings.Contains(r.Hint, "installation") {
+		return cli.Reject(r.Code, r.Rule, r.Hint+"; install the loop App on "+flags["repo"]+" from the App's page on GitHub, then run loop register again")
+	}
+	return res
 }
 
 // installSkills writes the loop skills into the clone for Claude Code and

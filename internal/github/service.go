@@ -134,6 +134,18 @@ func (s *Service) Mirror(p config.Project) *Mirror {
 	return &Mirror{git: s.git, Dir: filepath.Join(s.cfg.MirrorRoot, p.ID+".git"), URL: s.cfg.GitURL(p.Repo)}
 }
 
+// forget drops the cached installation and tokens of one project.
+func (s *Service) forget(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.installs, id)
+	for key := range s.tokens {
+		if strings.HasPrefix(key, id+"/") {
+			delete(s.tokens, key)
+		}
+	}
+}
+
 // lock serialises the git work on one key, for example one branch.
 func (s *Service) lock(key string) func() {
 	s.mu.Lock()
@@ -340,13 +352,16 @@ func (s *Service) SyncBase(ctx context.Context, p config.Project) (string, strin
 	return base, m.Resolve(ctx, config.DefaultRef(base)), nil
 }
 
-// AddHook is the config.AddHook of `project add`: it creates the bare
+// AddHook is the config.AddHook of `project add` and `project move`: it
+// forgets the installation and tokens of the project's old repository,
+// creates the bare
 // mirror, fetches the default branch and checks the branch rules. A
 // missing rule fails the add with one checklist line for each rule. A
 // missing CI check does not: a bare project has no CI yet, and loop
 // doctor reports it until it does. An empty repository has nothing to
 // fetch or check, so it registers as it is.
 func (s *Service) AddHook(ctx context.Context, p config.Project) error {
+	s.forget(p.ID)
 	if err := s.Mirror(p).Init(ctx); err != nil {
 		return err
 	}

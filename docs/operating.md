@@ -101,8 +101,10 @@ address it cannot reach. Copy that address from the address bar and paste
 it into the terminal. Install waits 30 minutes, then exits 4 with code
 `APP_NOT_CREATED`, and the next install tries again.
 
-A private App installs only on its owner's repositories. When the projects
-belong to an organisation, pass `--github-owner <org>`.
+The App is public, so you can install it on your own account and on each
+organisation that holds a project. It has no webhook, and the loop acts
+only on the projects you register. `--github-owner <org>` makes the
+organisation own the App.
 
 ## Prepare the harnesses
 
@@ -165,6 +167,12 @@ a scaffold with one passing test, a CI workflow with a `ci` job, and
 
 `loop project add alpha --repo owner/alpha --path /home/me/src/alpha` does
 the registration step alone.
+
+When you transfer a repository to another owner on GitHub, update the
+clone's `origin`, install the App on the new owner, and run
+`loop register` again. It finds the project by the clone's path and moves
+it with `loop project move <id> --repo <new owner/name>`. The project keeps
+its id, secrets and history.
 
 ## Set the default-branch ruleset
 

@@ -88,7 +88,10 @@ func DeriveMatrix(r *Registry) (CapabilityMatrix, error) {
 			return slices.Index(PrincipalKinds, kinds[i]) < slices.Index(PrincipalKinds, kinds[j])
 		})
 		m.Verbs[v.Path] = kinds
-		if slices.Contains(v.Callers, "host") {
+		// A verb that an agent may call too, such as fault report, gains
+		// an agent nothing through the host credential, so only a
+		// host-only verb is a host verb.
+		if slices.Equal(kinds, []string{PrincipalHost}) {
 			m.HostVerbs = append(m.HostVerbs, v.Path)
 		}
 		for _, a := range v.Args {

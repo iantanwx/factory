@@ -190,15 +190,42 @@ func TestProjectVerbs(t *testing.T) {
 	if code != 2 || env["code"] != cli.CodeUsage {
 		t.Fatalf("an invalid project is a usage fault: %v", env)
 	}
+	// A transfer on GitHub: move keeps the id and the path.
+	env, code, _ = call(t, dir, time.Second, nil, "project", "move", "alpha", "--repo", "acme/alpha")
+	if code != 0 || env["data"].(map[string]any)["repo"] != "acme/alpha" || env["data"].(map[string]any)["path"] != "/srv/alpha" {
+		t.Fatalf("project move: %d %v", code, env)
+	}
 	if env, code, _ := call(t, dir, time.Second, nil, "project", "remove", "alpha"); code != 0 {
 		t.Fatalf("project remove: %v", env)
 	}
 	if env, code, _ := call(t, dir, time.Second, nil, "project", "list"); code != 1 {
 		t.Fatalf("an empty list exits 1: %v", env)
 	}
+	// The removed id comes back for another repository: its store row
+	// follows.
+	if env, code, _ := call(t, dir, time.Second, nil, "project", "add", "alpha", "--repo", "other/alpha", "--path", "/srv/alpha"); code != 0 {
+		t.Fatalf("project add after remove: %v", env)
+	}
+	if env, code, _ := call(t, dir, time.Second, nil, "project", "remove", "alpha"); code != 0 {
+		t.Fatalf("project remove: %v", env)
+	}
 	cfg, err := config.LoadHost(filepath.Join(dir, config.HostConfigFile))
 	if err != nil || len(cfg.Projects) != 0 {
 		t.Fatalf("host config = %+v %v", cfg, err)
+	}
+}
+
+// The operator's own shell reports a loop fault with the host-admin
+// credential.
+func TestTheHostReportsAFault(t *testing.T) {
+	dir := instanceDir(t)
+	if _, err := rpc.EnsureAdminCredential(dir); err != nil {
+		t.Fatal(err)
+	}
+	start(t, dir, Options{}, true)
+	env, code, _ := call(t, dir, time.Second, nil, "fault", "report", "--file", writeReport(t, "register refused a moved repository"))
+	if code != 0 || env["data"].(map[string]any)["reporter"] != cli.PrincipalHost {
+		t.Fatalf("fault report from the host: %d %v", code, env)
 	}
 }
 

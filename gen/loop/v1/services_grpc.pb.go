@@ -3225,6 +3225,7 @@ const (
 	ProjectService_List_FullMethodName   = "/loop.v1.ProjectService/List"
 	ProjectService_Show_FullMethodName   = "/loop.v1.ProjectService/Show"
 	ProjectService_Remove_FullMethodName = "/loop.v1.ProjectService/Remove"
+	ProjectService_Move_FullMethodName   = "/loop.v1.ProjectService/Move"
 )
 
 // ProjectServiceClient is the client API for ProjectService service.
@@ -3235,6 +3236,7 @@ type ProjectServiceClient interface {
 	List(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Show(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Remove(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Move(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type projectServiceClient struct {
@@ -3285,6 +3287,16 @@ func (c *projectServiceClient) Remove(ctx context.Context, in *VerbRequest, opts
 	return out, nil
 }
 
+func (c *projectServiceClient) Move(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, ProjectService_Move_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ProjectServiceServer is the server API for ProjectService service.
 // All implementations must embed UnimplementedProjectServiceServer
 // for forward compatibility.
@@ -3293,6 +3305,7 @@ type ProjectServiceServer interface {
 	List(context.Context, *VerbRequest) (*Envelope, error)
 	Show(context.Context, *VerbRequest) (*Envelope, error)
 	Remove(context.Context, *VerbRequest) (*Envelope, error)
+	Move(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedProjectServiceServer()
 }
 
@@ -3314,6 +3327,9 @@ func (UnimplementedProjectServiceServer) Show(context.Context, *VerbRequest) (*E
 }
 func (UnimplementedProjectServiceServer) Remove(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Remove not implemented")
+}
+func (UnimplementedProjectServiceServer) Move(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Move not implemented")
 }
 func (UnimplementedProjectServiceServer) mustEmbedUnimplementedProjectServiceServer() {}
 func (UnimplementedProjectServiceServer) testEmbeddedByValue()                        {}
@@ -3408,6 +3424,24 @@ func _ProjectService_Remove_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ProjectService_Move_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ProjectServiceServer).Move(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ProjectService_Move_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ProjectServiceServer).Move(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ProjectService_ServiceDesc is the grpc.ServiceDesc for ProjectService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3430,6 +3464,10 @@ var ProjectService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Remove",
 			Handler:    _ProjectService_Remove_Handler,
+		},
+		{
+			MethodName: "Move",
+			Handler:    _ProjectService_Move_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -91,7 +91,7 @@ func TestAppFlowFollowsTheRedirect(t *testing.T) {
 	if err := json.Unmarshal([]byte(html.UnescapeString(string(value[1]))), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Public || manifest.Hook["active"] != false || manifest.Permissions["administration"] != "" ||
+	if !manifest.Public || manifest.Hook["active"] != false || manifest.Permissions["administration"] != "" ||
 		manifest.Permissions["contents"] != "write" || len(manifest.Permissions) != len(AppPermissions) {
 		t.Fatalf("manifest = %+v", manifest)
 	}

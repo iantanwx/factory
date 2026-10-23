@@ -246,11 +246,15 @@ var appPage = template.Must(template.New("app").Parse(`<!doctype html>
 // page is the form that posts the manifest to GitHub.
 func (f *AppFlow) page(redirect, state string) ([]byte, error) {
 	manifest, err := json.Marshal(map[string]any{
-		"name":                f.Name,
-		"url":                 f.Homepage,
-		"hook_attributes":     map[string]any{"url": f.Homepage, "active": false},
-		"redirect_url":        redirect,
-		"public":              false,
+		"name":            f.Name,
+		"url":             f.Homepage,
+		"hook_attributes": map[string]any{"url": f.Homepage, "active": false},
+		"redirect_url":    redirect,
+		// A private App installs only on its owner's account, and an
+		// operator keeps projects under their own account and under
+		// organisations. A public App gives nobody else anything: it has no
+		// webhook, and the loop acts only on registered projects.
+		"public":              true,
 		"default_permissions": AppPermissions,
 	})
 	if err != nil {

@@ -170,8 +170,8 @@ func TestFaultResolutionsAndCapabilities(t *testing.T) {
 	w := newHumanWorld(t, "")
 	co := w.runToken("run-1", "", machine.StageImplementer)
 	for _, text := range []string{"one", "two", "three"} {
-		if _, code := w.as(co, "fault", "report", "--file", writeReport(t, text)); code != 0 {
-			t.Fatalf("report %s failed", text)
+		if env, code := w.as(co, "fault", "report", "--file", writeReport(t, text)); code != 0 {
+			t.Fatalf("report %s failed: %v", text, env)
 		}
 	}
 	for _, args := range [][]string{

@@ -124,16 +124,54 @@ func TestStoreProjectRowHook(t *testing.T) {
 	if err := hook(ctx, p); err != nil {
 		t.Fatalf("hook is not idempotent: %v", err)
 	}
-	// A reused id that now names another repository would inherit the old
-	// project's secrets and history, so the hook refuses it.
-	if err := hook(ctx, Project{ID: "alpha", Repo: "iantanwx/other", Path: "/srv/o"}); !errors.Is(err, ErrProjectExists) {
-		t.Fatalf("reused id: %v, want ErrProjectExists", err)
+	// The id again with another repository, after a remove or a move on
+	// GitHub, points the row at the new repository and drops the config
+	// that the old one wrote. Remove has purged the old secrets already.
+	if err := st.Write(ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`UPDATE projects SET config = '{"lkg":1}' WHERE id = 'alpha'`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
-	var repo string
+	if err := hook(ctx, Project{ID: "alpha", Repo: "acme/alpha", Path: "/srv/a"}); err != nil {
+		t.Fatalf("moved repository: %v", err)
+	}
+	var repo, cfg string
 	err := st.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRow(`SELECT repo FROM projects WHERE id = 'alpha'`).Scan(&repo)
+		return tx.QueryRow(`SELECT repo, config FROM projects WHERE id = 'alpha'`).Scan(&repo, &cfg)
 	})
-	if err != nil || repo != "iantanwx/alpha" {
-		t.Fatalf("projects row = %q, %v", repo, err)
+	if err != nil || repo != "acme/alpha" || cfg != "{}" {
+		t.Fatalf("projects row = %q %q, %v", repo, cfg, err)
+	}
+}
+
+func TestProjectsMoveKeepsTheRegistration(t *testing.T) {
+	ctx := context.Background()
+	var hooked []Project
+	ps := newProjects(t, func(_ context.Context, p Project) error {
+		hooked = append(hooked, p)
+		return nil
+	})
+	for _, p := range []Project{
+		{ID: "alpha", Repo: "iantanwx/alpha", Path: "/srv/a"},
+		{ID: "beta", Repo: "iantanwx/beta", Path: "/srv/b"},
+	} {
+		if err := ps.Add(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := ps.Move(ctx, "alpha", "acme/alpha")
+	want := Project{ID: "alpha", Repo: "acme/alpha", Path: "/srv/a"}
+	if err != nil || got != want || hooked[len(hooked)-1] != want {
+		t.Fatalf("Move = %v, %v; hook saw %v", got, err, hooked[len(hooked)-1])
+	}
+	if p, _ := ps.Show("alpha"); p != want {
+		t.Fatalf("Show after move = %v", p)
+	}
+	if _, err := ps.Move(ctx, "alpha", "IANTANWX/beta"); !errors.Is(err, ErrProjectExists) {
+		t.Fatalf("move onto beta's repository: %v", err)
+	}
+	if _, err := ps.Move(ctx, "gamma", "acme/gamma"); !errors.Is(err, ErrProjectNotFound) {
+		t.Fatalf("move of an unknown project: %v", err)
 	}
 }

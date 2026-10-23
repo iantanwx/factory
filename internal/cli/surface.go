@@ -15,7 +15,10 @@ var (
 	// reads the item's status before each write of a room (KTD13).
 	readers  = []string{"run", "room", "coordinator"}
 	hostOnly = []string{"host"}
-	anyone   = []string{"anyone"}
+	// faultReporters may report a loop fault: every agent, and the
+	// operator's own shell.
+	faultReporters = []string{"run", "room", "coordinator", "host"}
+	anyone         = []string{"anyone"}
 )
 
 // Run finish outcomes: the values of `run finish --outcome`.
@@ -158,7 +161,7 @@ var surface = []Verb{
 		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
 	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 
-	write(server("fault", "report", "report a fault in the loop itself, not in the project; the answer names its fault id", readers, nil,
+	write(server("fault", "report", "report a fault in the loop itself, not in the project; the answer names its fault id", faultReporters, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report file, at any path, read by the CLI: the command, its envelope and what you expected; 64 KiB at most"})),
 	server("fault", "show", "show one loop fault: its status, its resolution and the release this host runs", readers, []Arg{faultArg}),
 	server("fault", "list", "list loop faults, newest first", readers, nil,
@@ -224,6 +227,8 @@ var surface = []Verb{
 	server("project", "list", "list projects", hostOnly, nil),
 	server("project", "show", "show one project", hostOnly, []Arg{projectArg}),
 	write(server("project", "remove", "remove a project", hostOnly, []Arg{projectArg})),
+	write(server("project", "move", "point a project at another repository, as after a transfer on GitHub; it keeps the project's secrets and history", hostOnly, []Arg{projectArg},
+		Flag{Name: "repo", Type: FlagString, Required: true, Description: "the new GitHub repository, owner/name"})),
 
 	topLevel(client("host", "install", "install the service, set up the host and create the loop GitHub App", hostOnly, nil,
 		Flag{Name: "check", Type: FlagBool, Description: "report drift and change nothing"},

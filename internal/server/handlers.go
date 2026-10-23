@@ -31,6 +31,7 @@ func (s *Server) wire() error {
 		"project list":   s.projectList,
 		"project show":   s.projectShow,
 		"project remove": s.projectRemove,
+		"project move":   s.projectMove,
 		"secret check":   s.secretCheck,
 		"secret set":     s.secretSet,
 		"secret import":  s.secretImport,
@@ -113,6 +114,16 @@ func (s *Server) projectRemove(ctx context.Context, call *rpc.Call) cli.Result {
 		s.log.ErrorContext(ctx, "refresh the redactor", "err", err)
 	}
 	return cli.Found(map[string]any{"id": id, "removed": true})
+}
+
+// projectMove points a project at another repository, as after a transfer
+// on GitHub.
+func (s *Server) projectMove(ctx context.Context, call *rpc.Call) cli.Result {
+	p, err := s.Projects.Move(ctx, call.Inv.Arg("project"), call.Inv.Flags["repo"])
+	if err != nil {
+		return projectFault(err)
+	}
+	return cli.Found(view(p))
 }
 
 // liveRuns reports whether a project has a run that has not ended.

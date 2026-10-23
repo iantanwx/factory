@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -121,6 +122,42 @@ func (ps *Projects) Add(ctx context.Context, p Project) error {
 	return SaveHost(ps.HostPath, cfg)
 }
 
+// Move points the registration with id at another repository, as after a
+// transfer on GitHub. It keeps the project's id, path, secrets and history.
+// It refuses a repository that another project holds, and it runs every
+// AddHook with the moved registration before it saves.
+func (ps *Projects) Move(ctx context.Context, id, repo string) (Project, error) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	cfg, err := LoadHost(ps.HostPath)
+	if err != nil {
+		return Project{}, err
+	}
+	idx := slices.IndexFunc(cfg.Projects, func(p Project) bool { return p.ID == id })
+	if idx < 0 {
+		return Project{}, fmt.Errorf("%w: %s", ErrProjectNotFound, id)
+	}
+	for _, q := range cfg.Projects {
+		if q.ID != id && strings.EqualFold(q.Repo, repo) {
+			return Project{}, fmt.Errorf("%w: repository %s is project %s", ErrProjectExists, repo, q.ID)
+		}
+	}
+	p := cfg.Projects[idx]
+	p.Repo = repo
+	ck := &checker{source: "project move"}
+	p.validate(ck, "project")
+	if err := ck.err(); err != nil {
+		return Project{}, err
+	}
+	for _, hook := range ps.AddHooks {
+		if err := hook(ctx, p); err != nil {
+			return Project{}, fmt.Errorf("config: project move %s: %w", id, err)
+		}
+	}
+	cfg.Projects[idx] = p
+	return p, SaveHost(ps.HostPath, cfg)
+}
+
 // List returns every registration in host config order.
 func (ps *Projects) List() ([]Project, error) {
 	cfg, err := LoadHost(ps.HostPath)
@@ -184,8 +221,11 @@ func (ps *Projects) Remove(ctx context.Context, id string, live LiveRunCheck) er
 
 // StoreProjectRow returns the AddHook that creates the project's row in the
 // store. The secrets, runs and last-known-good config rows reference it. A
-// removed project keeps its row as history, so the hook refuses an id whose
-// row names another repository: that project would inherit the old secrets.
+// removed project keeps its row as history. Adding its id again, or moving
+// the project to another repository, points the row at the new repository
+// and drops the last known good config, which the old repository wrote.
+// The secrets are safe to keep: remove purges them, and a moved project
+// keeps its own.
 func StoreProjectRow(st *store.Store) AddHook {
 	return func(ctx context.Context, p Project) error {
 		return st.Write(ctx, func(tx *store.Tx) error {
@@ -200,7 +240,9 @@ func StoreProjectRow(st *store.Store) AddHook {
 			case err != nil:
 				return err
 			case !strings.EqualFold(repo, p.Repo):
-				return fmt.Errorf("%w: the store holds id %s for repository %s", ErrProjectExists, p.ID, repo)
+				_, err = tx.Exec(`UPDATE projects SET repo = ?, config = '{}', updated_at = ? WHERE id = ?`,
+					p.Repo, tx.Now().UnixMilli(), p.ID)
+				return err
 			}
 			return nil
 		})

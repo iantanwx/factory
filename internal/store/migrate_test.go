@@ -21,13 +21,14 @@ func TestOpenRefusesDatabaseWhoseMinimumReaderIsAboveBinary(t *testing.T) {
 	binary := s.SchemaVersion()
 	_ = s.Close()
 
-	// Forge the state a future binary leaves: schema 9 that only schema 7
-	// or later may read.
+	// Forge the state a future binary leaves: a schema three ahead that
+	// only a reader one ahead or later may read.
+	dbSchema, minReader := binary+3, binary+1
 	db := rawDB(t, path)
-	if _, err := db.Exec(`PRAGMA user_version = 9`); err != nil {
+	if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, dbSchema)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`UPDATE schema_meta SET min_reader_schema = 7`); err != nil {
+	if _, err := db.Exec(`UPDATE schema_meta SET min_reader_schema = ?`, minReader); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Close()
@@ -37,11 +38,11 @@ func TestOpenRefusesDatabaseWhoseMinimumReaderIsAboveBinary(t *testing.T) {
 		t.Fatalf("Open err = %v, want ErrSchemaTooNew", err)
 	}
 	var tooNew *SchemaTooNewError
-	if !errors.As(err, &tooNew) || tooNew.MinReaderSchema != 7 || tooNew.BinarySchema != binary || tooNew.DBSchema != 9 {
-		t.Fatalf("Open err = %#v, want min reader 7, binary %d, database 9", err, binary)
+	if !errors.As(err, &tooNew) || tooNew.MinReaderSchema != minReader || tooNew.BinarySchema != binary || tooNew.DBSchema != dbSchema {
+		t.Fatalf("Open err = %#v, want min reader %d, binary %d, database %d", err, minReader, binary, dbSchema)
 	}
 	msg := err.Error()
-	for _, want := range []string{"reader schema 7", fmt.Sprintf("this binary has schema %d", binary), "database schema 9"} {
+	for _, want := range []string{fmt.Sprintf("reader schema %d", minReader), fmt.Sprintf("this binary has schema %d", binary), fmt.Sprintf("database schema %d", dbSchema)} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q does not name %q", msg, want)
 		}
