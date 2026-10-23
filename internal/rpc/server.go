@@ -80,6 +80,9 @@ type Options struct {
 	Logger *slog.Logger
 	// HoldsItem checks a run's or a room's item. TokenItem when nil.
 	HoldsItem HoldsItem
+	// ReadsItem opens a read verb on an item the caller does not hold.
+	// Nil opens none.
+	ReadsItem ReadsItem
 	// Checkouts lists the registered checkouts and agent sessions.
 	// Tokens.LiveCheckouts when nil.
 	Checkouts CheckoutLister
