@@ -3,6 +3,7 @@
 package scenarios
 
 import (
+	"context"
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
@@ -71,4 +72,34 @@ func TestArchitectureEpicWaitsForItsADR(t *testing.T) {
 		t.Fatalf("the spec-author took %s, want %s", run.Item, epic)
 	}
 	wantStatus(w, epic, machine.SpecDrafting)
+}
+
+// F-10: an epic that an ADR named only in prose, and that the reactor
+// before the fix moved to spec_needed, returns to architecture with no
+// adr fact on the next reactor pass. The epic on the ADR's Ticket line
+// stays in spec_needed.
+func TestMisjoinedEpicReturnsToArchitecture(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	create := func(title string) string {
+		r := w.Must(w.Coordinator("epic", "create", "--architecture", "--project", acceptance.Project,
+			"--title", title, "--body", "The operator asked for an ADR."))
+		return r.Str("epic")
+	}
+	own, cited := create("Share the skill pack"), create("Move the widget store to Postgres")
+	const adr = "docs/adr/0007-shared-skill-pack.md"
+	// Replay the write the reactor before the fix made for the cited epic.
+	res := w.Srv.Machine.Apply(context.Background(), machine.Request{Project: acceptance.Project, Item: cited,
+		Verb: machine.VerbADRLanded, ExpectedStatus: machine.Architecture, Params: map[string]string{"path": adr},
+		Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		t.Fatalf("adr_landed on %s: %+v", cited, res.Refusal)
+	}
+	w.PushMain("ADR 7", map[string]string{adr: "# ADR 0007: Share the skill pack\n\n**Ticket:** " + own +
+		"\n\nEpic " + cited + " reads the same pack later.\n"}, "")
+	w.React()
+	wantStatus(w, own, machine.SpecNeeded)
+	wantStatus(w, cited, machine.Architecture)
+	if got := w.Show(cited).Facts[machine.FactADR]; got != "" {
+		t.Fatalf("the cited epic still records ADR %q", got)
+	}
 }
