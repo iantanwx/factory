@@ -32,8 +32,14 @@ This section marks each fact. **Measured** means read in source or in the store 
 
 - **Measured.** Loop fault F-4: fixer runs r-332c1c7116a7, r-53f391c45f88 and r-131cf44e5259
   finished `done`. Escalations 1, 2 and 3 stayed `awaiting_panel` the whole time.
-- **Measured.** A stalled escalation makes no inbox entry. So no ring fired, and the coordinator
-  did not see the stall until the operator asked.
+- **Measured.** `internal/inbox/entries.go` derives one entry `panel/<id>`, `awaits: coordinator`,
+  for each escalation in state `awaiting_panel`. The entry carries the escalation's `created_at`.
+  So escalations 1, 2 and 3 each had an entry, and `Poke` rang for each one once, when it was
+  raised.
+- **Measured.** `Poke` rings only for an entry newer than its cursor. When the three fixer runs
+  finished `done`, no entry changed, so no second ring fired. The doorbell rings once for each new
+  entry. An entry that stops moving never rings again. The coordinator did not see the stall until
+  the operator asked.
 
 ### Tickertown's overwatch
 
@@ -59,12 +65,20 @@ This section marks each fact. **Measured** means read in source or in the store 
   inbox entry with `awaits: coordinator`.
 - **Measured.** A bug report waits in status `reported` in its own project. No inbox entry names
   it. Only the reproducer stage reads it.
-- **Measured.** A run reads only the item it holds. This run's `loop work show factorio-a7r` got
-  `CAPABILITY_DENIED`, rule `item_not_held`.
-- **Measured.** No file in this repository records the agreement that other projects inbox this
-  project. The operator's message above is its one written trace.
-- **Assumed.** The agreement meant this: a run or a coordinator in another project files each
-  loop issue into this project, so that this project's coordinator sees it.
+- **Measured.** A run reads only the item it holds. Run r-3e2f57864fbf's
+  `loop work show factorio-a7r` got `CAPABILITY_DENIED`, rule `item_not_held`.
+- **Measured.** Commit 7450c93 (2026-10-23) records the agreement in two files.
+  `.loop/policy/coordinator.md` holds the standing authorization "file each open loop fault whose
+  cause is in the loop's code as a bug in this project". It quotes the operator: "systematically
+  poll faults/bugs". Its report additions add "Each open loop fault, the bug it became, and the
+  release that will end it".
+- **Measured.** `pack/runbooks/coordinator.md` section 9 step 3 says: "When a project policy
+  authorizes it, file the fault as a bug in that project with
+  `loop work create --kind bug --project <project>`". The coordinator reaches this step only when
+  it triages faults by hand, after a wake.
+- **Assumed.** The operator's "other projects would inbox this one" names that agreement: each loop
+  issue reaches this project as a bug that the coordinator files, and the coordinator's own reads
+  are the poll.
 
 ### Not measured
 
@@ -77,7 +91,8 @@ This section marks each fact. **Measured** means read in source or in the store 
 **The timed wake.** A native server job, `overwatch`, runs the sweep on its throughput schedule.
 It rings the coordinator only when a part holds work or a read failed. We reject a ring on every
 tick, as `supervisor-wake` did. That ring costs a model turn when nothing waits. We also reject the
-inbox doorbell as the only wake, because F-4 stalled with no inbox entry.
+inbox doorbell as the only wake. F-4's panel entries rang once at raise, and nothing rang when the
+fixer runs ended `done`.
 
 **Who fires it, and how often.** The scheduler fires `overwatch` from its own KTD30 throughput
 entry, cap 1, default schedule `3,13,23,33,43,53 * * * *`. We reject a constant in code, because
@@ -86,7 +101,8 @@ tick rings nobody, so a ten-minute tick costs no model turn.
 
 **What the wake text asks for.** The ring names each part that holds work, and it asks for the whole
 sweep: `loop overwatch sweep`, then runbook section 1. We reject a ring that names inbox entry ids,
-as `RingText` does. An entry list hides every stall that made no entry.
+as `RingText` does. An entry list names each entry once, and it hides every entry that stops
+moving.
 
 **Who reads, and who acts.** The server makes every read, and the coordinator acts on the report.
 We reject a list of reads in the runbook, because tickertown's 2026-10-12 wake skipped one of them.
@@ -111,7 +127,7 @@ table, as R22 directs.
 | `main` | Port | A red run on the base branch |
 | `timer-health` | Port | Each stage's and job's recent ticks. Read from the loop's store |
 | `inbox` | Port, as inbox reachability | A coordinator session that runs, and the receipt of the last ring |
-| `server` | Port | The installed service, as `loop host doctor` checks the host |
+| `server` | Port | The installed service, as `loop doctor` checks the host |
 | `bugs` | Port, as filed issues | See the next decision |
 | `night` | Tickertown policy | The nightly ingest of one product |
 | `frames` | Tickertown policy | The shot harnesses of one product |
@@ -124,9 +140,14 @@ table, as R22 directs.
 | `replies` | Obsolete | It reads a person's reply on a Linear ticket. The loop has no Linear ticket |
 
 **Filed issues.** The sweep reads every open loop fault and every `reported` bug in every
-registered project. We reject the agreement that other projects inbox this project. A run cannot
-write to an item outside its own project. A filing that one project forgets loses the issue with no
-trace.
+registered project. The `bugs` part also names each open fault that no bug in the loop's project
+names. We reject the agreement that other projects inbox this project. A run cannot write to an item
+outside its own project. A fault that nobody files waits in the store until a person asks.
+
+**Filing a fault as a bug.** The coordinator still files each fault whose cause is in the loop's
+code as a bug in the loop's project, because only a bug reaches the reproducer. It files when the
+sweep names the fault. We reject the end of the filing, because a fault is no work item and no
+stage takes it.
 
 **What overwatch does with a finding.** The coordinator scores each finding by `loop-sdlc-triage`.
 At levels 1 to 3 it acts, or it files a fault or a bug. At levels 4 and 5 it prepares an inbox
@@ -143,7 +164,8 @@ What changes:
 
 - **A native job.** `internal/config/throughput.go` adds `overwatch` to `nativeJobs` and to
   `DefaultThroughput`. Config load refuses a host config with no `overwatch` entry. So
-  `loop host upgrade` must add the default entry, or the operator must add it first.
+  `loop upgrade` writes the default entry into a host config that has none, and the operator edits
+  no config.
 - **A server package.** A new package holds one function for each ported part. Each part returns
   a code and its lines, with tickertown's exit convention. The job and the verb call the same code.
 - **A verb.** `loop overwatch sweep` prints the report as one envelope, for the coordinator and the
@@ -154,11 +176,18 @@ What changes:
   `inbox` part reports the failed receipt.
 - **The coordinator runbook.** `pack/runbooks/coordinator.md` section 1 runs `loop overwatch sweep`
   first. A new table maps each part to the section that acts on it. Sections 3 and 9 act on parts.
+- **Section 9 step 3 of the coordinator runbook.** It stays, with a new trigger. The coordinator
+  files a bug for each fault that the sweep's `bugs` part names, and for no other fault.
+- **This project's coordinator policy.** In `.loop/policy/coordinator.md`, the 2026-10-23 standing
+  authorization stays as the authority to file. Its words "systematically poll faults/bugs" now
+  mean the sweep. The report addition "Each open loop fault, the bug it became" goes, because the
+  sweep reports each fault and its bug.
 - **The glossary.** `pack/skills/loop-sdlc-glossary` defines overwatch, sweep and part.
 - **Project policy.** A project's `.loop/policy/coordinator.md` may name added checks.
   Tickertown's four policy parts go there.
 
-What this makes easy: a stall with no inbox entry reaches the coordinator within one tick.
+What this makes easy: a stall whose inbox entry already rang reaches the coordinator within one
+tick.
 
 What this makes hard: each ported part is code that the loop maintains. A part with no fault behind
 it costs reads on every tick.
@@ -179,13 +208,16 @@ part, such as `audit`, reads on fewer ticks.
 - `loop gates --docs` passes.
 - `grep -c '^\*\*Ticket:\*\* factorio-a7r$' docs/adr/0009-overwatch.md` prints `1`.
 - `ls docs/adr | grep -c '^0009-'` prints `1`.
-- `grep -rlE 'inbox (this|the loop.s own) project' pack .loop/policy docs --include='*.md' | grep -v '^docs/adr/0009-'`
-  prints nothing. No document keeps the superseded agreement.
 - `grep -c '^| `' docs/adr/0009-overwatch.md` prints `25`. Every tickertown part has one verdict.
 
 Epic factorio-a7r owns these checks, through its spec and tickets:
 
 - `go test ./internal/config/...` proves that `ThroughputKeys` holds `overwatch`.
-- A test proves that a sweep with an `awaiting_panel` escalation and no inbox entry rings once.
+- A test proves that a sweep rings once when an `awaiting_panel` escalation's panel entry already
+  rang, and a fixer run finished `done` after it.
+- `grep -c 'the bug it became' .loop/policy/coordinator.md` prints `0`. The sweep reports each
+  fault and its bug.
+- `grep -c 'bugs. part' pack/runbooks/coordinator.md` prints at least `1`. Section 9 step 3 files
+  on the sweep's report.
 - A test proves that a quiet sweep rings nobody.
 - `loop schema` lists `overwatch sweep`.
