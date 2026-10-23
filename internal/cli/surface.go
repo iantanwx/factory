@@ -63,7 +63,12 @@ func write(v Verb) Verb {
 
 var (
 	projectFlag = Flag{Name: "project", Type: FlagString, Description: "the project id; a run's own project when absent"}
-	bodyFlag    = Flag{Name: "body", Type: FlagString, Required: true, Description: "the text to write"}
+	// scopeFlag picks where secret set stores a value. A global value
+	// reaches a run only when the project's manifest names it, and the
+	// project's own value wins.
+	scopeFlag = Flag{Name: "scope", Type: FlagString, Enum: []string{"project", "global"},
+		Description: "project when absent; global stores one value that every project whose manifest names it uses"}
+	bodyFlag = Flag{Name: "body", Type: FlagString, Required: true, Description: "the text to write"}
 	// fileFlag names a file the CLI reads and sends with the call (ExtraFile).
 	fileFlag = Flag{Name: "file", Type: FlagString, Required: true, Description: "the file to send, read by the CLI"}
 )
@@ -205,9 +210,10 @@ var surface = []Verb{
 	write(server("stage", "pause", "pause a stage", coordinator, []Arg{stageArg})),
 	write(server("stage", "resume", "resume a stage", coordinator, []Arg{stageArg})),
 
-	server("secret", "check", "say whether a secret is present", runOnly, []Arg{secretArg}, projectFlag),
+	server("secret", "check", "say whether a secret is present: the project's own value, or a global one", runOnly, []Arg{secretArg}, projectFlag),
 	write(server("secret", "set", "store a secret; the value comes from stdin only", hostOnly, []Arg{secretArg},
-		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id, or _host for a platform credential"})),
+		scopeFlag,
+		Flag{Name: "project", Type: FlagString, Description: "the project id, or _host for a platform credential; needed with --scope project"})),
 	write(server("secret", "import", "import secrets from the declared vaults", hostOnly, nil,
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
 		Flag{Name: "branch", Type: FlagString, Description: "the default branch that holds the manifest; main when absent"})),

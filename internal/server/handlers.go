@@ -128,6 +128,13 @@ func (s *Server) liveRuns(ctx context.Context, project string) (bool, error) {
 // own project only.
 func secretProject(call *rpc.Call) (string, *cli.Result) {
 	project := call.Inv.Flags["project"]
+	if call.Inv.Flags["scope"] == "global" {
+		if project != "" {
+			res := cli.Reject(cli.CodeUsage, "scope_and_project", "--scope global stores one value for every project; drop --project")
+			return "", &res
+		}
+		return config.GlobalScope, nil
+	}
 	p := call.Principal
 	if p.Kind == cli.PrincipalRun || p.Kind == cli.PrincipalRoom {
 		if project != "" && project != p.Project {
@@ -137,7 +144,7 @@ func secretProject(call *rpc.Call) (string, *cli.Result) {
 		project = p.Project
 	}
 	if project == "" {
-		res := cli.Reject(cli.CodeUsage, "missing_project", "name the project with --project")
+		res := cli.Reject(cli.CodeUsage, "missing_project", "name the project with --project, or store one value for every project with --scope global")
 		return "", &res
 	}
 	return project, nil
@@ -152,14 +159,25 @@ func (s *Server) secretCheck(ctx context.Context, call *rpc.Call) cli.Result {
 	if !config.ValidSecretName(name) {
 		return cli.Reject(cli.CodeUsage, "bad_secret_name", "a secret name is an environment variable name")
 	}
-	ok, err := s.Secrets.Check(ctx, project, name)
-	if err != nil {
-		return cli.Internal(err)
+	// A run gets the global value when its project stores none.
+	for _, scope := range []string{project, config.GlobalScope} {
+		ok, err := s.Secrets.Check(ctx, scope, name)
+		if err != nil {
+			return cli.Internal(err)
+		}
+		if ok {
+			return cli.Found(map[string]any{"project": project, "name": name, "present": true, "scope": scopeName(scope)})
+		}
 	}
-	if !ok {
-		return cli.Nothing()
+	return cli.Nothing()
+}
+
+// scopeName is how the CLI names a store scope.
+func scopeName(scope string) string {
+	if scope == config.GlobalScope {
+		return "global"
 	}
-	return cli.Found(map[string]any{"project": project, "name": name, "present": true})
+	return "project"
 }
 
 func (s *Server) secretSet(ctx context.Context, call *rpc.Call) cli.Result {
@@ -187,7 +205,10 @@ func (s *Server) secretSet(ctx context.Context, call *rpc.Call) cli.Result {
 	if err := s.RefreshRedactor(ctx); err != nil {
 		return cli.Internal(err)
 	}
-	return cli.Found(map[string]any{"project": project, "name": name, "stored": true})
+	if project == config.GlobalScope {
+		return cli.Found(map[string]any{"scope": "global", "name": name, "stored": true})
+	}
+	return cli.Found(map[string]any{"scope": "project", "project": project, "name": name, "stored": true})
 }
 
 func (s *Server) secretImport(ctx context.Context, call *rpc.Call) cli.Result {

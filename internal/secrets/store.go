@@ -111,7 +111,7 @@ func (s *Store) put(ctx context.Context, project string, values map[string][]byt
 // ensureScope checks that the project row exists. The host scope's row is
 // created on first use, because no project add creates it.
 func ensureScope(tx *store.Tx, project string) error {
-	if project == config.HostScope {
+	if project == config.HostScope || project == config.GlobalScope {
 		now := tx.Now().UnixMilli()
 		_, err := tx.Exec(`INSERT INTO projects (id, repo, created_at, updated_at) VALUES (?, '', ?, ?) ON CONFLICT (id) DO NOTHING`,
 			project, now, now)

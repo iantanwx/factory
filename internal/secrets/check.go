@@ -34,13 +34,15 @@ func (e *MissingSecretsError) Is(target error) bool { return target == ErrMissin
 // Missing returns the manifest names with no stored value for project, in
 // manifest order. It decrypts nothing.
 func (s *Store) Missing(ctx context.Context, project string, m *config.Manifest) ([]string, error) {
-	stored, err := s.Names(ctx, project)
-	if err != nil {
-		return nil, err
-	}
-	have := make(map[string]bool, len(stored))
-	for _, n := range stored {
-		have[n] = true
+	have := map[string]bool{}
+	for _, scope := range []string{project, config.GlobalScope} {
+		stored, err := s.Names(ctx, scope)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range stored {
+			have[n] = true
+		}
 	}
 	var missing []string
 	for _, e := range m.Secrets {
@@ -64,6 +66,9 @@ func (s *Store) Values(ctx context.Context, project string, m *config.Manifest) 
 	out := make(map[string]string, len(m.Secrets))
 	for _, e := range m.Secrets {
 		v, err := s.Get(ctx, project, e.Name)
+		if errors.Is(err, ErrSecretNotFound) {
+			v, err = s.Get(ctx, config.GlobalScope, e.Name)
+		}
 		if errors.Is(err, ErrSecretNotFound) {
 			// Removed between Missing and Get.
 			return nil, &MissingSecretsError{Project: project, Names: []string{e.Name}}

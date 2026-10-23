@@ -54,14 +54,14 @@ func (m *Machine) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-// projects lists every project that may hold work. The host scope's row
-// holds platform credentials only (secrets.ensureScope creates it), and it
-// has no beads workspace, so it is never one.
+// projects lists every project that may hold work. The host and global
+// scopes' rows hold secrets only (secrets.ensureScope creates them), and
+// they have no beads workspace, so they are never one.
 func (m *Machine) projects(ctx context.Context) ([]string, error) {
 	var out []string
 	err := m.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT id FROM projects WHERE id != ? UNION SELECT project FROM intents
-			UNION SELECT project FROM leases ORDER BY 1`, config.HostScope)
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM projects WHERE id NOT IN (?, ?) UNION SELECT project FROM intents
+			UNION SELECT project FROM leases ORDER BY 1`, config.HostScope, config.GlobalScope)
 		if err != nil {
 			return err
 		}

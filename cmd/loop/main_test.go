@@ -216,6 +216,14 @@ func TestServeEndToEnd(t *testing.T) {
 	if strings.Contains(r.stdout, value) {
 		t.Fatalf("secret set echoed the value: %s", r.stdout)
 	}
+	// A global value: no project, and never with one.
+	r = loop(t, bin, instance, outside, "global-value-123\n", "secret", "set", "SHARED_KEY", "--scope", "global")
+	want(t, r, 0, "")
+	if data, _ := r.env["data"].(map[string]any); data["scope"] != "global" {
+		t.Fatalf("secret set --scope global = %v", r.env)
+	}
+	want(t, loop(t, bin, instance, outside, "x\n", "secret", "set", "SHARED_KEY", "--scope", "global", "--project", "alpha"), 2, cli.CodeUsage)
+	want(t, loop(t, bin, instance, outside, "x\n", "secret", "set", "SHARED_KEY"), 2, cli.CodeUsage)
 	r = loop(t, bin, instance, outside, "", "project", "show", value)
 	want(t, r, 2, cli.CodeNotFound)
 	if strings.Contains(r.stdout, value) {

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/config"
 )
 
 const ae8Manifest = `
@@ -56,6 +58,26 @@ func TestMissingReportsUnsetManifestSecret(t *testing.T) {
 	vals, err := e.secrets.Values(ctx, "alpha", m)
 	if err != nil || len(vals) != 2 || vals["STRIPE_KEY"] != "sk_live_values_value_2" {
 		t.Fatalf("Values = %d entries, %v", len(vals), err)
+	}
+}
+
+// A global value fills a manifest name the project stores none for, and
+// the project's own value wins. A name the manifest does not list never
+// reaches the run.
+func TestValuesFallBackToGlobal(t *testing.T) {
+	ctx := context.Background()
+	e := newTestEnv(t)
+	m := manifest(t, ae8Manifest)
+	e.set(t, config.GlobalScope, "DATABASE_URL", "postgres://global_value_1")
+	e.set(t, config.GlobalScope, "STRIPE_KEY", "sk_live_global_value_2")
+	e.set(t, config.GlobalScope, "UNLISTED", "unlisted_global_value_3")
+	e.set(t, "alpha", "STRIPE_KEY", "sk_live_alpha_value_4")
+	if missing, err := e.secrets.Missing(ctx, "alpha", m); err != nil || len(missing) != 0 {
+		t.Fatalf("Missing = %v, %v", missing, err)
+	}
+	vals, err := e.secrets.Values(ctx, "alpha", m)
+	if err != nil || len(vals) != 2 || vals["DATABASE_URL"] != "postgres://global_value_1" || vals["STRIPE_KEY"] != "sk_live_alpha_value_4" {
+		t.Fatalf("Values = %v, %v", vals, err)
 	}
 }
 

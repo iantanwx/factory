@@ -93,7 +93,8 @@ func (s *Scheduler) secretsReady(ctx context.Context, project string, m *config.
 	names := strings.Join(missing, ", ")
 	s.raise(ctx, config.Alert{Project: project, Kind: AlertMissingSecret, DedupeKey: AlertMissingSecret + ":" + project,
 		Subject: "project " + project + " starts no run: no stored value for " + names,
-		Body:    "Set each with `loop secret set NAME --project " + project + "` or `loop secret import --project " + project + "`. Missing: " + names})
+		Body: "Set each with `loop secret set NAME --project " + project + "`, or once for every project with `loop secret set NAME --scope global`, " +
+			"or import them with `loop secret import --project " + project + "`. Missing: " + names})
 	return &cli.Refusal{Code: cli.CodeMissingSecret, Rule: "missing_secret",
 		Hint: fmt.Sprintf("project %s has no stored value for %s", project, names)}
 }

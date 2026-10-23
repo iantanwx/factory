@@ -206,10 +206,35 @@ on:
 `project add` refuses `github-queue` when the default branch has no
 merge-queue rule.
 
-## Import secrets
+## Secrets
 
-Platform credentials live in the encrypted store, not in files. Install
-stores the App's key itself. Store another one by hand from stdin:
+A project lists the secrets its runs need in `.loop/secrets.yaml`, names
+only. An agent adds a name in the pull request that needs it:
+
+```yaml
+secrets:
+  - name: OPENAI_API_KEY
+  - name: STRIPE_KEY
+    source: op://Dev/stripe/key   # only for loop secret import
+```
+
+At each run start, the server writes each listed secret into the
+checkout's `.env`. A run whose list names a secret with no stored value
+does not start, and the inbox names the secret.
+
+Store a value from stdin. The value never prints:
+
+```sh
+loop secret set STRIPE_KEY --project alpha < key.txt
+loop secret set OPENAI_API_KEY --scope global < key.txt
+```
+
+`--scope project` is the default and needs `--project`. A global value
+serves every project whose list names it, and a project's own value wins.
+A project that does not list a name never gets the global value.
+
+Platform credentials live under `_host`. Install stores the App's key
+itself. Store another one the same way:
 
 ```sh
 loop secret set MERGIFY_TOKEN --project _host < token.txt
@@ -221,8 +246,8 @@ Import a project's secrets from 1Password:
 loop secret import --project alpha
 ```
 
-The import reads the project's secret manifest on its default branch. It
-reads only the vaults that `host.yaml` lists under `vaults`. It prints each
+The import reads the project's secret manifest on its default branch, and
+each entry with a `source`. It reads only the vaults that `host.yaml` lists under `vaults`. It prints each
 new reference since the last import, so read that list before you trust it.
 
 ## Upgrade by hand

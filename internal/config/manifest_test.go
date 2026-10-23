@@ -31,6 +31,14 @@ func TestParseManifest(t *testing.T) {
 	}
 }
 
+// An entry with no source is set by hand with loop secret set.
+func TestParseManifestTakesAnEntryWithNoSource(t *testing.T) {
+	m, err := ParseManifest([]byte(validManifest + "  - name: HAND_SET\n"))
+	if err != nil || m.Secrets[len(m.Secrets)-1].Name != "HAND_SET" {
+		t.Fatalf("parse = %v", err)
+	}
+}
+
 func TestParseManifestRefusesValueField(t *testing.T) {
 	doc := validManifest + "  - name: API_TOKEN\n    value: tok_live_abcdef123456\n"
 	_, err := ParseManifest([]byte(doc))
@@ -52,7 +60,6 @@ func TestParseManifestRefuses(t *testing.T) {
 		"unsafe name":     strings.Replace(validManifest, "STRIPE_KEY", "STRIPE-KEY", 1),
 		"digit name":      strings.Replace(validManifest, "STRIPE_KEY", "1KEY", 1),
 		"duplicate name":  strings.Replace(validManifest, "DATABASE_URL", "STRIPE_KEY", 1),
-		"no source":       validManifest + "  - name: HAND_SET\n",
 		"not op source":   strings.Replace(validManifest, "op://Loop/Stripe/secret key", "vault://Loop/Stripe/key", 1),
 		"short op source": strings.Replace(validManifest, "op://Loop/Stripe/secret key", "op://Loop/Stripe", 1),
 		"empty segment":   strings.Replace(validManifest, "op://Loop/Stripe/secret key", "op://Loop//key", 1),

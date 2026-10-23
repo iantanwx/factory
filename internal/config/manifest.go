@@ -20,7 +20,7 @@ type Manifest struct {
 // ManifestEntry is one secret the project's runs receive in .env.
 type ManifestEntry struct {
 	Name       string `yaml:"name"`
-	Source     string `yaml:"source"`               // a 1Password reference: op://vault/item[/section]/field
+	Source     string `yaml:"source,omitempty"`     // a 1Password reference, op://vault/item[/section]/field; absent for a value set by hand
 	Production bool   `yaml:"production,omitempty"` // marks a production secret for later per-stage scoping (R34)
 }
 
@@ -65,6 +65,9 @@ func ParseManifest(data []byte) (*Manifest, error) {
 			ck.fail(f+".name", "names a secret twice")
 		}
 		seen[e.Name] = true
+		if e.Source == "" {
+			continue // set by hand with loop secret set
+		}
 		if reason := checkOpRef(e.Source); reason != "" {
 			ck.fail(f+".source", "%s", reason)
 		}

@@ -21,6 +21,11 @@ const HostConfigFile = "host.yaml"
 // lower-case letter.
 const HostScope = "_host"
 
+// GlobalScope is the reserved secret-store project that holds the values
+// every project may use. A run gets one only when its project's manifest
+// names it, and a project's own value wins.
+const GlobalScope = "_global"
+
 // HostConfig is the instance scope of R35. It names each platform credential
 // by its secret-store name and holds no credential value (KTD15, KTD17).
 type HostConfig struct {

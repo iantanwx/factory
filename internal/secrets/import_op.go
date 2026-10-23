@@ -47,6 +47,14 @@ type ImportResult struct {
 // on stdout only. Every value and the reference set of this import are
 // stored in one transaction, so a failed import stores nothing.
 func (im *Importer) Import(ctx context.Context, project string, m *config.Manifest) (*ImportResult, error) {
+	// An entry with no source is set by hand with loop secret set.
+	sourced := &config.Manifest{}
+	for _, e := range m.Secrets {
+		if e.Source != "" {
+			sourced.Secrets = append(sourced.Secrets, e)
+		}
+	}
+	m = sourced
 	declared := map[string]bool{}
 	for _, v := range im.Vaults {
 		declared[v] = true
