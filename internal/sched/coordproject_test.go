@@ -34,3 +34,32 @@ func TestCoordinatorStartsOnceAProjectIsAdded(t *testing.T) {
 		t.Fatalf("no coordinator after the first project: %+v", got)
 	}
 }
+
+// The coordinator's checkout clones one project. When the operator removes
+// that project, the session ends, and the next one starts in a project
+// that is still registered.
+func TestCoordinatorMovesWhenItsProjectIsRemoved(t *testing.T) {
+	w := newWorld(t)
+	projects := []config.Project{{ID: prj, Repo: "iantanwx/alpha", Path: w.repo}}
+	w.cfg.Projects = func() ([]config.Project, error) { return projects, nil }
+	w.cfg.Coordinator = &CoordinatorConfig{Harness: agenthost.Claude, Model: "opus"}
+	w.rebuild()
+	if err := w.s.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	w.tick()
+	first := w.s.Coordinator()
+	if first.Session == nil || first.Project != prj {
+		t.Fatalf("no coordinator in %s: %+v", prj, first)
+	}
+
+	projects = []config.Project{{ID: "beta", Repo: "iantanwx/beta", Path: w.repo}}
+	w.tick()
+	got := w.s.Coordinator()
+	if got.Session == nil || got.Project != "beta" || got.RunID == first.RunID {
+		t.Fatalf("the coordinator stayed in the removed project: %+v; %d coordinator alerts", got, w.alerts(AlertCoordinator))
+	}
+	if w.liveToken(first.RunID) || !w.liveToken(got.RunID) {
+		t.Fatalf("tokens: old live %v, new live %v", w.liveToken(first.RunID), w.liveToken(got.RunID))
+	}
+}

@@ -278,7 +278,7 @@ func (g *gitCheckouts) CreateCheckout(ctx context.Context, spec agenthost.Checko
 	if err != nil {
 		return co, err
 	}
-	gitIn(g.t, g.repo, "worktree", "add", "-q", "-b", spec.Name, co.Path, "origin/main")
+	gitIn(g.t, g.repo, "worktree", "add", "-q", "-B", spec.Name, co.Path, "origin/main")
 	return co, nil
 }
 

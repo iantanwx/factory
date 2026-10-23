@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/brief"
@@ -37,7 +38,9 @@ const coordinatorCheckout = "loop-coordinator"
 
 // CoordinatorState is the coordinator session the server keeps.
 type CoordinatorState struct {
-	RunID    string             `json:"run_id,omitempty"`
+	RunID string `json:"run_id,omitempty"`
+	// Project is the project whose repository the checkout clones.
+	Project  string             `json:"project,omitempty"`
 	Checkout string             `json:"checkout,omitempty"`
 	Session  *agenthost.Session `json:"session,omitempty"`
 }
@@ -97,6 +100,31 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 		s.log.ErrorContext(ctx, "read the coordinator", "err", err)
 		return
 	}
+	if cs.Checkout != "" && !s.coordinatorHome(cs.Project, cc) {
+		// The checkout clones a project that is no longer registered, or
+		// that came before the state named its project. The session works
+		// in a clone that the loop no longer serves, so it ends, and the
+		// next one starts in a registered project.
+		if cs.Session != nil {
+			_ = s.cfg.Agents.Close(ctx, cs.Session.ID)
+		}
+		if cs.RunID != "" {
+			if _, err := s.cfg.Tokens.Revoke(ctx, cs.RunID); err != nil {
+				s.log.ErrorContext(ctx, "revoke the coordinator token", "err", err)
+			}
+		}
+		// A checkout left behind would refuse the next coordinator if the
+		// operator registers the project again. A terminal still open in
+		// it keeps it, and the log says so.
+		s.checkoutMu.Lock()
+		err := s.cfg.Checkouts(cs.Project).RemoveCheckout(ctx, cs.Checkout)
+		s.checkoutMu.Unlock()
+		if err != nil {
+			s.log.WarnContext(ctx, "remove the old coordinator checkout", "checkout", cs.Checkout, "err", err)
+		}
+		s.log.WarnContext(ctx, "the coordinator's project is not registered; starting another", "project", cs.Project, "checkout", cs.Checkout)
+		cs = CoordinatorState{}
+	}
 	if cs.Session != nil {
 		st, err := s.cfg.Agents.Settle(ctx, cs.Session.ID)
 		if err == nil && st.Liveness == agenthost.Live {
@@ -133,6 +161,20 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 	}
 }
 
+// coordinatorHome reports whether project may hold the coordinator's
+// checkout: the project that host config names for it, or else any
+// registered project. A failed read keeps the checkout.
+func (s *Scheduler) coordinatorHome(project string, cc *CoordinatorConfig) bool {
+	if cc.Project != "" {
+		return project == cc.Project
+	}
+	ps, err := s.cfg.Projects()
+	if err != nil {
+		return true
+	}
+	return slices.ContainsFunc(ps, func(p config.Project) bool { return p.ID == project })
+}
+
 func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig, cs *CoordinatorState) error {
 	if cs.Checkout == "" {
 		s.checkoutMu.Lock()
@@ -141,7 +183,7 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		if err != nil {
 			return fmt.Errorf("sched: the coordinator's checkout: %w", err)
 		}
-		cs.Checkout = co.Path
+		cs.Checkout, cs.Project = co.Path, cc.Project
 		if err := s.saveCoordinator(ctx, *cs); err != nil {
 			return err
 		}

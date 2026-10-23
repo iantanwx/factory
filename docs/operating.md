@@ -183,6 +183,21 @@ loop's repository:
 gh api -X PUT repos/slothware-labs/factorio/actions/permissions/access -f access_level=organization
 ```
 
+## Talk to the coordinator
+
+The coordinator is the agent you talk to. It brings you each question and
+alert, opens rooms, and files the work you ask for. The server starts it
+in Orca when the first project registers, in a worktree named
+`loop-coordinator` of that project, with a terminal titled
+`loop coordinator`. Open that terminal to talk to it. One coordinator
+serves every project.
+
+Only that session holds the coordinator's token, in `.loop/token` of its
+worktree. A session in your own clone holds none, and the server refuses
+its coordinator verbs. When you remove the coordinator's project, the
+server ends the session and starts the next one in a project that is
+still registered.
+
 ## The gates
 
 `loop gates` is the definition of done in a project. Agents run it before
