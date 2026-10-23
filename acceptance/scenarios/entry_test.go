@@ -47,8 +47,9 @@ func TestCoordinatorFilesABugAndTheReproducerShapesIt(t *testing.T) {
 }
 
 // R46: the coordinator creates an architecture epic. It waits in
-// architecture until a merge to the base adds an ADR that names it. The
-// reactor then moves it to spec_needed, and the spec author takes it.
+// architecture until a merge to the base adds an ADR whose Ticket line
+// names it. The reactor then moves it to spec_needed, and the spec author
+// takes it.
 func TestArchitectureEpicWaitsForItsADR(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
 	r := w.Must(w.Coordinator("epic", "create", "--architecture", "--project", acceptance.Project,
@@ -60,7 +61,7 @@ func TestArchitectureEpicWaitsForItsADR(t *testing.T) {
 	w.React()
 	wantStatus(w, epic, machine.Architecture)
 
-	w.PushMain("ADR 1", map[string]string{"docs/adr/0001-widget-store.md": "# 1. Widget store\n\nEpic: " + epic + "\n\nUse Postgres.\n"}, "")
+	w.PushMain("ADR 1", map[string]string{"docs/adr/0001-widget-store.md": "# ADR 0001: Widget store\n\n**Ticket:** " + epic + "\n\nUse Postgres.\n"}, "")
 	w.React()
 	wantStatus(w, epic, machine.SpecNeeded)
 	if got := w.Show(epic).Facts[machine.FactADR]; got != "docs/adr/0001-widget-store.md" {
