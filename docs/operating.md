@@ -198,8 +198,10 @@ Only that session holds the coordinator's token, in `.loop/token` of its
 worktree. A session in your own clone holds none, and the server refuses
 its coordinator verbs. When you remove the coordinator's project, the
 server ends the session and starts the next one in a project that is
-still registered. When you upgrade the loop, the server restarts the
-session in the same worktree, so it reads the new runbooks.
+still registered. When you upgrade the loop, the server leaves a running
+session up. It sends that session one message that names the new release
+and tells it to read its runbook again. When the session ends, the server
+starts the next one under the new release, in the same worktree.
 
 ## The gates
 

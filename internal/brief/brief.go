@@ -197,11 +197,7 @@ type Result struct {
 // and .env. A tracked injected path returns a *ConflictError and writes
 // nothing. The token file is the caller's to write.
 func Inject(ctx context.Context, in Injection) (Result, error) {
-	root := SkillRoot(in.Harness)
-	if root == "" {
-		return Result{}, fmt.Errorf("brief: no skill directory for harness %q", in.Harness)
-	}
-	skills, err := in.Pack.Skills()
+	dirs, err := packDirs(in.Harness, in.Pack)
 	if err != nil {
 		return Result{}, err
 	}
@@ -214,10 +210,6 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 		if !slices.Contains(files, p) {
 			files = append(files, p)
 		}
-	}
-	dirs := make([]string, 0, len(skills))
-	for _, s := range skills {
-		dirs = append(dirs, root+"/"+s)
 	}
 	if err := CheckTracked(ctx, in.Checkout, files, dirs); err != nil {
 		return Result{}, err
@@ -251,6 +243,39 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 		return Result{}, err
 	}
 	return Result{PackHash: hash, Prompt: prompt}, nil
+}
+
+// RefreshPack writes the pack into the checkout of a session that already
+// runs, with the checks Inject makes, and leaves the brief alone.
+func RefreshPack(ctx context.Context, checkout string, h agenthost.Harness, p Pack) error {
+	dirs, err := packDirs(h, p)
+	if err != nil {
+		return err
+	}
+	if err := CheckTracked(ctx, checkout, nil, dirs); err != nil {
+		return err
+	}
+	if err := Exclude(ctx, checkout, nil, dirs); err != nil {
+		return err
+	}
+	return p.Write(checkout, h)
+}
+
+// packDirs lists the pack's skill directories as the harness reads them.
+func packDirs(h agenthost.Harness, p Pack) ([]string, error) {
+	root := SkillRoot(h)
+	if root == "" {
+		return nil, fmt.Errorf("brief: no skill directory for harness %q", h)
+	}
+	skills, err := p.Skills()
+	if err != nil {
+		return nil, err
+	}
+	dirs := make([]string, 0, len(skills))
+	for _, s := range skills {
+		dirs = append(dirs, root+"/"+s)
+	}
+	return dirs, nil
 }
 
 func writeBrief(checkout string, b Brief) error {
