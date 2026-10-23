@@ -28,6 +28,9 @@ the labels below. The ADR does not number them, so this spec does.
 | K-4 | Each run of every stage receives 13 more skills, and no stage changes |
 | K-5 | Each ported skill carries a comment that names its tickertown source path and commit |
 
+AC-5 and AC-6 have no contract of their own. CI proves both on each pull request of this epic:
+`pack-check` is in `GATES` (`Makefile:14`), and `.github/workflows/ci.yml` runs `loop gates`.
+
 ## Scope check
 
 **Components:**
@@ -41,8 +44,11 @@ the labels below. The ADR does not number them, so this spec does.
    Ticket line names one epic.
 
 Work entries 1 to 3 change the pack alone, and port the 9 generic skills. Entry 4 adds the pin
-file and the fetch. Entries 5 and 7 change the host verbs. Entry 6 changes the pack, so that each
-run receives what entry 5 placed. Each entry changes one component.
+type, the pin file and the tree hash to the pack. Entries 5, 6 and 8 change the host verbs. Entry 7
+changes the pack, so that each run receives what entry 6 placed. Each entry changes one component,
+with one exception. Entry 5 adds the fetcher in `internal/release`, and also writes the 4 measured
+pins into `pack/third-party.json`. Entry 5 measures each tree hash with that fetcher, so the pins
+cannot land before it.
 
 **Not in this spec:** `file-bug`, which waits on epic factorio-9wh for the work-item fields.
 `sdlc-intake`, which belongs to epic factorio-4n0. The tickertown cutover, which the plan defers.
@@ -94,17 +100,33 @@ run receives what entry 5 placed. Each entry changes one component.
   with "permission denied".
 - **At start, the server injects each fetched skill that matches its pin, and raises one alert for
   the rest. It neither refuses to start nor fetches.** An upgrade that a binary from before work
-  entry 7 runs fetches no skill, and every installed host runs such a binary today. So a server that refused to start would never come up after that
-  upgrade. A fetch at start puts the network on every restart, and ADR 0007 decision 7 names
+  entry 8 runs fetches no skill, and every installed host runs such a binary today. So a server that
+  refused to start would never come up after that upgrade. A fetch at start puts the network on every restart, and ADR 0007 decision 7 names
   install and upgrade as the only fetch points. The alert names `loop install` as the repair.
+- **When one pin is missing or fails its hash, `loop install` fetches every pin again, over a
+  fetch of only the pins that drifted.** `PlaceSkills` replaces the whole directory with one
+  rename, so it must receive the whole set. A full fetch gives it the whole set from one verified
+  source. A partial fetch needs a second path that reads the matching trees back out of the
+  directory that the rename replaces. Drift on an installed version comes only from a hand edit or
+  a hand delete, because the rename leaves no half-written set. So the extra fetches are rare, and
+  each is one GET of a pinned archive.
+- **A flagged skill also holds `agents/openai.yaml`, with `allow_implicit_invocation: false`, for
+  Codex.** Codex does not read `disable-model-invocation` (Assumptions). It reads `policy` from the
+  file `agents/openai.yaml` in the skill directory. We rejected the Claude Code key alone, because
+  then each Codex run lists all 10 flagged skills, and ADR 0007 decision 3 rejects that. We rejected
+  a setting passed at each Codex start, because a person who opens a registered clone with Codex
+  passes no loop setting. The file in the pack reaches every Codex run and every registered clone.
+  Claude Code ignores the extra file. The manifest gate requires the two marks together (C1).
 - **`loop install` restarts a running service after it places skills for the current version.**
   We rejected a hint to restart by hand, because the repair is then one command. The same file
   already restarts the service after it adds the App (`internal/release/install.go`, `appAdded`).
 - **Each pin names the head of the upstream default branch at the time the pin lands.** We
   rejected a search for the commit that tickertown's copy came from. `skills-lock.json` records no
-  commit. Its `computedHash` is the format of the `skills` tool, not ours. A search would read
-  tickertown's checkout, which no run of this repository holds. The pull request of work entry 4
-  names each commit and each tree hash.
+  commit, and its `computedHash` is the format of the `skills` tool, not ours. So no recorded value
+  names the commit. A search would compare tickertown's copy with the tree of each upstream commit.
+  It finds a commit only when tickertown's copy holds no local edit, and no acceptance criterion
+  asks the pin to match tickertown's copy. The pull request of work entry 5 names each commit and
+  each tree hash.
 - **The proof of AC-10 lives in `internal/release/upgrade_test.go` and
   `cmd/loop/release_test.go`, not in `acceptance/`.** ADR 0007 says the acceptance suite proves
   it. The acceptance binary trusts only the key in `internal/release/trusted_keys.pub`, which the
@@ -118,13 +140,23 @@ run receives what entry 5 placed. Each entry changes one component.
   pinned commit. This is wrong if a fetch answers 401, 403 or 404.
 - Each upstream repository permits a host to fetch and use its skill (ADR 0007, "What I assumed").
   This is wrong if the repository root at the pinned commit holds no licence, or holds one that
-  forbids use. Work entry 4 reads each root licence at its pin, and names it in its pull request
+  forbids use. Work entry 5 reads each root licence at its pin, and names it in its pull request
   body. A missing licence there is a finding for a person, at level 5.
 - Each upstream skill directory holds only regular files and directories. This is wrong if the
-  fetch of work entry 4 refuses a symlink or a link member at pin time.
+  fetch of work entry 5 refuses a symlink or a link member at pin time.
 - Claude Code honours `disable-model-invocation: true` and still lets a run read the file by its
   path. This is wrong if a run's read of `../loop-commit/SKILL.md` fails, or if the skill list of a
   run shows the description of a flagged skill.
+- Codex ignores `disable-model-invocation`, and leaves out of its skill list each skill whose
+  `agents/openai.yaml` sets `policy.allow_implicit_invocation: false`. Measured in codex-cli
+  0.164.0 on this host. The key `allow_implicit_invocation` sits in the parser's key list of the
+  binary, and `disable-model-invocation` appears only in prompt text about Claude Code skills. A
+  session file under `~/.codex/sessions/` lists `skill-creator` under its available skills, and does
+  not list `review-agent`. Both sit in `~/.codex/skills/.system/`, and only `review-agent` holds the
+  file. This is wrong if a Codex run with the injected pack lists `loop-commit` in its session file.
+  Work entry 2 checks it once. It runs one `codex exec` session in a scratch directory that holds
+  the injected `.agents/skills/` tree, greps the session file for `loop-commit`, and quotes the
+  count in its pull request body.
 - The 9 generic skills port into the loop's vocabulary with no rule lost. The ADR measured 7
   vocabulary hits, in `commit`, `bro`, `boundaries` and `unslop`. This is wrong if `make pack-check`
   reports a hit in another of the 9, or a hit that only the deletion of a rule clears.
@@ -151,10 +183,24 @@ reference to a tickertown file or command, with the loop's own (`loop gates --fa
 request body names the deleted rule. Each mention of a bad pattern in `loop-unslop` sits in a code
 span on one line, so the two prose linters read it as a mention.
 
-**The manifest gate learns one rule.** `manifestFindings` reads the front matter of each listed
+**Each flagged skill carries a second file for Codex.** Beside `SKILL.md`, each of the 9 and
+`loop-encode-lessons` holds `agents/openai.yaml`, with exactly these bytes:
+
+```yaml
+policy:
+  allow_implicit_invocation: false
+```
+
+The pack writer already writes every file of a skill directory, so the file reaches
+`.agents/skills/loop-<name>/agents/openai.yaml` in a Codex run. A Claude Code run receives it too,
+and ignores it. The text gates read only `.md` files, so the file needs no gate change.
+
+**The manifest gate learns two rules.** `manifestFindings` reads the front matter of each listed
 skill. A skill whose front matter holds `disable-model-invocation: true`, and that no runbook entry
-lists, is a `manifest` finding. `loop-encode-lessons` gets its flag back in the same entry. The
-`amender` and `coordinator` runbooks already list it.
+lists, is a `manifest` finding. A skill that holds the flag and not `agents/openai.yaml` with
+exactly the bytes above, or the file and not the flag, is a `manifest` finding too. The gate
+compares bytes and parses no YAML. `loop-encode-lessons` gets its flag and its file back in the
+same entry. The `amender` and `coordinator` runbooks already list it.
 
 **The pins are one embedded file.** `pack/third-party.json` lists each third-party skill: its
 upstream name, the GitHub repository, the commit, the skill's path in the repository, and the tree
@@ -172,7 +218,8 @@ nothing. A second function places a verified set into `versions/<v>/skills/` thr
 directory and one rename, so a crash leaves the old set or the new set, never part of one.
 
 **Install fetches with the running binary's pins.** After it provisions bd and dolt, `Install`
-fetches each pin whose directory is missing or does not match, and places the set. A refusal
+runs `CheckSkills`. When every pin matches, it fetches nothing. When one or more is missing or does
+not match, it fetches every pin, and places that whole set. A refusal
 returns before the service unit changes. `Check` adds one drift line for each skill that is missing
 or does not match, so `loop install --check` and `loop doctor` report it. When install placed a
 skill for the version that `current` names and the unit was already there, it stops and starts the
@@ -296,7 +343,10 @@ type SkillFetcher struct {
 // Name. It writes nothing. A tree that fails its hash is ErrPinMismatch.
 func (f SkillFetcher) Fetch(ctx context.Context, pins []pack.ThirdParty) (map[string]fs.FS, error)
 
-// PlaceSkills replaces dir with the trees, through one rename.
+// PlaceSkills replaces dir with the trees, through one rename. trees is the
+// whole set: dir then holds exactly these trees, and nothing it held before.
+// Install passes one tree for each embedded pin, and upgrade one for each
+// pin of the target release.
 func PlaceSkills(trees map[string]fs.FS, dir string) error
 
 // CheckSkills reports each pin whose directory under dir is missing or fails its hash.
@@ -377,7 +427,7 @@ sequenceDiagram
     alt every pin matches
         Op->>Op: fetch nothing
     else a pin is missing or differs
-        Op->>F: Fetch(those pins)
+        Op->>F: Fetch(every embedded pin)
         F->>GH: GET <repo>/tar.gz/<commit>
         GH-->>F: archive
         F->>F: keep <path>/, refuse a link or an escape, TreeHash
@@ -388,8 +438,8 @@ sequenceDiagram
             F-->>Op: error
             Op-->>Op: refuse RELEASE_UNAVAILABLE skill_fetch_failed
         end
-        F-->>Op: verified trees
-        Op->>FS: PlaceSkills (one rename)
+        F-->>Op: one verified tree for each pin
+        Op->>FS: PlaceSkills (the whole set, one rename)
     end
     Op->>Svc: register the unit
     opt placed a skill for current, and the unit existed
@@ -445,17 +495,23 @@ sequenceDiagram
 
 ## Work
 
-1. **The flag needs a reader.** Add the manifest rule to `manifestFindings`, and put
-   `disable-model-invocation: true` back on `loop-encode-lessons`.
+1. **The flag needs a reader.** Add the two manifest rules to `manifestFindings`. Put
+   `disable-model-invocation: true` and `agents/openai.yaml` back on `loop-encode-lessons`.
    - Files: `internal/pack/gate.go`, `internal/pack/gate_test.go`,
-     `pack/skills/loop-encode-lessons/SKILL.md`
+     `pack/skills/loop-encode-lessons/SKILL.md`, `pack/skills/loop-encode-lessons/agents/openai.yaml`
    - Needs: nothing
    - Proves: C1, C2
    - Done when: a fixture pack with a flagged skill that no runbook lists fails `Check` with a
      `manifest` finding, and `make pack-check` passes on the real pack.
-2. **Port the writing skills: `loop-commit`, `loop-bro`, `loop-unslop`.** Write each skill, add
-   it to `skills` in the manifest, list it in each runbook of the reader table, and name its path at
-   that runbook's step.
+2. **Port the writing skills: `loop-commit`, `loop-bro`, `loop-unslop`.** Write each skill and its
+   `agents/openai.yaml`, add it to `skills` in the manifest, list it in each runbook of the reader
+   table, and name its path at that runbook's step. Run the Codex check of Assumptions once.
+   - Source: each skill is one file, `skills/<name>/SKILL.md` in tickertown at commit
+     64e293f9ae2db7831d12462e76ffe1aa3deacd8c. Read it on the host with
+     `git -C /home/operator/projects/alpha show <commit>:skills/<name>/SKILL.md`. That checkout's
+     `origin` is the private repository `slothware-labs/alpha`. When the host checkout is gone,
+     `gh api 'repos/slothware-labs/alpha/contents/skills/<name>/SKILL.md?ref=<commit>'` reads the
+     same file through the operator's `gh` login.
    - Files: `pack/skills/loop-commit/**`, `pack/skills/loop-bro/**`, `pack/skills/loop-unslop/**`,
      `pack/manifest.json`, `pack/runbooks/{implementer,spec-author,amender,intake-room,review-room,decomposer}.md`,
      `internal/pack/pack_test.go`
@@ -464,52 +520,60 @@ sequenceDiagram
    - Done when: `make pack-check` passes, and AC-1, AC-2 and AC-4 print nothing.
 3. **Port the code skills: `loop-boundaries`, `loop-least-code`, `loop-reader-load`,
    `loop-verifiable-units`, `loop-test-behavior-not-implementation`, `loop-domain-modeling`.** The
-   same steps as entry 2. It follows entry 2, because both edit `pack/manifest.json`,
-   `implementer.md` and `spec-author.md`.
+   same steps as entry 2, from the same source, without the Codex check. It follows entry 2,
+   because both edit `pack/manifest.json`, `implementer.md` and `spec-author.md`.
+   - Source: as in entry 2, for each of the 6 names.
    - Files: `pack/skills/loop-{boundaries,least-code,reader-load,verifiable-units,test-behavior-not-implementation,domain-modeling}/**`,
      `pack/manifest.json`, `pack/runbooks/{implementer,code-reviewer,reproducer,spec-author,doc-reviewer}.md`,
      `internal/pack/pack_test.go`
    - Needs: 2
    - Proves: C4
    - Done when: `make pack-check` passes, and AC-7 holds for all 9 skills.
-4. **Pins, tree hash and fetch.** Write `pack/third-party.json` with the 4 pins, embed it, read and
-   check it, and claim each `loop-<name>` directory in `Layout`. Add `TreeHash` and
-   `SkillFetcher`. Measure each pin: take the head of the upstream default branch
-   (`git ls-remote https://github.com/<repo> HEAD`), fetch it with the new fetcher, and record its
-   tree hash. Name each commit, each hash and each root licence in the pull request body.
+4. **The pin type and the tree hash.** Add `ThirdParty`, `ReadThirdParty`, `ThirdPartyPins` and
+   `TreeHash`. Write `pack/third-party.json` as `{"skills": []}`, embed it, and claim each
+   `loop-<name>` directory of a pin in `Layout`.
    - Files: `pack/third-party.json`, `pack/embed.go`, `internal/pack/thirdparty.go`,
-     `internal/pack/thirdparty_test.go`, `internal/pack/layout.go`, `internal/release/skills.go`,
-     `internal/release/skills_test.go`
+     `internal/pack/thirdparty_test.go`, `internal/pack/layout.go`
    - Needs: nothing
-   - Proves: C5, C6, C7
+   - Proves: C5, C6
+   - Done when: the C5 and C6 tests pass, and `make pack-check` passes on the real pack.
+5. **The fetch, and the 4 measured pins.** Add `SkillFetcher`. Measure each pin: take the head of
+   the upstream default branch (`git ls-remote https://github.com/<repo> HEAD`), fetch it with the
+   new fetcher, and record its tree hash in `pack/third-party.json`. Name each commit, each hash
+   and each root licence in the pull request body. This entry crosses into the pack for the one
+   data file, as the Scope check says.
+   - Files: `internal/release/skills.go`, `internal/release/skills_test.go`,
+     `pack/third-party.json`
+   - Needs: 4
+   - Proves: C7
    - Done when: the fetcher fetches each of the 4 real pins once and each hash matches, and AC-3
      and AC-9 hold.
-5. **Install, check and doctor place the skills.** `Install` fetches and places the set, `Check`
+6. **Install, check and doctor place the skills.** `Install` fetches and places the set, `Check`
    reports drift, and install restarts a running service after it places skills for `current`.
    Add `Layout.Skills`, `PlaceSkills` and `CheckSkills`. Wire the fetcher into `hostVerbs`.
    - Files: `internal/release/install.go`, `internal/release/install_test.go`,
      `internal/release/layout.go`, `internal/release/skills.go`, `cmd/loop/release.go`
-   - Needs: 4
+   - Needs: 5
    - Proves: C8, C9, C10
    - Done when: `loop install` on an empty instance leaves 4 verified directories in
      `versions/<v>/skills/`, and `loop install --check` reports no drift.
-6. **Each run receives the fetched skills.** `pack.Brief` takes the fetched set. The writer keeps
+7. **Each run receives the fetched skills.** `pack.Brief` takes the fetched set. The writer keeps
    the executable bit, and the hash covers modes. `serve.go` raises or clears the alert.
    `register.go` and `acceptance/world.go` pass a set.
    - Files: `internal/pack/embed.go`, `internal/pack/layout.go`, `internal/pack/pack_test.go`,
      `internal/brief/pack.go`, `internal/brief/brief_test.go`, `internal/config/lkg.go`,
      `cmd/loop/serve.go`, `cmd/loop/serve_test.go`, `cmd/loop/register.go`,
      `cmd/loop/register_test.go`, `acceptance/world.go`
-   - Needs: 5
+   - Needs: 6
    - Proves: C11, C12, C13, C14
    - Done when: a run's checkout holds `.claude/skills/loop-impeccable/scripts/impeccable` at mode
      0755, and its `SKILL.md` says `name: loop-impeccable`.
-7. **Upgrade fetches the target's skills, and the release carries its pins.** `WriteDist` writes
+8. **Upgrade fetches the target's skills, and the release carries its pins.** `WriteDist` writes
    the asset, `VerifyAssets` requires it, and `Upgrader` fetches and places the target's set.
    - Files: `internal/release/upgrade.go`, `internal/release/upgrade_test.go`,
      `internal/release/dist.go`, `internal/release/dist_test.go`, `cmd/loop/release.go`,
      `cmd/loop/release_test.go`
-   - Needs: 5
+   - Needs: 6
    - Proves: C15, C16
    - Done when: each refusal case of C15 leaves `current`, `versions/` and the service as they
      were, and `TestUpgradeAcrossARealServer` ends with the target's skills in
@@ -538,11 +602,13 @@ sequenceDiagram
 **C1. Refusal: a flagged skill needs a reader.** Proves AC-4. A pack skill whose front matter holds
 `disable-model-invocation: true`, and that no runbook entry in the manifest lists, is a `manifest`
 finding that names the skill. The same skill, listed by one runbook that names its path, is no
-finding.
-*Two fixture packs in `gate_test.go`, one finding and none.*
+finding. A listed skill with the flag and no `agents/openai.yaml`, with the flag and that file in
+other bytes, or with the file and no flag, is a `manifest` finding that names the skill.
+*Fixture packs in `gate_test.go`: one for each finding, and one that holds none.*
 
 **C2. Behaviour: `loop-encode-lessons` is flagged and still read.** Proves AC-8. The embedded
-`loop-encode-lessons/SKILL.md` holds `disable-model-invocation: true`, and the `amender` and
+`loop-encode-lessons/SKILL.md` holds `disable-model-invocation: true`, its
+`agents/openai.yaml` sets `allow_implicit_invocation: false`, and the `amender` and
 `coordinator` entries list it.
 *A test over the embedded pack.*
 
@@ -550,8 +616,8 @@ finding.
 Proves AC-1, AC-2, AC-7, K-5. The embedded pack's `skills/` holds exactly the directories of a
 literal list: the 10 of today, plus `loop-commit`, `loop-bro` and `loop-unslop`. So no name
 outside `loop-` and none of `loop-sdlc-decisions`, `loop-willis-decisions`, `loop-design-ticket`,
-`loop-file-bug` or `loop-sdlc-intake` can join it unseen. Each of the 3 holds the flag and a
-comment that names `skills/<name>/SKILL.md` and the tickertown commit
+`loop-file-bug` or `loop-sdlc-intake` can join it unseen. Each of the 3 holds the flag, the Codex
+file of C1, and a comment that names `skills/<name>/SKILL.md` and the tickertown commit
 64e293f9ae2db7831d12462e76ffe1aa3deacd8c. The set
 of runbooks that list each one equals its row of the reader table, exactly.
 *A test that compares the pack with the literal list, and the manifest with a literal copy of those
@@ -585,7 +651,9 @@ path passes.
 **C8. Behaviour: install places the set, and keeps a matching one.** Proves K-1, K-4. On an empty
 instance, `Install` leaves one directory for each embedded pin in `versions/<v>/skills/`, and each
 one passes `CheckSkills`. The report's `skills` names each one. A second `Install` fetches nothing.
-*An example test with a counting local server.*
+With 3 pins matching and 1 directory missing, `Install` fetches each of the 4 archives once, and
+all 4 directories then pass `CheckSkills`.
+*Example tests with a counting local server.*
 
 **C9. Refusal: a failed skill fetch refuses install, and changes neither the skills nor the
 unit.** Proves K-1. A pin that fails its hash refuses with `CHECKSUM_MISMATCH` and `skill_mismatch`.
