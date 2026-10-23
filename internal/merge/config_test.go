@@ -75,3 +75,33 @@ func TestUnknownMechanismKeepsTheLastKnownGoodConfigAndAlerts(t *testing.T) {
 		t.Fatalf("%d open config alerts for beta; want 1", n)
 	}
 }
+
+// A project with no config yet, as before loop-init, can be added, and a
+// tick leaves it alone until the config lands.
+func TestAProjectWithNoConfigYetIsAddedAndWaits(t *testing.T) {
+	e := newEnv(t, func(e *env) merge.Mechanism { return direct.New(e.svc) })
+	loader := &config.Loader{LKG: config.StoreLKG(e.st), Alerts: config.StoreAlerter(e.st)}
+	files := origin{}
+	e.source = func(ctx context.Context, p config.Project) (*config.ProjectSnapshot, error) {
+		l, err := loader.Load(ctx, p.ID, files.read, "main")
+		if err != nil {
+			return nil, err
+		}
+		return &l.ProjectSnapshot, nil
+	}
+	if err := e.job.AddHook(e.ctx, e.project); err != nil {
+		t.Fatalf("add with no config = %v", err)
+	}
+	id, _ := e.reviewed(sha('1'), true)
+	if err := e.job.TickProject(e.ctx, testProject); err != nil {
+		t.Fatalf("tick with no config = %v", err)
+	}
+	e.wantStatus(id, machine.ReadyToMerge)
+	if n := openAlerts(e, testProject); n != 0 {
+		t.Fatalf("%d open config alerts; want none", n)
+	}
+
+	files[config.ProjectConfigPath] = "merge:\n  mechanism: direct\n"
+	e.tick()
+	e.wantStatus(id, machine.Queued)
+}

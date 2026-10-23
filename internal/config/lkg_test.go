@@ -117,3 +117,21 @@ func TestInvalidConfigKeepsLastKnownGoodAndRaisesAlert(t *testing.T) {
 		t.Fatalf("alpha LKG after a missing file = %+v, %v", got, err)
 	}
 }
+
+// A project that never had config is not set up yet: the load refuses with
+// ErrConfigMissing and raises no alert.
+func TestMissingConfigWithNoLastKnownGoodRaisesNoAlert(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+	if err := StoreProjectRow(st)(ctx, Project{ID: "bare", Repo: "iantanwx/bare", Path: "/srv/bare"}); err != nil {
+		t.Fatal(err)
+	}
+	l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st)}
+	_, err := l.Load(ctx, "bare", fakeOrigin{}.read, "main")
+	if !errors.Is(err, ErrConfigMissing) || !errors.Is(err, ErrInvalid) {
+		t.Fatalf("load = %v, want ErrConfigMissing", err)
+	}
+	if a := readAlerts(t, st, "bare"); len(a) != 0 {
+		t.Fatalf("alerts = %+v, want none", a)
+	}
+}

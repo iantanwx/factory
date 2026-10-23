@@ -190,7 +190,7 @@ func ReadProjectSnapshot(ctx context.Context, read RefReader, defaultBranch stri
 	ref := DefaultRef(defaultBranch)
 	raw, err := read(ctx, ref, ProjectConfigPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, &InvalidError{Source: ProjectConfigPath, Reason: "the file is missing on " + ref}
+		return nil, &InvalidError{Source: ProjectConfigPath, Reason: "the file is missing on " + ref, Missing: true}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("config: read %s at %s: %w", ProjectConfigPath, ref, err)

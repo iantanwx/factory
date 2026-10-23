@@ -22,12 +22,19 @@ import (
 // ErrInvalid matches every refusal of a configuration file or value.
 var ErrInvalid = errors.New("config: invalid")
 
+// ErrConfigMissing matches the refusal of a default branch with no project
+// config, as a project has before loop-init adds one. It matches
+// ErrInvalid too.
+var ErrConfigMissing = errors.New("config: project config missing")
+
 // InvalidError names the file and the field that a parser refused. It never
 // holds the refused value, because a misplaced value can be a secret.
 type InvalidError struct {
 	Source string // the file or document, for example "host.yaml"
 	Field  string // a dotted field path, empty for the whole document
 	Reason string
+	// Missing is set when the file is absent.
+	Missing bool
 }
 
 func (e *InvalidError) Error() string {
@@ -38,7 +45,9 @@ func (e *InvalidError) Error() string {
 }
 
 // Is makes errors.Is(err, ErrInvalid) hold.
-func (e *InvalidError) Is(target error) bool { return target == ErrInvalid }
+func (e *InvalidError) Is(target error) bool {
+	return target == ErrInvalid || e.Missing && target == ErrConfigMissing
+}
 
 // checker collects every refusal in one document, so one edit can fix all.
 type checker struct {

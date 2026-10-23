@@ -74,6 +74,14 @@ func (l *Loader) Load(ctx context.Context, project string, read RefReader, defau
 		return nil, err
 	}
 	problem := err
+	craw, mraw, err := l.LKG.LoadLKG(ctx, project)
+	if err != nil {
+		return nil, errors.Join(problem, err)
+	}
+	if craw == nil && errors.Is(problem, ErrConfigMissing) {
+		// A project that never had config is not set up yet; nothing broke.
+		return nil, fmt.Errorf("config: project %s has no config yet: %w", project, problem)
+	}
 	if aerr := l.Alerts.Raise(ctx, Alert{
 		Project:   project,
 		Kind:      AlertProjectConfigInvalid,
@@ -82,10 +90,6 @@ func (l *Loader) Load(ctx context.Context, project string, read RefReader, defau
 		Body:      problem.Error(),
 	}); aerr != nil {
 		return nil, errors.Join(problem, aerr)
-	}
-	craw, mraw, err := l.LKG.LoadLKG(ctx, project)
-	if err != nil {
-		return nil, errors.Join(problem, err)
 	}
 	if craw == nil {
 		return nil, fmt.Errorf("config: project %s has no last known good config: %w", project, problem)

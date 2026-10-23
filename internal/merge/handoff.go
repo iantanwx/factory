@@ -101,9 +101,13 @@ func (h *HandOff) mechanism(ctx context.Context, p config.Project) (Mechanism, e
 
 // AddHook is the config.AddHook of `project add`: it loads the project's
 // config from the default branch and runs its mechanism's check. Add it
-// after the GitHub hook, which fetches the default branch.
+// after the GitHub hook, which fetches the default branch. A project with
+// no config yet passes: loop-init adds it, and each tick checks again.
 func (h *HandOff) AddHook(ctx context.Context, p config.Project) error {
 	m, err := h.mechanism(ctx, p)
+	if errors.Is(err, config.ErrConfigMissing) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -119,6 +123,9 @@ func (h *HandOff) TickProject(ctx context.Context, project string) error {
 		return err
 	}
 	mech, err := h.mechanism(ctx, p)
+	if errors.Is(err, config.ErrConfigMissing) {
+		return nil // nothing to merge before the project has config
+	}
 	if err != nil {
 		return err
 	}

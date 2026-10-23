@@ -408,7 +408,9 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 	for _, p := range projects {
 		snap, err := s.cfg.ProjectConfig(ctx, p.ID)
 		if err != nil {
-			s.log.WarnContext(ctx, "project config", "project", p.ID, "err", err)
+			if !errors.Is(err, config.ErrConfigMissing) {
+				s.log.WarnContext(ctx, "project config", "project", p.ID, "err", err)
+			}
 			snap = nil
 		}
 		for _, stage := range append(config.RunStages(), config.NativeJobs()...) {
