@@ -337,6 +337,10 @@ loop upgrade v1.2.3
 loop upgrade          # the newest published release
 ```
 
+The loop repository is private, so `loop upgrade` reads its releases through
+the GitHub API with the host's `gh` login, the token `gh auth token` prints.
+With no login it exits 4, and its hint names the missing login.
+
 The upgrade checks everything before it changes anything:
 
 - the signature of `checksums.txt`, against the keys built into the
