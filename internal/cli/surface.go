@@ -216,7 +216,7 @@ var surface = []Verb{
 		Flag{Name: "path", Type: FlagString, Required: true, Description: "the PRD's path in the repository, committed at the checkout's HEAD"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic and pull request title"},
 		Flag{Name: "body", Type: FlagString, Description: "the pull request body"})),
-	write(server("epic", "create", "create an architecture epic; it waits until an ADR that names it lands on the base branch", coordinator, nil,
+	write(server("epic", "create", "create an architecture epic; it waits until an ADR whose Ticket line names it lands on the base branch", coordinator, nil,
 		Flag{Name: "architecture", Type: FlagBool, Description: "required: the epic follows an ADR, not a PRD; a PRD epic starts with prd submit in an intake room"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic title"},
 		Flag{Name: "body", Type: FlagString, Description: "what the ADR decides, and why the operator asked for it"},
