@@ -55,6 +55,8 @@ func testPack() Pack {
 		"loop-implementer/SKILL.md":          {Data: []byte("# implementer runbook\n")},
 		"loop-implementer/refs/checklist.md": {Data: []byte("- one\n")},
 		"loop-code-reviewer/SKILL.md":        {Data: []byte("# reviewer runbook\n")},
+	}, Agents: fstest.MapFS{
+		"loop-helper.md": {Data: []byte("---\nname: loop-helper\n---\n")},
 	}}
 }
 
@@ -130,6 +132,25 @@ func TestBriefHoldsItemAttemptAndSecretNamesOnly(t *testing.T) {
 	}
 }
 
+// Claude Code reads agents from .claude/agents. Each pack agent lands
+// there, beside a project's own agents.
+func TestInjectionWritesEachAgentForClaude(t *testing.T) {
+	dir := gitRepo(t, ".claude/agents/mine.md")
+	inject(t, dir, nil)
+	body, err := os.ReadFile(filepath.Join(dir, ".claude/agents/loop-helper.md"))
+	if err != nil || !strings.Contains(string(body), "name: loop-helper") {
+		t.Fatalf("agent: %q, %v", body, err)
+	}
+	if out := git(t, dir, "status", "--porcelain", "--untracked-files=all"); out != "" {
+		t.Fatalf("git status after injection:\n%s", out)
+	}
+	bad := testPack()
+	bad.Agents = fstest.MapFS{"helper.md": {Data: []byte("x")}}
+	if _, err := bad.AgentNames(); err == nil {
+		t.Fatal("an agent outside the loop- namespace is accepted")
+	}
+}
+
 // After injection git status is clean, and git add -A stages no injected
 // path. The tracked project files under .loop stay visible to git.
 func TestInjectionLeavesGitClean(t *testing.T) {
@@ -180,7 +201,7 @@ func TestInjectionInLinkedWorktree(t *testing.T) {
 // A tracked file at an injected path refuses the run, and nothing is
 // written.
 func TestTrackedInjectedPathIsAConflict(t *testing.T) {
-	for _, tracked := range []string{".loop/brief.json", ".claude/skills/loop-implementer/SKILL.md", ".env"} {
+	for _, tracked := range []string{".loop/brief.json", ".claude/skills/loop-implementer/SKILL.md", ".claude/agents/loop-helper.md", ".env"} {
 		dir := gitRepo(t, tracked)
 		_, err := Inject(context.Background(), Injection{Checkout: dir, Harness: agenthost.Claude, Pack: testPack(), Brief: testBrief()})
 		var ce *ConflictError
@@ -191,8 +212,8 @@ func TestTrackedInjectedPathIsAConflict(t *testing.T) {
 			t.Fatalf("tracked %s: a refused injection wrote the prompt", tracked)
 		}
 	}
-	// A tracked skill outside the pack's names is no conflict.
-	dir := gitRepo(t, ".claude/skills/loop-other/SKILL.md", ".claude/skills/mine/SKILL.md")
+	// A tracked skill or agent outside the pack's names is no conflict.
+	dir := gitRepo(t, ".claude/skills/loop-other/SKILL.md", ".claude/skills/mine/SKILL.md", ".claude/agents/mine.md")
 	if _, err := Inject(context.Background(), Injection{Checkout: dir, Harness: agenthost.Claude, Pack: testPack(), Brief: testBrief()}); err != nil {
 		t.Fatal(err)
 	}
@@ -209,12 +230,22 @@ func TestPackPerHarnessAndHash(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, ".agents/skills/loop-code-reviewer/SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
+	// Codex reads no agent directory, so it receives no agent.
+	if entries, _ := os.ReadDir(filepath.Join(dir, ".agents")); len(entries) != 1 {
+		t.Fatalf("codex received %v under .agents, want only skills", entries)
+	}
 	h1, _ := testPack().Hash()
 	other := testPack()
 	other.FS.(fstest.MapFS)["loop-implementer/SKILL.md"] = &fstest.MapFile{Data: []byte("changed")}
 	h2, _ := other.Hash()
 	if res.PackHash != h1 || h1 == h2 {
 		t.Fatalf("hashes %s %s %s", res.PackHash, h1, h2)
+	}
+	// An agent is pack content, so a change to one changes the hash.
+	other = testPack()
+	other.Agents.(fstest.MapFS)["loop-helper.md"] = &fstest.MapFile{Data: []byte("changed")}
+	if h3, _ := other.Hash(); h3 == h1 {
+		t.Fatalf("an agent change kept the hash %s", h1)
 	}
 	if out := git(t, dir, "status", "--porcelain", "--untracked-files=all"); out != "" {
 		t.Fatalf("git status:\n%s", out)

@@ -215,3 +215,92 @@ func TestGateRefusesAnUnattendedRunbookThatAsksAPerson(t *testing.T) {
 		"Read `../loop-sdlc-turn/SKILL.md` and `.loop/policy/implementer.md`. If unsure, ask the operator.\n")}
 	wantOne(t, check(t, src), "attended", "ask the operator")
 }
+
+// agentFixture is the valid fixture plus one agent that the implementer
+// runbook lists and names.
+func agentFixture() fstest.MapFS {
+	src := fixture()
+	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"attended": false, "skills": ["loop-sdlc-turn"],
+		"agents": ["loop-helper"], "policy": "implementer"}}, "skills": ["loop-sdlc-turn"], "agents": ["loop-helper"]}`)}
+	src["runbooks/implementer.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-implementer\ndescription: Build one ticket.\n---\n\n" +
+		"Read `../loop-sdlc-turn/SKILL.md` first. Read `.loop/policy/implementer.md` when it exists.\n" +
+		"Start the `loop-helper` agent for a read.\n")}
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read, Grep, Glob, Bash", "Run `loop work show <item>`. Read `../skills/loop-sdlc-turn/SKILL.md`.\n")
+	return src
+}
+
+func agent(name, tools, body string) *fstest.MapFile {
+	return &fstest.MapFile{Data: []byte("---\nname: " + name + "\ndescription: Reads one thing.\ntools: " + tools + "\n---\n\n" + body)}
+}
+
+func TestGatePassesAFixtureWithAnAgent(t *testing.T) {
+	if got := check(t, agentFixture()); len(got) != 0 {
+		t.Fatalf("want no findings, got %v", got)
+	}
+}
+
+func TestGateRefusesAnAgentToolThatWrites(t *testing.T) {
+	src := agentFixture()
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read, Write, Bash", "Run `loop work show <item>`.\n")
+	wantOne(t, check(t, src), "agent", "Write")
+	src["agents/loop-helper.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-helper\ndescription: Reads.\n---\n\nRead.\n")}
+	wantOne(t, check(t, src), "agent", "tools")
+}
+
+func TestGateRefusesAWriteVerbInAnAgent(t *testing.T) {
+	src := agentFixture()
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read, Bash", "Run `loop work note <item> --body x`.\n")
+	wantOne(t, check(t, src), "agent", "work note")
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read, Bash", "```bash\nloop fault list && loop inbox answer <entry> --body x\n```\n")
+	wantOne(t, check(t, src), "agent", "inbox answer")
+}
+
+func TestGateRefusesAVerbTheCoordinatorCannotCallInAnAgent(t *testing.T) {
+	src := agentFixture()
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read, Bash", "Run `loop pr show`.\n")
+	wantOne(t, check(t, src), "agent", "pr show")
+}
+
+func TestGateRequiresTheManifestToNameEveryAgent(t *testing.T) {
+	src := agentFixture()
+	src["agents/loop-stray.md"] = agent("loop-stray", "Read", "Read.\n")
+	wantOne(t, check(t, src), "manifest", "agents/loop-stray.md")
+
+	src = agentFixture()
+	delete(src, "agents/loop-helper.md")
+	wantOne(t, check(t, src), "manifest", "loop-helper")
+
+	// An agent that no runbook lists never runs.
+	src = agentFixture()
+	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"attended": false, "skills": ["loop-sdlc-turn"],
+		"policy": "implementer"}}, "skills": ["loop-sdlc-turn"], "agents": ["loop-helper"]}`)}
+	wantOne(t, check(t, src), "manifest", "loop-helper")
+}
+
+func TestGateRequiresAgentFrontmatterThatNamesTheFile(t *testing.T) {
+	src := agentFixture()
+	src["agents/loop-helper.md"] = agent("helper", "Read", "Read.\n")
+	wantOne(t, check(t, src), "frontmatter", "loop-helper")
+}
+
+func TestGateRequiresEachRunbookToNameItsAgents(t *testing.T) {
+	src := agentFixture()
+	src["runbooks/implementer.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-implementer\ndescription: Build.\n---\n\n" +
+		"Read `../loop-sdlc-turn/SKILL.md` first. Read `.loop/policy/implementer.md` when it exists.\n")}
+	wantOne(t, check(t, src), "agent", "loop-helper")
+}
+
+func TestGateChecksEachPathOfAnAgent(t *testing.T) {
+	src := agentFixture()
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read", "Read `../skills/loop-sdlc-triage/SKILL.md`.\n")
+	wantOne(t, check(t, src), "path", "../skills/loop-sdlc-triage/SKILL.md")
+	// An agent lands beside the skill root, so ../loop-* names nothing.
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read", "Read `../loop-sdlc-turn/SKILL.md`.\n")
+	wantOne(t, check(t, src), "path", "../loop-sdlc-turn/SKILL.md")
+}
+
+func TestGateChecksTheVocabularyOfAnAgent(t *testing.T) {
+	src := agentFixture()
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read", "Run `pnpm board`.\n")
+	wantOne(t, check(t, src), "vocabulary", "pnpm")
+}

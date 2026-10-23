@@ -208,6 +208,11 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 		return Result{}, err
 	}
 	files := []string{BriefJSON, BriefMD, PromptFile, EnvFile, TokenFile, PendingFile, PendingLock}
+	agents, err := in.Pack.AgentFiles(in.Harness)
+	if err != nil {
+		return Result{}, err
+	}
+	files = append(files, agents...)
 	dirs := make([]string, 0, len(skills))
 	for _, s := range skills {
 		dirs = append(dirs, root+"/"+s)
