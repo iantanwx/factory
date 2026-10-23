@@ -23,19 +23,6 @@ You need `gh`, logged in to an account that can read `slothware-labs/factorio`.
 
 The same command upgrades a host that already runs the loop.
 
-## Let project CI download the loop
-
-Do this once for each host.
-
-- [ ] Make a fine-grained GitHub token with read access to the contents of
-      `slothware-labs/factorio`, and store it:
-
-  ```sh
-  loop secret set LOOP_RELEASE_TOKEN --scope global
-  ```
-
-  `loop register` copies it into each project's Actions secrets.
-
 ## Add a project
 
 - [ ] In the project's clone, run `loop register`.

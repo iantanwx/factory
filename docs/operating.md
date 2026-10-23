@@ -157,11 +157,6 @@ is already right, so you can run it again:
   `.agents/skills`, and lists them in `.git/info/exclude`.
 - It registers the project with the server, with the repository name as
   its id. Give another id as `loop register <id>`.
-- It copies the global `LOOP_RELEASE_TOKEN` secret into the repository's
-  Actions secrets, so CI can download `loop`. The secret is a fine-grained
-  token that reads the contents of `slothware-labs/factorio`. Store it once
-  with `loop secret set LOOP_RELEASE_TOKEN --scope global`.
-
 - It finds the loop App of the repository's owner. When the owner has no
   App, it prints a link that opens the App form, as install does. Click
   **Create GitHub App**. For an organisation, you must be an owner of it.
@@ -175,6 +170,17 @@ for the stack, then makes a scaffold with one passing test, a command for
 each stack gate, a CI workflow with a `gates` job, and `.loop/config.yaml`.
 It pushes them, waits for CI to pass, and runs `loop register` again, so
 the ruleset requires the `gates` check.
+
+The `gates` job gets `loop` from the action in the loop's repository,
+`slothware-labs/factorio@v0`. The action builds `loop` from source, so the
+job needs no token. The release job moves `v0` to each release. GitHub
+lets only the repositories of the same owner use a private repository's
+action, so a project must belong to `slothware-labs`. Allow it once, in the
+loop's repository:
+
+```sh
+gh api -X PUT repos/slothware-labs/factorio/actions/permissions/access -f access_level=organization
+```
 
 ## The gates
 

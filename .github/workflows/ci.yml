@@ -114,3 +114,10 @@ jobs:
           --title "$VERSION"
           --notes "Install or upgrade: gh release download -R $GITHUB_REPOSITORY -p install.sh -O - | sh"
           dist/"$VERSION"/* install.sh
+      # Projects run the gates through action.yml at @v0, so v0 follows
+      # each release.
+      - name: Move v0
+        if: env.VERSION != ''
+        run: |
+          git tag -f v0 "$GITHUB_SHA"
+          git push -f origin refs/tags/v0

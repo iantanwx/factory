@@ -9,10 +9,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/iantanwx/loop/internal/config"
-	"github.com/iantanwx/loop/internal/release"
-	"github.com/iantanwx/loop/internal/secrets"
 )
 
 // fakeGH answers gh calls from a table keyed by the joined arguments and
@@ -111,32 +107,5 @@ func TestProjectID(t *testing.T) {
 		if got := projectID(repo); got != want {
 			t.Errorf("%s: %q, want %q", repo, got, want)
 		}
-	}
-}
-
-// register copies the global release token into the repository's Actions
-// secrets, and names the missing token.
-func TestRegisterCopiesTheReleaseToken(t *testing.T) {
-	gh := &fakeGH{stdin: map[string][]byte{}, answers: map[string]string{
-		"gh secret set LOOP_RELEASE_TOKEN -R me/app": ``,
-	}}
-	var token []byte
-	h := &hostVerbs{cmd: gh.run, secret: func(_ context.Context, _ release.Layout, scope, name string) ([]byte, error) {
-		if scope != config.GlobalScope || name != ReleaseTokenSecret || token == nil {
-			return nil, secrets.ErrSecretNotFound
-		}
-		return token, nil
-	}}
-	ctx := context.Background()
-	rep := RegisterReport{Repo: "me/app", Path: "/src/app"}
-	if got, err := h.ciToken(ctx, "/instance", rep); err != nil || got != "missing" || len(gh.calls) != 0 {
-		t.Fatalf("no token = %q %v %v", got, err, gh.calls)
-	}
-	token = []byte("github_pat_x")
-	if got, err := h.ciToken(ctx, "/instance", rep); err != nil || got != "set" {
-		t.Fatalf("token = %q %v", got, err)
-	}
-	if string(gh.stdin["gh secret set LOOP_RELEASE_TOKEN -R me/app"]) != "github_pat_x" {
-		t.Fatalf("gh read %q", gh.stdin)
 	}
 }

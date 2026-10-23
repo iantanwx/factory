@@ -5,7 +5,7 @@ export CGO_ENABLED := 0
 GO            ?= go
 BUF           ?= buf
 GOLANGCI_LINT ?= $(shell $(GO) env GOPATH)/bin/golangci-lint
-VERSION       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION       ?= $(shell git describe --tags --match 'v*.*.*' --always --dirty 2>/dev/null || echo dev)
 LDFLAGS       := -s -w -X github.com/iantanwx/loop/internal/cli.Version=$(VERSION)
 PLATFORMS     := linux/amd64 linux/arm64 darwin/arm64
 DESCRIPTOR    := gen/loop.binpb

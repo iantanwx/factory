@@ -74,25 +74,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # Builds loop and puts it, with gitleaks, on PATH. It runs before the
+      # stack's setup steps, so the gates use the toolchain that they set up.
+      - uses: slothware-labs/factorio@v0
       # <the stack's setup steps>
-      - name: Install the gate tools
-        env:
-          GH_TOKEN: ${{ secrets.LOOP_RELEASE_TOKEN }}
-          GITLEAKS_VERSION: 8.30.1
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/loop"
-          gh release download -R slothware-labs/factorio -D "$RUNNER_TEMP/loop" -p loop-linux-amd64 -p checksums.txt
-          (cd "$RUNNER_TEMP/loop" && sha256sum -c --ignore-missing checksums.txt)
-          install -m 755 "$RUNNER_TEMP/loop/loop-linux-amd64" "$RUNNER_TEMP/bin/loop"
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" |
-            tar -xz -C "$RUNNER_TEMP/bin" gitleaks
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - name: Run the gates
         run: loop gates
 ```
 
-Keep the job name `gates`. The loop ruleset requires the checks by name. `loop register` puts the
-release token secret in the repository.
+Keep the job name `gates`. The loop ruleset requires the checks by name. The job needs no token: the
+loop's repository lets the repositories of its owner use its action.
 
 ## 5. Project config
 

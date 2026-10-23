@@ -1,0 +1,35 @@
+name: loop
+description: Build the loop at this ref and put it, with gitleaks, on PATH, so a project's CI runs `loop gates`.
+
+# A private repository's action runs in the other private repositories of
+# its owner, when the repository's Actions access setting allows them. The
+# runner fetches this repository at the ref, so the job needs no token.
+# Projects use @v0, which the release job moves to each release.
+
+inputs:
+  gitleaks-version:
+    description: The gitleaks release that the secrets gate runs.
+    default: 8.30.1
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      with:
+        go-version-file: ${{ github.action_path }}/go.mod
+        cache-dependency-path: ${{ github.action_path }}/go.sum
+    - name: Build loop and install gitleaks
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        ACTION_REF: ${{ github.action_ref }}
+        GITLEAKS_VERSION: ${{ inputs.gitleaks-version }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$RUNNER_TEMP/loop-bin"
+        (cd "$ACTION_PATH" && go build -trimpath \
+          -ldflags "-s -w -X github.com/iantanwx/loop/internal/cli.Version=$ACTION_REF" \
+          -o "$RUNNER_TEMP/loop-bin/loop" ./cmd/loop)
+        curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" |
+          tar -xz -C "$RUNNER_TEMP/loop-bin" gitleaks
+        echo "$RUNNER_TEMP/loop-bin" >> "$GITHUB_PATH"
