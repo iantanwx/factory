@@ -56,6 +56,7 @@ const (
 	VerbFile               = "file"
 	VerbFire               = "fire"
 	VerbNote               = "note"
+	VerbPersonComment      = "person_comment"
 	VerbPRClosed           = "pr_closed"
 	VerbPRDSubmit          = "prd_submit"
 	VerbSupersede          = "supersede"

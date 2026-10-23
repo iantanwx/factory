@@ -121,7 +121,7 @@ func ticketEdges() []edge {
 }
 
 var epicLive = []string{PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
-	SpecSignoff, SpecApproved, Decomposing, Execution, Escalated}
+	SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 
 func epicEdges() []edge {
 	e := []edge{
@@ -145,9 +145,23 @@ func epicEdges() []edge {
 		// Text: a document merged in review counts as sign-off.
 		{PRDReview, "doc_merged", PRDSignoff},
 		{SpecReview, "doc_merged", SpecSignoff},
+		// Added (1.12): a person's unanswered comment on a document in
+		// review or sign-off goes to the amender. A revision returns to
+		// review, and a reply on a signed-off document that changed
+		// nothing returns to sign-off. A merge while amending is the
+		// sign-off.
+		{PRDReview, "person_comment", PRDAmending},
+		{PRDSignoff, "person_comment", PRDAmending},
+		{SpecReview, "person_comment", SpecAmending},
+		{SpecSignoff, "person_comment", SpecAmending},
+		{PRDAmending, "prd_amended", PRDSignoff},
+		{SpecAmending, "spec_amended", SpecReview},
+		{SpecAmending, "spec_amended", SpecSignoff},
+		{PRDAmending, "doc_merged", PRDSignoff},
+		{SpecAmending, "doc_merged", SpecSignoff},
 	}
 	// Text: a closed document PR escalates and never cancels.
-	e = append(e, each([]string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff}, "pr_closed", Escalated)...)
+	e = append(e, each([]string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending}, "pr_closed", Escalated)...)
 	e = append(e, each(except(epicLive, Escalated), "escalate", Escalated)...)
 	// Added: answer returns to every resume target escalate can store.
 	for _, to := range uniqueValues(epicResume) {
@@ -157,7 +171,7 @@ func epicEdges() []edge {
 	}
 	// Added: the stages that claim without a move, and settlement of
 	// every claim (RESUME_TARGETS in scripts/sdlc/handoff.ts, alpha).
-	for _, s := range []string{PRDReview, PRDAmending, SpecReview} {
+	for _, s := range []string{PRDReview, PRDAmending, SpecReview, SpecAmending} {
 		e = append(e, edge{s, "claim", s}, edge{s, "release", s}, edge{s, "reclaim", s})
 	}
 	e = append(e, edge{SpecDrafting, "release", SpecNeeded}, edge{SpecDrafting, "reclaim", SpecNeeded},
@@ -221,6 +235,9 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.To == ToResume {
 		facts[FactResume] = to
+	}
+	if r.When == "unchanged" {
+		facts[FactAmendFrom], facts[FactAmendHead] = r.To, "h1" // a reply on a signed-off document
 	}
 	return params, facts
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -300,5 +301,91 @@ func TestIntakeRoomOpensOnlyUnderTheIntakeCap(t *testing.T) {
 	w.setIntakeCap(2)
 	if r := w.openRoom("intake", "", "the operator raised the intake cap"); r["state"] != room.Live {
 		t.Fatalf("an intake room under the raised cap = %v", r)
+	}
+}
+
+// A room receives only the secrets its room's stage receives, each in the
+// .env of the entry's directory (parity 9.3, 11.2). An implementer secret
+// with no stored value does not stop an intake room.
+func TestRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
+	w := newHumanWorld(t, roomManifest+"  - name: INTAKE_KEY\n    dir: apps/web\n    stages: [intake-room]\n"+
+		"  - name: IMPL_KEY\n    stages: [implementer]\n")
+	ctx := context.Background()
+	for name, v := range map[string]string{"API_KEY": humanSecret, "INTAKE_KEY": "intake_value_1"} {
+		if err := w.srv.Secrets.Set(ctx, "alpha", name, strings.NewReader(v)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := w.openRoom("intake", "", "the operator wants widgets")
+	if r["state"] != room.Live {
+		t.Fatalf("room = %v", r)
+	}
+	co := r["checkout"].(string)
+	root, err := os.ReadFile(filepath.Join(co, brief.EnvFile))
+	if err != nil || string(root) != "API_KEY='"+humanSecret+"'\n" {
+		t.Fatalf(".env = %v", err)
+	}
+	web, err := os.ReadFile(filepath.Join(co, "apps/web", brief.EnvFile))
+	if err != nil || string(web) != "INTAKE_KEY='intake_value_1'\n" {
+		t.Fatalf("apps/web/.env = %q, %v", web, err)
+	}
+	w.coordinator("room", "close", r["room"].(string))
+	if _, err := os.Stat(filepath.Join(co, "apps/web", brief.EnvFile)); !os.IsNotExist(err) {
+		t.Fatalf("a closed room kept apps/web/.env: %v", err)
+	}
+}
+
+// An idle room whose session still runs gets back only its stage's
+// secrets on reopen, each in the .env of the entry's directory (parity
+// 9.3, 11.2). An implementer secret with no stored value does not stop
+// the reopen. A directory the manifest gained while the room sat idle is
+// excluded too, so git sees no new file.
+func TestReopenedIdleRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
+	const manifest = roomManifest + "  - name: WEB_KEY\n    dir: apps/web\n    stages: [intake-room]\n" +
+		"  - name: IMPL_KEY\n    stages: [implementer]\n"
+	w := newHumanWorld(t, manifest)
+	ctx := context.Background()
+	for name, v := range map[string]string{"API_KEY": humanSecret, "WEB_KEY": "web_value_1", "API2_KEY": "api_value_2"} {
+		if err := w.srv.Secrets.Set(ctx, "alpha", name, strings.NewReader(v)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := w.openRoom("intake", "", "the operator wants widgets")
+	id, co := r["room"].(string), r["checkout"].(string)
+	w.host.EndTurn(w.room(id).Session.ID)
+	w.host.Advance(2 * time.Minute)
+	for range 3 {
+		if err := w.srv.Rooms.Watch(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if idle := w.room(id); idle.State != room.Idle || hasEnv(t, co) {
+		t.Fatalf("idle = %+v", idle)
+	}
+	snap, err := w.opts.Sched.ProjectConfig(ctx, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	grown, err := config.ParseManifest([]byte(manifest + "  - name: API2_KEY\n    dir: apps/api\n    stages: [intake-room]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	*snap.Manifest = *grown
+
+	w.openRoom("intake", "", "the operator is back")
+	again := w.room(id)
+	if again.State != room.Live || again.Sessions != 1 {
+		t.Fatalf("reopened idle = %+v", again)
+	}
+	for dir, want := range map[string]string{"": "API_KEY='" + humanSecret + "'\n", "apps/web": "WEB_KEY='web_value_1'\n",
+		"apps/api": "API2_KEY='api_value_2'\n"} {
+		got, err := os.ReadFile(filepath.Join(co, dir, brief.EnvFile))
+		if err != nil || string(got) != want {
+			t.Fatalf("%s/.env holds the wrong names (%d bytes): %v", dir, len(got), err)
+		}
+	}
+	out, err := exec.Command("git", "-C", co, "status", "--porcelain").Output()
+	if err != nil || len(out) != 0 {
+		t.Fatalf("git status after the reopen = %q, %v", out, err)
 	}
 }

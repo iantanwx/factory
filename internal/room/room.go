@@ -378,7 +378,8 @@ func (s *Service) reopen(ctx context.Context, r *Room) *cli.Refusal {
 }
 
 func (s *Service) writeEnv(ctx context.Context, r *Room, snap *config.ProjectSnapshot) *cli.Refusal {
-	env, err := s.cfg.Secrets.Values(ctx, r.Project, snap.Manifest)
+	manifest := snap.Manifest.ForStage(Stage(r.Kind))
+	env, err := s.cfg.Secrets.Values(ctx, r.Project, manifest)
 	var miss *secrets.MissingSecretsError
 	if errors.As(err, &miss) {
 		return &cli.Refusal{Code: cli.CodeMissingSecret, Rule: "missing_secret",
@@ -390,7 +391,7 @@ func (s *Service) writeEnv(ctx context.Context, r *Room, snap *config.ProjectSna
 	if len(env) == 0 {
 		return nil
 	}
-	if err := brief.WriteEnv(r.Checkout, env); err != nil {
+	if err := brief.WriteEnv(ctx, r.Checkout, brief.GroupEnv(manifest, env)); err != nil {
 		return cli.InternalRefusal(err)
 	}
 	return nil
@@ -440,7 +441,8 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 	if err != nil {
 		return fail(cli.CodeInternal, err)
 	}
-	env, err := s.cfg.Secrets.Values(ctx, r.Project, snap.Manifest)
+	manifest := snap.Manifest.ForStage(Stage(r.Kind))
+	env, err := s.cfg.Secrets.Values(ctx, r.Project, manifest)
 	var miss *secrets.MissingSecretsError
 	if errors.As(err, &miss) {
 		return fail(cli.CodeMissingSecret, fmt.Errorf("project %s has no stored value for %s", r.Project, strings.Join(miss.Names, ", ")))
@@ -451,14 +453,14 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 	run := fmt.Sprintf("%s-s%d", r.ID, r.Sessions+1)
 	b := brief.Brief{RunID: run, Project: r.Project, Stage: Stage(r.Kind), Role: "room", Harness: string(s.cfg.Harness),
 		Model: s.cfg.Model, BaseBranch: sched.DefaultBaseBranch,
-		Secrets: brief.Secrets{Present: snap.Manifest.Names(), Missing: []string{}}}
+		Secrets: brief.Secrets{Present: manifest.Names(), Missing: []string{}}}
 	if r.Item != "" {
 		if it, ref := s.cfg.Machine.Show(ctx, r.Project, r.Item); ref == nil {
 			b.Item = &brief.Item{ID: it.ID, Kind: string(it.Kind), Title: it.Title, Status: it.Status, Facts: it.Facts}
 			b.AllowedNext = it.AllowedNext
 		}
 	}
-	res, err := brief.Inject(ctx, brief.Injection{Checkout: r.Checkout, Harness: s.cfg.Harness, Pack: s.cfg.Pack, Brief: b, Env: env})
+	res, err := brief.Inject(ctx, brief.Injection{Checkout: r.Checkout, Harness: s.cfg.Harness, Pack: s.cfg.Pack, Brief: b, Env: brief.GroupEnv(manifest, env)})
 	if err != nil {
 		return fail(cli.CodeInternal, err)
 	}

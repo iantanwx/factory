@@ -173,8 +173,11 @@ func (h *HandOff) findPR(ctx context.Context, p config.Project, item string) (*g
 }
 
 // handOff hands one ready_to_merge ticket to the mechanism: only when its
-// PR is open at the reviewed head and loop/eligible is posted on that
-// head. The enqueue row's guard checks the head again inside the write.
+// PR is open at the reviewed head, ready for review, aimed at the default
+// branch, and loop/eligible is posted on that head. A draft or a PR on
+// another base waits: no mechanism merges a draft, and a merge into
+// another branch is no merge of the ticket (alpha premerge.test.ts). The
+// enqueue row's guard checks the head again inside the write.
 // The hand-off follows the move, so a crash between the two leaves a
 // queued ticket with no hand-off, which the next tick's advance repairs.
 // The machine sends a conflicted PR to rework from queued only, so a PR
@@ -184,6 +187,13 @@ func (h *HandOff) handOff(ctx context.Context, p config.Project, mech Mechanism,
 	pr, err := h.findPR(ctx, p, it.ID)
 	if err != nil || pr == nil || pr.State != "open" || pr.Merged() || pr.Head.SHA != reviewed {
 		return err // the reactor owns a merge, a close and a moved head
+	}
+	if pr.Draft {
+		return nil
+	}
+	base, err := h.cfg.GitHub.DefaultBranch(ctx, p)
+	if err != nil || pr.Base.Ref != base {
+		return err
 	}
 	ok, err := h.cfg.GitHub.EligiblePosted(ctx, p.ID, reviewed)
 	if err != nil || !ok {
