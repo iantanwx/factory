@@ -161,7 +161,7 @@ func firstErr(_ PushResult, err error) error { return err }
 // The scan refuses every file the server writes into a checkout (C-bug-1).
 func TestInjectedPathIsRefused(t *testing.T) {
 	for _, p := range []string{".loop/brief.json", ".loop/brief.md", ".loop/prompt.md", ".loop/token",
-		".loop/pending.jsonl", ".loop/pending.lock", ".env", ".claude/skills/loop-turn/SKILL.md", ".agents/skills/loop-x/a.md"} {
+		".loop/pending.jsonl", ".loop/pending.lock", ".loop/env-files", ".env", ".claude/skills/loop-turn/SKILL.md", ".agents/skills/loop-x/a.md"} {
 		t.Run(p, func(t *testing.T) {
 			e := newEnv(t)
 			head := commit(t, e.checkout, "inject", map[string]string{p: "x\n"})

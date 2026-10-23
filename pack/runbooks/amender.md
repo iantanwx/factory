@@ -1,14 +1,21 @@
 ---
 name: loop-amender
-description: The amender's runbook. Revise the PRD of one epic once, after the doc-reviewer rejected it for the first time. Answer each finding in the document or in a reply.
+description: The amender's runbook. Answer the findings on the PRD or the spec of one epic, after the first PRD reject or a person's comment. Answer each finding in the document or in a reply.
 ---
 
 # Amender
 
-The doc-reviewer rejected the PRD of the epic that the brief names, for the first time. The epic is
-in `prd_amending`. You revise the PRD once, from the review findings and from each comment a person
-left. Nobody is present in this run. A second reject sends the epic to the operator, so this round
-is the loop's one chance to settle the findings alone.
+You answer the findings on one document of the epic that the brief names. Nobody is present in
+this run. Two events start you:
+
+- **The first PRD reject.** The doc-reviewer rejected the PRD for the first time. The epic is in
+  `prd_amending`. A second reject sends the epic to the operator. So this round is the loop's one
+  chance to settle the findings alone.
+- **A person's comment.** A person commented on the PRD or the spec in review or in sign-off, and
+  the loop did not answer. The server moved the epic to `prd_amending` or `spec_amending`. The
+  `amend_from` fact in `loop work show <item>` names the state that the comment found.
+
+The epic's state names your document: `prd_amending` is the PRD, and `spec_amending` is the spec.
 
 Read these first, in this order:
 
@@ -20,14 +27,15 @@ Read these first, in this order:
 
 ## 1. Read the findings
 
-1. Run `loop pr show`, and bring the head of the PRD's pull request into the checkout. The turn
-   skill states how.
-2. Run `loop review rounds <item>`, and read the reject.
+1. Run `loop pr show`, and bring the head of the document's pull request into the checkout. The
+   turn skill states how.
+2. Run `loop review rounds <item>`, and read the last verdict. A comment can start you with no
+   reject.
 3. Run `loop pr threads`. Read every thread, and every comment that belongs to no thread. A loose
-   comment from a person is real work.
+   comment from a person is real work. The summary of a person's review is a loose comment.
 4. When `loop pr show` reports a conflict, merge the base before you write any reply. A conflict
-   found later forces you to rewrite each reply. Resolve only conflicts inside the PRD. Escalate any
-   other conflict.
+   found later forces you to rewrite each reply. Resolve only conflicts inside your document.
+   Escalate any other conflict.
 
 ## 2. Answer each finding once
 
@@ -58,15 +66,19 @@ forces its mechanism:
 loop decision file --title "Which rung holds: <lesson>" --trigger "<the event that forces it>"
 ```
 
-Never build the mechanism in this run. This run changes the PRD only.
+Never build the mechanism in this run. This run changes your document only.
 
 ## 4. Land the revision
 
-1. Commit. Run `loop gates --docs`.
-2. Push with `loop branch push`.
-3. Run `loop pr open --title "<the PRD title>"`. It shows the open pull request, and it returns the
-   epic to `prd_review`. Run it after every reply.
-4. Finish with `loop run finish --outcome done`.
+1. When you changed the document, commit, and run `loop gates --docs`. Push with
+   `loop branch push`.
+2. Run `loop pr open --title "<the document title>"`. It shows the open pull request, and the
+   server picks where the epic goes. A push returns the document to review. With no push, a
+   document that a comment found in sign-off returns to sign-off. Run it after every reply.
+3. Finish with `loop run finish --outcome done`.
+
+A reply that changes nothing costs no review round. So change a signed-off document only when a
+finding asks for it.
 
 ## 5. When a person must decide
 
@@ -84,5 +96,5 @@ When the pull request merged during your run, stop. The merge is the sign-off. F
 ## 6. Never
 
 - Never resolve a thread. The person who opened it judges your answer.
-- Never change code, and never change a file other than the PRD.
+- Never change code, and never change a file other than your document.
 - Never take a second document.

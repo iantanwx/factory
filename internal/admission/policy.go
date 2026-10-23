@@ -276,7 +276,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 			if ref := intakeFull(epics, limits[0]); ref != nil {
 				return refusalErr{ref}
 			}
-		} else if ref, err := capRefusal(tx, r.Stage, limits, 0); err != nil || ref != nil {
+		} else if ref, err := capRefusal(tx, r.Stage, limits, ""); err != nil || ref != nil {
 			if err != nil {
 				return err
 			}
@@ -431,6 +431,14 @@ type Candidate struct {
 // nothing now. A stage that claims no item returns a candidate with no
 // item when it may start.
 func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate, *cli.Refusal) {
+	return a.PeekAs(ctx, project, stage, "")
+}
+
+// PeekAs is Peek asked from inside a run. The caps leave that run out of
+// their count, so a run that fills its stage's cap still finds the work
+// it was started for, such as the fixer's waiting escalations. Every other
+// live run still counts.
+func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Candidate, *cli.Refusal) {
 	if a.items == nil {
 		return nil, cli.InternalRefusal(errors.New("admission: no machine attached"))
 	}
@@ -463,7 +471,7 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 		if stage == config.StageIntake {
 			return nil
 		}
-		ref, err := capRefusal(q, stage, limits, 0)
+		ref, err := capRefusal(q, stage, limits, run)
 		full = ref != nil
 		if err != nil || full || stage != stageFixer {
 			return err

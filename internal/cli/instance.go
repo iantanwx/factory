@@ -45,13 +45,15 @@ const (
 	TokenPath       = LoopDir + "/" + TokenFileName
 	PendingFile     = LoopDir + "/" + PendingFileName
 	PendingLockFile = LoopDir + "/pending.lock"
+	// EnvRecordFile names each .env the server wrote into the checkout.
+	EnvRecordFile = LoopDir + "/env-files"
 )
 
 // InjectedFiles lists every file the server writes into a checkout. The
 // run start excludes them and refuses a repository that tracks one, and
 // the push scan refuses a commit that touches one.
 func InjectedFiles() []string {
-	return []string{BriefJSONFile, BriefMDFile, PromptFile, EnvFile, TokenPath, PendingFile, PendingLockFile}
+	return []string{BriefJSONFile, BriefMDFile, PromptFile, EnvFile, TokenPath, PendingFile, PendingLockFile, EnvRecordFile}
 }
 
 // maxSocketPath keeps a socket path below the sun_path limit: 108 bytes

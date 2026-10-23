@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,8 @@ import (
 	"testing/fstest"
 
 	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/secrets"
 )
 
 // gitRepo makes a repository with one commit that tracks .loop/config.yaml
@@ -70,10 +73,20 @@ func testBrief() Brief {
 	}
 }
 
+// inject writes env into the root .env.
 func inject(t *testing.T, dir string, env map[string]string) Result {
 	t.Helper()
+	var files EnvFiles
+	if env != nil {
+		files = EnvFiles{"": env}
+	}
+	return injectFiles(t, dir, files)
+}
+
+func injectFiles(t *testing.T, dir string, files EnvFiles) Result {
+	t.Helper()
 	res, err := Inject(context.Background(), Injection{
-		Checkout: dir, Harness: agenthost.Claude, Pack: testPack(), Brief: testBrief(), Env: env,
+		Checkout: dir, Harness: agenthost.Claude, Pack: testPack(), Brief: testBrief(), Env: files,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -221,6 +234,52 @@ func TestPackPerHarnessAndHash(t *testing.T) {
 	}
 }
 
+// RefreshPack writes a new pack into the checkout of a running session. It
+// leaves the brief as it was and git clean, and a tracked skill directory
+// refuses it with a *ConflictError before it writes.
+func TestRefreshPackWritesTheNewPackOnly(t *testing.T) {
+	ctx := context.Background()
+	dir := gitRepo(t)
+	inject(t, dir, nil)
+	before, err := os.ReadFile(filepath.Join(dir, BriefJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := Pack{Version: "v2.0.0", FS: fstest.MapFS{
+		"loop-implementer/SKILL.md":   {Data: []byte("# implementer runbook v2\n")},
+		"loop-coordinator/SKILL.md":   {Data: []byte("# coordinator runbook v2\n")},
+		"loop-code-reviewer/SKILL.md": {Data: []byte("# reviewer runbook\n")},
+	}}
+	if err := RefreshPack(ctx, dir, agenthost.Claude, next); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		Runbook(agenthost.Claude, "implementer"): "# implementer runbook v2\n",
+		Runbook(agenthost.Claude, "coordinator"): "# coordinator runbook v2\n",
+	} {
+		if got, err := os.ReadFile(filepath.Join(dir, path)); err != nil || string(got) != want {
+			t.Fatalf("%s = %q, %v; want %q", path, got, err, want)
+		}
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, BriefJSON)); string(after) != string(before) {
+		t.Fatalf("RefreshPack changed the brief:\n%s", after)
+	}
+	if out := git(t, dir, "status", "--porcelain", "--untracked-files=all"); out != "" {
+		t.Fatalf("git status after RefreshPack:\n%s", out)
+	}
+
+	tracked := Runbook(agenthost.Claude, "coordinator")
+	dir = gitRepo(t, tracked)
+	err = RefreshPack(ctx, dir, agenthost.Claude, next)
+	var ce *ConflictError
+	if !errors.As(err, &ce) || !slices.Contains(ce.Paths, tracked) {
+		t.Fatalf("tracked %s: err = %v", tracked, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, tracked)); string(got) != tracked+"\n" {
+		t.Fatalf("a refused RefreshPack wrote %s: %q", tracked, got)
+	}
+}
+
 func TestRemoveEnv(t *testing.T) {
 	dir := gitRepo(t)
 	inject(t, dir, map[string]string{"A": "1"})
@@ -232,5 +291,119 @@ func TestRemoveEnv(t *testing.T) {
 	}
 	if err := RemoveEnv(dir); err != nil {
 		t.Fatalf("a second remove: %v", err)
+	}
+}
+
+func readEnv(t *testing.T, path string) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("%s mode = %v, %v", path, fi.Mode().Perm(), err)
+	}
+	env, err := secrets.ParseEnv(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env
+}
+
+const appManifest = `secrets:
+  - name: ROOT_KEY
+  - name: WEB_KEY
+    dir: apps/web
+  - name: BATCH_KEY
+    dir: apps/batch
+`
+
+// Each .env holds only the names whose entries name its directory: the
+// root .env holds no app's key, and apps/web/.env holds the web key only
+// (parity 9.3). A directory the checkout lacks is made. git stays clean,
+// and RemoveEnv deletes every file.
+func TestEnvWritesEachDirWithOnlyItsNames(t *testing.T) {
+	dir := gitRepo(t, "apps/web/package.json")
+	m, err := config.ParseManifest([]byte(appManifest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	injectFiles(t, dir, GroupEnv(m, map[string]string{"ROOT_KEY": "r1", "WEB_KEY": "w1", "BATCH_KEY": "b1"}))
+	for rel, want := range map[string]map[string]string{
+		".env":            {"ROOT_KEY": "r1"},
+		"apps/web/.env":   {"WEB_KEY": "w1"},
+		"apps/batch/.env": {"BATCH_KEY": "b1"},
+	} {
+		if got := readEnv(t, filepath.Join(dir, rel)); !maps.Equal(got, want) {
+			t.Fatalf("%s = %v, want %v", rel, got, want)
+		}
+	}
+	if out := git(t, dir, "status", "--porcelain", "--untracked-files=all"); out != "" {
+		t.Fatalf("git status after injection:\n%s", out)
+	}
+	if err := RemoveEnv(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{".env", "apps/web/.env", "apps/batch/.env", EnvRecord} {
+		if _, err := os.Lstat(filepath.Join(dir, rel)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s stays after RemoveEnv: %v", rel, err)
+		}
+	}
+}
+
+// A later injection with fewer files removes the .env the last one wrote,
+// so a name the manifest moved or dropped leaves no copy behind.
+func TestEnvRewriteRemovesTheOldFiles(t *testing.T) {
+	dir := gitRepo(t)
+	injectFiles(t, dir, EnvFiles{"": {"A": "1"}, "apps/web": {"B": "2"}})
+	injectFiles(t, dir, EnvFiles{"": {"A": "1"}})
+	if _, err := os.Stat(filepath.Join(dir, "apps/web/.env")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the old apps/web/.env stays: %v", err)
+	}
+	if got := readEnv(t, filepath.Join(dir, EnvFile)); !maps.Equal(got, map[string]string{"A": "1"}) {
+		t.Fatalf(".env = %v", got)
+	}
+}
+
+// A directory that is a symlink out of the checkout gets no .env, and a
+// record that names a path outside the checkout deletes nothing there.
+func TestEnvStaysInsideTheCheckout(t *testing.T) {
+	dir := gitRepo(t)
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "apps"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "apps/web")); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteEnv(context.Background(), dir, EnvFiles{"apps/web": {"B": "2"}}); err == nil {
+		t.Fatal("WriteEnv wrote through a symlink out of the checkout")
+	}
+	if _, err := os.Stat(filepath.Join(outside, ".env")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a .env landed outside the checkout: %v", err)
+	}
+	victim := filepath.Join(outside, ".env")
+	if err := os.WriteFile(victim, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rel, _ := filepath.Rel(dir, victim)
+	if err := os.WriteFile(filepath.Join(dir, EnvRecord), []byte(rel+"\napps/web/.env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = RemoveEnv(dir)
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatalf("RemoveEnv deleted a file outside the checkout: %v", err)
+	}
+}
+
+// A tracked file at an app's .env refuses the run, as the root .env does.
+func TestTrackedAppEnvIsAConflict(t *testing.T) {
+	dir := gitRepo(t, "apps/web/.env")
+	_, err := Inject(context.Background(), Injection{Checkout: dir, Harness: agenthost.Claude, Pack: testPack(), Brief: testBrief(),
+		Env: EnvFiles{"apps/web": {"B": "2"}}})
+	var ce *ConflictError
+	if !errors.As(err, &ce) || !slices.Contains(ce.Paths, "apps/web/.env") {
+		t.Fatalf("err = %v", err)
 	}
 }
