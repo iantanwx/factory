@@ -247,6 +247,12 @@ var surface = []Verb{
 	topLevel(client("host", "doctor", "check the host's setup", hostOnly, nil)),
 	topLevel(server("host", "doctor-github", "run the GitHub checks of loop doctor on the server, which holds the credentials", hostOnly, nil)),
 
+	topLevel(client("meta", "gates", "run the gates of the project checkout in the current directory: the loop's own gates, then the stack commands of .loop/config.yaml", anyone, nil,
+		Flag{Name: "fast", Type: FlagBool, Description: "run every gate except test and build"},
+		Flag{Name: "docs", Type: FlagBool, Description: "run only the gates that read documents, for a stage that writes only Markdown"},
+		Flag{Name: "only", Type: FlagString, Description: "run one gate"},
+		Flag{Name: "list", Type: FlagBool, Description: "name the selected gates and run none"},
+		Flag{Name: "base", Type: FlagString, Description: "the ref the change is compared with; the pull request's base in CI, else the remote's default branch"})),
 	topLevel(server("meta", "schema", "print the CLI schema", anyone, nil)),
 	topLevel(server("meta", "status", "show the server's status", anyone, nil)),
 	topLevel(server("meta", "version", "print the version", anyone, nil)),

@@ -45,6 +45,7 @@ func TestRefusalCodeTable(t *testing.T) {
 		CodeGitHubRefused:        {3, codes.FailedPrecondition, false},
 		CodeRoutedToLoop:         {3, codes.FailedPrecondition, false},
 		CodeNoOperatorStatement:  {3, codes.FailedPrecondition, false},
+		CodeGatesFailed:          {3, codes.FailedPrecondition, false},
 		CodeStoryUnknown:         {3, codes.FailedPrecondition, false},
 	}
 	r := New()

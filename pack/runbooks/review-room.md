@@ -31,7 +31,7 @@ owns, what you doubt and its evidence, and what you could not read.
 
 ## 2. Edit when the operator asks
 
-Make each edit the operator asks for, and only that edit. Run the project's gates, commit, and push
+Make each edit the operator asks for, and only that edit. Commit, run `loop gates --fast`, and push
 at once with `loop branch push`. The checkout may not survive the review.
 
 A push from this room is a new head. The server returns the item to review, so a reviewer reads

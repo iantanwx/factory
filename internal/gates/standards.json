@@ -1,0 +1,40 @@
+{
+  "$comment": [
+    "The needles the standards gate forbids, held as data so no scanned source file spells one.",
+    "The gate reads a file with the needles of the language its extension names, and it reads",
+    "no .json file, so this file is invisible to the scan and the gate's own Go source is clean.",
+    "",
+    "escapes: a type-checker escape hatch. Forbidden outright: fix the type instead.",
+    "suppressions: a lint suppression. Group 1 holds the comma-separated rules it silences, and",
+    "an empty group silences every rule. Each count must match .loop/suppressions.json exactly.",
+    "focus: a focused test, which runs one case and still reports green."
+  ],
+  "languages": [
+    {
+      "name": "typescript",
+      "extensions": [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
+      "escapes": ["@ts-ignore\\b", "@ts-expect-error\\b", "\\bas any\\b"],
+      "suppressions": ["(?://|/\\*|\\{/\\*)\\s*(?:eslint-disable|oxlint-disable)(?:-next-line|-line)?\\b([^*}\\n]*)"],
+      "focus": ["\\b(?:it|test|describe)\\.only\\s*\\("]
+    },
+    {
+      "name": "go",
+      "extensions": [".go"],
+      "suppressions": ["//nolint(?::([\\w,-]+))?", "//lint:(?:file-)?ignore\\s+(\\S+)"]
+    },
+    {
+      "name": "python",
+      "extensions": [".py", ".pyi"],
+      "escapes": ["#\\s*type:\\s*ignore\\b", "#\\s*pyright:\\s*ignore\\b", "\\bcast\\(\\s*Any\\s*,"],
+      "suppressions": [
+        "(?i)#\\s*noqa\\b(?::\\s*([A-Z]+[0-9]+(?:[,\\s]+[A-Z]+[0-9]+)*))?",
+        "#\\s*pylint:\\s*disable(?:-next)?=([\\w-]+(?:\\s*,\\s*[\\w-]+)*)"
+      ]
+    },
+    {
+      "name": "rust",
+      "extensions": [".rs"],
+      "suppressions": ["^\\s*#!?\\[(?:allow|expect)\\(([^)]*)\\)"]
+    }
+  ]
+}

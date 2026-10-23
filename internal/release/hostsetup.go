@@ -141,6 +141,22 @@ func storeHostSecret(ctx context.Context, l Layout, name string, value []byte) e
 	return secrets.New(db, keys).Set(ctx, config.HostScope, name, strings.NewReader(string(value)))
 }
 
+// ReadSecret reads one value from the secret store directly, as
+// storeHostSecret writes one. `loop register` reads the global release
+// token with it, to copy the token into a project's Actions secrets.
+func ReadSecret(ctx context.Context, l Layout, scope, name string) ([]byte, error) {
+	keys, err := secrets.NewFileKeyProvider(l.KeyFile())
+	if err != nil {
+		return nil, err
+	}
+	db, err := store.Open(ctx, l.DB())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	return secrets.New(db, keys).Get(ctx, scope, name)
+}
+
 // harnesses turns off each harness's update prompt and trusts the checkout
 // root, as `loop doctor` checks them.
 func (s *HostSetup) harnesses(cfg *config.HostConfig) ([]string, error) {

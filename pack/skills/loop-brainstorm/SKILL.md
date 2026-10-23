@@ -36,6 +36,11 @@ time.
 Every requirement traces to a story label, or to the operator's own words, quoted. A line with no
 source is a guess. Delete it, or move it to Open questions.
 
+Quote the operator's words under the story that they ask for. Then each requirement cites its
+story on the line under it, as `→ § US-01`. A requirement can also cite a file of the repository,
+such as an ADR. The `citations` gate refuses a requirement with no citation, and a citation whose
+file or heading does not exist.
+
 When the operator states a preference as a fact, write it as the operator's statement. Do not
 upgrade it to a finding.
 
@@ -55,10 +60,14 @@ keep it out of the PRD.
 
 ## 4. What a PRD holds
 
-1. **Stories**: each story with its label.
-2. **Scope check**: the two questions and their answers.
+Start from the template, `../loop-brainstorm/prd.md`. It holds these sections, in this order, with
+a good and a bad example of each.
+
+1. **Stories**: each story under a heading that starts with its label, with the operator's words.
+2. **Scope check**: the two questions, their answers, and the sizing block. The `prd` gate
+   refuses a block with a missing line, a placeholder, or a verdict other than proceed.
 3. **Goal**: what a user can do afterwards. Name no technology.
-4. **Requirements**: one testable line each, each one traced to a story label.
+4. **Requirements**: one testable line each, each one with a `→` citation under it.
 5. **Acceptance criteria**: numbered A1, A2 and so on. One promise each, in product language. Each
    one can fail. Include what the product must refuse.
 6. **Boundaries with other epics**: each shared thing and its owner, and the PRDs you checked.
@@ -84,8 +93,9 @@ Name that decision in Open questions, as a blocker.
 
 When the operator says the PRD is ready:
 
-1. Write the PRD where the project keeps its PRDs. The project's agent instructions name the place.
-2. Run the project's document gates.
+1. Write the PRD at `docs/prd/<slug>.md`. `../loop-sdlc-documents/SKILL.md` states the
+   layout of each document.
+2. Run `loop gates --docs`. Correct each finding.
 3. Commit it.
 4. Run `loop prd submit --path <path> --title "<title>"`.
 

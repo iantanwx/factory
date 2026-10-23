@@ -4,7 +4,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -14,7 +13,6 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
-	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/room"
@@ -139,41 +137,19 @@ func TestInjectionWritesEveryRunbookAndSkillForEachHarness(t *testing.T) {
 	}
 }
 
-// TestTriageRubricMatchesTheServer holds the rubric's tables to the cells
-// the server routes with.
-func TestTriageRubricMatchesTheServer(t *testing.T) {
-	rubric := read(t, "skills/"+escalation.RubricSkill+"/SKILL.md")
-	th, err := escalation.ThresholdsIn(rubric)
+// TestShippedTriagePasses holds the shipped rubric to the corpus and the
+// server's literal, as pack-check does.
+func TestShippedTriagePasses(t *testing.T) {
+	corpus, err := os.ReadFile(filepath.Join("..", "..", pack.CorpusPath))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if th != escalation.DefaultThresholds {
-		t.Fatalf("rubric thresholds %+v, server %+v", th, escalation.DefaultThresholds)
+	got, err := pack.CheckTriage(pack.Source(), corpus)
+	if err != nil {
+		t.Fatal(err)
 	}
-	row := regexp.MustCompile("(?m)^\\| ([0-9]) \\| `([a-z-]+)` \\| ([^|]+) \\|(?: ([a-z]+) \\|)?$")
-	levels, steps := map[string][]string{}, map[string][]string{}
-	for _, m := range row.FindAllStringSubmatch(rubric, -1) {
-		if m[4] != "" {
-			levels[m[1]] = []string{m[2], strings.TrimSpace(m[3]), m[4]}
-		} else {
-			steps[m[1]] = []string{m[2], strings.TrimSpace(m[3])}
-		}
-	}
-	for _, l := range escalation.Levels {
-		got := levels[string(rune('0'+l.Ordinal))]
-		if !slices.Equal(got, []string{l.Name, l.Answers, string(l.Route)}) {
-			t.Errorf("level %d: rubric %v, server %v", l.Ordinal, got, l)
-		}
-	}
-	for _, s := range escalation.ConvergenceSteps {
-		got := steps[string(rune('0'+s.Ordinal))]
-		if !slices.Equal(got, []string{s.Name, s.Looks}) {
-			t.Errorf("convergence %d: rubric %v, server %v", s.Ordinal, got, s)
-		}
-	}
-	if len(levels) != len(escalation.Levels) || len(steps) != len(escalation.ConvergenceSteps) {
-		t.Errorf("the rubric holds %d levels and %d steps, the server %d and %d",
-			len(levels), len(steps), len(escalation.Levels), len(escalation.ConvergenceSteps))
+	for _, f := range got {
+		t.Error(f)
 	}
 }
 

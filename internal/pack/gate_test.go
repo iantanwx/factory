@@ -109,6 +109,37 @@ func TestGateReportsTheLineOfEachFinding(t *testing.T) {
 	}
 }
 
+func TestCheckCommandsGatesCommandsAndNotThePackVocabulary(t *testing.T) {
+	check := func(text string) []Finding {
+		t.Helper()
+		got, err := CheckCommands("AGENTS.md", text, cli.Surface())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	wantOne(t, check("Run `loop work teleport <item>` first.\n"), "verb", "work teleport")
+	wantOne(t, check("```sh\nloop run finish --verbose\n```\n"), "flag", "--verbose")
+	wantOne(t, check("Run `loop run finish --outcome success`.\n"), "value", "success")
+	// A code on a line that runs loop is a refusal code of that command.
+	wantOne(t, check("If `loop work show <item>` refuses with `LEASE_STOLEN`, stop.\n"), "code", "LEASE_STOLEN")
+	// An unknown word after loop in command position is still a verb.
+	wantOne(t, check("```\nx && loop wrok show\n```\n"), "verb", "wrok")
+	// A project's own names, tools and upper-case words are its business,
+	// and so is loop as a word.
+	text := strings.Join([]string{
+		"Run `pnpm test` with `GITHUB_TOKEN` set. Ian owns MAX_RETRIES in Linear.",
+		"Quote `watch the loop for stalls` and `so the loop is fast`.",
+		"On `NOT_FOUND` from `loop work show <item>`, stop.",
+		"```bash",
+		"loop gates --fast",
+		"```",
+	}, "\n")
+	if got := check(text); len(got) != 0 {
+		t.Fatalf("want no findings, got %v", got)
+	}
+}
+
 // fixture is a minimal valid pack source.
 func fixture() fstest.MapFS {
 	return fstest.MapFS{

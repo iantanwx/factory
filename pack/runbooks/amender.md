@@ -16,6 +16,7 @@ Read these first, in this order:
 2. `../loop-sdlc-glossary/SKILL.md`, the words this runbook uses.
 3. `../loop-sdlc-triage/SKILL.md`, before you escalate anything.
 4. `../loop-encode-lessons/SKILL.md`, before you record a lesson.
+5. `../loop-sdlc-documents/SKILL.md`, where each document lives and the gates that check it.
 
 ## 1. Read the findings
 
@@ -61,7 +62,7 @@ Never build the mechanism in this run. This run changes the PRD only.
 
 ## 4. Land the revision
 
-1. Run the project's document gates. Commit.
+1. Commit. Run `loop gates --docs`.
 2. Push with `loop branch push`.
 3. Run `loop pr open --title "<the PRD title>"`. It shows the open pull request, and it returns the
    epic to `prd_review`. Run it after every reply.

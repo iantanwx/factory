@@ -15,8 +15,11 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
+// ReleaseRepo is the loop repository, owner/name, which holds the releases.
+const ReleaseRepo = "slothware-labs/factorio"
+
 // Homepage is the loop repository.
-const Homepage = "https://github.com/slothware-labs/factorio"
+const Homepage = "https://github.com/" + ReleaseRepo
 
 // DefaultReleaseBase is where `loop upgrade` reads releases: the GitHub
 // release download path of the loop repository. The release's signature,

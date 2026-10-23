@@ -122,7 +122,8 @@ loop pr open --title "<title>" --body "<body>"
 hands the item to review, and that move ends your claim on the item. So run it once, after every
 other write of the run, even when the pull request is already open.
 
-Run the project's gates before you push. The project's `.loop/config.yaml` names them. Commit
+Run `loop gates --fast` before you push. It runs the loop's own gates, then each stack gate that
+the project's `.loop/config.yaml` names, except `test` and `build`. CI runs every gate. Commit
 first, because a gate can read commits and not the working tree.
 
 Finish every run with one command, as the last command of the run:

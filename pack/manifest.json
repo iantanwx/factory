@@ -12,15 +12,15 @@
     },
     "doc-reviewer": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents"]
     },
     "amender": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-encode-lessons"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-encode-lessons", "loop-sdlc-documents"]
     },
     "spec-author": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents"]
     },
     "decomposer": {
       "attended": false,
@@ -36,7 +36,7 @@
     },
     "coordinator": {
       "attended": true,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-reflect", "loop-encode-lessons"],
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-reflect", "loop-encode-lessons", "loop-sdlc-documents"],
       "policy": "coordinator"
     },
     "intake-room": {
@@ -57,6 +57,7 @@
     "loop-encode-lessons",
     "loop-init",
     "loop-reflect",
+    "loop-sdlc-documents",
     "loop-sdlc-glossary",
     "loop-sdlc-review",
     "loop-sdlc-split",

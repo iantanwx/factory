@@ -22,12 +22,25 @@ You need `gh`, logged in to an account that can read `slothware-labs/factorio`.
 
 The same command upgrades a host that already runs the loop.
 
+## Let project CI download the loop
+
+Do this once for each host.
+
+- [ ] Make a fine-grained GitHub token with read access to the contents of
+      `slothware-labs/factorio`, and store it:
+
+  ```sh
+  loop secret set LOOP_RELEASE_TOKEN --scope global
+  ```
+
+  `loop register` copies it into each project's Actions secrets.
+
 ## Add a project
 
 - [ ] In the project's clone, run `loop register`.
-- [ ] If the project has no tests or CI yet, start Claude Code or Codex in
-      the clone and say "set up my loop". It interviews you, then sets up
-      the stack, tests, CI and `.loop/config.yaml`.
+- [ ] If the project has no CI yet, start Claude Code or Codex in the clone
+      and say "set up my loop". It asks for the stack, then sets up the
+      scaffold, the stack gates, CI and `.loop/config.yaml`.
 
 ## Open items
 

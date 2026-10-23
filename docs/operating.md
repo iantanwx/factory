@@ -156,14 +156,34 @@ is already right, so you can run it again:
 - It registers the project with the server, with the repository name as
   its id. Give another id as `loop register <id>`.
 
+- It copies the global `LOOP_RELEASE_TOKEN` secret into the repository's
+  Actions secrets, so CI can download `loop`. The secret is a fine-grained
+  token that reads the contents of `slothware-labs/factorio`. Store it once
+  with `loop secret set LOOP_RELEASE_TOKEN --scope global`.
+
 The loop App must be installed on the repository. When it is not, the
 registration fails and says so.
 
-When the project has no tests or CI yet, start Claude Code or Codex in the
-clone and say "set up my loop". That starts the `loop-init` skill. It asks you for the stack, then makes
-a scaffold with one passing test, a CI workflow with a `ci` job, and
-`.loop/config.yaml`. It pushes them, waits for CI to pass, and runs
-`loop register` again, so the ruleset requires the `ci` check.
+When the project has no CI yet, start Claude Code or Codex in the clone
+and say "set up my loop". That starts the `loop-init` skill. It asks you
+for the stack, then makes a scaffold with one passing test, a command for
+each stack gate, a CI workflow with a `gates` job, and `.loop/config.yaml`.
+It pushes them, waits for CI to pass, and runs `loop register` again, so
+the ruleset requires the `gates` check.
+
+## The gates
+
+`loop gates` is the definition of done in a project. Agents run it before
+each push, and the project's CI runs it on each pull request. The loop
+ships the gates that do not depend on the stack: commit messages,
+suppressions, the agent-facing documents, ADRs, PRDs and their citations,
+the correction ledger, prose and secrets. Then it runs the command that
+`.loop/config.yaml` names for each stack gate: `format`, `lint`, `audit`,
+`typecheck`, `test` and `build`. `audit` runs only when the change touches
+a lock file. `secrets` runs gitleaks, in CI only.
+
+`loop gates --fast` skips `test` and `build`, `loop gates --docs` runs the
+document gates alone, and `loop gates --only <gate>` runs one.
 
 `loop project add alpha --repo owner/alpha --path /home/me/src/alpha` does
 the registration step alone.

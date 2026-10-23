@@ -5,8 +5,8 @@ description: Set up a project repository for the loop with the operator. Use it 
 
 # loop-init
 
-The loop needs three things in a project repository before it can work there: a test command,
-CI that runs that command on each pull request, and `.loop/config.yaml`. This skill makes them
+The loop needs three things in a project repository before it can work there: a command for
+each stack gate, CI that runs `loop gates` on each pull request, and `.loop/config.yaml`. This skill makes them
 with the operator. The operator decides each choice. You ask, you build and you check.
 
 The operator starts it with a plain request, such as "set up my loop". Run it in the project's
@@ -28,11 +28,13 @@ Get these answers, in this order:
 
 1. **The project.** One sentence: what it is, and who uses it.
 2. **The stack.** The language, the framework, and the package manager.
-3. **The tests.** The test framework, and the command that runs the tests.
-4. **The other checks.** A linter, a formatter or a type check, if the operator wants one.
 
-Keep the list short. Each check you add runs on each pull request, and an agent must keep each
-one green.
+Do not ask which checks to run. The loop decides them. `loop gates` runs the loop's own gates
+on each change: commit messages, suppressions, the agent-facing documents, prose and secrets.
+Then it runs one command for each stack gate that `.loop/config.yaml` names: `format`, `lint`,
+`audit`, `typecheck`, `test` and `build`. You choose each command from the stack's usual tools.
+For example, a Go project uses `gofmt`, `go vet`, `govulncheck`, `go build`, `go test` and
+`go build`. A stack with no type checker uses its strictest static check as `typecheck`.
 
 ## 3. The scaffold
 
@@ -44,18 +46,53 @@ Make the smallest project that the stack's own tool makes, for example `go mod i
 - a `README.md` with the sentence from the interview, and the commands that build and test the
   project.
 
-Add no dependency that the operator did not choose. Run the test command, and show the operator
-that it passes.
+Add no dependency that the operator did not choose, except the tools that the stack gates need.
+Run each stack gate command, and show the operator that each one passes.
 
 ## 4. CI
 
-Write `.github/workflows/ci.yml` with one job named `ci`. The job must:
+Write `.github/workflows/ci.yml` with one job named `gates`. Put the stack's setup steps where the
+template says, for example `actions/setup-go` with the version from `go.mod`.
 
-- run on `pull_request`, on `push` to the default branch, and on `merge_group`
-- install the stack and its dependencies
-- run each check from the interview, and then the test command.
+```yaml
+name: CI
 
-Keep the job name `ci`. The loop ruleset requires the checks by name.
+on:
+  pull_request:
+  push:
+    branches: [<default branch>]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      # The commits gate reads the branch, and the secrets gate reads every commit.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # <the stack's setup steps>
+      - name: Install the gate tools
+        env:
+          GH_TOKEN: ${{ secrets.LOOP_RELEASE_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin" "$RUNNER_TEMP/loop"
+          gh release download -R slothware-labs/factorio -D "$RUNNER_TEMP/loop" -p loop-linux-amd64 -p checksums.txt
+          (cd "$RUNNER_TEMP/loop" && sha256sum -c --ignore-missing checksums.txt)
+          install -m 755 "$RUNNER_TEMP/loop/loop-linux-amd64" "$RUNNER_TEMP/bin/loop"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" |
+            tar -xz -C "$RUNNER_TEMP/bin" gitleaks
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Run the gates
+        run: loop gates
+```
+
+Keep the job name `gates`. The loop ruleset requires the checks by name. `loop register` puts the
+release token secret in the repository.
 
 ## 5. Project config
 
@@ -65,8 +102,18 @@ Write `.loop/config.yaml`:
 merge:
   mechanism: direct
 gates:
+  - name: format
+    run: <the command that fails on an unformatted file>
+  - name: lint
+    run: <the lint command>
+  - name: audit
+    run: <the dependency audit command>
+  - name: typecheck
+    run: <the type check command>
   - name: test
     run: <the test command>
+  - name: build
+    run: <the build command>
 stages:
   implementer: {}
   code-reviewer: {}
@@ -75,10 +122,11 @@ stages:
   spec-author: {}
   decomposer: {}
   fixer: {}
+  reproducer: {}
 ```
 
-Add one gate for each other check from the interview. A gate name is a lower-case identifier.
-Agents run each gate before they open a pull request.
+Name all six stack gates. `loop gates` fails a gate that the config does not name. Run
+`loop gates` in the clone, and fix each finding before you go on.
 
 ## 6. Land it
 
@@ -86,7 +134,7 @@ Agents run each gate before they open a pull request.
 2. Commit them on the default branch, and push. In an empty repository, this first push makes
    the default branch.
 3. Watch the CI run with `gh run watch` until it passes. Fix a failure before you go on.
-4. Run `loop register` again. It now finds the `ci` check, and the ruleset requires it.
+4. Run `loop register` again. It now finds the `gates` check, and the ruleset requires it.
 5. Run `loop doctor`, and fix each line that fails.
 
 Tell the operator that the project is ready, and that the coordinator chat takes new work.

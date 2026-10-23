@@ -90,8 +90,8 @@ The code-reviewer runs your test at the merge base, and a pass there rejects the
 ## 4. Finish the work
 
 1. Commit. A gate can read commits and not the working tree.
-2. Run the project's gates, and the tests the policy names for the directories you changed. Both
-   must be green. CI runs the full suite, so run it here only when the policy says so.
+2. Run `loop gates --fast`, and the tests the policy names for the directories you changed. Both
+   must be green. CI runs every gate, so run `loop gates` here only when the policy says so.
 3. A test that times out in a file you did not change is load. Run that file alone once. When it
    passes alone, name the file and both runs in the body. When it fails alone, your change broke
    it, so repair it.

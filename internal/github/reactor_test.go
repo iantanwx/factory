@@ -91,7 +91,9 @@ func TestMergeMovesTheTicketToDone(t *testing.T) {
 	other := e.ticket(machine.InReview, shaA)
 	w.Add(&gt.PR{Head: BranchFor(done), HeadSHA: shaA, State: "closed", Merged: true, MergeSHA: shaM})
 	w.Add(&gt.PR{Head: BranchFor(other), HeadSHA: shaA, Base: "release", State: "closed", Merged: true, MergeSHA: shaM})
-	NewReactor(e.svc).Reconcile(ctx) //nolint:errcheck // Reconcile never fails
+	if err := NewReactor(e.svc).Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if it := e.status(done); it.Status != machine.Done || it.Fact(machine.FactMergedSHA) != shaM {
 		t.Fatalf("merged ticket: %s %v", it.Status, it.Facts)
 	}

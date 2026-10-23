@@ -92,8 +92,8 @@ names a verb, and the transition table picks the state.
   diff since that head.
 - **Named finding**: a finding that an earlier round wrote. A later round judges the named findings
   and the new diff, and nothing else.
-- **Gate**: a command that the project's `.loop/config.yaml` lists. A run starts it on its own
-  host.
+- **Gate**: a check that `loop gates` runs. The loop ships its own gates, and the project's
+  `.loop/config.yaml` names a command for each stack gate. A run starts them on its own host.
 - **Check**: a result that CI reports on a pull request. A missing check counts as a failed check.
 - **Eligible**: a pull request with a pass at its current head and a green build. Only an eligible
   pull request merges.

@@ -19,6 +19,8 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/pack"
+	"github.com/iantanwx/loop/internal/release"
+	"github.com/iantanwx/loop/internal/secrets"
 )
 
 // RulesetName is the name of the ruleset `loop register` keeps on a
@@ -46,6 +48,11 @@ func execCmd(ctx context.Context, dir string, stdin []byte, name string, args ..
 	return out, nil
 }
 
+// ReleaseTokenSecret is the global secret that holds a token which reads
+// the loop's releases. register copies it into each project's Actions
+// secrets, so the project's CI downloads loop and runs `loop gates`.
+const ReleaseTokenSecret = "LOOP_RELEASE_TOKEN"
+
 // RegisterReport is the JSON of `loop register`.
 type RegisterReport struct {
 	Project string `json:"project"`
@@ -59,7 +66,10 @@ type RegisterReport struct {
 	Ruleset string   `json:"ruleset"`
 	CI      []string `json:"ci"`
 	Skills  []string `json:"skills"`
-	Added   bool     `json:"added"` // false when the project was registered already
+	// CIToken is "set" when register copied the release token into the
+	// repository's Actions secrets, or "missing" when the host has none.
+	CIToken string `json:"ci_token"`
+	Added   bool   `json:"added"` // false when the project was registered already
 	// MovedFrom is the repository the project named before this register
 	// moved it.
 	MovedFrom string `json:"moved_from,omitempty"`
@@ -124,9 +134,18 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 	if rep.Skills, err = installSkills(ctx, rep.Path); err != nil {
 		return fail(err)
 	}
-	if len(rep.CI) == 0 {
-		rep.Next = "the repository has no CI yet; start a harness session in " + rep.Path + " and say \"set up my loop\""
+	if rep.CIToken, err = h.ciToken(ctx, dir, rep); err != nil {
+		return fail(err)
 	}
+	var next []string
+	if rep.CIToken == "missing" {
+		next = append(next, "CI cannot download loop yet: make a fine-grained GitHub token that reads "+release.ReleaseRepo+
+			" (Contents: read), store it with `loop secret set "+ReleaseTokenSecret+" --scope global`, and run loop register again")
+	}
+	if len(rep.CI) == 0 {
+		next = append(next, "the repository has no CI yet; start a harness session in "+rep.Path+" and say \"set up my loop\"")
+	}
+	rep.Next = strings.Join(next, "; then ")
 
 	for _, p := range host.Projects {
 		if strings.EqualFold(p.Repo, rep.Repo) {
@@ -150,6 +169,23 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 	}
 	rep.Added = true
 	return cli.Found(rep)
+}
+
+// ciToken copies the global release token into the repository's Actions
+// secrets. It sets the secret on each run, so a new token reaches every
+// project that registers again.
+func (h *hostVerbs) ciToken(ctx context.Context, instance string, rep RegisterReport) (string, error) {
+	tok, err := h.secret(ctx, release.Layout{Dir: instance}, config.GlobalScope, ReleaseTokenSecret)
+	if errors.Is(err, secrets.ErrSecretNotFound) {
+		return "missing", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err := h.cmd(ctx, rep.Path, tok, "gh", "secret", "set", ReleaseTokenSecret, "-R", rep.Repo); err != nil {
+		return "", err
+	}
+	return "set", nil
 }
 
 // remote sends one server verb, and returns its answer with the App hint

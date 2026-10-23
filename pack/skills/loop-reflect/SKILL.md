@@ -57,9 +57,11 @@ Choose the rung from `../loop-encode-lessons/SKILL.md`, at the highest rung that
 - When no rung above prose fits, say so. Name the judgement the rule needs, and add an example of
   the failure.
 
-Record the correction where the project keeps its lessons, in the same change. Quote the person's
-words, the date, the scope, the rung and the files that hold it. Record it at the prose rung too.
-Nothing reads a conversation later, so the record is the only count of repeats.
+Record the correction in the project's ledger, `docs/solutions/correction-ledger.md`, in the same
+change. Quote the person's words, the date, the scope, the rung and the files that hold it. Record
+it at the prose rung too. Section 4 of `../loop-encode-lessons/SKILL.md` states each column, and
+the `lessons` gate checks the row. Nothing reads a conversation later, so the record is the only
+count of repeats.
 
 Delete the prose that the mechanism replaces.
 

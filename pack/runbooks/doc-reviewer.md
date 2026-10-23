@@ -16,6 +16,7 @@ Read these first, in this order:
 3. `../loop-sdlc-glossary/SKILL.md`, the words this runbook uses.
 4. `../loop-sdlc-split/SKILL.md`, before you name a seam.
 5. `../loop-sdlc-triage/SKILL.md`, before you escalate anything.
+6. `../loop-sdlc-documents/SKILL.md`, the template of each document and the gates that check it.
 
 ## 1. Before you review
 
@@ -33,9 +34,11 @@ the fact, and finish `failed`.
 Check in this order. The first check finds the worst fault.
 
 1. A requirement whose source does not say what the PRD claims. A requirement traces to a user
-   story label, or to the operator's own words, quoted.
+   story label, or to the operator's own words, quoted. The `citations` gate proves that each
+   citation resolves. Only you read whether the source says what the requirement says.
 2. An epic that is too large. Answer the two questions in `../loop-sdlc-split/SKILL.md` yourself.
-   When the epic fails one, name the seam in the comment. The author does not split it.
+   Read the requirements, not the verdict of the scope check. When the epic fails one question,
+   name the seam in the comment. The author does not split it.
 3. An acceptance criterion that cannot fail.
 4. A criterion that the spec-author would have to split, merge or reword.
 5. A boundary that conflicts with another PRD of the project.
@@ -64,7 +67,9 @@ Check in this order:
 7. An open question that the author could have settled from the PRD or the code.
 8. More than two components, or a second component with no line that says why it is not its own
    epic.
-9. A rule of the project that the document breaks.
+9. A section of the spec template that the spec leaves out, or puts out of order. A section with
+   nothing to say holds None.
+10. A rule of the project that the document breaks.
 
 Never reject a spec for an empty Open questions section. When the source is a set of decision
 records that a person wrote, trace those decisions, and do not argue them again.

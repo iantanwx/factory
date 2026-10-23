@@ -51,6 +51,10 @@ type index struct {
 	nouns  map[string]bool
 	global map[string]cli.Flag
 	codes  map[string]bool // refusal codes and exit names
+	// prose skips the word loop where it is no command: an unknown word
+	// after it, with loop out of command position, as in "the loop for
+	// stalls". A project's documents use loop as a word.
+	prose bool
 }
 
 func newIndex(reg *cli.Registry) (*index, error) {
@@ -132,6 +136,39 @@ func CheckText(file, text string, reg *cli.Registry) ([]Finding, error) {
 	return ix.text(file, text), nil
 }
 
+// CheckCommands gates the `loop` commands of any Markdown file, such as a
+// project's agent-facing documents: each verb, flag and enum value, and
+// each refusal code on a line that runs loop. It leaves out the rules that
+// bind the pack alone: vocabulary (R37), and an upper-case word on a line
+// that runs no loop command, which a project's own names fill.
+func CheckCommands(file, text string, reg *cli.Registry) ([]Finding, error) {
+	ix, err := newIndex(reg)
+	if err != nil {
+		return nil, err
+	}
+	ix.prose = true
+	var out []Finding
+	code, _ := split(text)
+	runs := map[int]bool{}
+	for _, s := range code {
+		for _, f := range ix.commands(s) {
+			out = append(out, Finding{File: file, Line: s.line, Kind: f[0], Detail: f[1]})
+		}
+		if len(ix.calls(s)) > 0 {
+			runs[s.line] = true
+		}
+	}
+	for _, s := range code {
+		if runs[s.line] {
+			ix.codeRefs(s, func(c string) {
+				out = append(out, Finding{File: file, Line: s.line, Kind: "code", Detail: c + " is no refusal code or exit name in the schema"})
+			})
+		}
+	}
+	slices.SortStableFunc(out, func(a, b Finding) int { return a.Line - b.Line })
+	return out, nil
+}
+
 func (ix *index) text(file, text string) []Finding {
 	var out []Finding
 	add := func(line int, kind, format string, args ...any) {
@@ -185,15 +222,38 @@ func (ix *index) codeRefs(s span, bad func(string)) {
 // commands checks every `loop` invocation in one piece of code. Each
 // result is a kind and a detail.
 func (ix *index) commands(s span) [][2]string {
+	var out [][2]string
+	for _, toks := range ix.calls(s) {
+		out = append(out, ix.command(toks)...)
+	}
+	return out
+}
+
+// commandAt matches the text before a word in command position: the start,
+// a prompt, a shell operator or a shell keyword.
+var commandAt = regexp.MustCompile(`(?:^\s*(?:\$\s*)?|[|&;(` + "`" + `]\s*|\b(?:if|then|else|do|while|until|time|exec|xargs|sudo)\s+|!\s*)$`)
+
+// calls returns the words of each `loop` invocation in one piece of code.
+func (ix *index) calls(s span) [][]string {
 	text := s.text
 	if s.fenced {
 		text = stripComment(text)
 	}
-	var out [][2]string
+	var out [][]string
 	for _, loc := range loopStart.FindAllStringIndex(text, -1) {
-		out = append(out, ix.command(tokens(text[loc[1]:]))...)
+		toks := tokens(text[loc[1]:])
+		at := loc[0] + strings.Index(text[loc[0]:loc[1]], "loop")
+		if ix.prose && !ix.known(toks) && !commandAt.MatchString(text[:at]) {
+			continue
+		}
+		out = append(out, toks)
 	}
 	return out
+}
+
+// known reports words that start with a noun or a top-level verb.
+func (ix *index) known(toks []string) bool {
+	return len(toks) > 0 && (ix.nouns[toks[0]] || ix.verbs[toks[0]] != nil && ix.verbs[toks[0]].TopLevel)
 }
 
 // stripComment drops a shell comment from a fenced line.

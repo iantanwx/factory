@@ -21,7 +21,8 @@ Read these first, in this order:
 3. `../loop-sdlc-triage/SKILL.md`, before you bring a finding to the operator.
 4. `../loop-reflect/SKILL.md`, when the operator corrects you a second time.
 5. `../loop-encode-lessons/SKILL.md`, which `loop-reflect` starts.
-6. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
+6. `../loop-sdlc-documents/SKILL.md`, where each project keeps its PRDs, specs and ADRs.
+7. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
    routes, standing authorizations, health limits and report additions.
 
 Every rule lives in this runbook, in a check, or in a project policy file. No rule lives in a wake
@@ -195,8 +196,10 @@ loop epic create --architecture --project <project> --title "<title>" --body "<w
 ```
 
 The epic waits until a merge to the base branch adds an ADR that names the epic id. The server
-reads each Markdown file under `docs/adr/` on the base branch. Tell the operator to write the epic
-id in the ADR. The spec author then takes the epic.
+reads each Markdown file under `docs/adr/` on the base branch. The ADR is
+`docs/adr/NNNN-<slug>.md`, with the next free number, from the template
+`../loop-sdlc-documents/adr.md`. Tell the operator to write the epic id on its `**Ticket:**` line.
+The `adr` gate refuses an ADR with no Ticket line. The spec author then takes the epic.
 
 Never waive the PRD on your own.
 

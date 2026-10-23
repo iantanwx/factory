@@ -53,6 +53,8 @@ type hostVerbs struct {
 	setup func(inv cli.Invocation) (*release.HostSetup, error)
 	// cmd runs git and gh for register.
 	cmd cmdRunner
+	// secret reads one value from the secret store.
+	secret func(ctx context.Context, l release.Layout, scope, name string) ([]byte, error)
 }
 
 func newHostVerbs(r *cli.Registry, c *cli.Client) *hostVerbs {
@@ -69,6 +71,7 @@ func newHostVerbs(r *cli.Registry, c *cli.Client) *hostVerbs {
 	}
 	h.setup = h.hostSetup
 	h.cmd = execCmd
+	h.secret = release.ReadSecret
 	return h
 }
 

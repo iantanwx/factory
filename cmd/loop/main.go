@@ -23,6 +23,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if err := registerRelease(r, c); err != nil {
 		panic(err)
 	}
+	if err := registerGates(r); err != nil {
+		panic(err)
+	}
 	if err := r.SetHandler("serve", serveVerb); err != nil {
 		panic(err)
 	}

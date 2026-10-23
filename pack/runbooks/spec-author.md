@@ -16,11 +16,13 @@ Read these first, in this order:
 2. `../loop-sdlc-glossary/SKILL.md`, the words this runbook uses.
 3. `../loop-sdlc-split/SKILL.md`, before you decide the epic is one unit.
 4. `../loop-sdlc-triage/SKILL.md`, before you escalate anything.
+5. `../loop-sdlc-documents/SKILL.md`, where each document lives and the gates that check it.
 
 ## 1. Find the source and the round
 
 1. Read the PRD that the brief names, on the base branch. When the base holds no PRD for the epic,
-   the state is ahead of the record. Report a loop fault, and finish `blocked`.
+   the state is ahead of the record. Report a loop fault, and finish `blocked`. An architecture
+   epic has no PRD. Its source is each ADR in `docs/adr/` whose `**Ticket:**` line names the epic.
 2. Run `loop pr show`. When the epic already has a spec pull request, this is a later round. Bring
    its head into the checkout, read the reject with `loop review rounds <item>`, and read every
    thread with `loop pr threads`. Answer each finding in the spec, or with a reply. Never open a
@@ -30,11 +32,12 @@ Read these first, in this order:
 
 ## 2. Write the spec
 
-Put the spec where the project keeps its specs. The project's agent instructions name the place.
+Write the spec at `docs/plans/<epic id>-<slug>-spec.md`. Start from the template,
+`../loop-sdlc-documents/spec.md`. It holds a good and a bad example of each section.
 
 The spec holds these sections, in this order:
 
-1. **Source**: the PRD, and the story labels it covers.
+1. **Source**: the epic, the PRD or the ADRs, and the story labels it covers.
 2. **Scope check**: one or two components, and what this spec leaves out.
 3. **Decisions**: each one as "X over Y, because Z". A choice with no rejected alternative goes
    under Assumptions, because every ticket inherits it.
@@ -48,8 +51,9 @@ The spec holds these sections, in this order:
     needs, the contracts it proves, and when it is done. The decomposer reads this section.
 11. **Out of scope**: each part with the owner that holds it.
 12. **Contracts**: C1, C2 and so on. Each one is a promise that can fail, and never an
-    implementation. Include what must be refused. Cover the boundary between two work entries.
-    State how a test proves each one.
+    implementation. Each one names the PRD criterion that it proves, as "C3 proves A2". Include
+    what must be refused. Cover the boundary between two work entries. State how a test proves
+    each one.
 13. **Observable behaviour**, or "None", with the reason.
 14. **Open questions**: an empty section is normal. Never invent a question.
 
@@ -57,7 +61,7 @@ Each work entry that draws a screen names its design references, when the projec
 
 ## 3. Land the spec
 
-1. Run the project's document gates. Commit.
+1. Run `loop gates --docs`. Commit.
 2. Push with `loop branch push`. The spec has its own branch, apart from the PRD's branch, and
    the server picks it. A PRD that merged by squash therefore never blocks the push.
 3. Run `loop pr open --title "<title>" --body "<body>"`. Put Decisions and Open questions first in
