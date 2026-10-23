@@ -19,7 +19,7 @@ import (
 
 // EnvRecord names each .env the server wrote into the checkout, one path
 // per line, so RemoveEnv finds every one after the manifest changed.
-const EnvRecord = cli.LoopDir + "/env-files"
+const EnvRecord = cli.EnvRecordFile
 
 // EnvFiles maps each directory, relative to the checkout root with
 // slashes, to the secrets its .env holds. The root is "".
