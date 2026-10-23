@@ -44,7 +44,8 @@ const maxPullPages = 10
 // new head after a review pass returns the ticket to review, and red CI
 // on a ticket in review sends it to repair. CI cancelled by a newer push
 // is superseded, not red. An ADR on the base whose Ticket line names an
-// architecture epic moves the epic to spec_needed.
+// architecture epic moves the epic to spec_needed. A person's unanswered
+// comment on a document in review or sign-off moves its epic to the amender.
 type Reactor struct {
 	s   *Service
 	m   *machine.Machine
@@ -206,6 +207,9 @@ func (r *Reactor) tickProject(ctx context.Context, p config.Project) error {
 		errs = append(errs, err)
 	}
 	if err := r.pollCI(ctx, p); err != nil {
+		errs = append(errs, err)
+	}
+	if err := r.amendments(ctx, p); err != nil {
 		errs = append(errs, err)
 	}
 	if err := r.eligibility(ctx, p); err != nil {
@@ -412,6 +416,54 @@ func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 			Params: map[string]string{"head": pr.Head.SHA}, Actor: machine.Server("reactor")})
 		if err := machine.Settled(res); err != nil {
 			errs = append(errs, fmt.Errorf("%s ci_red: %w", it.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// amendments moves to the amender each epic whose open document PR holds
+// a person's comment that the loop has not answered (1.12): a PRD or a
+// spec in review or in sign-off. The machine refuses to move an epic a
+// run holds, so a held epic waits, and loses nothing: only a reply
+// answers the comment, so the next tick after the run ends reads it
+// again. A comment does not change a PR's head or its CI, and a held
+// epic leaves the PR cursor behind, so this reads the threads of each
+// such epic on every tick, as pollCI reads the CI. Ported from amendQueue in scripts/sdlc/pr-amend.ts (alpha).
+func (r *Reactor) amendments(ctx context.Context, p config.Project) error {
+	var errs []error
+	for _, state := range machine.AmendableStates() {
+		epics, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: state})
+		if ref != nil {
+			return fmt.Errorf("list epics in %s: %s", state, ref.Hint)
+		}
+		for _, ep := range epics {
+			n, err := strconv.Atoi(ep.Fact(machine.FactDocPR))
+			if err != nil {
+				continue
+			}
+			cs, err := r.s.Threads(ctx, p, n)
+			if err != nil {
+				return err
+			}
+			if !awaitsAnswer(cs) {
+				continue
+			}
+			// A merged or closed PR is the PR poll's to read.
+			pr, err := r.s.GetPR(ctx, p, n)
+			if err != nil {
+				return err
+			}
+			if pr.State != "open" {
+				continue
+			}
+			res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbPersonComment, ExpectedStatus: state,
+				Params: map[string]string{"head": pr.Head.SHA, "pr": strconv.Itoa(n)}, Actor: machine.Server("reactor")})
+			if res.Refusal != nil && res.Refusal.Code == cli.CodeLeaseHeld {
+				continue
+			}
+			if err := machine.Settled(res); err != nil {
+				errs = append(errs, fmt.Errorf("%s person_comment: %w", ep.ID, err))
+			}
 		}
 	}
 	return errors.Join(errs...)

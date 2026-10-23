@@ -84,12 +84,9 @@ func (s *Service) CheckRules(ctx context.Context, p config.Project) ([]CheckLine
 	}
 	var rules []rule
 	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/rules/branches/"+pathEscapeBranch(base)), &rules); err != nil {
-		// A private repository on a free account has no rulesets. GitHub
-		// answers 404, or 403 with an upgrade message. Nothing enforces the
-		// rules there, so the direct merge checks CI itself.
-		var api *APIError
-		if errors.As(err, &api) && (api.Status == http.StatusNotFound ||
-			api.Status == http.StatusForbidden && strings.Contains(api.Message, "Upgrade to GitHub Pro")) {
+		// Nothing enforces the rules on a plan with no rulesets, so the
+		// direct merge checks CI itself.
+		if noRulesets(err) {
 			return []CheckLine{{Check: "branch_rules", OK: true,
 				Detail: fmt.Sprintf("GitHub offers no rulesets for %s on its plan; the loop checks CI itself before a direct merge", p.Repo)}}, nil
 		}
@@ -133,6 +130,15 @@ func (s *Service) CheckRules(ctx context.Context, p config.Project) ([]CheckLine
 	lines = append(lines, CheckLine{Check: "direct_push_blocked", OK: blocked,
 		Detail: fmt.Sprintf("block direct pushes to %s: require a pull request before merging", base)})
 	return lines, nil
+}
+
+// noRulesets reports whether err is GitHub's answer for a plan with no
+// rulesets: a private repository on a free account answers 404, or 403
+// with an upgrade message.
+func noRulesets(err error) bool {
+	var api *APIError
+	return errors.As(err, &api) && (api.Status == http.StatusNotFound ||
+		api.Status == http.StatusForbidden && strings.Contains(api.Message, "Upgrade to GitHub Pro"))
 }
 
 // Doctor runs every GitHub check of one project for `loop doctor`: the
