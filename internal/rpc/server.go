@@ -380,14 +380,15 @@ func (s *Server) replayed(rec store.IdemRecord, requestID string) (*cli.Envelope
 }
 
 // conditional reports a refusal that depends only on the moment: a full
-// cap, a held mutex or an open dependency. Such a refusal changed nothing,
-// so it is not stored, and the same call later gets a fresh answer.
+// cap, a held mutex, an open dependency or CI that is not green yet. Such
+// a refusal changed nothing, so it is not stored, and the same call later
+// gets a fresh answer.
 func conditional(r *cli.Refusal) bool {
 	if r == nil {
 		return false
 	}
 	switch r.Code {
-	case cli.CodeCapFull, cli.CodeMutexHeld, cli.CodeDependencyOpen:
+	case cli.CodeCapFull, cli.CodeMutexHeld, cli.CodeDependencyOpen, cli.CodeCINotGreen:
 		return true
 	}
 	return false

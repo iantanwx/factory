@@ -75,6 +75,67 @@ func TestReviewSubmitPostsItsBodyOnThePR(t *testing.T) {
 	}
 }
 
+// A code pass needs green CI at the head it names (alpha pr-comment.ts
+// 74-91). A pass at red or pending CI is refused: it posts no comment,
+// records no reviewed head, and so loop/eligible is never posted. A pass
+// at green CI lands.
+func TestReviewPassNeedsGreenCIAtItsHead(t *testing.T) {
+	w := newGHWorld(t)
+	ctx := context.Background()
+	prj := config.Project{ID: "alpha", Repo: gt.Repo, Path: w.checkout}
+	if err := w.srv.Projects.Add(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	id := w.claim()
+	gt.Commit(t, w.checkout, "work", map[string]string{"a.txt": "a\n"})
+	if env := w.run("branch", "push"); env["ok"] != true {
+		t.Fatalf("branch push = %v", env)
+	}
+	if env := w.run("pr", "open", "--title", "Add a"); env["ok"] != true {
+		t.Fatalf("pr open = %v", env)
+	}
+	head := w.api.World.PR(1).HeadSHA
+	w.issue(id, machine.StageCodeReviewer, "run-2")
+	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	refused := func(rule string) {
+		t.Helper()
+		env := w.run("review", "submit", id, "--verdict", "pass", "--head", head, "--body", "Looks right.")
+		if env["code"] != cli.CodeCINotGreen || env["rule"] != rule {
+			t.Fatalf("a pass at %s CI = %v", rule, env)
+		}
+		it, _ := w.srv.Machine.Show(ctx, "alpha", id)
+		if it.Status != machine.InReview || it.Fact(machine.FactReviewedHead) != "" {
+			t.Fatalf("a refused pass wrote: %s %v", it.Status, it.Facts)
+		}
+		if n := len(w.api.World.Comments(1)); n != 0 {
+			t.Fatalf("a refused pass posted %d comments", n)
+		}
+		if n, err := w.gh.Service.EnqueueEligibility(ctx, prj); err != nil || n != 0 {
+			t.Fatalf("a refused pass enqueued %d loop/eligible posts: %v", n, err)
+		}
+	}
+
+	// Each refusal is not stored under the call's idempotency key, so the
+	// same call gets a fresh answer once CI changes.
+	refused("ci_pending") // no check has reported yet
+	w.api.World.SetRuns(head, gt.CheckRun("ci", head, "completed", "failure", at))
+	refused("ci_failed")
+	w.api.World.SetRuns(head, gt.CheckRun("ci", head, "in_progress", "", at))
+	refused("ci_pending")
+	// The branch rules require "ci": another green check does not stand in.
+	w.api.World.SetRuns(head, gt.CheckRun("lint", head, "completed", "success", at))
+	refused("ci_pending")
+
+	w.api.World.SetRuns(head, gt.CheckRun("ci", head, "completed", "success", at))
+	if env := w.run("review", "submit", id, "--verdict", "pass", "--head", head, "--body", "Looks right."); env["ok"] != true {
+		t.Fatalf("a pass at green CI = %v", env)
+	}
+	it, _ := w.srv.Machine.Show(ctx, "alpha", id)
+	if it.Status != machine.ReadyToMerge || it.Fact(machine.FactReviewedHead) != head {
+		t.Fatalf("after the pass: %s %v", it.Status, it.Facts)
+	}
+}
+
 // The fixer reads and notes the item of the escalation it routes, though
 // its token holds no item. Any other item stays refused, and so does any
 // other write on the escalated item.

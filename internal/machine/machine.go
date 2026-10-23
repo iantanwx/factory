@@ -72,6 +72,9 @@ type Machine struct {
 	hook func(point string) bool
 	// reviewComment posts the body of `review submit`. Nil posts nothing.
 	reviewComment ReviewCommenter
+	// passGate reads CI at the head a code review passes. Nil reads
+	// nothing: a server with no GitHub has no CI and posts no status.
+	passGate PassGate
 	// supersedeCheck reads the evidence of `work supersede` back from
 	// GitHub. Nil refuses every supersede.
 	supersedeCheck SupersedeChecker
@@ -177,10 +180,12 @@ type Request struct {
 	Command   string
 	RequestID string
 	// Before runs once every check of the write passed, under the item's
-	// lock and before the intent is recorded. A refusal stops the write.
-	// A replay of a recorded intent never runs it. review submit posts its
-	// comment here, so a comment GitHub refuses records no verdict.
-	Before func(ctx context.Context) *cli.Refusal
+	// lock and before the intent is recorded. It reads the item as the
+	// write found it. A refusal stops the write. A replay of a recorded
+	// intent never runs it. review submit reads CI and posts its comment
+	// here, so a pass at red CI, or a comment GitHub refuses, records no
+	// verdict.
+	Before func(ctx context.Context, it Item) *cli.Refusal
 }
 
 // Item is one work item as the machine reads it: beads holds the status
