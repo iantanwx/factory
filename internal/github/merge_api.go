@@ -281,12 +281,13 @@ func (s *Service) OpenFilePR(ctx context.Context, p config.Project, f FilePR) (P
 	return pr, true, nil
 }
 
-// AppSlug reads the loop App's slug. Its bot user is "<slug>[bot]".
-func (s *Service) AppSlug(ctx context.Context) (string, error) {
+// AppSlug reads the slug of the loop App that acts on p. Its bot user is
+// "<slug>[bot]".
+func (s *Service) AppSlug(ctx context.Context, p config.Project) (string, error) {
 	var out struct {
 		Slug string `json:"slug"`
 	}
-	if _, err := s.appCall(ctx, Call{Method: http.MethodGet, Path: "/app"}, &out); err != nil {
+	if _, err := s.appCall(ctx, config.RepoOwner(p.Repo), Call{Method: http.MethodGet, Path: "/app"}, &out); err != nil {
 		return "", err
 	}
 	if out.Slug == "" {

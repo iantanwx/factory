@@ -32,7 +32,7 @@ func TestInstallSetsUpTheHostSoTheDoctorPasses(t *testing.T) {
 	calls := 0
 	home := withSetup(t, w, func(context.Context) (CreatedApp, error) {
 		calls++
-		return CreatedApp{ID: 42, Slug: "loop-abc", PEM: []byte("-----BEGIN RSA PRIVATE KEY-----\nk\n-----END RSA PRIVATE KEY-----\n"),
+		return CreatedApp{ID: 42, Slug: "loop-abc", Owner: "op", PEM: []byte("-----BEGIN RSA PRIVATE KEY-----\nk\n-----END RSA PRIVATE KEY-----\n"),
 			InstallURL: "https://github.com/apps/loop-abc/installations/new"}, nil
 	})
 	ctx := context.Background()
@@ -58,8 +58,8 @@ func TestInstallSetsUpTheHostSoTheDoctorPasses(t *testing.T) {
 	if cfg.AgentHost.Kind != "orca" || cfg.AgentHost.Binary != "/opt/orca/bin/orca" || cfg.AgentHost.CheckoutRoot != root {
 		t.Fatalf("agent host = %+v", cfg.AgentHost)
 	}
-	if cfg.Credentials.GitHubApp != (config.GitHubAppCredentials{AppID: 42, PrivateKeySecret: AppKeySecret}) {
-		t.Fatalf("App credentials = %+v", cfg.Credentials.GitHubApp)
+	if a, ok := cfg.Credentials.App("op"); !ok || a != (config.GitHubAppCredentials{Owner: "op", AppID: 42, PrivateKeySecret: "GITHUB_APP_KEY_OP"}) {
+		t.Fatalf("App credentials = %+v", cfg.Credentials.Apps())
 	}
 	keys, err := secrets.NewFileKeyProvider(w.in.Layout.KeyFile())
 	if err != nil {
@@ -69,7 +69,7 @@ func TestInstallSetsUpTheHostSoTheDoctorPasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pem, err := secrets.New(db, keys).Get(ctx, config.HostScope, AppKeySecret)
+	pem, err := secrets.New(db, keys).Get(ctx, config.HostScope, "GITHUB_APP_KEY_OP")
 	_ = db.Close()
 	if err != nil || !strings.Contains(string(pem), "BEGIN RSA PRIVATE KEY") {
 		t.Fatalf("stored key = %q %v", pem, err)
@@ -126,7 +126,7 @@ func TestInstallRestartsARunningServiceForANewApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	withSetup(t, w, func(context.Context) (CreatedApp, error) {
-		return CreatedApp{ID: 7, Slug: "loop-x", PEM: []byte("pem"), InstallURL: "https://github.com/apps/loop-x/installations/new"}, nil
+		return CreatedApp{ID: 7, Slug: "loop-x", Owner: "op", PEM: []byte("pem"), InstallURL: "https://github.com/apps/loop-x/installations/new"}, nil
 	})
 	n := len(w.rec.list())
 	if _, err := w.in.Install(ctx); err != nil {

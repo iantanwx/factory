@@ -35,7 +35,9 @@ var AppPermissions = map[string]string{
 type CreatedApp struct {
 	ID   int64
 	Slug string
-	PEM  []byte
+	// Owner is the account that owns the App.
+	Owner string
+	PEM   []byte
 	// InstallURL is where the operator picks the repositories.
 	InstallURL string
 }
@@ -47,7 +49,7 @@ type CreatedApp struct {
 type AppFlow struct {
 	// Owner is the organisation that owns the App; empty for the
 	// operator's personal account. A private App installs only on its
-	// owner's repositories.
+	// owner's repositories, so each owner gets its own App.
 	Owner string
 	// Name is the App's name. GitHub needs it unique; the page lets the
 	// operator change it.
@@ -222,14 +224,17 @@ func (f *AppFlow) redeem(ctx context.Context, q url.Values, state string) (Creat
 		Slug    string `json:"slug"`
 		PEM     string `json:"pem"`
 		HTMLURL string `json:"html_url"`
+		Owner   struct {
+			Login string `json:"login"`
+		} `json:"owner"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		return CreatedApp{}, fmt.Errorf("release: read GitHub's App: %w", err)
 	}
-	if out.ID == 0 || out.PEM == "" || out.HTMLURL == "" {
-		return CreatedApp{}, errors.New("release: GitHub's App lacks its id, key or address")
+	if out.ID == 0 || out.PEM == "" || out.HTMLURL == "" || out.Owner.Login == "" {
+		return CreatedApp{}, errors.New("release: GitHub's App lacks its id, key, address or owner")
 	}
-	return CreatedApp{ID: out.ID, Slug: out.Slug, PEM: []byte(out.PEM),
+	return CreatedApp{ID: out.ID, Slug: out.Slug, Owner: out.Owner.Login, PEM: []byte(out.PEM),
 		InstallURL: strings.TrimSuffix(out.HTMLURL, "/") + "/installations/new"}, nil
 }
 
@@ -250,11 +255,9 @@ func (f *AppFlow) page(redirect, state string) ([]byte, error) {
 		"url":             f.Homepage,
 		"hook_attributes": map[string]any{"url": f.Homepage, "active": false},
 		"redirect_url":    redirect,
-		// A private App installs only on its owner's account, and an
-		// operator keeps projects under their own account and under
-		// organisations. A public App gives nobody else anything: it has no
-		// webhook, and the loop acts only on registered projects.
-		"public":              true,
+		// A private App installs only on its owner's repositories, so each
+		// owner of a project gets its own App.
+		"public":              false,
 		"default_permissions": AppPermissions,
 	})
 	if err != nil {

@@ -245,7 +245,7 @@ type rawComment struct {
 // or anyone else.
 func (s *Service) class(c rawComment) string {
 	switch {
-	case c.PerformedVia != nil && c.PerformedVia.ID == s.cfg.AppID:
+	case c.PerformedVia != nil && s.isLoopApp(c.PerformedVia.ID):
 		return AuthorApp
 	case c.User.Type != "Bot" && c.AuthorAssociation == "OWNER":
 		return AuthorOperator

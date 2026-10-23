@@ -54,7 +54,7 @@ func MergeSHA(n int) string { return fmt.Sprintf("%040x", 0xe000+n) }
 // ServeApp answers GET /app with the App's slug.
 func (a *API) ServeApp(slug string) {
 	a.Route("GET /app", func(w http.ResponseWriter, _ *http.Request) {
-		WriteJSON(w, 200, map[string]any{"id": AppID, "slug": slug})
+		WriteJSON(w, 200, map[string]any{"id": AppID, "slug": slug, "owner": map[string]string{"login": Owner}})
 	})
 }
 

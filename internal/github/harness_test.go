@@ -93,8 +93,8 @@ func newEnv(t *testing.T) *env {
 func (e *env) service() *Service {
 	e.t.Helper()
 	svc, err := New(Config{
-		AppID: testAppID, PrivateKey: func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil },
-		API: e.api.URL(), GitURL: e.git.URL, Protocols: []string{"http"}, MirrorRoot: e.root,
+		Apps: OneApp(testAppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
+		API:  e.api.URL(), GitURL: e.git.URL, Protocols: []string{"http"}, MirrorRoot: e.root,
 		Store: e.st, Redactor: e.red, Projects: staticProjects{e.project}, Machine: e.m,
 		Sleep: func(context.Context, time.Duration) error { return nil },
 	})

@@ -15,9 +15,30 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// AppKeySecret is the secret-store name, under config.HostScope, that
-// install gives the loop App's private key.
+// AppKeySecret is the secret-store name, under config.HostScope, of the
+// key of a host's first App, from before Apps had owners.
 const AppKeySecret = "GITHUB_APP_KEY"
+
+// AppKeySecretFor is the secret-store name of the key of owner's App.
+func AppKeySecretFor(owner string) string {
+	return "GITHUB_APP_KEY_" + strings.ToUpper(strings.ReplaceAll(owner, "-", "_"))
+}
+
+// SaveApp stores app's key and records the App under its owner in host
+// config. It reads host config again first: the running server may have
+// written it while the operator was in the browser.
+func SaveApp(ctx context.Context, l Layout, app CreatedApp) error {
+	name := AppKeySecretFor(app.Owner)
+	if err := storeHostSecret(ctx, l, name, app.PEM); err != nil {
+		return err
+	}
+	cfg, err := config.LoadHost(l.HostConfig())
+	if err != nil {
+		return err
+	}
+	cfg.Credentials.SetApp(config.GitHubAppCredentials{Owner: app.Owner, AppID: app.ID, PrivateKeySecret: name})
+	return config.SaveHost(l.HostConfig(), cfg)
+}
 
 // HostSetup is the part of `loop install` outside the instance directory:
 // linger, the harness settings that `loop doctor` checks, and the loop
@@ -77,23 +98,14 @@ func (s *HostSetup) run(ctx context.Context, l Layout) (notes []string, appAdded
 		return notes, false, err
 	}
 	notes = append(notes, changed...)
-	if s.App == nil || cfg.Credentials.GitHubApp.AppID != 0 {
+	if s.App == nil || len(cfg.Credentials.Apps()) > 0 {
 		return notes, false, nil
 	}
 	app, err := s.App(ctx)
 	if err != nil {
 		return notes, false, err
 	}
-	if err := storeHostSecret(ctx, l, AppKeySecret, app.PEM); err != nil {
-		return notes, false, err
-	}
-	// Read host config again: the running server may have written it
-	// while the operator was in the browser.
-	if cfg, err = config.LoadHost(l.HostConfig()); err != nil {
-		return notes, false, err
-	}
-	cfg.Credentials.GitHubApp = config.GitHubAppCredentials{AppID: app.ID, PrivateKeySecret: AppKeySecret}
-	if err := config.SaveHost(l.HostConfig(), cfg); err != nil {
+	if err := SaveApp(ctx, l, app); err != nil {
 		return notes, false, err
 	}
 	notes = append(notes, fmt.Sprintf("created the GitHub App %s (id %d); install it on each project repository at %s", app.Slug, app.ID, app.InstallURL))

@@ -87,8 +87,9 @@ actions (read and write), and checks and metadata (read).
    is on the host's tailnet address, so any browser on the tailnet reaches
    it. Elsewhere it is on `127.0.0.1`. Click **Create GitHub App**.
 2. GitHub sends the browser back to that local address. Install stores
-   the App's private key in the secret store as `_host/GITHUB_APP_KEY`, and
-   writes the App's id into `host.yaml`.
+   the App's private key in the secret store as
+   `_host/GITHUB_APP_KEY_<OWNER>`, and writes the App's owner and id into
+   `host.yaml`.
 3. The browser lands on the App's installation page. Pick **Only select
    repositories**, choose the project repositories, and click **Install**.
    `loop doctor` fails an installation on all repositories.
@@ -101,10 +102,11 @@ address it cannot reach. Copy that address from the address bar and paste
 it into the terminal. Install waits 30 minutes, then exits 4 with code
 `APP_NOT_CREATED`, and the next install tries again.
 
-The App is public, so you can install it on your own account and on each
-organisation that holds a project. It has no webhook, and the loop acts
-only on the projects you register. `--github-owner <org>` makes the
-organisation own the App.
+The App is private. A private App installs only on the repositories of its
+owner, so each owner of a project gets its own loop App: your account, and
+each organisation that holds a project. `--github-owner <org>` makes the
+organisation own the first App. `loop register` makes the App of any other
+owner, as the next section says.
 
 ## Prepare the harnesses
 
@@ -155,14 +157,17 @@ is already right, so you can run it again:
   `.agents/skills`, and lists them in `.git/info/exclude`.
 - It registers the project with the server, with the repository name as
   its id. Give another id as `loop register <id>`.
-
 - It copies the global `LOOP_RELEASE_TOKEN` secret into the repository's
   Actions secrets, so CI can download `loop`. The secret is a fine-grained
   token that reads the contents of `slothware-labs/factorio`. Store it once
   with `loop secret set LOOP_RELEASE_TOKEN --scope global`.
 
-The loop App must be installed on the repository. When it is not, the
-registration fails and says so.
+- It finds the loop App of the repository's owner. When the owner has no
+  App, it prints a link that opens the App form, as install does. Click
+  **Create GitHub App**. For an organisation, you must be an owner of it.
+- It waits for the App to be on the repository. When it is not, it prints
+  the App's install page. Pick the repository and click **Install**.
+  Register waits 30 minutes, then fails with code `no_app`.
 
 When the project has no CI yet, start Claude Code or Codex in the clone
 and say "set up my loop". That starts the `loop-init` skill. It asks you

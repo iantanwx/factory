@@ -46,12 +46,12 @@ var configPaths = []string{".mergify.yml", ".mergify/config.yml", ".github/mergi
 type Mergify struct {
 	gh *github.Service
 
-	mu   sync.Mutex
-	slug string
+	mu    sync.Mutex
+	slugs map[string]string // by lower-case owner: each owner has its own App
 }
 
 // New returns the mechanism over the server's GitHub actor.
-func New(gh *github.Service) *Mergify { return &Mergify{gh: gh} }
+func New(gh *github.Service) *Mergify { return &Mergify{gh: gh, slugs: map[string]string{}} }
 
 // Name implements merge.Mechanism.
 func (m *Mergify) Name() config.MergeMechanism { return config.MergeMergify }
@@ -104,7 +104,7 @@ func (m *Mergify) Check(ctx context.Context, p config.Project) error {
 			return err
 		}
 	}
-	slug, err := m.appSlug(ctx)
+	slug, err := m.appSlug(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -129,19 +129,20 @@ func (m *Mergify) Check(ctx context.Context, p config.Project) error {
 	return &SetupError{Number: pr.Number, URL: pr.URL}
 }
 
-func (m *Mergify) appSlug(ctx context.Context) (string, error) {
+func (m *Mergify) appSlug(ctx context.Context, p config.Project) (string, error) {
+	owner := strings.ToLower(config.RepoOwner(p.Repo))
 	m.mu.Lock()
-	s := m.slug
+	s := m.slugs[owner]
 	m.mu.Unlock()
 	if s != "" {
 		return s, nil
 	}
-	s, err := m.gh.AppSlug(ctx)
+	s, err := m.gh.AppSlug(ctx, p)
 	if err != nil {
 		return "", err
 	}
 	m.mu.Lock()
-	m.slug = s
+	m.slugs[owner] = s
 	m.mu.Unlock()
 	return s, nil
 }

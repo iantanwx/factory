@@ -122,9 +122,13 @@ func (s *Service) CheckRules(ctx context.Context, p config.Project) ([]CheckLine
 			Detail: fmt.Sprintf("add %s to the required status checks of %s", EligibleContext, base)},
 	}
 	if eligible >= 0 {
+		appID, err := s.AppID(ctx, p)
+		if err != nil {
+			return nil, err
+		}
 		id := required[eligible].IntegrationID
-		lines = append(lines, CheckLine{Check: "eligible_source", OK: id != nil && *id == s.cfg.AppID,
-			Detail: fmt.Sprintf("require %s from the loop App (app id %d) as its expected source", EligibleContext, s.cfg.AppID)})
+		lines = append(lines, CheckLine{Check: "eligible_source", OK: id != nil && *id == appID,
+			Detail: fmt.Sprintf("require %s from the loop App (app id %d) as its expected source", EligibleContext, appID)})
 	}
 	lines = append(lines, CheckLine{Check: "direct_push_blocked", OK: blocked,
 		Detail: fmt.Sprintf("block direct pushes to %s: require a pull request before merging", base)})

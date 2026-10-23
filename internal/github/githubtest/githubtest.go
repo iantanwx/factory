@@ -217,6 +217,12 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 		in := a.install
 		a.mu.Unlock()
 		WriteJSON(w, 200, in)
+	case key == "GET /app":
+		if !VerifyJWT(auth) {
+			WriteJSON(w, 401, map[string]string{"message": "A JSON web token could not be decoded"})
+			return
+		}
+		WriteJSON(w, 200, map[string]any{"id": AppID, "slug": "loop-fixture", "owner": map[string]string{"login": Owner}})
 	case key == fmt.Sprintf("POST /app/installations/%d/access_tokens", InstallID):
 		if !VerifyJWT(auth) {
 			WriteJSON(w, 401, map[string]string{"message": "A JSON web token could not be decoded"})

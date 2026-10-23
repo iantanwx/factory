@@ -13,6 +13,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
+	gt "github.com/iantanwx/loop/internal/github/githubtest"
 )
 
 // The mirror-backed reader is admission's base reader.
@@ -290,5 +291,33 @@ func TestOutboundTextWithASecretIsRefused(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// Each owner has its own App. The service mints a project's token with the
+// App of the repository's owner, and asks GitHub for the owner of an App
+// whose host config names none.
+func TestEachOwnerHasItsOwnApp(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	key := func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }
+	wrong := func(context.Context) ([]byte, error) { return nil, errors.New("the other owner's key was read") }
+	for name, apps := range map[string][]AppKey{
+		"named owner":       {{Owner: "someone-else", ID: 9, Key: wrong}, {Owner: "ACME", ID: testAppID, Key: key}},
+		"owner from GitHub": {{Owner: "someone-else", ID: 9, Key: wrong}, {ID: testAppID, Key: key}},
+	} {
+		svc := e.service()
+		svc.cfg.Apps = func() ([]AppKey, error) { return apps, nil }
+		if _, err := svc.Token(ctx, e.project, ScopeRead); err != nil {
+			t.Fatalf("%s: token: %v", name, err)
+		}
+		if id, err := svc.AppID(ctx, e.project); err != nil || id != testAppID {
+			t.Fatalf("%s: app id = %d %v", name, id, err)
+		}
+	}
+	svc := e.service()
+	svc.cfg.Apps = func() ([]AppKey, error) { return []AppKey{{Owner: "someone-else", ID: 9, Key: wrong}}, nil }
+	if _, err := svc.Token(ctx, e.project, ScopeRead); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("no App for the owner: %v", err)
 	}
 }

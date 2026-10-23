@@ -44,18 +44,25 @@ type GitHub struct {
 // Setup composes the service over the server's store, redactor, secret
 // store, projects and machine.
 func (g *GitHub) Setup(s *Server) error {
-	cfg, err := config.LoadHost(s.HostPath)
-	if err != nil {
-		return err
-	}
-	app := cfg.Credentials.GitHubApp
 	svc, err := github.New(github.Config{
-		AppID: app.AppID,
-		PrivateKey: func(ctx context.Context) ([]byte, error) {
-			if app.PrivateKeySecret == "" {
-				return nil, github.ErrNotConfigured
+		Apps: func() ([]github.AppKey, error) {
+			// Host config again, so an App that `loop register` adds
+			// reaches this running server.
+			cfg, err := config.LoadHost(s.HostPath)
+			if err != nil {
+				return nil, err
 			}
-			return s.Secrets.Get(ctx, config.HostScope, app.PrivateKeySecret)
+			var keys []github.AppKey
+			for _, a := range cfg.Credentials.Apps() {
+				name := a.PrivateKeySecret
+				keys = append(keys, github.AppKey{Owner: a.Owner, ID: a.AppID, Key: func(ctx context.Context) ([]byte, error) {
+					if name == "" {
+						return nil, github.ErrNotConfigured
+					}
+					return s.Secrets.Get(ctx, config.HostScope, name)
+				}})
+			}
+			return keys, nil
 		},
 		API: g.API, GitURL: g.GitURL, Protocols: g.Protocols, HTTP: g.HTTP, Sleep: g.Sleep,
 		MirrorRoot: filepath.Join(s.Instance, MirrorDir),

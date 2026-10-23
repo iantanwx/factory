@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -55,6 +56,27 @@ type hostVerbs struct {
 	cmd cmdRunner
 	// secret reads one value from the secret store.
 	secret func(ctx context.Context, l release.Layout, scope, name string) ([]byte, error)
+	// githubAPI is GitHub's REST root for register's App calls; githubAPI
+	// when empty.
+	githubAPI string
+	// stderr is where register talks to the operator; os.Stderr when nil.
+	stderr io.Writer
+	// pollEvery is how often register asks whether an App is installed.
+	pollEvery time.Duration
+}
+
+func (h *hostVerbs) out() io.Writer {
+	if h.stderr == nil {
+		return os.Stderr
+	}
+	return h.stderr
+}
+
+func (h *hostVerbs) poll() time.Duration {
+	if h.pollEvery == 0 {
+		return 5 * time.Second
+	}
+	return h.pollEvery
 }
 
 func newHostVerbs(r *cli.Registry, c *cli.Client) *hostVerbs {
@@ -204,16 +226,23 @@ func (h *hostVerbs) hostSetup(inv cli.Invocation) (*release.HostSetup, error) {
 	if inv.Flags["no-github-app"] == "true" {
 		return s, nil
 	}
+	s.App = h.appFlow(inv.Flags["github-owner"]).Create
+	return s, nil
+}
+
+// appFlow is the App flow for an organisation, or for the operator's own
+// account when owner is empty. It talks to the operator on stderr, and
+// reads a pasted address from stdin when it is a terminal.
+func (h *hostVerbs) appFlow(owner string) *release.AppFlow {
 	flow := &release.AppFlow{
-		Owner: inv.Flags["github-owner"], Name: "loop-" + hexid.Random(3), Homepage: release.Homepage,
-		Web: "https://github.com", API: "https://api.github.com",
-		Listen: appListen(), Out: os.Stderr, Open: openBrowser, Timeout: 30 * time.Minute,
+		Owner: owner, Name: "loop-" + hexid.Random(3), Homepage: release.Homepage,
+		Web: "https://github.com", API: githubAPI,
+		Listen: appListen(), Out: h.out(), Open: openBrowser, Timeout: 30 * time.Minute,
 	}
 	if st, err := os.Stdin.Stat(); err == nil && st.Mode()&os.ModeCharDevice != 0 {
 		flow.Paste = os.Stdin
 	}
-	s.App = flow.Create
-	return s, nil
+	return flow
 }
 
 // appListen is where the App flow listens. On a Tailscale host it is the

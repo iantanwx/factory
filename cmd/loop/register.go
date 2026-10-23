@@ -63,9 +63,12 @@ type RegisterReport struct {
 	Branch string `json:"branch"`
 	// Ruleset is "created", "updated", or "unavailable" when GitHub offers
 	// no rulesets on the repository's plan.
-	Ruleset string   `json:"ruleset"`
-	CI      []string `json:"ci"`
-	Skills  []string `json:"skills"`
+	Ruleset string `json:"ruleset"`
+	// App is "created" when register made the owner's loop App, or
+	// "installed" when the owner's App was installed on the repository.
+	App    string   `json:"app"`
+	CI     []string `json:"ci"`
+	Skills []string `json:"skills"`
 	// CIToken is "set" when register copied the release token into the
 	// repository's Actions secrets, or "missing" when the host has none.
 	CIToken string `json:"ci_token"`
@@ -90,10 +93,6 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 	host, err := config.LoadHost(filepath.Join(dir, config.HostConfigFile))
 	if err != nil {
 		return cli.Reject(cli.CodeNotFound, "not_installed", "run loop install first: "+err.Error())
-	}
-	appID := host.Credentials.GitHubApp.AppID
-	if appID == 0 {
-		return cli.Reject(cli.CodeNotFound, "no_app", "host config names no GitHub App; run loop install")
 	}
 	if !ctl.Reachable(ctx) {
 		return cli.Reject(cli.CodeServerUnavailable, "server_down", "the loop service is not running; run loop install")
@@ -123,6 +122,10 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 		rep.Project = projectID(rep.Repo)
 	}
 
+	appID, err := h.ensureApp(ctx, dir, &rep)
+	if err != nil {
+		return cli.Reject(cli.CodeNotFound, "no_app", err.Error())
+	}
 	if rep.Branch != "" {
 		if rep.CI, err = h.ciChecks(ctx, rep); err != nil {
 			return fail(err)

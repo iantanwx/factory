@@ -78,16 +78,61 @@ type HarnessLogin struct {
 // Credentials names each platform credential by its name in the secret store
 // under HostScope. Each *Secret field holds a store name, never a value.
 type Credentials struct {
-	GitHubApp          GitHubAppCredentials          `yaml:"github_app,omitempty"`
+	// GitHubApp is the one App of a host from before Apps had owners. Its
+	// owner is the account that GitHub says owns it.
+	GitHubApp GitHubAppCredentials `yaml:"github_app,omitempty"`
+	// GitHubApps holds one private App for each GitHub owner, the operator's
+	// account or an organisation. A private App installs only on its
+	// owner's repositories, so each owner of a project needs its own.
+	GitHubApps         []GitHubAppCredentials        `yaml:"github_apps,omitempty"`
 	MergifyTokenSecret string                        `yaml:"mergify_token_secret,omitempty"`
 	Trackers           map[string]TrackerCredentials `yaml:"trackers,omitempty"`
 }
 
-// GitHubAppCredentials identifies the loop App. The App id is public. The
+// GitHubAppCredentials identifies one loop App. The App id is public. The
 // private key lives in the encrypted store.
 type GitHubAppCredentials struct {
+	// Owner is the GitHub account that owns the App. Empty only in the
+	// legacy github_app entry.
+	Owner            string `yaml:"owner,omitempty"`
 	AppID            int64  `yaml:"app_id,omitempty"`
 	PrivateKeySecret string `yaml:"private_key_secret,omitempty"`
+}
+
+// Apps lists every loop App: the legacy entry first, when it names one,
+// then one for each owner.
+func (c Credentials) Apps() []GitHubAppCredentials {
+	var out []GitHubAppCredentials
+	if c.GitHubApp.AppID != 0 {
+		out = append(out, c.GitHubApp)
+	}
+	return append(out, c.GitHubApps...)
+}
+
+// App returns the App of owner. The legacy entry has no owner, so it
+// answers only by its id; ok is false when no App names owner.
+func (c Credentials) App(owner string) (GitHubAppCredentials, bool) {
+	for _, a := range c.Apps() {
+		if a.Owner != "" && strings.EqualFold(a.Owner, owner) {
+			return a, true
+		}
+	}
+	return GitHubAppCredentials{}, false
+}
+
+// SetApp records the App of a.Owner. It replaces the owner's entry, or the
+// legacy entry when it holds the same App id.
+func (c *Credentials) SetApp(a GitHubAppCredentials) {
+	if c.GitHubApp.AppID != 0 && c.GitHubApp.AppID == a.AppID {
+		c.GitHubApp = GitHubAppCredentials{}
+	}
+	for i, b := range c.GitHubApps {
+		if strings.EqualFold(b.Owner, a.Owner) || b.AppID == a.AppID {
+			c.GitHubApps[i] = a
+			return
+		}
+	}
+	c.GitHubApps = append(c.GitHubApps, a)
 }
 
 // TrackerCredentials names one tracker adapter's token in the store.
@@ -212,6 +257,23 @@ func (c *HostConfig) validateCredentials(ck *checker) {
 	if c.Credentials.GitHubApp.AppID < 0 {
 		ck.fail("credentials.github_app.app_id", "must not be negative")
 	}
+	owners := map[string]bool{}
+	for i, a := range c.Credentials.GitHubApps {
+		f := fmt.Sprintf("credentials.github_apps[%d]", i)
+		switch {
+		case !ownerRe.MatchString(a.Owner):
+			ck.fail(f+".owner", "must be a GitHub account name")
+		case owners[strings.ToLower(a.Owner)]:
+			ck.fail(f+".owner", "names an owner twice")
+		}
+		owners[strings.ToLower(a.Owner)] = true
+		if a.AppID <= 0 {
+			ck.fail(f+".app_id", "must be positive")
+		}
+		if a.PrivateKeySecret == "" {
+			ck.fail(f+".private_key_secret", "must name the App's key in the secret store")
+		}
+	}
 }
 
 // CredentialRefs lists every platform credential that host config names, in
@@ -220,6 +282,9 @@ func (c *HostConfig) CredentialRefs() []CredentialRef {
 	var refs []CredentialRef
 	if n := c.Credentials.GitHubApp.PrivateKeySecret; n != "" {
 		refs = append(refs, CredentialRef{Purpose: "github_app.private_key", Name: n})
+	}
+	for _, a := range c.Credentials.GitHubApps {
+		refs = append(refs, CredentialRef{Purpose: "github_apps." + strings.ToLower(a.Owner) + ".private_key", Name: a.PrivateKeySecret})
 	}
 	if n := c.Credentials.MergifyTokenSecret; n != "" {
 		refs = append(refs, CredentialRef{Purpose: "mergify_token", Name: n})

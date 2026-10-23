@@ -106,8 +106,8 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w.svc, err = github.New(github.Config{
-		AppID: gt.AppID, PrivateKey: func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil },
-		API: w.api.URL(), GitURL: w.git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(),
+		Apps: github.OneApp(gt.AppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
+		API:  w.api.URL(), GitURL: w.git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(),
 		Store: st, Redactor: w.red, Projects: w.projects, Machine: w.m, Logger: quiet,
 		Sleep: func(context.Context, time.Duration) error { return nil },
 	})

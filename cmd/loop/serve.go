@@ -99,7 +99,7 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 
 	var gh *server.GitHub
 	var mg *server.Merge
-	if cfg.Credentials.GitHubApp.AppID != 0 {
+	if len(cfg.Credentials.Apps()) > 0 {
 		gh = &server.GitHub{}
 		if w.github != nil {
 			gh = w.github

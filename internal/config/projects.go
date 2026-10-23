@@ -30,6 +30,9 @@ type Project struct {
 	Path string `yaml:"path"` // the project's local directory on this host
 }
 
+// ownerRe is a GitHub account name.
+var ownerRe = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`)
+
 // repoRe is owner/name. A URL, a host name or a third segment fails it.
 var repoRe = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$`)
 
@@ -247,4 +250,10 @@ func StoreProjectRow(st *store.Store) AddHook {
 			return nil
 		})
 	}
+}
+
+// RepoOwner is the owner part of a repository name, owner/name.
+func RepoOwner(repo string) string {
+	owner, _, _ := strings.Cut(repo, "/")
+	return owner
 }

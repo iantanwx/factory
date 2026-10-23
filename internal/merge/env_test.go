@@ -88,8 +88,8 @@ func newEnv(t *testing.T, mk func(e *env) merge.Mechanism, opts ...func(*github.
 		t.Fatal(err)
 	}
 	gc := github.Config{
-		AppID: gt.AppID, PrivateKey: func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil },
-		API: e.api.URL(), GitURL: git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(),
+		Apps: github.OneApp(gt.AppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
+		API:  e.api.URL(), GitURL: git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(),
 		Store: st, Redactor: red, Projects: staticProjects{e.project}, Machine: e.m,
 		Sleep: func(context.Context, time.Duration) error { return nil },
 	}

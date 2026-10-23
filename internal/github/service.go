@@ -33,10 +33,9 @@ type Projects interface {
 // Config configures a Service. The owner and the repository of each
 // project come from its registration, never from a constant.
 type Config struct {
-	// AppID is the loop App's id from host config. Zero means no App.
-	AppID int64
-	// PrivateKey reads the App's PEM key from the encrypted store.
-	PrivateKey func(ctx context.Context) ([]byte, error)
+	// Apps lists the loop Apps, one for each GitHub owner. The service
+	// calls it when it first meets an owner. Nil means no App.
+	Apps func() ([]AppKey, error)
 	// API is GitHub's REST endpoint; DefaultAPI when empty.
 	API string
 	// GitURL is the explicit URL of a repository; GitHub's HTTPS URL when
@@ -61,7 +60,7 @@ type Config struct {
 	Sleep func(ctx context.Context, d time.Duration) error
 }
 
-// Service is the server's GitHub actor: one App, one shared cooldown,
+// Service is the server's GitHub actor: one App for each owner, one shared cooldown,
 // one token cache and one mirror for each project.
 type Service struct {
 	cfg  Config
@@ -71,7 +70,7 @@ type Service struct {
 	log  *slog.Logger
 
 	mu       sync.Mutex
-	app      *App
+	apps     map[string]*App // by lower-case owner
 	installs map[string]int64
 	tokens   map[string]cachedToken
 	defaults map[string]string
@@ -114,6 +113,7 @@ func New(cfg Config) (*Service, error) {
 		cool:     cool,
 		git:      &Git{Binary: cfg.GitBinary, Home: home, Protocols: cfg.Protocols},
 		log:      log,
+		apps:     map[string]*App{},
 		installs: map[string]int64{},
 		tokens:   map[string]cachedToken{},
 		defaults: map[string]string{},

@@ -26,7 +26,7 @@ func fakeGitHub(t *testing.T) *httptest.Server {
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": 99, "slug": "loop-abc", "pem": "PEM", "html_url": "https://github.com/apps/loop-abc"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 99, "slug": "loop-abc", "pem": "PEM", "html_url": "https://github.com/apps/loop-abc", "owner": map[string]string{"login": "acme"}})
 	}))
 }
 
@@ -91,7 +91,7 @@ func TestAppFlowFollowsTheRedirect(t *testing.T) {
 	if err := json.Unmarshal([]byte(html.UnescapeString(string(value[1]))), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if !manifest.Public || manifest.Hook["active"] != false || manifest.Permissions["administration"] != "" ||
+	if manifest.Public || manifest.Hook["active"] != false || manifest.Permissions["administration"] != "" ||
 		manifest.Permissions["contents"] != "write" || len(manifest.Permissions) != len(AppPermissions) {
 		t.Fatalf("manifest = %+v", manifest)
 	}
@@ -116,7 +116,7 @@ func TestAppFlowFollowsTheRedirect(t *testing.T) {
 		t.Fatalf("callback = %d %s", good.StatusCode, good.Header.Get("Location"))
 	}
 	r := <-done
-	if r.err != nil || r.app.ID != 99 || string(r.app.PEM) != "PEM" {
+	if r.err != nil || r.app.ID != 99 || string(r.app.PEM) != "PEM" || r.app.Owner != "acme" {
 		t.Fatalf("Create = %+v %v", r.app, r.err)
 	}
 }

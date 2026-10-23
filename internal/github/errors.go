@@ -102,8 +102,8 @@ const (
 
 func (e *RefusedError) Error() string { return "github: " + e.Hint }
 
-// ErrNotConfigured means host config names no GitHub App.
-var ErrNotConfigured = errors.New("github: host config names no GitHub App (credentials.github_app)")
+// ErrNotConfigured means host config names no loop App for an owner.
+var ErrNotConfigured = errors.New("github: host config names no loop GitHub App")
 
 func short(sha string) string {
 	if len(sha) > 12 {

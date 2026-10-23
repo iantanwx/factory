@@ -50,35 +50,126 @@ type cachedToken struct {
 	expires time.Time
 }
 
-// app parses the App key once and keeps it in memory.
-func (s *Service) appIdentity(ctx context.Context) (*App, error) {
+// AppKey is one loop App that the service may act as.
+type AppKey struct {
+	// Owner is the GitHub account that owns the App. Empty when host
+	// config does not say: the service asks GitHub.
+	Owner string
+	ID    int64
+	// Key reads the App's PEM key from the encrypted store.
+	Key func(ctx context.Context) ([]byte, error)
+}
+
+// OneApp is the Apps of a host with a single App whose owner GitHub names.
+func OneApp(id int64, key func(ctx context.Context) ([]byte, error)) func() ([]AppKey, error) {
+	return func() ([]AppKey, error) { return []AppKey{{ID: id, Key: key}}, nil }
+}
+
+// appFor returns the App of owner, and keeps each parsed App in memory. It
+// reads the App list when it meets a new owner, so an App that
+// `loop register` adds reaches a running server.
+func (s *Service) appFor(ctx context.Context, owner string) (*App, error) {
+	key := strings.ToLower(owner)
 	s.mu.Lock()
-	app := s.app
+	app := s.apps[key]
 	s.mu.Unlock()
 	if app != nil {
 		return app, nil
 	}
-	if s.cfg.AppID <= 0 || s.cfg.PrivateKey == nil {
+	keys, err := s.appKeys()
+	if err != nil {
+		return nil, err
+	}
+	var ownerless []AppKey
+	for _, k := range keys {
+		switch {
+		case k.Owner == "":
+			ownerless = append(ownerless, k)
+		case strings.EqualFold(k.Owner, owner):
+			return s.keep(ctx, key, k)
+		}
+	}
+	for _, k := range ownerless {
+		app, err := s.parse(ctx, k)
+		if err != nil {
+			return nil, err
+		}
+		var out struct {
+			Owner struct {
+				Login string `json:"login"`
+			} `json:"owner"`
+		}
+		if err := s.callAs(ctx, app, Call{Method: http.MethodGet, Path: "/app"}, &out); err != nil {
+			return nil, err
+		}
+		s.mu.Lock()
+		if login := strings.ToLower(out.Owner.Login); login != "" && s.apps[login] == nil {
+			s.apps[login] = app
+		}
+		s.mu.Unlock()
+		if strings.EqualFold(out.Owner.Login, owner) {
+			return app, nil
+		}
+	}
+	return nil, fmt.Errorf("%w for %s; run loop register in a clone of one of its repositories", ErrNotConfigured, owner)
+}
+
+func (s *Service) appKeys() ([]AppKey, error) {
+	if s.cfg.Apps == nil {
 		return nil, ErrNotConfigured
 	}
-	key, err := s.cfg.PrivateKey(ctx)
+	keys, err := s.cfg.Apps()
 	if err != nil {
-		return nil, fmt.Errorf("github: read the App private key from the store: %w", err)
+		return nil, fmt.Errorf("github: read the loop Apps: %w", err)
 	}
-	app, err = ParseApp(s.cfg.AppID, key)
-	clear(key)
+	return keys, nil
+}
+
+func (s *Service) keep(ctx context.Context, owner string, k AppKey) (*App, error) {
+	app, err := s.parse(ctx, k)
 	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
-	s.app = app
+	s.apps[owner] = app
 	s.mu.Unlock()
 	return app, nil
 }
 
-// appCall sends one call as the App itself, with a fresh JWT.
-func (s *Service) appCall(ctx context.Context, c Call, out any) (*Response, error) {
-	app, err := s.appIdentity(ctx)
+func (s *Service) parse(ctx context.Context, k AppKey) (*App, error) {
+	if k.ID <= 0 || k.Key == nil {
+		return nil, ErrNotConfigured
+	}
+	pem, err := k.Key(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("github: read the App private key from the store: %w", err)
+	}
+	app, err := ParseApp(k.ID, pem)
+	clear(pem)
+	return app, err
+}
+
+// isLoopApp reports whether id is one of the loop's Apps.
+func (s *Service) isLoopApp(id int64) bool {
+	keys, err := s.appKeys()
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(keys, func(k AppKey) bool { return k.ID == id })
+}
+
+// AppID returns the id of the App that acts on p.
+func (s *Service) AppID(ctx context.Context, p config.Project) (int64, error) {
+	app, err := s.appFor(ctx, config.RepoOwner(p.Repo))
+	if err != nil {
+		return 0, err
+	}
+	return app.ID, nil
+}
+
+// appCall sends one call as the App of owner, with a fresh JWT.
+func (s *Service) appCall(ctx context.Context, owner string, c Call, out any) (*Response, error) {
+	app, err := s.appFor(ctx, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +179,16 @@ func (s *Service) appCall(ctx context.Context, c Call, out any) (*Response, erro
 	}
 	c.Token = jwt
 	return s.api.Do(ctx, c, out)
+}
+
+func (s *Service) callAs(ctx context.Context, app *App, c Call, out any) error {
+	jwt, err := app.JWT(s.cfg.Now())
+	if err != nil {
+		return err
+	}
+	c.Token = jwt
+	_, err = s.api.Do(ctx, c, out)
+	return err
 }
 
 // Installation is the App's installation on one repository, as
@@ -101,7 +202,7 @@ type Installation struct {
 // Installation reads the App's installation on the project repository.
 func (s *Service) Installation(ctx context.Context, p config.Project) (Installation, error) {
 	var in Installation
-	_, err := s.appCall(ctx, Call{Method: http.MethodGet, Path: repoPath(p, "/installation")}, &in)
+	_, err := s.appCall(ctx, config.RepoOwner(p.Repo), Call{Method: http.MethodGet, Path: repoPath(p, "/installation")}, &in)
 	if err != nil {
 		return Installation{}, err
 	}
@@ -147,7 +248,7 @@ func (s *Service) Token(ctx context.Context, p config.Project, scope Scope) (str
 			FullName string `json:"full_name"`
 		} `json:"repositories"`
 	}
-	_, err := s.appCall(ctx, Call{
+	_, err := s.appCall(ctx, config.RepoOwner(p.Repo), Call{
 		Method: http.MethodPost, Path: "/app/installations/" + strconv.FormatInt(id, 10) + "/access_tokens",
 		Body: map[string]any{"repositories": []string{name}, "permissions": perms}, Repeatable: true,
 	}, &minted)
