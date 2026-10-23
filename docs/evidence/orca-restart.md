@@ -46,7 +46,7 @@ The restart also had a side effect. It killed the orca native chat session that 
 ## Conclusions
 
 1. **AE2 holds for orca-serve restarts of terminal-hosted runs.** A complete inventory after the restart lists the same handle and incarnation, so an exact identity match re-adopts the run. `Inventory.Lookup` returns `present`, and `Inventory.Readopted` moves the session's recorded epoch to the new runtime id.
-2. **Every run, room and coordinator must start as a terminal session.** The orca implementation starts each session only through `orca terminal create`. It never starts an orca native chat session, which did not survive the restart. It never uses `worktree create --agent` or `agent launch`, which can open a chat per the operator's Chat UI setting.
+2. **Every run, room and coordinator must start as a terminal session.** It never starts an orca native chat session, which did not survive the restart. The orca implementation starts each session through `orca agent launch --surface terminal`, which overrides the operator's Chat UI setting, and it closes any session whose launch reports another surface. (It first used `orca terminal create --command`, but orca then did not treat the process as an agent and gave it none of its harness flags, so a harness whose settings deny shell commands stopped at its first one.)
 3. **A changed runtime id alone is no evidence of a lost run.** The runtime id changed, and the run did not. The implementation never reads a run as exited or absent because the epoch changed.
 4. **An orca daemon restart was not measured.** The PTY belongs to a separate daemon process, and only orca-serve restarted. Until a measurement proves otherwise, the implementation treats the daemon-restart case as `unknown`.
 

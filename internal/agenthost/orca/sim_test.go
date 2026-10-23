@@ -22,7 +22,8 @@ import (
 // (docs/evidence/orca-restart.md). Every path, branch, id, usage figure and
 // time in them is synthetic. Ids stay consistent across files, so the probe
 // before and after share a handle and incarnation while the runtime id differs.
-// The shapes of terminal create, terminal close, terminal send and
+// The shape of agent launch came from a launch on orca 1.4.237 on
+// 2026-10-23. The shapes of terminal create, terminal close, terminal send and
 // worktree create that the sim builds are transcribed from what alpha's
 // agent-start.ts, finished-probe.ts, supervisor-wake.ts and
 // worktree-names.ts read.
@@ -110,6 +111,15 @@ func (s *sim) Run(_ context.Context, args []string) (orca.Output, error) {
 	}
 	alive := s.created && !s.closed
 	switch key {
+	case "agent launch":
+		s.created = true
+		return okOut(map[string]any{
+			"outcome": map[string]any{"kind": "terminal", "handle": handleA, "paneKey": "pane-A"},
+			"receipt": map[string]any{"mode": "terminal", "preferred": "terminal", "reason": "requested"},
+			"prompt":  map[string]any{"delivery": "submit", "outcome": "handed-to-terminal"},
+		}, s.runtime), nil
+	case "terminal rename":
+		return okOut(map[string]any{"renamed": true}, s.runtime), nil
 	case "terminal create":
 		s.created = true
 		return okOut(map[string]any{"terminal": map[string]any{

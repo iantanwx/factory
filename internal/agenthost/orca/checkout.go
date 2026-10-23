@@ -73,9 +73,21 @@ func (h *Host) RemoveCheckout(ctx context.Context, path string) error {
 	if err != nil || !inv.Complete {
 		return fmt.Errorf("%w: cannot prove %s empty: %s", agenthost.ErrCheckoutBusy, clean, inv.Why)
 	}
+	shells := false
 	for _, r := range inv.Rows {
-		if filepath.Clean(r.Checkout) == clean {
-			return fmt.Errorf("%w: %s holds terminal %s", agenthost.ErrCheckoutBusy, clean, r.ID.Terminal)
+		if filepath.Clean(r.Checkout) != clean {
+			continue
+		}
+		if r.Agent != "" {
+			return fmt.Errorf("%w: %s holds agent terminal %s", agenthost.ErrCheckoutBusy, clean, r.ID.Terminal)
+		}
+		shells = true
+	}
+	// orca opens a shell in each new worktree. A shell that runs no agent
+	// holds no work, so it closes with the checkout.
+	if shells {
+		if _, err := h.call(ctx, "terminal", "close", "--worktree", "path:"+clean, "--all", "--json"); err != nil {
+			return fmt.Errorf("%w: close the shells in %s: %w", agenthost.ErrCheckoutBusy, clean, err)
 		}
 	}
 	_, err = h.call(ctx, "worktree", "rm", "--worktree", "path:"+clean, "--force", "--json")

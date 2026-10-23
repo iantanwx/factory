@@ -160,11 +160,16 @@ func orNone(xs []string) string {
 }
 
 // Prompt is the whole prompt text: it names only the brief and the
-// runbook (KTD18).
+// runbook (KTD18). The coordinator holds no item and never finishes, so its
+// prompt names no finish.
 func Prompt(b Brief) string {
+	finish := " When you are done, run `loop run finish --outcome done|failed|blocked`."
+	if b.Role == "coordinator" {
+		finish = ""
+	}
 	return fmt.Sprintf("You are a loop %s run. Read %s and %s in this checkout first. "+
-		"Then follow the runbook at %s. When you are done, run `loop run finish --outcome done|failed|blocked`.\n",
-		b.Role, BriefMD, BriefJSON, b.Runbook)
+		"Then follow the runbook at %s.%s\n",
+		b.Role, BriefMD, BriefJSON, b.Runbook, finish)
 }
 
 // Injection is everything one run start writes into a checkout.

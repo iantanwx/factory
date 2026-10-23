@@ -6,10 +6,10 @@
 // reader here checks the fields it needs, and a changed shape reads as
 // Unknown, never as Exited or Absent.
 //
-// Every session starts as a terminal session through `orca terminal create`.
-// The orca daemon owns that PTY, and it survived an orca-serve restart in
-// docs/evidence/orca-restart.md. An orca native chat session did not, so
-// this package never starts one.
+// Every session starts as a terminal session through `orca agent launch
+// --surface terminal`. The orca daemon owns that PTY, and it survived an
+// orca-serve restart in docs/evidence/orca-restart.md. An orca native chat
+// session did not, so this package never starts one.
 package orca
 
 import (
@@ -121,8 +121,6 @@ type Config struct {
 	// ParentWorktree selects the parent for `worktree create`. Empty
 	// passes --no-parent.
 	ParentWorktree string
-	// HarnessArgs holds extra harness arguments, by harness.
-	HarnessArgs map[agenthost.Harness][]string
 	// ReadyWindow bounds the wait for the agent to appear.
 	ReadyWindow time.Duration
 	// ReceiptWindow bounds the wait for a verified model receipt when a

@@ -28,104 +28,57 @@ func TestStartPromptNeverInArgs(t *testing.T) {
 			if _, err := w.host.Start(context.Background(), spec); err != nil {
 				t.Fatal(err)
 			}
-			var command string
+			var launch []string
 			for _, args := range w.sim.allArgs() {
 				for _, a := range args {
 					if strings.Contains(a, marker) {
 						t.Fatalf("prompt text reached orca argv: %q", args)
 					}
 				}
-				if strings.Join(args[:2], " ") == "terminal create" {
-					command = flag(args, "--command")
-					if flag(args, "--worktree") != "path:"+w.checkout {
-						t.Fatalf("create targets %q", flag(args, "--worktree"))
-					}
+				if strings.Join(args[:2], " ") == "agent launch" {
+					launch = args
 				}
 			}
-			// Every word is single-quoted, so the shell expands nothing,
-			// and the harness argv is exactly these words.
-			argv := unquote(t, command)
-			for _, a := range argv {
-				if strings.Contains(a, marker) {
-					t.Fatalf("prompt text reaches the harness argv: %q", argv)
+			for f, want := range map[string]string{
+				"--agent": string(hs), "--worktree": "path:" + w.checkout, "--model": "claude-sonnet-4-5-20250929",
+				"--effort": "high", "--surface": "terminal", "--prompt": agenthost.PromptInstruction(spec.PromptFile),
+			} {
+				if got := flag(launch, f); got != want {
+					t.Fatalf("launch %s = %q, want %q: %q", f, got, want, launch)
 				}
-			}
-			if argv[len(argv)-1] != agenthost.PromptInstruction(spec.PromptFile) {
-				t.Fatalf("harness argv ends %q", argv[len(argv)-1])
-			}
-			if !strings.HasPrefix(command, "exec '"+string(hs)+"' '--model' 'claude-sonnet-4-5-20250929'") {
-				t.Fatalf("command does not exec the harness with the model: %s", command)
-			}
-			if !strings.Contains(command, spec.PromptFile) {
-				t.Fatalf("command does not name the prompt file: %s", command)
-			}
-			want := map[agenthost.Harness]string{agenthost.Claude: "'--effort' 'high'", agenthost.Codex: "'-c' 'model_reasoning_effort=high'"}[hs]
-			if !strings.Contains(command, want) {
-				t.Fatalf("command %s lacks the effort flag %s", command, want)
 			}
 		})
 	}
 }
 
-// unquote parses `exec 'w1' 'w2' ...`, where each word is single-quoted
-// and a quote inside a word is written '\”. Anything else fails, because
-// any other text would let the shell expand it.
-func unquote(t *testing.T, command string) []string {
-	t.Helper()
-	rest, ok := strings.CutPrefix(command, "exec ")
-	if !ok {
-		t.Fatalf("command does not exec the harness: %s", command)
+// A launch that started a chat, or that did not hand the prompt over,
+// starts no run the loop can drive.
+func TestStartRefusesALaunchItCannotDrive(t *testing.T) {
+	for name, result := range map[string]map[string]any{
+		"chat": {"outcome": map[string]any{"kind": "structured", "handle": handleA},
+			"prompt": map[string]any{"outcome": "handed-to-terminal"}},
+		"prompt lost": {"outcome": map[string]any{"kind": "terminal", "handle": handleA},
+			"prompt": map[string]any{"outcome": "failed"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			w.sim.override["agent launch"] = func([]string) (orca.Output, error) {
+				w.sim.created = true
+				return okOut(result, w.sim.runtime), nil
+			}
+			if _, err := w.host.Start(context.Background(), w.spec(agenthost.Claude)); err == nil {
+				t.Fatal("Start accepted a launch it cannot drive")
+			}
+		})
 	}
-	var words []string
-	for rest != "" {
-		if rest[0] != '\'' {
-			t.Fatalf("unquoted text in command at %q", rest)
-		}
-		var w strings.Builder
-		rest = rest[1:]
-		for {
-			i := strings.IndexByte(rest, '\'')
-			if i < 0 {
-				t.Fatalf("unterminated quote in %s", command)
-			}
-			w.WriteString(rest[:i])
-			rest = rest[i+1:]
-			if strings.HasPrefix(rest, `\''`) {
-				w.WriteByte('\'')
-				rest = rest[3:]
-				continue
-			}
-			break
-		}
-		words = append(words, w.String())
-		if rest != "" {
-			if rest[0] != ' ' {
-				t.Fatalf("words not separated in %s", command)
-			}
-			rest = rest[1:]
-		}
-	}
-	return words
 }
 
-func TestStartCommandQuotesEveryWord(t *testing.T) {
-	spec := agenthost.StartSpec{
-		Kind: agenthost.KindRoom, Checkout: "/r/c", Harness: agenthost.Claude, Model: "m",
-		PromptFile: "/tmp/it's here.txt",
-	}
-	cmd, err := orca.StartCommand(spec, []string{"--permission-mode", "acceptEdits"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(cmd, `/tmp/it'\''s here.txt`) || !strings.HasPrefix(cmd, "exec 'claude' ") {
-		t.Fatalf("command = %s", cmd)
-	}
-	if !strings.Contains(cmd, "'--permission-mode' 'acceptEdits' 'Read the file") {
-		t.Fatalf("extra args must precede the instruction: %s", cmd)
-	}
-	words := unquote(t, cmd)
-	if !strings.Contains(words[len(words)-1], "/tmp/it's here.txt") {
-		t.Fatalf("instruction word = %q", words[len(words)-1])
+func TestLaunchArgsOmitAnEmptyEffort(t *testing.T) {
+	spec := agenthost.StartSpec{Kind: agenthost.KindRoom, Checkout: "/r/c", Harness: agenthost.Claude, Model: "m",
+		PromptFile: "/tmp/it's here.txt"}
+	args := orca.LaunchArgs(spec, "/r/c")
+	if slices.Contains(args, "--effort") || flag(args, "--prompt") != agenthost.PromptInstruction("/tmp/it's here.txt") {
+		t.Fatalf("launch args = %q", args)
 	}
 }
 
@@ -900,11 +853,26 @@ func TestRemoveCheckout(t *testing.T) {
 			t.Fatalf("RemoveCheckout(link) = %v", err)
 		}
 	})
-	t.Run("live terminal keeps it", func(t *testing.T) {
+	t.Run("live agent keeps it", func(t *testing.T) {
 		w := newWorld(t)
 		w.start(agenthost.Claude)
 		if err := w.host.RemoveCheckout(ctx, w.checkout); !errors.Is(err, agenthost.ErrCheckoutBusy) {
 			t.Fatalf("RemoveCheckout = %v", err)
+		}
+		if slices.Contains(w.sim.verbs(), "worktree rm") {
+			t.Fatal("a checkout with a live agent was removed")
+		}
+	})
+	t.Run("a shell closes with it", func(t *testing.T) {
+		w := newWorld(t)
+		w.sim.created, w.sim.ready = true, false // orca's own shell in the new worktree, with no agent
+		w.sim.override["worktree rm"] = func([]string) (orca.Output, error) { return okOut(map[string]any{}, w.sim.runtime), nil }
+		if err := w.host.RemoveCheckout(ctx, w.checkout); err != nil {
+			t.Fatalf("RemoveCheckout = %v", err)
+		}
+		v := w.sim.verbs()
+		if i, j := slices.Index(v, "terminal close"), slices.Index(v, "worktree rm"); i < 0 || j < i {
+			t.Fatalf("calls = %v; want the shell closed before the remove", v)
 		}
 	})
 	t.Run("incomplete inventory keeps it", func(t *testing.T) {

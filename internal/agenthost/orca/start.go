@@ -6,41 +6,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/iantanwx/loop/internal/agenthost"
 )
 
-// StartCommand is the text `orca terminal create --command` types into the
-// login shell orca starts. It names the prompt file and holds no prompt
-// text, so neither orca's argv, nor the shell, nor the harness's argv sees
-// the prompt. Alpha's startCommand ran `claude "$(cat file)"`, which put
-// the prompt into the harness's argv. This one does not.
-//
-// `exec` replaces the shell with the harness, so the PTY ends when the
-// harness ends. ADR 0025 (alpha) measured that without exec orca reads a
-// dead run as live, because its shell lives on.
-func StartCommand(spec agenthost.StartSpec, extra []string) (string, error) {
-	argv, err := agenthost.HarnessArgv(spec, extra)
-	if err != nil {
-		return "", err
-	}
-	words := make([]string, len(argv))
-	for i, a := range argv {
-		words[i] = shellWord(a)
-	}
-	return "exec " + strings.Join(words, " "), nil
-}
-
-// shellWord single-quotes one word so every character arrives.
-func shellWord(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// Start creates a terminal in the checkout that runs the harness, waits for
-// orca to name the agent in it, and, for an escalated role, waits for a
-// verified model receipt. Ported from startAgent and awaitAgent in alpha's
-// scripts/sdlc/agent-start.ts.
+// Start launches the harness as an orca agent in the checkout, waits for
+// orca to name the agent in its terminal, and, for an escalated role, waits
+// for a verified model receipt. orca's agent launch starts the harness the
+// way a new agent tab does, with orca's own flags for the agent, so orca
+// tracks it as an agent and its permission prompts stay off for a run that
+// no person attends. The launch takes no title, so the title follows.
+// Ported from startAgent in alpha's scripts/sdlc/agent-start.ts and
+// startArgs in apps/slothbot/src/supervise/child.ts.
 func (h *Host) Start(ctx context.Context, spec agenthost.StartSpec) (agenthost.Session, error) {
 	if err := spec.Validate(); err != nil {
 		return agenthost.Session{}, err
@@ -51,37 +28,49 @@ func (h *Host) Start(ctx context.Context, spec agenthost.StartSpec) (agenthost.S
 	if fi, err := os.Stat(spec.PromptFile); err != nil || !fi.Mode().IsRegular() {
 		return agenthost.Session{}, fmt.Errorf("%w: prompt file %s is not a readable file", agenthost.ErrBadSpec, spec.PromptFile)
 	}
-	command, err := StartCommand(spec, h.cfg.HarnessArgs[spec.Harness])
-	if err != nil {
-		return agenthost.Session{}, err
-	}
 	checkout := filepath.Clean(spec.Checkout)
 	title := spec.Title
 	if title == "" {
 		title = "loop " + string(spec.Kind)
 	}
 	started := h.cfg.Now()
-	env, err := h.call(ctx, "terminal", "create", "--worktree", "path:"+checkout,
-		"--title", title, "--command", command, "--json")
+	env, err := h.call(ctx, LaunchArgs(spec, checkout)...)
 	if err != nil {
 		return agenthost.Session{}, err
 	}
 	var res struct {
-		Terminal *terminal `json:"terminal"`
+		Outcome *struct {
+			Kind   string `json:"kind"`
+			Handle string `json:"handle"`
+		} `json:"outcome"`
+		Prompt *struct {
+			Outcome string `json:"outcome"`
+		} `json:"prompt"`
 	}
-	if err := json.Unmarshal(env.Result, &res); err != nil || res.Terminal == nil || res.Terminal.Handle == "" {
-		return agenthost.Session{}, fmt.Errorf("%w: orca terminal create printed no handle", agenthost.ErrHostUnavailable)
+	if err := json.Unmarshal(env.Result, &res); err != nil || res.Outcome == nil || res.Outcome.Handle == "" {
+		return agenthost.Session{}, fmt.Errorf("%w: orca agent launch printed no handle", agenthost.ErrHostUnavailable)
 	}
-	t := *res.Terminal
+	if res.Outcome.Kind != "terminal" {
+		return agenthost.Session{}, fmt.Errorf("%w: orca started the agent as a %s, not a terminal", agenthost.ErrHostUnavailable, res.Outcome.Kind)
+	}
+	t, err := h.showHandle(ctx, res.Outcome.Handle)
+	if err != nil {
+		return agenthost.Session{ID: agenthost.RunID{Terminal: res.Outcome.Handle}, Checkout: checkout}, err
+	}
 	s := agenthost.Session{
 		ID: t.id(), Kind: spec.Kind, Checkout: checkout, Harness: spec.Harness,
 		Model: spec.Model, Effort: spec.Effort, Pty: t.PtyID, Epoch: env.Meta.RuntimeID, StartedAt: started,
 	}
 	if !s.ID.Valid() {
-		// The create receipt carried no incarnation or host. The handle
-		// still names a terminal that may run, so return what is known.
-		return s, fmt.Errorf("%w: orca terminal create printed no full identity for %s", agenthost.ErrHostUnavailable, t.Handle)
+		// The terminal carried no incarnation or host. The handle still
+		// names a terminal that may run, so return what is known.
+		return s, fmt.Errorf("%w: orca printed no full identity for %s", agenthost.ErrHostUnavailable, t.Handle)
 	}
+	if res.Prompt == nil || (res.Prompt.Outcome != "handed-to-terminal" && res.Prompt.Outcome != "journaled") {
+		h.abandon(s.ID)
+		return s, fmt.Errorf("%w: orca did not hand the prompt to %s", agenthost.ErrNotReady, s.ID)
+	}
+	_, _ = h.call(ctx, "terminal", "rename", "--terminal", t.Handle, "--title", title, "--json")
 	if err := h.awaitReady(ctx, s); err != nil {
 		h.abandon(s.ID)
 		return s, err
@@ -93,6 +82,32 @@ func (h *Host) Start(ctx context.Context, spec agenthost.StartSpec) (agenthost.S
 		}
 	}
 	return s, nil
+}
+
+// LaunchArgs is the orca agent launch of spec in checkout. The prompt names
+// only the prompt file, so no secret reaches the process arguments.
+func LaunchArgs(spec agenthost.StartSpec, checkout string) []string {
+	args := []string{"agent", "launch", "--agent", string(spec.Harness), "--worktree", "path:" + checkout,
+		"--model", spec.Model}
+	if spec.Effort != "" {
+		args = append(args, "--effort", spec.Effort)
+	}
+	return append(args, "--surface", "terminal", "--prompt", agenthost.PromptInstruction(spec.PromptFile), "--json")
+}
+
+// showHandle reads the terminal a handle names now.
+func (h *Host) showHandle(ctx context.Context, handle string) (terminal, error) {
+	env, err := h.call(ctx, "terminal", "show", "--terminal", handle, "--json")
+	if err != nil {
+		return terminal{}, err
+	}
+	var res struct {
+		Terminal *terminal `json:"terminal"`
+	}
+	if err := json.Unmarshal(env.Result, &res); err != nil || res.Terminal == nil {
+		return terminal{}, fmt.Errorf("%w: orca terminal show printed no terminal", agenthost.ErrHostUnavailable)
+	}
+	return *res.Terminal, nil
 }
 
 // awaitReady polls `terminal show` until orca names the harness as the

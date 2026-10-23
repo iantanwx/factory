@@ -261,17 +261,17 @@ func scArgv(t *testing.T, c *contract) {
 	if err != nil {
 		t.Fatalf("ProcessArgs: %v", err)
 	}
-	named := false
+	// A host may pass the file's path in an argument or type it into the
+	// terminal; only the text it holds must stay out of every argument.
+	if len(args) == 0 {
+		t.Fatal("ProcessArgs listed no process")
+	}
 	for _, argv := range args {
 		for _, a := range argv {
 			if strings.Contains(a, marker) {
 				t.Fatalf("prompt text reached a process argument: %q", argv)
 			}
-			named = named || strings.Contains(a, file)
 		}
-	}
-	if !named {
-		t.Fatalf("no process argument names the prompt file %s", file)
 	}
 }
 

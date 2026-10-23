@@ -10,14 +10,14 @@
 //	go test -tags orca -run TestOrcaContract -v -timeout 60m ./internal/agenthost/orca/
 //
 // LOOP_ORCA_BIN defaults to the devbox CLI path. LOOP_ORCA_HARNESS defaults
-// to claude. LOOP_ORCA_EFFORT is optional. LOOP_ORCA_HARNESS_ARGS holds
-// extra harness arguments, separated by spaces.
+// to claude. LOOP_ORCA_EFFORT is optional.
 package orca_test
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,10 +79,6 @@ func TestOrcaContract(t *testing.T) {
 		CheckoutRoot: root,
 		Repo:         repo,
 		QuietPeriod:  20 * time.Second,
-		HarnessArgs:  map[agenthost.Harness][]string{},
-	}
-	if extra := os.Getenv("LOOP_ORCA_HARNESS_ARGS"); extra != "" {
-		cfg.HarnessArgs[harness] = strings.Fields(extra)
 	}
 	n := 0
 	agenthosttest.RunContract(t, func(t *testing.T) agenthosttest.ContractEnv {
@@ -112,4 +108,55 @@ func TestOrcaContract(t *testing.T) {
 			Driver:      orcaDriver{},
 		}
 	})
+}
+
+// An agent that the loop starts runs with no person at its terminal, so it
+// must run shell commands without a permission prompt, whatever the
+// operator's own harness settings deny. The agent runs one command that
+// leaves a file, and the file proves the command ran.
+func TestOrcaAgentRunsShellCommands(t *testing.T) {
+	root, repo, model := os.Getenv("LOOP_ORCA_ROOT"), os.Getenv("LOOP_ORCA_REPO"), os.Getenv("LOOP_ORCA_MODEL")
+	if root == "" || repo == "" || model == "" {
+		t.Skip("set LOOP_ORCA_ROOT, LOOP_ORCA_REPO and LOOP_ORCA_MODEL to run the orca contract")
+	}
+	bin := envOr("LOOP_ORCA_BIN", devboxOrca)
+	h, err := orca.New(orca.Config{Bin: bin, CheckoutRoot: root, Repo: repo, QuietPeriod: 20 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	co, err := h.CreateCheckout(ctx, agenthost.CheckoutSpec{Name: fmt.Sprintf("loop-contract-shell-%d", time.Now().Unix())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sess agenthost.Session
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if sess.ID.Valid() {
+			_ = h.Close(ctx, sess.ID)
+		}
+		_ = exec.CommandContext(ctx, bin, "terminal", "close", "--worktree", "path:"+co.Path, "--all", "--json").Run()
+		if err := h.RemoveCheckout(ctx, co.Path); err != nil {
+			t.Errorf("RemoveCheckout %s: %v", co.Path, err)
+		}
+	})
+	proof := filepath.Join(co.Path, "ran-a-shell-command")
+	prompt := filepath.Join(t.TempDir(), "prompt.md")
+	body := "Run this one shell command with your shell tool, then stop: touch " + proof + "\n"
+	if err := os.WriteFile(prompt, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sess, err = h.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindStage, Checkout: co.Path,
+		Harness: agenthost.Harness(envOr("LOOP_ORCA_HARNESS", string(agenthost.Claude))), Model: model, PromptFile: prompt})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(3 * time.Second) {
+		if _, err := os.Stat(proof); err == nil {
+			return
+		}
+	}
+	t.Fatalf("the agent ran no shell command in 3 minutes; %s is missing", proof)
 }
