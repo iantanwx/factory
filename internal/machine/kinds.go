@@ -45,6 +45,7 @@ const (
 // Verbs that callers outside the machine apply.
 const (
 	VerbADRLanded          = "adr_landed"
+	VerbADRMisjoined       = "adr_misjoined"
 	VerbAnswer             = "answer"
 	VerbCIRed              = "ci_red"
 	VerbCreate             = "create"

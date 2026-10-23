@@ -201,8 +201,8 @@ When the operator asks for an architecture decision in place of a PRD, create an
 loop epic create --architecture --project <project> --title "<title>" --body "<what the ADR decides>"
 ```
 
-The epic waits until a merge to the base branch adds an ADR that names the epic id. The server
-reads each Markdown file under `docs/adr/` on the base branch. The ADR is
+The epic waits until a merge to the base branch adds an ADR whose Ticket line names the epic id.
+The server reads each Markdown file under `docs/adr/` on the base branch. The ADR is
 `docs/adr/NNNN-<slug>.md`, with the next free number, from the template
 `../loop-sdlc-documents/adr.md`. Tell the operator to write the epic id on its `**Ticket:**` line.
 The `adr` gate refuses an ADR with no Ticket line. The spec author then takes the epic.
