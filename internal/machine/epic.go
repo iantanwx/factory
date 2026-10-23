@@ -156,6 +156,20 @@ func specClaim(r Row) Row {
 	return r
 }
 
+// adrIs refuses adr_misjoined unless the epic's adr fact is still the
+// path the caller read: an epic that a later write joined to another ADR
+// keeps it.
+func adrIs(c *change) *cli.Refusal {
+	if r := c.needParam("path"); r != nil {
+		return r
+	}
+	if got := c.fact(FactADR); got != c.param("path") {
+		return &cli.Refusal{Code: cli.CodeStatusChanged, Rule: "adr_changed", Item: c.item.ID, CurrentStatus: c.item.Status,
+			Hint: fmt.Sprintf("%s records adr=%q, not %q", c.item.ID, got, c.param("path"))}
+	}
+	return nil
+}
+
 // childrenTerminal refuses to close an epic while a child is open. A
 // child names its epic in the fact "epic".
 func childrenTerminal(c *change) *cli.Refusal {
@@ -283,6 +297,10 @@ func epicTable() *Table {
 			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
 		{Verb: "doc_merged", From: []string{PRDSignoff}, To: SpecNeeded, set: mark(FactPRDMerged, "sha"), Facts: []string{FactPRDMerged}},
 		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded, set: mark(FactADR, "path"), Facts: []string{FactADR}},
+		// An epic that an ADR named only in prose returns to wait for its
+		// own ADR (F-10). The server alone performs it.
+		{Verb: VerbADRMisjoined, From: []string{SpecNeeded}, To: Architecture, guard: adrIs, set: clearFacts(FactADR),
+			Facts: []string{FactADR}},
 		{Verb: "pr_open", From: []string{SpecDrafting}, To: SpecReview, Lease: LeaseDrop,
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
 		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop},

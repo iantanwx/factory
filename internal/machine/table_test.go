@@ -133,6 +133,7 @@ func epicEdges() []edge {
 		{PRDReview, "review_reject", Escalated},
 		{PRDSignoff, "doc_merged", SpecNeeded},
 		{Architecture, "adr_landed", SpecNeeded},
+		{SpecNeeded, "adr_misjoined", Architecture},
 		{SpecNeeded, "claim", SpecDrafting},
 		{SpecDrafting, "pr_open", SpecReview},
 		{SpecReview, "review_pass", SpecSignoff},
@@ -232,6 +233,10 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.When == "second_reject" {
 		facts[FactPRDRejects] = "1"
+	}
+	if r.Verb == VerbADRMisjoined {
+		params["path"] = "docs/adr/0001-x.md"
+		facts[FactADR] = "docs/adr/0001-x.md"
 	}
 	if r.To == ToResume {
 		facts[FactResume] = to
