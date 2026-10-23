@@ -1,0 +1,8 @@
+# The secrets gate reads this file. Tests hold fake keys and tokens that
+# look like real ones, so the scan skips Go test files.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "fake secrets in tests"
+paths = ['''_test\.go$''']

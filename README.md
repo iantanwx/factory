@@ -11,7 +11,8 @@ Every CLI verb prints one JSON envelope and exits with one shared exit code.
 ## Develop
 
 - `make gates` runs lint, tests, the race detector and the proto drift check.
-  It must pass before a change merges.
+- `loop gates` runs the loop's own gates, then each stack gate in
+  `.loop/config.yaml`. CI runs it, and it must pass before a change merges.
 - `make proto` regenerates `gen/` after a change under `proto/`.
 - `make build` builds `bin/loop`; `make build-all` builds every platform.
 

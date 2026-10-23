@@ -9,20 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  # The loop's gates, as every project runs them. The local action builds
+  # loop from this checkout, so a change to a gate runs in its own pull
+  # request. The commits gate reads the branch, and the secrets gate reads
+  # every commit.
   gates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          fetch-depth: 0
+      - uses: ./
       - uses: bufbuild/buf-action@v1
         with:
           version: "1.71.0"
           setup_only: true
       - name: Install golangci-lint
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
-      - run: make gates
+      - run: loop gates
 
   # The beads contract and the parity suite (U17) on the real server and
   # real beads. The job provisions the bd and dolt that
