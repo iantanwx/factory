@@ -84,6 +84,9 @@ func TestShippedLadderPasses(t *testing.T) {
 	if got := checkLadder(l); len(got) != 0 {
 		t.Fatalf("the shipped ladder fails: %v", got)
 	}
+	if !slices.ContainsFunc(l.rungs, func(r ladderRung) bool { return r.mechanism == scriptMechanism }) {
+		t.Fatalf("the shipped ladder names no rung %q, so the wired rule reaches no row", scriptMechanism)
+	}
 }
 
 func TestLadderFaults(t *testing.T) {
@@ -160,6 +163,48 @@ func TestLedgerRows(t *testing.T) {
 		{"a section whose slug only starts with the lesson", []spec{{}}, "### `rest-verbs`\n\n**Stronger rungs.** Rung 1 fits nothing.\n", []string{"lesson", "orphan"}},
 	} {
 		if got := ledgerRules(t, tc.rows, tc.sections, l); !slices.Equal(got, tc.want) {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// reachRepo is a checkout whose gates reach their check scripts three
+// ways: a path in the command, a path in a file the command reaches, and
+// make, which reaches the Makefile.
+func reachRepo(t *testing.T) *Repo {
+	return testRepo(t, map[string]string{
+		".loop/config.yaml": "merge:\n  mechanism: direct\ngates:\n" +
+			"  - name: lint\n    run: make lint\n" +
+			"  - name: rest-paths\n    run: sh scripts/check.sh --strict\n" +
+			"  - name: test\n    run: go run ./tools/probe\n",
+		"Makefile":              "lint:\n\t./scripts/lint-paths.sh\n",
+		"scripts/lint-paths.sh": "#!/bin/sh\n. \"$(dirname \"$0\")/lib.sh\"\n",
+		"scripts/lib.sh":        "x=1\n",
+		"scripts/check.sh":      "#!/bin/sh\n",
+		"scripts/stray.sh":      "#!/bin/sh\n",
+		"tools/probe/main.go":   "package main\n",
+	})
+}
+
+func TestCheckScriptIsReachedByAGate(t *testing.T) {
+	l := testLadder(ladderRungs + "\n| 3 | A lint rule | Lint |\n| 4 | " + scriptMechanism + " | A script that a gate runs |")
+	section := "### `rest`\n\n**Stronger rungs.** Rung 1, rung 2 and rung 3 fit nothing.\n"
+	repo := reachRepo(t)
+	for _, tc := range []struct {
+		name, rung, holds string
+		want              []string
+	}{
+		{"a script a gate's command names", "4", "`scripts/check.sh`", nil},
+		{"a script the Makefile names, which make reaches", "4", "`scripts/lint-paths.sh`", nil},
+		{"a file a reached script sources", "4", "`scripts/lib.sh`", nil},
+		{"a file of a directory a gate's command names", "4", "`tools/probe/main.go`", nil},
+		{"a gate of the config", "4", "`rest-paths`", nil},
+		{"a script no gate reaches", "4", "`scripts/stray.sh`", []string{"wired"}},
+		{"a reached script beside one no gate reaches", "4", "`scripts/check.sh`, `scripts/stray.sh`", []string{"wired"}},
+		{"a file at another rung needs no gate", "3", "`scripts/stray.sh`", nil},
+	} {
+		text := ledgerText([]spec{{rung: tc.rung, holds: tc.holds}}, section)
+		if got := rules(checkLedger(repo, text, l, parseLedger(text))); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
 	}
