@@ -112,6 +112,44 @@ func TestReviewSubmitCarriesItsBody(t *testing.T) {
 	}
 }
 
+// A code pass reads CI at its head before it posts its comment: a pass the
+// gate refuses posts nothing, records nothing, and names the ticket's
+// state and its next moves. A reject and a document's pass read no CI.
+func TestReviewPassReadsCIBeforeItsComment(t *testing.T) {
+	w := newWorld(t)
+	log := &commentLog{}
+	w.m.SetReviewCommenter(log.post)
+	var gated []string
+	w.m.SetPassGate(func(_ context.Context, project, item, head string) *cli.Refusal {
+		gated = append(gated, project+"|"+item+"|"+head)
+		return &cli.Refusal{Code: cli.CodeCINotGreen, Rule: "ci_failed", Hint: "ci failed"}
+	})
+
+	id, rev := w.inReview()
+	res := w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA, "body": "Looks right."})
+	wantCode(t, res, cli.CodeCINotGreen)
+	if r := res.Refusal; r.Item != id || r.CurrentStatus != InReview || len(r.AllowedNext) == 0 {
+		t.Fatalf("the refusal names no ticket state: %+v", *r)
+	}
+	if it := w.show(id); it.Status != InReview || it.Fact(FactReviewedHead) != "" || len(log.calls) != 0 {
+		t.Fatalf("a pass at red CI wrote: %s %v %v", it.Status, it.Facts, log.calls)
+	}
+	if len(gated) != 1 || gated[0] != prj+"|"+id+"|"+shaA {
+		t.Fatalf("the gate read %v", gated)
+	}
+	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "reject", "head": shaA, "body": "Fix the test."}))
+	if len(gated) != 1 || len(log.calls) != 1 {
+		t.Fatalf("a reject read CI %v or posted %v", gated, log.calls)
+	}
+
+	ep := w.create(KindEpic, "prd_submit", nil)
+	w.claim(ep, StageDocReviewer, "doc-rev")
+	mustOK(t, w.call("review submit", w.runOn(ep, StageDocReviewer, "doc-rev"), []string{ep}, map[string]string{"verdict": "pass"}))
+	if got := w.show(ep).Status; got != PRDSignoff || len(gated) != 1 {
+		t.Fatalf("a document pass: %s, gate read %v", got, gated)
+	}
+}
+
 // work edit replaces the title or the body. The item shows the new title,
 // and TaskText, which admission reads for the retry identity (R10), holds
 // both.

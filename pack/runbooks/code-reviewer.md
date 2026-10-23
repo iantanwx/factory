@@ -118,6 +118,10 @@ Name each defect outside this round under its own heading, with its evidence. Ne
    the new head.
 4. Run `loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`. The
    server posts the comment on the pull request and records it with the verdict.
+   The server refuses a pass with `CI_NOT_GREEN` unless every required check is green at `--head`.
+   The refusal posts nothing and records nothing. Rule `ci_pending` means a check runs or has not
+   reported, so wait as step 2 states, and run the same command again. Rule `ci_failed` means a
+   check failed, so follow the paragraph below this list.
 5. Finish with `loop run finish --outcome done`.
 
 A check that stays red or pending at the head is not a fault of this review. When the source holds

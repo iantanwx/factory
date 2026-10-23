@@ -59,6 +59,15 @@ type requiredCheck struct {
 	IntegrationID *int64 `json:"integration_id"`
 }
 
+// noRulesets reports whether err is GitHub's answer for a repository whose
+// plan offers no rulesets: a private repository on a free account. GitHub
+// answers 404, or 403 with an upgrade message.
+func noRulesets(err error) bool {
+	var api *APIError
+	return errors.As(err, &api) && (api.Status == http.StatusNotFound ||
+		api.Status == http.StatusForbidden && strings.Contains(api.Message, "Upgrade to GitHub Pro"))
+}
+
 func pathEscapeBranch(b string) string {
 	parts := strings.Split(b, "/")
 	for i, p := range parts {
@@ -87,9 +96,7 @@ func (s *Service) CheckRules(ctx context.Context, p config.Project) ([]CheckLine
 		// A private repository on a free account has no rulesets. GitHub
 		// answers 404, or 403 with an upgrade message. Nothing enforces the
 		// rules there, so the direct merge checks CI itself.
-		var api *APIError
-		if errors.As(err, &api) && (api.Status == http.StatusNotFound ||
-			api.Status == http.StatusForbidden && strings.Contains(api.Message, "Upgrade to GitHub Pro")) {
+		if noRulesets(err) {
 			return []CheckLine{{Check: "branch_rules", OK: true,
 				Detail: fmt.Sprintf("GitHub offers no rulesets for %s on its plan; the loop checks CI itself before a direct merge", p.Repo)}}, nil
 		}

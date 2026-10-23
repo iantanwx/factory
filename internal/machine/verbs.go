@@ -128,7 +128,11 @@ func commentKey(call *rpc.Call) string {
 // server checks it for a secret, posts it on the item's pull request once
 // every other check of the write passed, and then records it as the
 // review fact under the same compare-and-set as the verdict. A comment
-// GitHub refuses records nothing.
+// GitHub refuses records nothing. A code pass first needs green CI at the
+// head it names (alpha pr-comment.ts 74-91): the pass writes the reviewed
+// head that loop/eligible is posted on, so a pass at red or pending CI
+// records nothing and posts no comment. A reject needs no green build, and
+// a document's pass reads no CI.
 func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -151,9 +155,21 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 		params["body"] = body
 	}
 	req := request(call, prj, item, verb, params)
-	if body != "" && m.reviewComment != nil {
-		key := commentKey(call)
-		req.Before = func(ctx context.Context) *cli.Refusal { return m.reviewComment(ctx, prj, item, body, key) }
+	key := commentKey(call)
+	req.Before = func(ctx context.Context, it Item) *cli.Refusal {
+		if verb == "review_pass" && it.Kind == KindTicket && m.passGate != nil {
+			if r := m.passGate(ctx, prj, item, params["head"]); r != nil {
+				r.Item, r.CurrentStatus = item, it.Status
+				if r.AllowedNext == nil {
+					r.AllowedNext = it.AllowedNext
+				}
+				return r
+			}
+		}
+		if body != "" && m.reviewComment != nil {
+			return m.reviewComment(ctx, prj, item, body, key)
+		}
+		return nil
 	}
 	return m.Apply(ctx, req)
 }
@@ -252,7 +268,7 @@ func (m *Machine) workSupersede(ctx context.Context, call *rpc.Call) cli.Result 
 			Hint: "--reason says how the evidence answers the ticket; a person reads it"})
 	}
 	req := request(call, prj, item, VerbSupersede, map[string]string{"evidence": kind, "ref": ref, "reason": reason})
-	req.Before = func(ctx context.Context) *cli.Refusal {
+	req.Before = func(ctx context.Context, _ Item) *cli.Refusal {
 		if m.supersedeCheck == nil {
 			return cli.InternalRefusal(errors.New("machine: the server reads no GitHub, so it cannot check the evidence of a supersede"))
 		}
@@ -386,6 +402,14 @@ type ReviewCommenter func(ctx context.Context, project, item, body, key string) 
 // SetReviewCommenter sets the poster of review comments. The GitHub setup
 // sets it before the socket binds.
 func (m *Machine) SetReviewCommenter(f ReviewCommenter) { m.reviewComment = f }
+
+// PassGate reads CI at head, the head a code review passes. It refuses
+// unless every required check is green there.
+type PassGate func(ctx context.Context, project, item, head string) *cli.Refusal
+
+// SetPassGate sets the reader of CI for a code pass. The GitHub setup sets
+// it before the socket binds.
+func (m *Machine) SetPassGate(f PassGate) { m.passGate = f }
 
 // TaskText is the title and the body of an item's task: the text work
 // edit wrote, or the bead's own, and then an answer that amends the task.
