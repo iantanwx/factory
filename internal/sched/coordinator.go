@@ -43,6 +43,8 @@ type CoordinatorState struct {
 	Project  string             `json:"project,omitempty"`
 	Checkout string             `json:"checkout,omitempty"`
 	Session  *agenthost.Session `json:"session,omitempty"`
+	// Release is the server release that started the session.
+	Release string `json:"release,omitempty"`
 }
 
 // Coordinator returns the coordinator session as the store holds it.
@@ -124,6 +126,17 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 		}
 		s.log.WarnContext(ctx, "the coordinator's project is not registered; starting another", "project", cs.Project, "checkout", cs.Checkout)
 		cs = CoordinatorState{}
+	}
+	if cs.Session != nil && cs.Release != s.cfg.Release {
+		// The session reads the runbooks and the brief of the release that
+		// started it, and the host starts agents the way that release did.
+		// A new release restarts it in the same checkout.
+		_ = s.cfg.Agents.Close(ctx, cs.Session.ID)
+		if _, err := s.cfg.Tokens.Revoke(ctx, cs.RunID); err != nil {
+			s.log.ErrorContext(ctx, "revoke the coordinator token", "err", err)
+		}
+		s.log.WarnContext(ctx, "the release changed; restarting the coordinator", "run", cs.RunID, "from", cs.Release, "to", s.cfg.Release)
+		cs.Session = nil
 	}
 	if cs.Session != nil {
 		st, err := s.cfg.Agents.Settle(ctx, cs.Session.ID)
@@ -209,6 +222,6 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		_, _ = s.cfg.Tokens.Revoke(ctx, run)
 		return fmt.Errorf("sched: start the coordinator: %w", err)
 	}
-	cs.RunID, cs.Session = run, &sess
+	cs.RunID, cs.Session, cs.Release = run, &sess, s.cfg.Release
 	return nil
 }

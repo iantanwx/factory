@@ -81,6 +81,10 @@ service FaultService {
   rpc Resolve(VerbRequest) returns (Envelope);
 }
 
+service CoordinatorService {
+  rpc Send(VerbRequest) returns (Envelope);
+}
+
 service InboxService {
   rpc List(VerbRequest) returns (Envelope);
   rpc Answer(VerbRequest) returns (Envelope);

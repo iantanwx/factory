@@ -189,14 +189,17 @@ The coordinator is the agent you talk to. It brings you each question and
 alert, opens rooms, and files the work you ask for. The server starts it
 in Orca when the first project registers, in a worktree named
 `loop-coordinator` of that project, with a terminal titled
-`loop coordinator`. Open that terminal to talk to it. One coordinator
-serves every project.
+`loop coordinator`. Open that terminal to talk to it, or send it a
+message from any shell on the host with
+`loop coordinator send --body "<message>"`. One coordinator serves every
+project.
 
 Only that session holds the coordinator's token, in `.loop/token` of its
 worktree. A session in your own clone holds none, and the server refuses
 its coordinator verbs. When you remove the coordinator's project, the
 server ends the session and starts the next one in a project that is
-still registered.
+still registered. When you upgrade the loop, the server restarts the
+session in the same worktree, so it reads the new runbooks.
 
 ## The gates
 

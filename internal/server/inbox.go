@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -143,6 +144,19 @@ func (s *Server) ringCoordinator(ctx context.Context, text string) error {
 		return inbox.ErrNobodyToRing
 	}
 	return s.opts.Agents.Notify(ctx, cs.Session.ID, text)
+}
+
+// coordinatorSend types the operator's message into the coordinator's
+// terminal, so the operator talks to it from any shell on the host.
+func (s *Server) coordinatorSend(ctx context.Context, call *rpc.Call) cli.Result {
+	err := s.ringCoordinator(ctx, call.Inv.Flags["body"])
+	if errors.Is(err, inbox.ErrNobodyToRing) {
+		return cli.Reject(cli.CodeNotFound, "no_coordinator", "no coordinator session runs; the scheduler starts one on its next tick")
+	}
+	if err != nil {
+		return cli.Internal(err)
+	}
+	return cli.Found(map[string]any{"sent": true, "run_id": s.Sched.Coordinator().RunID})
 }
 
 // startHuman starts the watch loop: each interval, and at once after an

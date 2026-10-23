@@ -10,6 +10,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 )
 
@@ -208,5 +209,23 @@ func TestInboxSaysWhoEachEntryWaitsOn(t *testing.T) {
 	unknown := strings.Fields(byKind[sched.AlertRunUnknown])[1]
 	if _, code := w.coordinator("inbox", "answer", unknown, "--body", "the run was fine"); code != 0 || entryByID(w.entries(""), unknown) != nil {
 		t.Fatal("the answered alert stays open")
+	}
+}
+
+// The operator's shell types a message into the coordinator's terminal,
+// and the coordinator itself may not.
+func TestCoordinatorSendRingsTheCoordinator(t *testing.T) {
+	w := newHumanWorld(t, "")
+	if _, err := rpc.EnsureAdminCredential(w.dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	env, code, _ := call(t, w.dir, 5*time.Second, nil, "coordinator", "send", "--body", "file three tickets for the review gaps")
+	if code != 0 {
+		t.Fatalf("coordinator send from the host = %d %v", code, env)
+	}
+	w.waitNotified("file three tickets for the review gaps")
+	if env, _ := w.coordinator("coordinator", "send", "--body", "hello"); env["code"] != cli.CodeCapabilityDenied {
+		t.Fatalf("the coordinator's own send = %v", env)
 	}
 }

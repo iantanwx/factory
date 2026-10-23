@@ -186,6 +186,9 @@ var surface = []Verb{
 		Flag{Name: "not-a-fault", Type: FlagBool, Description: "the report names no fault in the loop; needs --reason"},
 		Flag{Name: "reason", Type: FlagString, Description: "why the report is not a fault"})),
 
+	write(server("coordinator", "send", "type a message into the coordinator's terminal, as the operator would", hostOnly, nil,
+		Flag{Name: "body", Type: FlagString, Required: true, Description: "the message"})),
+
 	server("inbox", "list", "list inbox entries", coordinator, nil,
 		Flag{Name: "awaits", Type: FlagString, Enum: []string{"person", "coordinator"}, Description: "only entries that wait on this actor"}),
 	write(server("inbox", "answer", "answer an inbox entry", coordinator, []Arg{entryArg},
