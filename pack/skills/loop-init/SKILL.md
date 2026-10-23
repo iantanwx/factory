@@ -1,6 +1,6 @@
 ---
 name: loop-init
-description: How an agent and the operator set up a project repository for the loop, with a scaffold, tests, CI and loop project config. Run it in the project's clone, after `loop register`.
+description: Set up a project repository for the loop with the operator. Use it when the operator asks to set up the loop or the project. Use it to bootstrap or scaffold the repository, or to add tests or CI for the loop. Use it also when the repository has no `.loop/config.yaml`. It interviews the operator, then makes the scaffold, tests, CI and loop project config.
 ---
 
 # loop-init
@@ -9,7 +9,8 @@ The loop needs three things in a project repository before it can work there: a 
 CI that runs that command on each pull request, and `.loop/config.yaml`. This skill makes them
 with the operator. The operator decides each choice. You ask, you build and you check.
 
-Run it in the project's clone, after `loop register` put the loop skills there. Run it again on a
+The operator starts it with a plain request, such as "set up my loop". Run it in the project's
+clone, after `loop register` put the loop skills there. Run it again on a
 repository that already has code. Then keep each part that exists, and make only the parts that
 are missing.
 

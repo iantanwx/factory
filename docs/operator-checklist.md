@@ -27,8 +27,8 @@ The same command upgrades a host that already runs the loop.
 
 - [ ] In the project's clone, run `loop register`.
 - [ ] If the project has no tests or CI yet, start Claude Code or Codex in
-      the clone and run the `loop-init` skill. It interviews you, then sets
-      up the stack, tests, CI and `.loop/config.yaml`.
+      the clone and say "set up my loop". It interviews you, then sets up
+      the stack, tests, CI and `.loop/config.yaml`.
 
 ## Open items
 

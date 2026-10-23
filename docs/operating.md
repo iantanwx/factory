@@ -158,7 +158,7 @@ The loop App must be installed on the repository. When it is not, the
 registration fails and says so.
 
 When the project has no tests or CI yet, start Claude Code or Codex in the
-clone and run the `loop-init` skill. It asks you for the stack, then makes
+clone and say "set up my loop". That starts the `loop-init` skill. It asks you for the stack, then makes
 a scaffold with one passing test, a CI workflow with a `ci` job, and
 `.loop/config.yaml`. It pushes them, waits for CI to pass, and runs
 `loop register` again, so the ruleset requires the `ci` check.

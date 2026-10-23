@@ -122,7 +122,7 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 		return fail(err)
 	}
 	if len(rep.CI) == 0 {
-		rep.Next = "the repository has no CI yet; start a harness session in " + rep.Path + " and run the loop-init skill"
+		rep.Next = "the repository has no CI yet; start a harness session in " + rep.Path + " and say \"set up my loop\""
 	}
 
 	for _, p := range host.Projects {
