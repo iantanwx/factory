@@ -83,7 +83,7 @@ proto-check:
 # run with python3 -I and use the standard library only. The advisory STE
 # rules print nothing here, because they never fail a run.
 PYTHON     ?= python3
-PACK_PROSE  = $(shell find pack docs/project-policy-template -name '*.md' | LC_ALL=C sort)
+PACK_PROSE  = $(shell find pack -name '*.md' | LC_ALL=C sort)
 
 pack-check:
 	$(GO) run ./internal/pack/cmd/pack-check

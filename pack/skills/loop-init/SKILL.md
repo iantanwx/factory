@@ -5,8 +5,9 @@ description: Set up a project repository for the loop with the operator. Use it 
 
 # loop-init
 
-The loop needs three things in a project repository before it can work there: a command for
-each stack gate, CI that runs `loop gates` on each pull request, and `.loop/config.yaml`. This skill makes them
+The loop needs four things in a project repository before it can work there: a command for
+each stack gate, CI that runs `loop gates` on each pull request, `.loop/config.yaml`, and the
+project's policy files and correction ledger. This skill makes them
 with the operator. The operator decides each choice. You ask, you build and you check.
 
 The operator starts it with a plain request, such as "set up my loop". Run it in the project's
@@ -119,7 +120,22 @@ stages:
 Name all six stack gates. `loop gates` fails a gate that the config does not name. Run
 `loop gates` in the clone, and fix each finding before you go on.
 
-## 6. Land it
+## 6. Policy and ledger
+
+The runbooks read the project's own rules from `.loop/policy/`, and the `loop-encode-lessons`
+skill records each correction in the ledger. Make both now, so the first correction has a place.
+
+1. Copy each template in `policy/` beside this skill to `.loop/policy/` in the clone, with the
+   same name: `implementer.md`, `code-reviewer.md` and `coordinator.md`.
+2. Fill each placeholder from the interview and the files. Use the stack gate commands of
+   `.loop/config.yaml` for the commands. Delete each section that does not apply, and the
+   template's first paragraph.
+3. Copy `correction-ledger.md` beside this skill to `docs/solutions/correction-ledger.md`.
+4. Run `loop gates --docs`, and fix each finding.
+
+Keep each file that exists already.
+
+## 7. Land it
 
 1. Show the operator the files, and get a yes.
 2. Commit them on the default branch, and push. In an empty repository, this first push makes
