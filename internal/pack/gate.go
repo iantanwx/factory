@@ -616,13 +616,16 @@ func frontmatter(file, dir, text string) []Finding {
 // names.
 var readTools = []string{"Read", "Grep", "Glob", "Bash"}
 
-// agentPath is a path from the agent directory into the skill root,
-// which is its sibling skills/.
-var agentPath = regexp.MustCompile(`\.\./skills/(loop-[a-z0-9-]+(?:/[A-Za-z0-9._-]+)*)/?`)
+// agentPath is a path from the checkout root into the skill root. Agents
+// ship only to Claude Code, and a subagent runs at the checkout root with
+// no word of where its definition lives.
+var (
+	agentPath    = regexp.MustCompile(`\.claude/skills/(loop-[a-z0-9-]+(?:/[A-Za-z0-9._-]+)*)/?`)
+	agentRelPath = regexp.MustCompile(`\.\./(?:skills/)?loop-[a-z0-9-]+(?:/[A-Za-z0-9._-]+)*/?`)
+)
 
-// agentPaths checks each path an agent names into the skill root. A
-// ../loop-* path from an agent names a sibling of the agent directory,
-// which holds no skill.
+// agentPaths checks each path an agent names into the skill root. A path
+// relative to the agent file names nothing for the subagent that reads it.
 func agentPaths(tree fs.FS, file, text string) []Finding {
 	var out []Finding
 	for i, line := range strings.Split(text, "\n") {
@@ -631,9 +634,9 @@ func agentPaths(tree fs.FS, file, text string) []Finding {
 				out = append(out, Finding{File: file, Line: i + 1, Kind: "path", Detail: fmt.Sprintf("%s names nothing in the pack", m[0])})
 			}
 		}
-		for _, m := range packPath.FindAllString(line, -1) {
+		for _, m := range agentRelPath.FindAllString(line, -1) {
 			out = append(out, Finding{File: file, Line: i + 1, Kind: "path",
-				Detail: fmt.Sprintf("%s names nothing in the pack; an agent names a skill as ../skills/loop-*", m)})
+				Detail: fmt.Sprintf("%s names nothing from the checkout root; an agent names a skill as .claude/skills/loop-*", m)})
 		}
 	}
 	return out

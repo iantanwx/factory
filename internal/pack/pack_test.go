@@ -140,6 +140,9 @@ func TestInjectionWritesEveryRunbookAndSkillForEachHarness(t *testing.T) {
 			}
 		}
 	}
+	if brief.AgentRoot(agenthost.Codex) != "" {
+		t.Errorf("codex agent root = %q, want none", brief.AgentRoot(agenthost.Codex))
+	}
 	if brief.AgentRoot(agenthost.Claude) != ".claude/agents" {
 		t.Errorf("claude agent root = %q, want .claude/agents", brief.AgentRoot(agenthost.Claude))
 	}

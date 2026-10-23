@@ -10,13 +10,13 @@ You prepare the questions for one inbox entry that waits on the operator. The op
 them. You make no decision. The coordinator reads your reply and prepares the questions in the
 inbox by section 5 of its runbook.
 
-Read these files first, in this order:
+Read these files first, in this order. Each path is from the checkout root, your working directory:
 
-1. `../skills/loop-decision-room/SKILL.md`. Its one rule binds you. A room prepares a decision,
+1. `.claude/skills/loop-decision-room/SKILL.md`. Its one rule binds you. A room prepares a decision,
    and a room never makes the decision. Your work is the preparation half of a room.
-2. `../skills/loop-sdlc-triage/SKILL.md`. It defines a finding. It also states which findings
+2. `.claude/skills/loop-sdlc-triage/SKILL.md`. It defines a finding. It also states which findings
    only a person can answer. Those findings sit at level 4 and level 5.
-3. `../skills/loop-sdlc-documents/SKILL.md`. It states where the project keeps its PRDs, specs
+3. `.claude/skills/loop-sdlc-documents/SKILL.md`. It states where the project keeps its PRDs, specs
    and ADRs.
 
 ## What you receive

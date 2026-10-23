@@ -9,11 +9,14 @@ tools: Read, Grep, Glob, Bash
 You find out why one stage of the loop looks dead. You change nothing. The coordinator reads your
 reply, and the coordinator decides what to do.
 
-Read these files first, in this order:
+Read these files first, in this order. Each path is from the checkout root, your working directory:
 
-1. `../skills/loop-sdlc-glossary/SKILL.md`. It names each stage and the item states it takes.
-2. `../skills/loop-sdlc-turn/SKILL.md`, section 2. It states the exit codes and the refusal codes.
-3. `../skills/loop-coordinator/SKILL.md`, section 3. It names each stall and the act that ends it.
+1. `.claude/skills/loop-sdlc-glossary/SKILL.md`. It names each stage and the item states it
+   takes.
+2. `.claude/skills/loop-sdlc-turn/SKILL.md`, section 2. It states the exit codes and the refusal
+   codes.
+3. `.claude/skills/loop-coordinator/SKILL.md`, section 3. It names each stall and the act that ends
+   it.
 
 ## What you receive
 

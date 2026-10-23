@@ -280,6 +280,8 @@ func TestRefreshPackWritesTheNewPackOnly(t *testing.T) {
 		"loop-implementer/SKILL.md":   {Data: []byte("# implementer runbook v2\n")},
 		"loop-coordinator/SKILL.md":   {Data: []byte("# coordinator runbook v2\n")},
 		"loop-code-reviewer/SKILL.md": {Data: []byte("# reviewer runbook\n")},
+	}, Agents: fstest.MapFS{
+		"loop-other.md": {Data: []byte("---\nname: loop-other\n---\n")},
 	}}
 	if err := RefreshPack(ctx, dir, agenthost.Claude, next); err != nil {
 		t.Fatal(err)
@@ -287,6 +289,7 @@ func TestRefreshPackWritesTheNewPackOnly(t *testing.T) {
 	for path, want := range map[string]string{
 		Runbook(agenthost.Claude, "implementer"): "# implementer runbook v2\n",
 		Runbook(agenthost.Claude, "coordinator"): "# coordinator runbook v2\n",
+		".claude/agents/loop-other.md":           "---\nname: loop-other\n---\n",
 	} {
 		if got, err := os.ReadFile(filepath.Join(dir, path)); err != nil || string(got) != want {
 			t.Fatalf("%s = %q, %v; want %q", path, got, err, want)

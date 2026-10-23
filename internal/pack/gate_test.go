@@ -225,7 +225,7 @@ func agentFixture() fstest.MapFS {
 	src["runbooks/implementer.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-implementer\ndescription: Build one ticket.\n---\n\n" +
 		"Read `../loop-sdlc-turn/SKILL.md` first. Read `.loop/policy/implementer.md` when it exists.\n" +
 		"Start the `loop-helper` agent for a read.\n")}
-	src["agents/loop-helper.md"] = agent("loop-helper", "Read, Grep, Glob, Bash", "Run `loop work show <item>`. Read `../skills/loop-sdlc-turn/SKILL.md`.\n")
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read, Grep, Glob, Bash", "Run `loop work show <item>`. Read `.claude/skills/loop-sdlc-turn/SKILL.md`.\n")
 	return src
 }
 
@@ -292,11 +292,14 @@ func TestGateRequiresEachRunbookToNameItsAgents(t *testing.T) {
 
 func TestGateChecksEachPathOfAnAgent(t *testing.T) {
 	src := agentFixture()
-	src["agents/loop-helper.md"] = agent("loop-helper", "Read", "Read `../skills/loop-sdlc-triage/SKILL.md`.\n")
-	wantOne(t, check(t, src), "path", "../skills/loop-sdlc-triage/SKILL.md")
-	// An agent lands beside the skill root, so ../loop-* names nothing.
-	src["agents/loop-helper.md"] = agent("loop-helper", "Read", "Read `../loop-sdlc-turn/SKILL.md`.\n")
-	wantOne(t, check(t, src), "path", "../loop-sdlc-turn/SKILL.md")
+	src["agents/loop-helper.md"] = agent("loop-helper", "Read", "Read `.claude/skills/loop-sdlc-triage/SKILL.md`.\n")
+	wantOne(t, check(t, src), "path", ".claude/skills/loop-sdlc-triage/SKILL.md")
+	// A subagent runs at the checkout root and is not told where its
+	// definition lives, so a path relative to the agent file names nothing.
+	for _, rel := range []string{"../skills/loop-sdlc-turn/SKILL.md", "../loop-sdlc-turn/SKILL.md"} {
+		src["agents/loop-helper.md"] = agent("loop-helper", "Read", "Read `"+rel+"`.\n")
+		wantOne(t, check(t, src), "path", rel)
+	}
 }
 
 func TestGateChecksTheVocabularyOfAnAgent(t *testing.T) {

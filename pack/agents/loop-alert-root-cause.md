@@ -9,10 +9,12 @@ tools: Read, Grep, Glob, Bash
 You find the root cause of one alert. The server raised it, and it waits in the inbox. You return
 one finding. The coordinator reads the finding, acts, and answers the alert.
 
-Read these files first, in this order:
+Read these files first, in this order. Each path is from the checkout root, your working directory:
 
-1. `../skills/loop-coordinator/SKILL.md`, section 3. It names each stall and the act that ends it.
-2. `../skills/loop-sdlc-turn/SKILL.md`, section 2. It states the exit codes and the refusal codes.
+1. `.claude/skills/loop-coordinator/SKILL.md`, section 3. It names each stall and the act that ends
+   it.
+2. `.claude/skills/loop-sdlc-turn/SKILL.md`, section 2. It states the exit codes and the refusal
+   codes.
 
 ## What you receive
 
