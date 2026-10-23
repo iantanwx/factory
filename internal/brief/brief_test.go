@@ -234,6 +234,52 @@ func TestPackPerHarnessAndHash(t *testing.T) {
 	}
 }
 
+// RefreshPack writes a new pack into the checkout of a running session. It
+// leaves the brief as it was and git clean, and a tracked skill directory
+// refuses it with a *ConflictError before it writes.
+func TestRefreshPackWritesTheNewPackOnly(t *testing.T) {
+	ctx := context.Background()
+	dir := gitRepo(t)
+	inject(t, dir, nil)
+	before, err := os.ReadFile(filepath.Join(dir, BriefJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	next := Pack{Version: "v2.0.0", FS: fstest.MapFS{
+		"loop-implementer/SKILL.md":   {Data: []byte("# implementer runbook v2\n")},
+		"loop-coordinator/SKILL.md":   {Data: []byte("# coordinator runbook v2\n")},
+		"loop-code-reviewer/SKILL.md": {Data: []byte("# reviewer runbook\n")},
+	}}
+	if err := RefreshPack(ctx, dir, agenthost.Claude, next); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		Runbook(agenthost.Claude, "implementer"): "# implementer runbook v2\n",
+		Runbook(agenthost.Claude, "coordinator"): "# coordinator runbook v2\n",
+	} {
+		if got, err := os.ReadFile(filepath.Join(dir, path)); err != nil || string(got) != want {
+			t.Fatalf("%s = %q, %v; want %q", path, got, err, want)
+		}
+	}
+	if after, _ := os.ReadFile(filepath.Join(dir, BriefJSON)); string(after) != string(before) {
+		t.Fatalf("RefreshPack changed the brief:\n%s", after)
+	}
+	if out := git(t, dir, "status", "--porcelain", "--untracked-files=all"); out != "" {
+		t.Fatalf("git status after RefreshPack:\n%s", out)
+	}
+
+	tracked := Runbook(agenthost.Claude, "coordinator")
+	dir = gitRepo(t, tracked)
+	err = RefreshPack(ctx, dir, agenthost.Claude, next)
+	var ce *ConflictError
+	if !errors.As(err, &ce) || !slices.Contains(ce.Paths, tracked) {
+		t.Fatalf("tracked %s: err = %v", tracked, err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, tracked)); string(got) != tracked+"\n" {
+		t.Fatalf("a refused RefreshPack wrote %s: %q", tracked, got)
+	}
+}
+
 func TestRemoveEnv(t *testing.T) {
 	dir := gitRepo(t)
 	inject(t, dir, map[string]string{"A": "1"})
