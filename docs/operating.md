@@ -135,6 +135,13 @@ permissions, the default-branch rules, and project config on the default
 branch. `loop doctor` asks the server for them. When the server is down, it
 reports them as one failed `github` line marked unchecked.
 
+Every settlement removes the checkout's `.env`, and so does a room that goes
+idle or interrupted. `loop doctor` fails one `stale_env` line for each `.env`
+that one of these steps missed: a checkout the loop made whose run ended, or
+whose room is idle, interrupted or closed. Run `loop doctor --fix` to remove each one. The
+server knows which runs live, so this check also reads unchecked when the
+server is down.
+
 ## Add a project
 
 Run `loop register` in the project's local clone:

@@ -2,13 +2,23 @@ package server
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/iantanwx/loop/internal/brief"
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
+	"github.com/iantanwx/loop/internal/room"
+	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/secrets"
 )
 
 // requiredPermissions is the App's granted set (KTD15). `loop doctor`
@@ -86,4 +96,79 @@ func (g *GitHub) projectConfigLine(ctx context.Context, p config.Project) github
 		line.OK, line.Detail = true, fmt.Sprintf("%s exists on %s", config.ProjectConfigPath, branch)
 	}
 	return line
+}
+
+// StaleEnvCheck is the check name of each line `loop doctor-env` prints.
+const StaleEnvCheck = "stale_env"
+
+// doctorEnv answers `loop doctor-env`: each .env in a checkout with no
+// live run, and with --fix the removal of each (KTD17). Every settlement
+// already removes .env; this finds the one a settlement missed. The
+// server answers it because only the store knows which runs live.
+func (s *Server) doctorEnv(ctx context.Context, call *rpc.Call) cli.Result {
+	paths, err := s.staleEnvFiles(ctx)
+	if err != nil {
+		return cli.Internal(err)
+	}
+	fix := call.Inv.Flags["fix"] == "true"
+	lines := []github.CheckLine{}
+	for _, p := range paths {
+		line := github.CheckLine{Check: StaleEnvCheck}
+		switch {
+		case !fix:
+			line.Detail = p + ": no live run holds this checkout; loop doctor --fix removes it"
+		default:
+			if err := secrets.RemoveEnvFile(p); err != nil {
+				line.Detail = p + ": the removal failed: " + err.Error()
+			} else {
+				line.OK, line.Detail = true, "removed "+p
+			}
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		lines = append(lines, github.CheckLine{Check: StaleEnvCheck, OK: true, Detail: "no checkout without a live run holds a .env"})
+	}
+	return cli.List(lines)
+}
+
+// staleEnvFiles lists the .env of each checkout the loop made that no live
+// run holds. A checkout is held by its run until the run ends, and by its
+// room while the room is open or live: an idle or interrupted room has
+// none (KTD17). The coordinator's checkout, known by its token, never
+// gets a .env.
+func (s *Server) staleEnvFiles(ctx context.Context) ([]string, error) {
+	var dirs []string
+	err := s.Store.Read(ctx, func(tx *sql.Tx) error {
+		rs, err := tx.QueryContext(ctx, `SELECT c.path FROM checkouts c
+			WHERE NOT EXISTS (SELECT 1 FROM runs r WHERE r.run_id = c.run_id AND r.ended_at IS NULL)
+			AND NOT EXISTS (SELECT 1 FROM rooms m WHERE m.checkout_id = c.id AND m.state IN (?, ?, ?))
+			UNION SELECT t.checkout FROM run_tokens t WHERE t.checkout NOT IN (SELECT path FROM checkouts)
+			ORDER BY 1`, room.Opening, room.Live, room.Applied)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rs.Close() }()
+		for rs.Next() {
+			var d string
+			if err := rs.Scan(&d); err != nil {
+				return err
+			}
+			dirs = append(dirs, d)
+		}
+		return rs.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	// A .env the server cannot stat is listed too, so --fix names why
+	// it stays.
+	var out []string
+	for _, d := range dirs {
+		p := filepath.Join(d, brief.EnvFile)
+		if _, err := os.Lstat(p); !errors.Is(err, fs.ErrNotExist) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }

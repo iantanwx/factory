@@ -3617,6 +3617,7 @@ var ProjectService_ServiceDesc = grpc.ServiceDesc{
 const (
 	HostService_Drain_FullMethodName        = "/loop.v1.HostService/Drain"
 	HostService_DoctorGithub_FullMethodName = "/loop.v1.HostService/DoctorGithub"
+	HostService_DoctorEnv_FullMethodName    = "/loop.v1.HostService/DoctorEnv"
 )
 
 // HostServiceClient is the client API for HostService service.
@@ -3625,6 +3626,7 @@ const (
 type HostServiceClient interface {
 	Drain(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	DoctorGithub(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	DoctorEnv(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type hostServiceClient struct {
@@ -3655,12 +3657,23 @@ func (c *hostServiceClient) DoctorGithub(ctx context.Context, in *VerbRequest, o
 	return out, nil
 }
 
+func (c *hostServiceClient) DoctorEnv(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, HostService_DoctorEnv_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // HostServiceServer is the server API for HostService service.
 // All implementations must embed UnimplementedHostServiceServer
 // for forward compatibility.
 type HostServiceServer interface {
 	Drain(context.Context, *VerbRequest) (*Envelope, error)
 	DoctorGithub(context.Context, *VerbRequest) (*Envelope, error)
+	DoctorEnv(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedHostServiceServer()
 }
 
@@ -3676,6 +3689,9 @@ func (UnimplementedHostServiceServer) Drain(context.Context, *VerbRequest) (*Env
 }
 func (UnimplementedHostServiceServer) DoctorGithub(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method DoctorGithub not implemented")
+}
+func (UnimplementedHostServiceServer) DoctorEnv(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method DoctorEnv not implemented")
 }
 func (UnimplementedHostServiceServer) mustEmbedUnimplementedHostServiceServer() {}
 func (UnimplementedHostServiceServer) testEmbeddedByValue()                     {}
@@ -3734,6 +3750,24 @@ func _HostService_DoctorGithub_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HostService_DoctorEnv_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HostServiceServer).DoctorEnv(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HostService_DoctorEnv_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HostServiceServer).DoctorEnv(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // HostService_ServiceDesc is the grpc.ServiceDesc for HostService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3748,6 +3782,10 @@ var HostService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DoctorGithub",
 			Handler:    _HostService_DoctorGithub_Handler,
+		},
+		{
+			MethodName: "DoctorEnv",
+			Handler:    _HostService_DoctorEnv_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
