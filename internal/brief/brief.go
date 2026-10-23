@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -178,9 +179,10 @@ type Injection struct {
 	Harness  agenthost.Harness
 	Pack     Pack
 	Brief    Brief
-	// Env is every manifest secret. An empty map writes no .env and
+	// Env is each manifest secret the run's stage receives, by the
+	// directory whose .env holds it. An empty map writes no .env and
 	// removes an old one.
-	Env map[string]string
+	Env EnvFiles
 }
 
 // Result is what Inject wrote.
@@ -203,7 +205,12 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	files := []string{BriefJSON, BriefMD, PromptFile, EnvFile, TokenFile, PendingFile, PendingLock}
+	files := []string{BriefJSON, BriefMD, PromptFile, EnvFile, EnvRecord, TokenFile, PendingFile, PendingLock}
+	for _, p := range in.Env.Paths() {
+		if !slices.Contains(files, p) {
+			files = append(files, p)
+		}
+	}
 	if err := CheckTracked(ctx, in.Checkout, files, dirs); err != nil {
 		return Result{}, err
 	}
@@ -232,7 +239,7 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 		if err := RemoveEnv(in.Checkout); err != nil {
 			return Result{}, err
 		}
-	} else if err := WriteEnv(in.Checkout, in.Env); err != nil {
+	} else if err := WriteEnv(ctx, in.Checkout, in.Env); err != nil {
 		return Result{}, err
 	}
 	return Result{PackHash: hash, Prompt: prompt}, nil

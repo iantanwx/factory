@@ -116,11 +116,12 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 
 // openVerbs maps the status an item holds when its run opens or updates
 // its PR to the table verb that hands the item to review. The amender
-// pushes its revision to the PRD's open PR, and its `pr open` returns the
-// epic to review.
+// pushes its revision to the document's open PR, and its `pr open` returns
+// the epic to review, or to sign-off when it pushed nothing.
 var openVerbs = map[machine.Kind]map[string]string{
 	machine.KindTicket: {machine.InProgress: "pr_open", machine.Repair: "fix_pushed"},
-	machine.KindEpic:   {machine.SpecDrafting: "pr_open", machine.PRDAmending: "prd_amended"},
+	machine.KindEpic: {machine.SpecDrafting: "pr_open", machine.PRDAmending: "prd_amended",
+		machine.SpecAmending: "spec_amended"},
 }
 
 func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
@@ -149,10 +150,24 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 	if verb == "" {
 		return cli.Found(out)
 	}
+	head := pr.Head.SHA
+	if it.Status == machine.PRDAmending || it.Status == machine.SpecAmending {
+		// GitHub moves a PR's head some time after a push. The amended
+		// row compares the head with the one a comment found, so it
+		// reads the server's own newest push first: a revision read as
+		// no change would skip the review.
+		pushed, err := s.lastPush(ctx, prj.ID, branch)
+		if err != nil {
+			return Refuse(err)
+		}
+		if pushed != "" {
+			head = pushed
+		}
+	}
 	p := call.Principal
 	res := s.cfg.Machine.Apply(ctx, machine.Request{
 		Project: prj.ID, Item: item, Verb: verb, ExpectedStatus: it.Status, RequestID: call.Inv.RequestID,
-		Params: map[string]string{"head": pr.Head.SHA, "pr": strconv.Itoa(pr.Number)},
+		Params: map[string]string{"head": head, "pr": strconv.Itoa(pr.Number)},
 		Actor:  machine.Actor{Name: p.Actor(), RunID: p.RunID, Fenced: p.Kind == cli.PrincipalRun, Epoch: p.Epoch},
 	})
 	if res.Refusal != nil {

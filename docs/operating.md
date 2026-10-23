@@ -276,11 +276,21 @@ secrets:
   - name: OPENAI_API_KEY
   - name: STRIPE_KEY
     source: op://Dev/stripe/key   # only for loop secret import
+  - name: POSTHOG_KEY
+    dir: apps/web                 # written to apps/web/.env, not the root .env
+    stages: [implementer, review-room]  # only these runs receive it
 ```
 
-At each run start, the server writes each listed secret into the
-checkout's `.env`. A run whose list names a secret with no stored value
-does not start, and the inbox names the secret.
+At each run start, the server writes each secret the run's stage
+receives into the `.env` of the entry's `dir`, or the checkout's root
+`.env` when the entry names none. An entry with no `stages` reaches every
+stage. A stage is a stage name, such as `implementer`, or a room:
+`intake-room`, `decision-room` or `review-room`. So a key that one app
+uses reaches that app's `.env` only, in the runs that need it. Each file
+holds only its own names, and the server deletes each one when the run
+settles. A repository that tracks a file at one of those paths starts no
+run. A run whose stage's list names a secret with no stored value does
+not start, and the inbox names the secret.
 
 Store a value from stdin. The value never prints:
 
