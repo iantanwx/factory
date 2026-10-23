@@ -27,7 +27,7 @@ Read these first, in this order:
 4. Read the document at the head, the sources it cites, and `loop pr threads`.
 
 When a fact you need is missing, never guess it. Run `loop work note <item> --body "<note>"`, name
-the fact, and finish `failed`.
+the fact, and finish `blocked`. The server holds the item and raises an alert.
 
 ## 2. Review a PRD
 
@@ -80,7 +80,8 @@ it to `spec_needed`, and the spec-author writes the next round.
 ## 4. Submit the verdict
 
 1. Write the whole review as one comment, by `../loop-sdlc-review/SKILL.md`.
-2. Run `loop pr show` again. When the head moved, submit nothing. Note it, and finish `failed`.
+2. Run `loop pr show` again. When the head moved, submit nothing. Start again at section 1 with
+   the new head.
 3. Run `loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`. The
    server posts the comment on the pull request and records it with the verdict.
 4. Finish with `loop run finish --outcome done`.
