@@ -97,6 +97,20 @@ mechanism cannot run.
   (`scripts/sdlc/overwatch-parts.ts`, alpha: "The owner's act needs nothing yet"). A finding that
   needs the operator is work only until the coordinator prepares the question. The question then
   names its key.
+- **A decision that waits on its event is a note with code 0, on every tick.** The `decisions` part
+  prints one line for each `pending` decision, and the line quotes its trigger. The part holds no
+  finding, so it never rings. The coordinator reads those lines on every wake from any source,
+  because section 1 runs the sweep first, and section 6 checks each trigger. We rejected a
+  waiting event decision as work. No act of the coordinator ends that work while the event has not
+  happened: `defer` starts only from `needs_human` (`internal/machine/decision.go`), and `fire` or
+  `moot` is wrong before the event. A record cannot end it either, because the decision's key
+  cannot appear in its own body. So the decision would ring every tick until the event: six rings
+  an hour. `factorio-jam`, "no host upgrade until factorio-88t ships", would ring that way until a
+  release that holds the fix ships. We also rejected work only at the first sighting of a
+  decision. A record that the sweep saw a decision before is the store row of rung findings that the
+  decision above rejects. The cost of the note is a later fire: an event that happens while no
+  part holds work waits for the next wake. A decision that cannot wait names a `by` date with
+  `loop decision file --by`, and `decision-timers` fires it on that day.
 - **Every part reads on every tick. No part has a slower cadence.** The ADR postponed this to the
   spec. We chose one cadence over a cadence for each part, because the arithmetic shows no need.
   On each tick, a project's GitHub parts make about 6 list reads, and `flaky` adds 2 reads for each
@@ -184,6 +198,9 @@ mechanism cannot run.
 - One coordinator turn costs more than one sweep. ADR 0009 assumes this too, and nobody counted it.
   This is wrong if a sweep's reads cost more than one model turn, which no part's read comes close
   to.
+- A wake from some source reaches the coordinator soon enough after a decision's event, so a note
+  serves where a ring would. This is wrong if the coordinator fires a decision with no `by` date more
+  than a day after its event happened.
 
 ## Approach
 
@@ -215,9 +232,10 @@ Each GitHub key names its project, because a record in any project may hold it.
 
 | Part | Subject of the key | The act that ends the finding |
 | --- | --- | --- |
-| `stalls` | `<item>@<state>`, or `escalation-<n>` | A run starts on the item, or a fault names the key |
+| `stalls` | `<item>@<state>` | A run starts on the item, or a fault names the key |
+| `stalls` | `escalation-<n>` | The escalation leaves `awaiting_panel`, or a fault names the key |
 | `questions` | `escalation-<n>` | `loop inbox prepare --entry` for the escalation's entry |
-| `decisions` | `<decision id>` | `loop decision fire`, `defer` or `moot` |
+| `decisions` | None. The part prints notes only (C13) | None. A note holds no work |
 | `backlog` | `<ticket>` | `loop work unblock`, or a prepared question names the key |
 | `claims` | `<item>` | The lease ends, or a fault names the key |
 | `pulls` | `<project>:<item>:<document>` | One pull request closes, or a fault names the key |
@@ -302,7 +320,9 @@ Entry 3 changes section 1 of the runbook. It runs `loop overwatch sweep` first a
 `loop inbox list` second. A table maps each part to the section that acts on it. When the
 coordinator files a bug, reports a fault, prepares a question or files a decision for a finding, it
 quotes the finding's key in the body. The line on "health limits" names project config's `health`
-block. Entry 11 changes the rest. Section 6 reads the `decisions` part instead of its own list.
+block. Entry 11 changes the rest. Section 6 reads the `decisions` part's notes on every wake,
+instead of its own list. It keeps `defer` for a decision in `needs_human` only, as the decision
+table allows.
 Section 9 step 3 files a bug for each fault that the `bugs` part names, and for no other fault.
 This project's policy loses the report addition that the `bugs` part now reports.
 
@@ -736,7 +756,8 @@ sequenceDiagram
     - Proves: C27, C28.
     - Done when: each part's fixtures give the codes that C27 and C28 state.
 11. **Sections 6 and 9 act on their parts.** Section 6 of the coordinator runbook acts on the
-    `decisions` part. Section 9 step 3 files a bug for each fault that the `bugs` part names. Delete
+    `decisions` part's notes on every wake. It offers `defer` only for a decision in
+    `needs_human`. Section 9 step 3 files a bug for each fault that the `bugs` part names. Delete
     the report addition "Each open loop fault, the bug it became, and the release that will end it"
     from this project's coordinator policy. Add the test that `Parts()` holds each name in
     `PartNames` once.
@@ -865,11 +886,20 @@ reads code 0, because it waits on the operator. An escalation in `awaiting_panel
 here, because `stalls` owns it.
 *Example tests, one for each state.*
 
-**C13. Behaviour: a decision with an event trigger is work.** Proves ADR 0009 § Decision, "Which
-parts port", row `decisions`. A decision in `pending` with no `by` date makes `decisions` hold
-work, and its line quotes the trigger. A decision with a `by` date reads code 0, because
-`decision-timers` fires it. `loop decision fire`, `defer` or `moot` ends the work.
-*Example tests, one of each.*
+**C13. Behaviour: a decision that waits on its event is a note, and it never rings.** Proves ADR
+0009 § Decision, "Which parts port", row `decisions`. Each decision in `pending` prints one note
+that names the decision, quotes its trigger, and states its `by` date or that it has none. The
+part's code is 0 on every tick that the decision waits, the first and every later one. It is 2
+only when its read fails. A decision in any other state prints no line. These must not happen:
+
+- A `pending` decision makes the part hold work, whether or not it names a `by` date.
+- A sweep whose only lines are `decisions` notes rings the coordinator.
+
+The note ends when the decision leaves `pending`, by `loop decision fire` or `moot`.
+*Example tests: a decision with no `by` date, swept at three ticks, gives code 0 and the same line
+each time. One more test each for a decision with a `by` date, a decision in `needs_human`, and a
+failed read. A job test: a world whose only content is the `factorio-jam` fixture ticks three
+times and rings nobody.*
 
 **C14. Behaviour: a backlog ticket that `dependency-advance` cannot free is work.** Proves ADR 0009
 § Decision, "Which parts port", row `backlog`. A ticket in `backlog` with a canceled blocker, or
@@ -953,6 +983,8 @@ the line names both numbers. These read code 0:
 - `loop/factorio-a7r` and an item `factorio-a7`, which no exact function maps together.
 
 The work ends when one of the two closes, or when a fault names the key.
+Two pull requests on one branch to two bases are work, because they share one item and one
+document.
 *Example tests on `githubtest`, one for each case above, and one with two pull requests on one
 branch to two bases.*
 
@@ -1042,10 +1074,11 @@ port". `Parts()` holds one part for each name in `PartNames`, and no other.
 
 **C33. Behaviour: sections 6 and 9 act on their parts, and the policy drops what the sweep
 reports.** Proves A3 and A4. Section 6 of `pack/runbooks/coordinator.md` names the `decisions`
-part. Section 9 step 3 names the `bugs` part. `.loop/policy/coordinator.md` holds no line "the bug
+part, and it never offers `loop decision defer` for a `pending` decision. Section 9 step 3 names the `bugs` part. `.loop/policy/coordinator.md` holds no line "the bug
 it became", and it keeps its standing authorization word for word.
-*A3's `grep` prints 0. A4's `grep` prints at least 1. A diff of the authorization paragraph against
-the base shows no change.*
+*A3's `grep` prints 0. A4's `grep` prints at least 1. Each line of section 6 that names
+`decision defer` also names `needs_human`. A diff of the authorization paragraph against the base
+shows no change.*
 
 ## Observable behaviour
 
