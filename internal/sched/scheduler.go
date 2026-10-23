@@ -419,7 +419,10 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 			}
 			snap = nil
 		}
-		for _, stage := range append(config.RunStages(), config.NativeJobs()...) {
+		// An agent job is a run stage that host config defines, so it fires
+		// as one: only where the project lists it.
+		stages := append(append(config.RunStages(), hc.AgentJobNames()...), config.NativeJobs()...)
+		for _, stage := range stages {
 			kind := kindRun
 			if slices.Contains(config.NativeJobs(), stage) {
 				kind = kindJob
@@ -430,6 +433,9 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 				continue
 			}
 			expr := hc.Throughput[stage].Schedule
+			if j, ok := hc.AgentJob(stage); ok {
+				expr = j.Schedule
+			}
 			if snap != nil {
 				if sc, ok := snap.Config.Stages[stage]; ok && sc.Schedule != "" {
 					expr = sc.Schedule
