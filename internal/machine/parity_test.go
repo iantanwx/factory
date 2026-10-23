@@ -313,3 +313,68 @@ func TestParityEpicClosesOnlyFromExecution(t *testing.T) {
 		wantCode(t, w.apply(ep, "complete", nil), cli.CodeTransitionNotAllowed)
 	}
 }
+
+// queuedTicket makes a ticket whose PR passed review at head and entered
+// the merge queue.
+func (w *world) queuedTicket(head string) string {
+	w.t.Helper()
+	id := w.ticketInReview(head)
+	w.must(id, "review_pass", map[string]string{"head": head})
+	w.must(id, VerbEnqueue, map[string]string{"head": head})
+	return id
+}
+
+// premerge-gate.test.ts: the rehearsal refuses a ticket in In Review, and
+// a ticket in Ready to Merge passes. land-queue.test.ts: a moved source
+// head never authorizes the replacement. New form: only a ready_to_merge
+// ticket enters the queue, and only at the head its review passed.
+func TestParityOnlyAReviewPassedHeadEntersTheQueue(t *testing.T) {
+	w := newWorld(t)
+	for _, s := range []string{Todo, InProgress, InReview, Repair, Escalated} {
+		id := w.create(KindTicket, "create", nil)
+		w.force(id, s, map[string]string{FactReviewedHead: "h1"})
+		wantCode(t, w.apply(id, VerbEnqueue, map[string]string{"head": "h1"}), cli.CodeTransitionNotAllowed)
+		if got := w.show(id).Status; got != s {
+			t.Fatalf("a refused enqueue moved %s to %s", s, got)
+		}
+	}
+	id := w.ticketInReview("h1")
+	w.must(id, "review_pass", map[string]string{"head": "h1"})
+	ref := wantCode(t, w.apply(id, VerbEnqueue, map[string]string{"head": "h2"}), cli.CodeTransitionNotAllowed)
+	if ref.Rule != "head_not_reviewed" || w.show(id).Status != ReadyToMerge {
+		t.Fatalf("a moved head entered the queue: %+v, %+v", ref, w.show(id))
+	}
+	w.must(id, VerbEnqueue, map[string]string{"head": "h1"})
+	if got := w.show(id).Status; got != Queued {
+		t.Fatalf("the reviewed head did not enter the queue: %s", got)
+	}
+}
+
+// land-queue.test.ts: policy refusal and dequeue stay explicit, and closed
+// is not merged. land-queue-retry.test.ts: a dequeued PR that policy
+// refuses gets no retry. New form: each way out of the queue but a merge
+// lands on its own state, never done, and a dequeue drops the review
+// pass, so the old head cannot enter the queue again.
+func TestParityQueuedOutcomesStayExplicit(t *testing.T) {
+	w := newWorld(t)
+	closed := w.queuedTicket("h1")
+	w.must(closed, VerbPRClosed, nil)
+	if it := w.show(closed); it.Status != Escalated || it.Fact(FactResume) != Todo || it.Fact(FactResumeEntry) != EntryRework {
+		t.Fatalf("a closed PR: %+v", it)
+	}
+	red := w.queuedTicket("h1")
+	w.must(red, "dequeue_red", map[string]string{"reason": "ci_red"})
+	if it := w.show(red); it.Status != Repair || it.Fact(FactReviewedHead) != "" {
+		t.Fatalf("a red dequeue: %+v", it)
+	}
+	conflict := w.queuedTicket("h1")
+	w.must(conflict, "dequeue_conflict", map[string]string{"reason": "conflict"})
+	if it := w.show(conflict); it.Status != Todo || it.Fact(FactEntry) != EntryRework || it.Fact(FactReviewedHead) != "" {
+		t.Fatalf("a conflict dequeue: %+v", it)
+	}
+	// Even put back in ready_to_merge, neither dequeued ticket holds a pass.
+	for _, id := range []string{red, conflict} {
+		w.force(id, ReadyToMerge, nil)
+		wantCode(t, w.apply(id, VerbEnqueue, map[string]string{"head": "h1"}), cli.CodeTransitionNotAllowed)
+	}
+}
