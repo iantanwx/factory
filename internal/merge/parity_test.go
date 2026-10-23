@@ -1,20 +1,97 @@
 package merge_test
 
 // Parity cases from the alpha suites of the merge gate and the land
-// queue (scripts/sdlc/premerge.test.ts, premerge-gate.test.ts,
-// land-queue.test.ts and land-queue-retry.test.ts), in their new form.
-// Each test names its source. The hand-off job is the new form of both
-// premerge and land: it hands a PR to the mechanism only at the head a
-// review passed, with loop/eligible posted on that head.
+// queue, scripts/sdlc/premerge.test.ts and land-queue.test.ts, in their
+// new form. The hand-off job is the new form of both premerge and land:
+// it hands a PR to the mechanism only at the head a review passed, with
+// loop/eligible posted on that head. Each case of the two suites is in
+// one place below: a test in this file, which names its source, an
+// existing test, or a case with no counterpart and its reason.
+// internal/machine/parity_test.go holds the cases that the state machine
+// decides. Single cases of premerge-gate.test.ts and
+// land-queue-retry.test.ts that it cites are not an account of those
+// suites, which are outside this file.
 //
-// Cases kept elsewhere: a conflicting PR (TestContract), a dequeue that
-// re-queues once for each head and then escalates, with the queue command
-// right after the label (TestMergifyRequeuesOncePerHeadThenEscalates), a
-// source push after the hand-off (TestContract), and the REST pages of a
-// PR's files (internal/github). Cases that read Linear, an orca branch's
-// attachment, ci.yml's job names or a scope upload have no counterpart:
-// the machine is the ticket's record, the item branch names the item, and
-// GitHub's branch rules hold the required checks.
+// premerge.test.ts:
+//   - L29 a clean PR with every required check green is ready: TestContract
+//     ("an eligible ticket is handed off and moves to queued") and
+//     TestDirectMergesAtTheReviewedHeadWithAMergeCommit.
+//   - L35 a missing required check is a refusal. A divergence: the loop
+//     holds no list of required checks. Where the plan offers rulesets,
+//     GitHub's required status checks hold the list, and GitHub refuses
+//     the merge of a PR that lacks one. With no rulesets, the direct
+//     merge reads every check on the reviewed head, and it merges when
+//     none is red or pending (CheckRules: "the loop checks CI itself"). So
+//     a renamed job that never reports does not stop a direct merge, and
+//     a ci_required line that fails in loop doctor does not stop
+//     `project add` (TestAddHookChecksTheBranchRules, case "nothing").
+//   - L45 a failing required check and L58 a required check still
+//     running are refused: TestDirectChecksCIBeforeItMerges. Red CI under
+//     every mechanism: TestContract ("red CI moves the ticket to repair").
+//   - L71 a failing check that is not required does not block. A
+//     deliberate divergence: every red check on the head is red CI, and it
+//     dequeues the PR (TestDirectChecksCIBeforeItMerges). The loop's rule is
+//     that a pass needs every check green at that head (the code-reviewer
+//     runbook, section 7).
+//   - L80 every REST page of a PR's files: TestPRFilesReadEveryPage in
+//     internal/github.
+//   - L96 a conflicting PR: TestContract ("a PR that conflicts at the
+//     hand-off goes to rework and is never handed off").
+//   - L102 a draft PR: TestParityADraftPRIsNeverHandedOff.
+//   - L108 a PR on another base: TestParityAPROnAnotherBaseIsNeverHandedOff.
+//   - L114 a PR that is not open: TestParityAClosedPRIsNeverHandedOff.
+//   - L122 every required check has a job in ci.yml. No counterpart: the
+//     loop keeps no list of check names that could drift from the
+//     workflows.
+//
+// land-queue.test.ts:
+//   - L8 a stale PR enters once and waits:
+//     TestParityStalePREntersOnceAndWaitsWithoutABranchUpdate.
+//   - L18 a moved source head never authorizes: machine
+//     TestParityOnlyAReviewPassedHeadEntersTheQueue. The failed upload has
+//     no counterpart: the loop uploads no scopes.
+//   - L34 pending CI waits: TestDirectChecksCIBeforeItMerges. A refusal
+//     with no current-head pass: machine
+//     TestParityOnlyAReviewPassedHeadEntersTheQueue. A dequeue and a close:
+//     machine TestParityQueuedOutcomesStayExplicit.
+//   - L56 queued eligibility is revoked:
+//     TestParityQueuedPRIsWithdrawnWhenItsTicketLeavesQueued.
+//   - L70 a policy reversal during the scope upload. No counterpart: the
+//     loop uploads no scopes.
+//   - L85 an unknown admission revokes, and L157 a failed policy read
+//     revokes a dequeued PR. A divergence: alpha's read was Linear, and a
+//     failed read withdrew the PR. The loop's read is its own machine,
+//     which writes every move out of queued. When that read fails, the
+//     tick fails, the PR stays with the mechanism, and the next tick reads
+//     again (withdrawStale). When beads cannot be read for the project,
+//     the job lists no queued ticket either, so the direct merge makes no
+//     merge call. Mergify and the GitHub queue keep the PR, and can merge
+//     it, until a read succeeds.
+//   - L102 a failed revocation is explicit: TestParityAFailedWithdrawalIsExplicit.
+//   - L114 a queued CI rerun waits:
+//     TestParityAQueuedCIRerunWaitsWithoutANewHandOffOrAWithdrawal.
+//   - L123 a source push revokes the queued approval: TestContract ("a push
+//     after the hand-off withdraws the PR and returns the ticket to
+//     review").
+//   - L135 a queued observation rechecks the policy and does not repeat the
+//     admission. Each tick reads the ticket again and withdraws a PR whose
+//     ticket left queued (TestParityQueuedPRIsWithdrawnWhenItsTicketLeavesQueued),
+//     and a quiet tick hands nothing off again
+//     (TestParityStalePREntersOnceAndWaitsWithoutABranchUpdate).
+//   - L143 a delayed dequeue label cannot revoke a valid retry. A
+//     divergence: the re-queue posts Mergify's queue command with the
+//     label, which clears Mergify's memory of the failed attempt, and the
+//     loop reads no label times. So a dequeued label after a re-queue at
+//     one head is a second failure, and the ticket escalates
+//     (TestMergifyRequeuesOncePerHeadThenEscalates). The PR is never merged
+//     without a pass, and a person reads the escalation. A changed policy
+//     still revokes after a retry:
+//     TestParityAPolicyChangeAfterARetryStillWithdraws.
+//   - L174 no source rebases, forces or updates a branch:
+//     TestParityNoMergeSourceRewritesABranch.
+//   - L192 a dequeue recovery posts the queue command right after the
+//     label, and L201 a PR queued again posts no second retry:
+//     TestMergifyRequeuesOncePerHeadThenEscalates.
 
 import (
 	"errors"
@@ -27,6 +104,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/machine"
@@ -219,4 +297,65 @@ func TestParityAFailedWithdrawalIsExplicit(t *testing.T) {
 	fk(e).WithdrawErr = nil
 	e.tick()
 	e.wantTracked(pr, "withdrawn", "", 1)
+}
+
+// land-queue.test.ts: a queued CI rerun waits without renewing or
+// revoking approval. New form: when CI on the reviewed head of a queued
+// ticket runs again, every mechanism waits. The job hands nothing off
+// again and withdraws nothing, and the ticket stays queued.
+func TestParityAQueuedCIRerunWaitsWithoutANewHandOffOrAWithdrawal(t *testing.T) {
+	for _, d := range drivers() {
+		t.Run(d.name, func(t *testing.T) {
+			e := newEnv(t, d.mech)
+			id, pr := e.reviewed(sha('1'), true)
+			e.world.SetRuns(pr.HeadSHA, gt.CheckRun("ci", pr.HeadSHA, "in_progress", "", time.Date(2026, 10, 21, 10, 0, 0, 0, time.UTC)))
+			e.tick()
+			e.wantStatus(id, machine.Queued)
+			first := handOffWrites(e)
+			e.world.SetRuns(pr.HeadSHA, gt.CheckRun("ci", pr.HeadSHA, "in_progress", "", time.Date(2026, 10, 21, 11, 0, 0, 0, time.UTC)))
+			e.tick()
+			e.tick()
+			e.wantStatus(id, machine.Queued)
+			if again := handOffWrites(e); !slices.Equal(again, first) {
+				t.Fatalf("a CI rerun wrote %v after %v", again[len(first):], first)
+			}
+			if !d.handedOff(e, pr) {
+				t.Fatalf("%s let go of the PR while CI ran again", d.name)
+			}
+			e.wantTracked(pr, "handed", "", 1)
+		})
+	}
+}
+
+// handOffWrites lists what a hand-off writes: label, comment and merge
+// calls, and GraphQL mutations. A GraphQL query reads, and is left out.
+func handOffWrites(e *env) []string {
+	out := slices.DeleteFunc(e.mergeCalls(), func(c string) bool { return strings.Contains(c, "/graphql") })
+	return append(out, e.world.Mutations()...)
+}
+
+// land-queue.test.ts: a delayed dequeue label cannot revoke a valid
+// retry, but changed policy still revokes. New form, the second half: a
+// PR that Mergify holds again after a re-queue is withdrawn once its
+// ticket leaves queued, as a PR handed off once is. The first half has no
+// counterpart, as the header states.
+func TestParityAPolicyChangeAfterARetryStillWithdraws(t *testing.T) {
+	e := newMergify(t)
+	id, pr := e.reviewed(sha('1'), true)
+	e.tick()
+	e.world.Update(pr, func(p *gt.PR) {
+		p.Labels = slices.DeleteFunc(p.Labels, func(l string) bool { return l == mergify.QueueLabel })
+		p.Labels = append(p.Labels, mergify.DequeuedLabel)
+	})
+	e.tick()
+	e.wantTracked(pr, "requeued", merge.Other, 2)
+	if !has(e.world.Labels(pr.Number), mergify.QueueLabel) {
+		t.Fatalf("the PR was not queued again: labels %v", e.world.Labels(pr.Number))
+	}
+	e.apply(id, "escalate", map[string]string{"reason": "review withdrawn"})
+	e.tick()
+	if has(e.world.Labels(pr.Number), mergify.QueueLabel) {
+		t.Fatalf("Mergify still holds the PR of an escalated ticket: labels %v", e.world.Labels(pr.Number))
+	}
+	e.wantTracked(pr, "withdrawn", merge.Other, 2)
 }
