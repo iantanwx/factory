@@ -91,8 +91,8 @@ func TestPersonReviewThreadWaitsForTheRunThatHoldsTheEpic(t *testing.T) {
 	}
 }
 
-// Another program's comment is nobody's question, and the loop's own
-// comment answers nothing it was not asked.
+// Another program's comment is nobody's question: a deployment notice
+// after the loop's own comment leaves the loop with the last word.
 func TestBotCommentWakesNoStage(t *testing.T) {
 	e := newEnv(t)
 	w := e.withWorld()
@@ -100,13 +100,45 @@ func TestBotCommentWakesNoStage(t *testing.T) {
 	id := e.epicInReview(prd.Number)
 	w.Update(prd, func(p *gt.PR) { p.Head = BranchFor(id) })
 	r := e.reactor()
-	w.Say(prd.Number, gt.Said{Login: "vercel[bot]", Association: "NONE", Bot: true, Body: "Preview ready."})
 	if _, _, err := e.svc.Reply(context.Background(), e.project, prd.Number, 0, "The doc-reviewer's verdict follows.", "k1"); err != nil {
 		t.Fatal(err)
 	}
+	w.Say(prd.Number, gt.Said{Login: "vercel[bot]", Association: "NONE", Bot: true, Body: "Preview ready."})
 	e.tick(r)
 	if got := e.status(id).Status; got != machine.PRDReview {
 		t.Fatalf("a bot's comment moved the epic to %s", got)
+	}
+}
+
+// A person who submits a review with a body and no line comment leaves
+// the feedback a phone leaves most often. It wakes the amender like a
+// conversation comment, and the loop's conversation reply answers it. An
+// approval with no body is a click, not feedback, and wakes nothing.
+func TestPersonReviewSummaryWakesTheAmender(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	ctx := context.Background()
+	id, spec := e.specInSignoff(shaB)
+	r := e.reactor()
+	w.Say(spec.Number, gt.Said{Login: "operator", Association: "OWNER", Summary: "APPROVED"})
+	e.tick(r)
+	if got := e.status(id).Status; got != machine.SpecSignoff {
+		t.Fatalf("an approval with no body moved the epic to %s", got)
+	}
+	w.Say(spec.Number, gt.Said{Login: "operator", Association: "OWNER", Summary: "CHANGES_REQUESTED", Body: "Name the cap."})
+	e.tick(r)
+	if it := e.status(id); it.Status != machine.SpecAmending || it.Fact(machine.FactAmendFrom) != machine.SpecSignoff {
+		t.Fatalf("after the review summary: %s %v", it.Status, it.Facts)
+	}
+	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageAmender, RunID: "run-" + machine.StageAmender})
+	mustOK(t, res)
+	if _, _, err := e.svc.Reply(ctx, e.project, spec.Number, 0, "The cap is named in section 4.", "k1"); err != nil {
+		t.Fatal(err)
+	}
+	mustOK(t, e.runCall("pr open", id, machine.StageAmender, map[string]string{"title": "spec"}, nil))
+	e.tick(r)
+	if got := e.status(id).Status; got != machine.SpecSignoff {
+		t.Fatalf("an answered review summary left the epic in %s", got)
 	}
 }
 
@@ -134,6 +166,7 @@ func TestAwaitsAnswer(t *testing.T) {
 		{"only bots", []Comment{bot(1, "conversation", 1)}, false},
 		{"a thread we answered", []Comment{person(1, 0, "review", 1), ours(2, 1, "review", 2)}, false},
 		{"a second thread nobody answered", []Comment{person(1, 0, "review", 1), ours(2, 1, "review", 2), person(3, 0, "review", 3)}, true},
+		{"a thread nobody answered before one we answered", []Comment{person(1, 0, "review", 1), person(2, 0, "review", 2), ours(3, 2, "review", 3)}, true},
 		{"a person's last word in a thread", []Comment{person(1, 0, "review", 1), ours(2, 1, "review", 2), person(3, 1, "review", 3)}, true},
 		{"our loose comment answers no thread", []Comment{person(1, 0, "review", 1), ours(2, 0, "conversation", 2)}, true},
 		{"the operator's comment", []Comment{{ID: 1, Kind: "conversation", AuthorClass: AuthorOperator, CreatedAt: at(1)}}, true},

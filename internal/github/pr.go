@@ -242,6 +242,8 @@ type rawComment struct {
 		ID int64 `json:"id"`
 	} `json:"performed_via_github_app"`
 	CreatedAt time.Time `json:"created_at"`
+	// SubmittedAt is a review's time. A review has no created_at.
+	SubmittedAt time.Time `json:"submitted_at"`
 }
 
 // class names who wrote a comment: the loop App, the repository owner,
@@ -269,6 +271,9 @@ func (s *Service) comments(ctx context.Context, p config.Project, path, kind str
 			return nil, err
 		}
 		for _, c := range batch {
+			if c.CreatedAt.IsZero() {
+				c.CreatedAt = c.SubmittedAt
+			}
 			out = append(out, Comment{ID: c.ID, Kind: kind, Author: c.User.Login, AuthorClass: s.class(c), Body: c.Body,
 				Path: c.Path, Line: c.Line, InReplyTo: c.InReplyToID, CreatedAt: c.CreatedAt, URL: c.HTMLURL,
 				bot: c.User.Type == "Bot" || c.PerformedVia != nil})
@@ -280,7 +285,11 @@ func (s *Service) comments(ctx context.Context, p config.Project, path, kind str
 	return out, nil
 }
 
-// Threads reads a PR's review comments and its conversation comments.
+// Threads reads a PR's review comments, its conversation comments and
+// the summaries of its reviews. A review summary reads as a conversation
+// comment: it opens no thread, and a conversation comment answers it.
+// A review with no body is an approval click, not feedback, so it is
+// left out, as is a pending review nobody submitted.
 func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]Comment, error) {
 	review, err := s.comments(ctx, p, fmt.Sprintf("/pulls/%d/comments", number), "review")
 	if err != nil {
@@ -289,6 +298,15 @@ func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]
 	talk, err := s.comments(ctx, p, fmt.Sprintf("/issues/%d/comments", number), "conversation")
 	if err != nil {
 		return nil, err
+	}
+	summaries, err := s.comments(ctx, p, fmt.Sprintf("/pulls/%d/reviews", number), "conversation")
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range summaries {
+		if c.Body != "" && !c.CreatedAt.IsZero() {
+			talk = append(talk, c)
+		}
 	}
 	return append(review, talk...), nil
 }

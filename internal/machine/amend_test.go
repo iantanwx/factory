@@ -3,6 +3,8 @@ package machine
 import (
 	"context"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/cli"
 )
 
 // 1.12: a person's comment on a document in review or in sign-off moves
@@ -86,5 +88,23 @@ func TestDocumentMergedWhileAmendingIsTheSignoff(t *testing.T) {
 	mustOK(t, w.m.MergeObserved(ctx, ev))
 	if got := w.show(ep).Status; got != SpecApproved {
 		t.Fatalf("the spec merged while amending landed on %s", got)
+	}
+}
+
+// A run that holds the epic keeps it: a person's comment moves no held
+// document, so the run's next write finds the state it claimed. The
+// comment waits for the next tick after the run ends.
+func TestPersonCommentWaitsForTheRunThatHoldsTheEpic(t *testing.T) {
+	for _, from := range []string{PRDReview, SpecReview} {
+		t.Run(from, func(t *testing.T) {
+			w := newWorld(t)
+			ep := w.create(KindEpic, "prd_submit", nil)
+			w.force(ep, from, map[string]string{FactPRDMerged: "m1"})
+			w.claim(ep, StageDocReviewer, "r-rev")
+			wantCode(t, w.apply(ep, VerbPersonComment, map[string]string{"head": "h1"}), cli.CodeLeaseHeld)
+			if it := w.show(ep); it.Status != from || it.Owner != "r-rev" || it.Fact(FactAmendFrom) != "" {
+				t.Fatalf("a held epic: %s owner %q %v", it.Status, it.Owner, it.Facts)
+			}
+		})
 	}
 }

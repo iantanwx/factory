@@ -32,7 +32,7 @@ Read these first, in this order:
 2. Run `loop review rounds <item>`, and read the last verdict. A comment can start you with no
    reject.
 3. Run `loop pr threads`. Read every thread, and every comment that belongs to no thread. A loose
-   comment from a person is real work.
+   comment from a person is real work. The summary of a person's review is a loose comment.
 4. When `loop pr show` reports a conflict, merge the base before you write any reply. A conflict
    found later forces you to rewrite each reply. Resolve only conflicts inside your document.
    Escalate any other conflict.

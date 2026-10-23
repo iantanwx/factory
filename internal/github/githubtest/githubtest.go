@@ -302,10 +302,13 @@ type World struct {
 	statuses []string
 	comments map[int][]map[string]any
 	reviews  map[int][]map[string]any
-	files    int
-	failNext map[string]int
-	clock    time.Time
-	merge    mergeWorld
+	// summaries holds the reviews of each PR: a review's state and the
+	// body a person wrote when they submitted it.
+	summaries map[int][]map[string]any
+	files     int
+	failNext  map[string]int
+	clock     time.Time
+	merge     mergeWorld
 	// HeadOf answers the head sha of a new PR's branch. A fixed sha when
 	// nil.
 	HeadOf func(branch string) string
@@ -314,7 +317,7 @@ type World struct {
 // NewWorld returns an empty world.
 func NewWorld() *World {
 	return &World{runs: map[string][]map[string]any{}, failNext: map[string]int{}, comments: map[int][]map[string]any{},
-		reviews: map[int][]map[string]any{}, clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
+		reviews: map[int][]map[string]any{}, summaries: map[int][]map[string]any{}, clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
 }
 
 func (w *World) tick() time.Time {
@@ -389,7 +392,10 @@ type Said struct {
 	// review comment with InReplyTo answers the thread that comment opened.
 	Review    bool
 	InReplyTo int64
-	Body      string
+	// Summary makes it a submitted review with this state, such as
+	// APPROVED, and Body the review's summary, which can be empty.
+	Summary string
+	Body    string
 }
 
 // Say adds c to PR n, bumps the PR's update time as GitHub does, and
@@ -402,9 +408,14 @@ func (w *World) Say(n int, c Said) int64 {
 		kind = "Bot"
 	}
 	m := w.comment(n, c.Body, map[string]any{"login": c.Login, "type": kind}, c.Association)
-	if !c.Review {
+	switch {
+	case c.Summary != "":
+		m["state"], m["submitted_at"] = c.Summary, m["created_at"]
+		delete(m, "created_at")
+		w.summaries[n] = append(w.summaries[n], m)
+	case !c.Review:
 		w.comments[n] = append(w.comments[n], m)
-	} else {
+	default:
 		if c.InReplyTo != 0 {
 			m["in_reply_to_id"] = c.InReplyTo
 		}
@@ -419,7 +430,7 @@ func (w *World) Say(n int, c Said) int64 {
 // comment is one comment of PR n, with an id unique on the PR and the
 // world's clock as its creation time.
 func (w *World) comment(n int, body string, user map[string]any, assoc string) map[string]any {
-	return map[string]any{"id": int64(1000 + len(w.comments[n]) + len(w.reviews[n])), "body": body, "user": user,
+	return map[string]any{"id": int64(1000 + len(w.comments[n]) + len(w.reviews[n]) + len(w.summaries[n])), "body": body, "user": user,
 		"author_association": assoc, "created_at": w.tick().Format(time.RFC3339)}
 }
 
@@ -452,7 +463,7 @@ func CheckRun(name, sha, status, conclusion string, started time.Time) map[strin
 
 var (
 	rePull     = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)$`)
-	rePullSub  = regexp.MustCompile(`^/repos/` + Repo + `/(pulls|issues)/(\d+)/(files|comments)$`)
+	rePullSub  = regexp.MustCompile(`^/repos/` + Repo + `/(pulls|issues)/(\d+)/(files|comments|reviews)$`)
 	reReplies  = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)/comments/(\d+)/replies$`)
 	reChecks   = regexp.MustCompile(`^/repos/` + Repo + `/commits/([0-9a-f]+)/check-runs$`)
 	reCombined = regexp.MustCompile(`^/repos/` + Repo + `/commits/([0-9a-f]+)/status$`)
@@ -536,7 +547,10 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			WriteJSON(rw, 200, out)
 		default:
 			list := w.comments[n]
-			if m[1] == "pulls" {
+			switch {
+			case m[3] == "reviews":
+				list = w.summaries[n]
+			case m[1] == "pulls":
 				list = w.reviews[n]
 			}
 			out := []any{}

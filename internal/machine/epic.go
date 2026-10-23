@@ -78,6 +78,17 @@ func AmendableStates() []string {
 	return out
 }
 
+// unheld refuses to move a document a run holds, as claimGuard refuses
+// a claim: the run's next write must find the state it claimed. The
+// comment waits, and the first tick after the run ends reads it again.
+func unheld(c *change) *cli.Refusal {
+	if c.item.Owner != "" {
+		return &cli.Refusal{Code: cli.CodeLeaseHeld, Rule: "lease_held", Item: c.item.ID, CurrentStatus: c.item.Status,
+			Hint: fmt.Sprintf("%s belongs to run %s until that run settles", c.item.ID, c.item.Owner)}
+	}
+	return nil
+}
+
 // personComment records where the comment found the document and the
 // head it found it at, so the amended row can send it back.
 func personComment(c *change) *cli.Refusal {
@@ -295,9 +306,9 @@ func epicTable() *Table {
 
 		// A person's unanswered comment on the document PR (1.12).
 		{Verb: VerbPersonComment, From: []string{PRDReview, PRDSignoff}, To: PRDAmending,
-			set: personComment, Facts: []string{FactAmendFrom, FactAmendHead}},
+			guard: unheld, set: personComment, Facts: []string{FactAmendFrom, FactAmendHead}},
 		{Verb: VerbPersonComment, From: []string{SpecReview, SpecSignoff}, To: SpecAmending,
-			set: personComment, Facts: []string{FactAmendFrom, FactAmendHead}},
+			guard: unheld, set: personComment, Facts: []string{FactAmendFrom, FactAmendHead}},
 
 		// A closed document PR escalates the epic and never cancels it.
 		{Verb: VerbPRClosed, From: []string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending}, To: Escalated,
