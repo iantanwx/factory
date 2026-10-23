@@ -106,8 +106,10 @@ The ledger table has these nine columns, in this order:
 - `Rung` holds a strength from the ladder, or `pending`. A `document` row writes `-`.
 - `Where it lives` names each file or gate that holds the rung, each in backticks. A file is a
   path in the checkout. A gate is a gate that `.loop/config.yaml` names, or a gate of `loop gates`.
-  A file of a check script must be reached by a gate. The command of a gate names the file, or
-  names a file or a directory that reaches it. The word `make` reaches the Makefile.
+  A file of a check script must be reached by a gate or a test. The command of a gate names the
+  file, or names a file or a directory that reaches it. The word `make` reaches the Makefile. The
+  name of a package manager reaches the script lines of `package.json`. A Go package pattern such
+  as `./...` reaches each Go file under its directory, so a test that names the file reaches it.
   A `pending` row names the one decision id that `loop decision file` printed. A `document` row
   writes `-`.
 
