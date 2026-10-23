@@ -229,7 +229,8 @@ func (s *Service) Rooms(ctx context.Context, all bool) ([]Room, error) {
 }
 
 // open is `loop room open`: a new room, or the reopen of an idle or
-// interrupted one of the same kind on the same item.
+// interrupted one of the same kind on the same item. An intake room with
+// no item names no room to reopen, so each such open is a new room.
 func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
 	if p.Kind != cli.PrincipalCoordinator {
@@ -259,17 +260,19 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	var r Room
 	var reopen bool
 	err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-		var err error
-		r, err = scanRoom(tx.QueryRow(roomCols+` WHERE r.project = ? AND r.item = ? AND r.kind = ? AND r.closed_at IS NULL
-			ORDER BY r.opened_at DESC LIMIT 1`, project, item, kind))
-		if err == nil {
-			reopen = true
-			_, err = tx.Exec(`UPDATE rooms SET reason = ?, updated_at = ? WHERE id = ?`, reason, tx.Now().UnixMilli(), r.ID)
-			r.Reason = reason
-			return err
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return err
+		if item != "" {
+			var err error
+			r, err = scanRoom(tx.QueryRow(roomCols+` WHERE r.project = ? AND r.item = ? AND r.kind = ? AND r.closed_at IS NULL
+				ORDER BY r.opened_at DESC LIMIT 1`, project, item, kind))
+			if err == nil {
+				reopen = true
+				_, err = tx.Exec(`UPDATE rooms SET reason = ?, updated_at = ? WHERE id = ?`, reason, tx.Now().UnixMilli(), r.ID)
+				r.Reason = reason
+				return err
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
 		}
 		now := tx.Now().UnixMilli()
 		r = Room{ID: s.cfg.NewID(), Project: project, Item: item, Kind: kind, State: Opening, Reason: reason, OpenedBy: p.RunID,
@@ -301,22 +304,11 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Found(map[string]any{"room": got, "reopened": reopen})
 }
 
-// intakeCap applies the intake cap to a new intake room that names no
-// item: such a room submits a new epic. The reopen of an open room, and
-// an intake room on an existing epic, add no epic, so the cap passes them.
+// intakeCap applies the intake cap to each intake room that names no
+// item: such a room is always new, and it submits a new epic. An intake
+// room on an existing epic adds no epic, so the cap passes it.
 func (s *Service) intakeCap(ctx context.Context, kind, project, item string) *cli.Refusal {
 	if kind != "intake" || item != "" || s.cfg.IntakeCap == nil {
-		return nil
-	}
-	var open int
-	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT count(*) FROM rooms WHERE project = ? AND item = '' AND kind = ? AND closed_at IS NULL`,
-			project, kind).Scan(&open)
-	})
-	if err != nil {
-		return cli.InternalRefusal(err)
-	}
-	if open > 0 {
 		return nil
 	}
 	return s.cfg.IntakeCap(ctx, project)
