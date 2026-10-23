@@ -34,7 +34,7 @@ func newRoomWorld(t *testing.T) *humanWorld {
 // openRoom opens a room as the coordinator and returns it.
 func (w *humanWorld) openRoom(kind, item, reason string) map[string]any {
 	w.t.Helper()
-	args := []string{"room", "open", "--kind", kind, "--project", "alpha", "--reason", reason}
+	args := []string{"room", "open", "--kind", kind, "--project", "alpha", "--reason", reason, "--score", "4"}
 	if item != "" {
 		args = append(args, "--item", item)
 	}
@@ -72,7 +72,7 @@ func TestOnlyTheCoordinatorOpensAndClosesARoom(t *testing.T) {
 	w := newRoomWorld(t)
 	item := todoTicket(t, w.bx)
 	co := w.runToken("run-1", item, machine.StageImplementer)
-	if env, _ := w.as(co, "room", "open", "--kind", "review", "--project", "alpha", "--item", item, "--reason", "r"); env["code"] != cli.CodeCapabilityDenied {
+	if env, _ := w.as(co, "room", "open", "--kind", "review", "--project", "alpha", "--item", item, "--reason", "r", "--score", "4"); env["code"] != cli.CodeCapabilityDenied {
 		t.Fatalf("a run opened a room: %v", env)
 	}
 	r := w.openRoom("review", item, "the reviewer and the author disagree")
@@ -288,7 +288,7 @@ func TestIntakeRoomOpensOnlyUnderTheIntakeCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.setIntakeCap(1)
-	env, _ := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has a new idea")
+	env, _ := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has a new idea", "--score", "4")
 	if env["code"] != cli.CodeCapFull || !strings.Contains(fmt.Sprint(env["hint"]), "throughput.intake") {
 		t.Fatalf("an intake room at the cap = %v", env)
 	}
