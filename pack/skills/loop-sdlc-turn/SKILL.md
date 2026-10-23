@@ -136,7 +136,9 @@ loop run finish --outcome done|failed|blocked
 - `failed`: this attempt did not do the job. It counts. Two failures with unchanged inputs stop
   the item.
 - `blocked`: something outside the run stops it, such as an escalation or a loop fault. It never
-  counts.
+  counts. When no escalation holds the item, the server holds it at your stage and raises an alert.
+  The hold ends when the inputs or the status of the item change, or when the coordinator answers
+  the alert.
 
 ## 6. Score the finding, then give it to a person
 

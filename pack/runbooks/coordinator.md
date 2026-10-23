@@ -69,11 +69,14 @@ An entry that waits on you is a stall, an alert or a loop fault. For each one:
 Never trust your first theory, and never trust a line without its source. Compare the time of each
 read with the event you blame. Read the state back after each write you report.
 
-- **An item stopped after two failed attempts.** The same inputs fail the same way. Change the
-  task first. Answer its inbox entry with `--amend`, so the answer enters the item's inputs. When
-  the operator rewrites the task, run `loop work edit <item> --title "<title>" --body "<body>"`
-  with the operator's text. Either change admits a new attempt. Never look for a way to reset the
-  count.
+- **An item stopped after two failed attempts.** Its `retry_limit` alert names the item, the
+  stage and each failed run. The same inputs fail the same way, so change the task first. Run
+  `loop work edit <item> --title "<title>" --body "<body>"` with the operator's text. The edit
+  enters the item's inputs and admits a new attempt. Then answer the alert with what changed.
+  Never look for a way to reset the count.
+- **An item stopped after a blocked run.** Its `run_blocked` alert holds the item at that stage.
+  Changed inputs or a move of the item lift the hold. When the cause is gone, answer the alert.
+  The answer lifts the hold, and the stage takes the item again.
 - **A stage keeps failing for a loop reason.** Pause it with `loop stage pause <stage>`, and resume
   it with `loop stage resume <stage>`. Report each one.
 - **The same item stands still wake after wake.** Say so in the report. Never escalate it a second

@@ -34,7 +34,7 @@ records and the design references. A user story wins over a design reference on 
 | Product change | The report expects what no source states, or what a source contradicts | Escalate at level 5. Quote the report and the source line |
 | Not built yet | An open item builds X | Name that item in a note. Then record the outcome by section 5 |
 | Duplicate | An open bug fails the same test | Prove it with that bug's test, then route it |
-| Loop fault | The symptom is in the loop: a pull request, a state, an agent's comment | Report a loop fault |
+| Loop fault | The symptom is in the loop: a pull request, a state, an agent's comment | Report a loop fault. Then record the outcome by section 5 |
 | Missing fact | Only the reporter holds a fact you need | Escalate at level 5. Name the fact |
 
 A bug that returns more than 14 days after its last repair is a regression. Shape a new ticket that
@@ -78,6 +78,9 @@ Run one command for the outcome:
   failure>"`. Then run `loop work duplicate <item> --of <the open bug>`.
 - **Not built yet**: record the item that builds it with `loop work note <item> --body "<item>"`,
   and run `loop work duplicate <item> --of <that item>`.
+- **Loop fault**: record the fault id with `loop work note <item> --body "loop fault F-<n>"`. Then
+  run `loop work cancel <item>`. The report closes as `canceled`, and the coordinator owns the
+  fault. A report that goes back to `reported` only runs again.
 
 A retry of the same `work shape` after exit 4 finds the ticket that it made, and makes no second
 ticket.

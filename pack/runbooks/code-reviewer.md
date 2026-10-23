@@ -112,14 +112,20 @@ Name each defect outside this round under its own heading, with its evidence. Ne
 
 1. Check that the build is green at the head with `loop pr checks`. A pass needs every check green
    at that head. A missing check counts as a failed check. While a check runs, review the source.
-   Run `loop pr checks` again before you submit.
-2. Run `loop pr show` again. When the head moved, submit nothing. Note it, and finish `failed`.
-3. Run `loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`. The
+2. When a check is still pending, wait for it. Run `loop pr checks` again every 5 minutes, for 30
+   minutes at most.
+3. Run `loop pr show` again. When the head moved, submit nothing. Start again at section 1 with
+   the new head.
+4. Run `loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`. The
    server posts the comment on the pull request and records it with the verdict.
-4. Finish with `loop run finish --outcome done`.
+5. Finish with `loop run finish --outcome done`.
 
-When a check stays red or pending at the head, and the source holds no fault, submit nothing. Note
-which check, and finish `failed`. The server moves a ticket with a red build to `repair`.
+A check that stays red or pending at the head is not a fault of this review. When the source holds
+no fault, submit nothing. Note the check and its state with `loop work note`, and finish `blocked`.
+A `failed` finish counts against the ticket, so never use it here. The server moves a ticket with a
+red build to `repair`, and the review starts again after the repair. For a pending check, the server
+holds the ticket at review and raises an alert. The coordinator answers the alert when the check
+ends.
 
 ## 8. When the source is wrong
 
