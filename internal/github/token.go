@@ -22,7 +22,7 @@ type Scope string
 const (
 	ScopeRead     Scope = "read"     // every read: PRs, files, checks, statuses, CI logs
 	ScopePush     Scope = "push"     // branch push; workflows because an agent's PR may change CI
-	ScopePulls    Scope = "pulls"    // open a PR, reply on a thread
+	ScopePulls    Scope = "pulls"    // open a PR, reply on a thread; contents read because GitHub reads both refs
 	ScopeStatuses Scope = "statuses" // post loop/eligible
 	ScopeActions  Scope = "actions"  // rerun failed CI jobs
 	ScopeMerge    Scope = "merge"    // merge a PR, use the merge queue, open the Mergify setup PR
@@ -32,7 +32,7 @@ var scopePermissions = map[Scope]map[string]string{
 	ScopeRead: {"contents": "read", "pull_requests": "read", "checks": "read", "statuses": "read",
 		"actions": "read", "metadata": "read"},
 	ScopePush:     {"contents": "write", "workflows": "write", "metadata": "read"},
-	ScopePulls:    {"pull_requests": "write", "metadata": "read"},
+	ScopePulls:    {"contents": "read", "pull_requests": "write", "metadata": "read"},
 	ScopeStatuses: {"statuses": "write", "metadata": "read"},
 	ScopeActions:  {"actions": "write", "metadata": "read"},
 	ScopeMerge:    {"contents": "write", "pull_requests": "write", "metadata": "read"},
