@@ -75,6 +75,8 @@ var (
 	scopeFlag = Flag{Name: "scope", Type: FlagString, Enum: []string{"project", "global"},
 		Description: "project when absent; global stores one value that every project whose manifest names it uses"}
 	bodyFlag = Flag{Name: "body", Type: FlagString, Required: true, Description: "the text to write"}
+	// fixFlag makes loop doctor remove each .env that no live run holds (KTD17).
+	fixFlag = Flag{Name: "fix", Type: FlagBool, Description: "remove each .env in a checkout with no live run"}
 	// fileFlag names a file the CLI reads and sends with the call (ExtraFile).
 	fileFlag = Flag{Name: "file", Type: FlagString, Required: true, Description: "the file to send, read by the CLI"}
 )
@@ -260,8 +262,9 @@ var surface = []Verb{
 	topLevel(write(server("host", "drain", "admit no new run and wait for in-flight runs", hostOnly, nil))),
 	topLevel(client("host", "serve", "run the server", hostOnly, nil,
 		Flag{Name: "instance", Type: FlagString, Description: "the instance directory; ~/.local/state/loop when absent"})),
-	topLevel(client("host", "doctor", "check the host's setup", hostOnly, nil)),
+	topLevel(client("host", "doctor", "check the host's setup", hostOnly, nil, fixFlag)),
 	topLevel(server("host", "doctor-github", "run the GitHub checks of loop doctor on the server, which holds the credentials", hostOnly, nil)),
+	topLevel(server("host", "doctor-env", "list each .env in a checkout with no live run; the server knows which runs live", hostOnly, nil, fixFlag)),
 
 	topLevel(client("meta", "gates", "run the gates of the project checkout in the current directory: the loop's own gates, then the stack commands of .loop/config.yaml", anyone, nil,
 		Flag{Name: "fast", Type: FlagBool, Description: "run every gate except test and build"},
