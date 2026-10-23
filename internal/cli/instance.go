@@ -33,6 +33,27 @@ const (
 	PendingFileName = "pending.jsonl"
 )
 
+// The files the server writes into a checkout, relative to its root
+// (KTD19). Every other path under LoopDir, such as .loop/config.yaml,
+// .loop/secrets.yaml or .loop/policy/<role>.md, belongs to the project's
+// repository.
+const (
+	BriefJSONFile   = LoopDir + "/brief.json"
+	BriefMDFile     = LoopDir + "/brief.md"
+	PromptFile      = LoopDir + "/prompt.md"
+	EnvFile         = ".env"
+	TokenPath       = LoopDir + "/" + TokenFileName
+	PendingFile     = LoopDir + "/" + PendingFileName
+	PendingLockFile = LoopDir + "/pending.lock"
+)
+
+// InjectedFiles lists every file the server writes into a checkout. The
+// run start excludes them and refuses a repository that tracks one, and
+// the push scan refuses a commit that touches one.
+func InjectedFiles() []string {
+	return []string{BriefJSONFile, BriefMDFile, PromptFile, EnvFile, TokenPath, PendingFile, PendingLockFile}
+}
+
 // maxSocketPath keeps a socket path below the sun_path limit: 108 bytes
 // on Linux and 104 on macOS, each with the terminating NUL.
 const maxSocketPath = 100

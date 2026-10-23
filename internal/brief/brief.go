@@ -19,17 +19,18 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 )
 
-// Injected file paths, relative to the checkout root.
+// Injected file paths, relative to the checkout root. cli.InjectedFiles
+// lists them all.
 const (
-	BriefJSON  = cli.LoopDir + "/brief.json"
-	BriefMD    = cli.LoopDir + "/brief.md"
-	PromptFile = cli.LoopDir + "/prompt.md"
-	EnvFile    = ".env"
+	BriefJSON  = cli.BriefJSONFile
+	BriefMD    = cli.BriefMDFile
+	PromptFile = cli.PromptFile
+	EnvFile    = cli.EnvFile
 	// The CLI and the token writer create these later. They are excluded
 	// in advance.
-	TokenFile   = cli.LoopDir + "/" + cli.TokenFileName
-	PendingFile = cli.LoopDir + "/" + cli.PendingFileName
-	PendingLock = cli.LoopDir + "/pending.lock"
+	TokenFile   = cli.TokenPath
+	PendingFile = cli.PendingFile
+	PendingLock = cli.PendingLockFile
 )
 
 // MaxAttempts is the failure limit an attempt counts against (R10).
@@ -207,7 +208,7 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	files := []string{BriefJSON, BriefMD, PromptFile, EnvFile, TokenFile, PendingFile, PendingLock}
+	files := cli.InjectedFiles()
 	dirs := make([]string, 0, len(skills))
 	for _, s := range skills {
 		dirs = append(dirs, root+"/"+s)
