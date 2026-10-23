@@ -143,9 +143,9 @@ type EpicResult struct {
 
 // epicCreate is `loop epic create --architecture`: the coordinator creates
 // an epic that follows an ADR, not a PRD. It waits in architecture until
-// the GitHub reactor sees an ADR that names it on the base branch, and
-// that ADR is the operator's sign-off (R46). A PRD epic starts with prd
-// submit in an intake room instead.
+// the GitHub reactor sees an ADR whose Ticket line names it on the base
+// branch, and that ADR is the operator's sign-off (R46). A PRD epic
+// starts with prd submit in an intake room instead.
 func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	if pr.Kind != cli.PrincipalCoordinator {

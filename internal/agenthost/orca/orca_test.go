@@ -680,6 +680,26 @@ func TestEndedCodex(t *testing.T) {
 			t.Fatalf("Ended = %+v, %v", r, err)
 		}
 	})
+	t.Run("command still running after the turn completed", func(t *testing.T) {
+		w := newWorld(t)
+		s := w.start(agenthost.Codex)
+		item := func(at time.Time, payload map[string]any) map[string]any {
+			return map[string]any{"type": "response_item", "timestamp": ts(at), "payload": payload}
+		}
+		rollout(w, ev(w.now, map[string]any{"type": "task_started", "turn_id": "t1"}),
+			item(w.now.Add(time.Second), map[string]any{"type": "custom_tool_call", "name": "exec", "call_id": "c1",
+				"input": `text(await tools.exec_command({cmd:"pnpm test",yield_time_ms:1000}));`}),
+			item(w.now.Add(2*time.Second), map[string]any{"type": "custom_tool_call_output", "call_id": "c1", "output": []any{
+				map[string]any{"type": "input_text", "text": "Script completed\nWall time 1.0 seconds\nOutput:\n"},
+				map[string]any{"type": "input_text", "text": `{"session_id":75846,"output":"running"}`},
+			}}),
+			ev(w.now.Add(3*time.Second), map[string]any{"type": "task_complete", "turn_id": "t1"}))
+		w.now = w.now.Add(3 * time.Hour)
+		r, err := w.host.Ended(ctx, s)
+		if err != nil || r.Ended || !strings.Contains(r.Reason, "Codex has a command launch without its native terminal outcome") {
+			t.Fatalf("Ended = %+v, %v", r, err)
+		}
+	})
 	t.Run("other checkout is not this session", func(t *testing.T) {
 		w := newWorld(t)
 		s := w.start(agenthost.Codex)

@@ -61,5 +61,7 @@ heading.
 ## 4. The Ticket line of an ADR
 
 The `**Ticket:**` line holds the id of the architecture epic that the ADR decides, or `none`. The
-server moves the epic from `architecture` to `spec_needed` when a merge adds an ADR that names the
-epic id. An ADR with no Ticket line fails the `adr` gate, because the epic would wait with no error.
+server moves the epic from `architecture` to `spec_needed` when a merge adds an ADR whose Ticket
+line names the epic id. An epic id anywhere else in the ADR moves no epic. An ADR whose Ticket line
+reads `none` moves no epic. An ADR with no Ticket line fails the `adr` gate, because the epic would
+wait with no error.

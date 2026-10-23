@@ -26,7 +26,9 @@ import (
 // and the server writes it into each run's .env at mode 0600 as it writes
 // every manifest secret, and removes it at settlement (KTD17). The fixer's
 // `escalation judge` reads it from its own checkout's .env, or from its
-// process environment, and never prints it. The server holds no harness
+// process environment, and never prints it. The judge reads the root .env
+// only, so the entry names no dir, and its stages, when set, hold fixer.
+// The server holds no harness
 // login and calls Jev never.
 const JevKeyVar = "TYPESAFE_API_KEY"
 

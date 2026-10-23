@@ -83,6 +83,8 @@ func (g *GitHub) Setup(s *Server) error {
 		// review submit posts its body on the item's PR before the
 		// verdict is recorded.
 		s.Machine.SetReviewCommenter(svc.ReviewComment)
+		// A code pass needs green CI at the head it names.
+		s.Machine.SetPassGate(svc.PassCI)
 		// work supersede reads its evidence and the ticket's pull
 		// request back before the close is recorded.
 		s.Machine.SetSupersedeChecker(svc.SupersedeEvidence)
