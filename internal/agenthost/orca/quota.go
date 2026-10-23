@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
@@ -18,6 +20,9 @@ import (
 // live here and nowhere else.
 func (h *Host) Quota(ctx context.Context, hs agenthost.Harness) (agenthost.Quota, error) {
 	q := agenthost.Quota{Harness: hs}
+	if hs == agenthost.Claude && h.claudeProxied() {
+		return q, fmt.Errorf("%w: Claude Code sends its requests to ANTHROPIC_BASE_URL, and orca reads only the logged-in account", agenthost.ErrQuotaUnavailable)
+	}
 	env, err := h.call(ctx, "account", "list", "--json")
 	if err != nil {
 		return q, fmt.Errorf("%w: %w", agenthost.ErrQuotaUnavailable, err)
@@ -54,6 +59,22 @@ func (h *Host) Quota(ctx context.Context, hs agenthost.Harness) (agenthost.Quota
 	q.OK = status == "ok" && len(q.Windows) > 0
 	q.Note = fmt.Sprintf("status %s, %d window(s)", safeStatus(status), len(q.Windows))
 	return q, nil
+}
+
+// claudeProxied reports whether Claude Code's settings.json sends its
+// requests to another endpoint, such as a proxy that spreads them over
+// several accounts. Orca reads the quota of the logged-in account only, so
+// its reading then describes no account that the runs spend. The loop then
+// has no reading, and a usage limit that a run hits pauses the harness.
+func (h *Host) claudeProxied() bool {
+	var settings struct {
+		Env map[string]string `json:"env"`
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(h.cfg.ClaudeRoot), "settings.json"))
+	if err != nil || json.Unmarshal(data, &settings) != nil {
+		return false
+	}
+	return settings.Env["ANTHROPIC_BASE_URL"] != ""
 }
 
 func safeStatus(s string) string {

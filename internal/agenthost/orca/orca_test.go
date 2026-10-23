@@ -822,6 +822,23 @@ func TestQuotaCaptured(t *testing.T) {
 	}
 }
 
+// A Claude Code that sends its requests through a proxy spends quota that
+// orca's reading does not describe, so Claude has no reading.
+func TestQuotaOfAProxiedClaudeIsUnavailable(t *testing.T) {
+	w := newWorld(t)
+	w.sim.override["account list"] = func([]string) (orca.Output, error) { return fixture(t, "account_list.json"), nil }
+	settings := filepath.Join(filepath.Dir(w.claude), "settings.json")
+	if err := os.WriteFile(settings, []byte(`{"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:8080"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.host.Quota(context.Background(), agenthost.Claude); !errors.Is(err, agenthost.ErrQuotaUnavailable) {
+		t.Fatalf("proxied claude = %v", err)
+	}
+	if cq, err := w.host.Quota(context.Background(), agenthost.Codex); err != nil || !cq.OK {
+		t.Fatalf("codex Quota = %+v, %v", cq, err)
+	}
+}
+
 // ---- Checkouts ----
 
 func TestCreateCheckout(t *testing.T) {
