@@ -39,6 +39,10 @@ const (
 	FactTitle        = "title"         // the title work edit wrote; it replaces the bead's title
 	FactBody         = "body"          // the body work edit wrote; it replaces the bead's description
 	FactBug          = "bug"           // the bug a shaped ticket came from
+	// FactSupersededBy is the checked evidence that closed a ticket with no
+	// work left: "commit <sha>", "done <item>" or "adr <path>".
+	FactSupersededBy    = "superseded_by"
+	FactSupersedeReason = "supersede_reason" // how that evidence answers the ticket
 )
 
 // Entry values of a todo ticket (R6).

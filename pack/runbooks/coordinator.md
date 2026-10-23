@@ -84,6 +84,9 @@ read with the event you blame. Read the state back after each write you report.
   it to the operator.
 - **The operator drops an escalated item.** Run `loop work cancel <item>`, and quote the
   operator's words in the report.
+- **A merged change or a ruling leaves a ticket with no work.** Run
+  `loop work supersede <item> --reason "<why>"` with one of `--commit <sha>`, `--done <item>` or
+  `--adr <path>`. The server checks that evidence before it closes the ticket.
 - **An eligible pull request does not merge.** Read `loop merge status`. It shows the state of the
   merge mechanism. Name what it shows in the report.
 - Never claim an item, and never take over a live run. The server holds every claim.

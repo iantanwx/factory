@@ -220,9 +220,106 @@ func TestWorkDuplicateClosesTheBug(t *testing.T) {
 	}
 }
 
+type evidenceLog struct {
+	calls []string
+	fail  *cli.Refusal
+}
+
+func (e *evidenceLog) check(_ context.Context, project, item, kind, ref string) *cli.Refusal {
+	e.calls = append(e.calls, project+"|"+item+"|"+kind+"|"+ref)
+	return e.fail
+}
+
+// work supersede closes a ticket with no work left on checked evidence,
+// and the ticket keeps the evidence and the reason. The run that holds the
+// ticket, the fixer and the coordinator may close it. Another run's lease,
+// a state that holds a pull request, a refused GitHub read or evidence
+// that does not hold each refuse, and record nothing.
+func TestWorkSupersedeClosesOnCheckedEvidence(t *testing.T) {
+	w := newWorld(t)
+	sup := func(p rpc.Principal, id string, flags map[string]string) cli.Result {
+		return w.call("work supersede", p, []string{id}, flags)
+	}
+	commit := map[string]string{"commit": "abc1234", "reason": "Commit abc1234 on main already adds the flag."}
+
+	// With no GitHub the server cannot check the pull request.
+	id := w.create(KindTicket, "create", nil)
+	wantCode(t, sup(coord(), id, commit), cli.CodeInternal)
+	ev := &evidenceLog{}
+	w.m.SetSupersedeChecker(ev.check)
+
+	for _, flags := range []map[string]string{
+		{"reason": "no evidence"},
+		{"commit": "abc1234", "done": "tk-1", "reason": "two kinds"},
+		{"commit": "abc1234"},
+		{"commit": "main", "reason": "not a sha"},
+		{"adr": "../adr.md", "reason": "outside the repository"},
+		{"done": id, "reason": "itself"},
+	} {
+		wantCode(t, sup(coord(), id, flags), cli.CodeUsage)
+	}
+	other := w.create(KindTicket, "create", nil)
+	wantCode(t, sup(coord(), id, map[string]string{"done": other, "reason": "not done"}), cli.CodeTransitionNotAllowed)
+	ev.fail = &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "open_pr", Hint: "it holds #4"}
+	wantCode(t, sup(coord(), id, commit), cli.CodeTransitionNotAllowed)
+	if it := w.show(id); it.Status != Todo || it.Fact(FactSupersededBy) != "" {
+		t.Fatalf("a refused supersede wrote: %s %v", it.Status, it.Facts)
+	}
+
+	ev.fail, ev.calls = nil, nil
+	mustOK(t, sup(coord(), id, commit))
+	it := w.show(id)
+	if it.Status != Canceled || it.Fact(FactSupersededBy) != "commit abc1234" ||
+		it.Fact(FactSupersedeReason) != commit["reason"] {
+		t.Fatalf("after supersede: %s %v", it.Status, it.Facts)
+	}
+	if len(ev.calls) != 1 || ev.calls[0] != prj+"|"+id+"|commit|abc1234" {
+		t.Fatalf("evidence reads: %v", ev.calls)
+	}
+
+	// A done item answers another.
+	w.must(other, "merged", map[string]string{"sha": shaA})
+	third := w.create(KindTicket, "create", nil)
+	mustOK(t, sup(coord(), third, map[string]string{"done": other, "reason": "The merge of the other ticket did it."}))
+	if got := w.show(third).Fact(FactSupersededBy); got != "done "+other {
+		t.Fatalf("superseded_by = %q", got)
+	}
+
+	// The implementer that holds the ticket closes it; the coordinator
+	// and another run may not while that lease stands.
+	held := w.create(KindTicket, "create", nil)
+	impl := w.claimAs(held, StageImplementer, "impl")
+	wantCode(t, sup(coord(), held, commit), cli.CodeLeaseHeld)
+	fixer := rpc.Principal{Kind: cli.PrincipalRun, RunID: "fix", Project: prj, Stage: "fixer"}
+	wantCode(t, sup(fixer, held, commit), cli.CodeLeaseHeld)
+	stranger := w.runOn(other, StageImplementer, "impl-x")
+	wantCode(t, sup(stranger, held, commit), cli.CodeCapabilityDenied)
+	mustOK(t, sup(impl, held, commit))
+	if it := w.show(held); it.Status != Canceled || it.Owner != "" {
+		t.Fatalf("the holder's supersede: %s owner %q", it.Status, it.Owner)
+	}
+
+	// The fixer closes a ticket nobody holds.
+	free := w.create(KindTicket, "create", nil)
+	mustOK(t, sup(fixer, free, map[string]string{"adr": "docs/adr/0007-drop-x.md", "reason": "ADR 0007 drops the feature."}))
+	if got := w.show(free).Fact(FactSupersededBy); got != "adr docs/adr/0007-drop-x.md" {
+		t.Fatalf("superseded_by = %q", got)
+	}
+
+	// A state that holds a pull request never closes so, and the server
+	// reads no evidence for it.
+	ev.calls = nil
+	inReview, _ := w.inReview()
+	wantCode(t, sup(coord(), inReview, commit), cli.CodeTransitionNotAllowed)
+	if len(ev.calls) != 0 {
+		t.Fatalf("a refused state read evidence: %v", ev.calls)
+	}
+}
+
 // A run reaches an item it does not hold only through the fixer's
 // allowance, which the capability check grants for the escalated item.
-// Even then the machine lets it note the item and nothing else.
+// Even then the machine lets it note the item, and nothing else but the
+// supersede TestWorkSupersedeClosesOnCheckedEvidence covers.
 func TestABorrowedItemTakesANoteOnly(t *testing.T) {
 	w := newWorld(t)
 	id := w.create(KindTicket, "create", nil)

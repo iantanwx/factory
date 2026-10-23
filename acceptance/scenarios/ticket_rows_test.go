@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
+	"github.com/iantanwx/loop/internal/cli"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/machine"
 )
@@ -44,6 +45,31 @@ func crash(w *acceptance.World, run acceptance.Run) {
 	w.Tick()
 	if got := w.RunState(run.RunID); got == "running" {
 		w.T.Fatalf("run %s still reads running after its session ended", run.RunID)
+	}
+}
+
+// H5: the implementer finds its ticket's change already on main, and
+// closes the ticket with that commit as evidence. The server reads the
+// commit back from the base: a commit main does not hold refuses, and
+// the ticket keeps the commit and the reason.
+func TestSupersedeClosesATicketMainAlreadyAnswers(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	id := createTicket(w, "Ticket D", "Create `d.txt` holding the line `d`.")
+	sha := w.PushMain("add d.txt", map[string]string{"d.txt": "d\n"}, "")
+	run := w.Dispatch(machine.StageImplementer)
+	if run.Item != id {
+		t.Fatalf("the implementer took %s, want %s", run.Item, id)
+	}
+	r := w.In(run.Checkout, "work", "supersede", id, "--commit", "0123abc", "--reason", "Main adds d.txt.")
+	if r.RefusalCode() != cli.CodeNotFound {
+		t.Fatalf("a commit main lacks: %s", r)
+	}
+	wantStatus(w, id, machine.InProgress)
+	w.Must(w.In(run.Checkout, "work", "supersede", id, "--commit", sha, "--reason", "Main adds d.txt."))
+	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
+	it := w.Show(id)
+	if it.Status != machine.Canceled || it.Fact(machine.FactSupersededBy) != "commit "+sha || it.Owner != "" {
+		t.Fatalf("after supersede: %s %v owner %q", it.Status, it.Facts, it.Owner)
 	}
 }
 

@@ -30,6 +30,7 @@ const (
 	WorkService_Create_FullMethodName    = "/loop.v1.WorkService/Create"
 	WorkService_Shape_FullMethodName     = "/loop.v1.WorkService/Shape"
 	WorkService_Duplicate_FullMethodName = "/loop.v1.WorkService/Duplicate"
+	WorkService_Supersede_FullMethodName = "/loop.v1.WorkService/Supersede"
 )
 
 // WorkServiceClient is the client API for WorkService service.
@@ -47,6 +48,7 @@ type WorkServiceClient interface {
 	Create(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Shape(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Duplicate(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Supersede(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type workServiceClient struct {
@@ -167,6 +169,16 @@ func (c *workServiceClient) Duplicate(ctx context.Context, in *VerbRequest, opts
 	return out, nil
 }
 
+func (c *workServiceClient) Supersede(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, WorkService_Supersede_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WorkServiceServer is the server API for WorkService service.
 // All implementations must embed UnimplementedWorkServiceServer
 // for forward compatibility.
@@ -182,6 +194,7 @@ type WorkServiceServer interface {
 	Create(context.Context, *VerbRequest) (*Envelope, error)
 	Shape(context.Context, *VerbRequest) (*Envelope, error)
 	Duplicate(context.Context, *VerbRequest) (*Envelope, error)
+	Supersede(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedWorkServiceServer()
 }
 
@@ -224,6 +237,9 @@ func (UnimplementedWorkServiceServer) Shape(context.Context, *VerbRequest) (*Env
 }
 func (UnimplementedWorkServiceServer) Duplicate(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Duplicate not implemented")
+}
+func (UnimplementedWorkServiceServer) Supersede(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Supersede not implemented")
 }
 func (UnimplementedWorkServiceServer) mustEmbedUnimplementedWorkServiceServer() {}
 func (UnimplementedWorkServiceServer) testEmbeddedByValue()                     {}
@@ -444,6 +460,24 @@ func _WorkService_Duplicate_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WorkService_Supersede_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkServiceServer).Supersede(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkService_Supersede_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkServiceServer).Supersede(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WorkService_ServiceDesc is the grpc.ServiceDesc for WorkService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -494,6 +528,10 @@ var WorkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Duplicate",
 			Handler:    _WorkService_Duplicate_Handler,
+		},
+		{
+			MethodName: "Supersede",
+			Handler:    _WorkService_Supersede_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

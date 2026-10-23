@@ -113,6 +113,10 @@ func ticketEdges() []edge {
 	e = append(e, each(ticketLive, "note", ToSame)...)
 	// Added: work edit replaces the task's text and changes no status (R10).
 	e = append(e, each(ticketLive, "edit", ToSame)...)
+	// Added: a ticket that the base, a done item or an ADR already answers
+	// closes from each state that holds no pull request (H5, alpha
+	// 4fc932ebd).
+	e = append(e, each([]string{Backlog, Todo, InProgress}, "supersede", Canceled)...)
 	return e
 }
 
@@ -200,7 +204,8 @@ func TestTablesHoldExactlyThePlannedEdges(t *testing.T) {
 
 // setupFor is the parameters and facts that let one row apply.
 func setupFor(r Row, to string) (map[string]string, map[string]string) {
-	params := map[string]string{"head": "h1", "body": "a note", "run": "r-1", "ticket": "tk-x", "of": "tk-y", "sha": "s1"}
+	params := map[string]string{"head": "h1", "body": "a note", "run": "r-1", "ticket": "tk-x", "of": "tk-y", "sha": "s1",
+		"evidence": EvidenceCommit, "ref": "abc1234", "reason": "main holds it"}
 	facts := map[string]string{FactReviewedHead: "h1"}
 	if r.Stage != "" {
 		params["stage"] = r.Stage

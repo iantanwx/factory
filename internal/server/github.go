@@ -83,6 +83,9 @@ func (g *GitHub) Setup(s *Server) error {
 		// review submit posts its body on the item's PR before the
 		// verdict is recorded.
 		s.Machine.SetReviewCommenter(svc.ReviewComment)
+		// work supersede reads its evidence and the ticket's pull
+		// request back before the close is recorded.
+		s.Machine.SetSupersedeChecker(svc.SupersedeEvidence)
 	}
 	return s.RPC.Handle("doctor-github", g.doctorVerb(s))
 }

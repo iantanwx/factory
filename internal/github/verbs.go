@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strconv"
+	"strings"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
@@ -347,6 +350,71 @@ func (s *Service) ReviewComment(ctx context.Context, project, item, body, key st
 	if _, _, err := s.Reply(ctx, prj, pr.Number, 0, body, key); err != nil {
 		r := Refusal(err)
 		return &r
+	}
+	return nil
+}
+
+// SupersedeEvidence reads the evidence of `work supersede` back, as the
+// machine's SupersedeChecker. The machine calls it after every other check
+// of the close passed (machine.Request.Before), so a refused or failed
+// read records nothing. An open pull request on the ticket's branch
+// refuses first, whatever the evidence: it holds work, and the close
+// would leave it with no ticket to merge against. A commit must be one
+// the base reaches, and an ADR a file under ADRDir on the base. Both are
+// read in the mirror after a fetch of the base, so a commit that merged a
+// minute ago counts. The machine checks a done item itself.
+func (s *Service) SupersedeEvidence(ctx context.Context, project, item, kind, evidence string) *cli.Refusal {
+	if kind == machine.EvidenceADR && (!strings.HasPrefix(evidence, ADRDir) || !strings.HasSuffix(evidence, ".md")) {
+		return &cli.Refusal{Code: cli.CodeUsage, Rule: "not_an_adr", Item: item,
+			Hint: fmt.Sprintf("--adr names a Markdown file under %s", ADRDir)}
+	}
+	prj, err := s.project(project)
+	if err != nil {
+		r := Refusal(err)
+		return &r
+	}
+	branch, ref := s.itemBranch(ctx, project, item)
+	if ref != nil {
+		return ref
+	}
+	pr, err := s.FindPR(ctx, prj, branch)
+	if err != nil {
+		r := Refusal(err)
+		return &r
+	}
+	if pr != nil && pr.State == "open" {
+		return &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "open_pr", Item: item,
+			Hint: fmt.Sprintf("%s holds the open pull request #%d, so it has work in flight; close the pull request first", item, pr.Number)}
+	}
+	if kind == machine.EvidenceDone {
+		return nil
+	}
+	base, tip, err := s.SyncBase(ctx, prj)
+	if err != nil {
+		r := Refusal(err)
+		return &r
+	}
+	m := s.Mirror(prj)
+	switch kind {
+	case machine.EvidenceCommit:
+		sha := m.Resolve(ctx, evidence)
+		ok := false
+		if sha != "" && tip != "" {
+			if ok, err = m.Reaches(ctx, tip, sha); err != nil {
+				return cli.InternalRefusal(err)
+			}
+		}
+		if !ok {
+			return &cli.Refusal{Code: cli.CodeNotFound, Rule: "commit_not_on_base", Item: item,
+				Hint: fmt.Sprintf("%s does not reach commit %s; name a commit the base branch holds", base, evidence)}
+		}
+	case machine.EvidenceADR:
+		if _, err := m.Show(ctx, tip, evidence); errors.Is(err, fs.ErrNotExist) {
+			return &cli.Refusal{Code: cli.CodeNotFound, Rule: "adr_not_on_base", Item: item,
+				Hint: fmt.Sprintf("%s holds no %s; an ADR counts once it merged", base, evidence)}
+		} else if err != nil {
+			return cli.InternalRefusal(err)
+		}
 	}
 	return nil
 }

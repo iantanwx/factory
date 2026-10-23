@@ -58,6 +58,7 @@ const (
 	VerbNote               = "note"
 	VerbPRClosed           = "pr_closed"
 	VerbPRDSubmit          = "prd_submit"
+	VerbSupersede          = "supersede"
 	VerbUnblock            = "unblock"
 )
 

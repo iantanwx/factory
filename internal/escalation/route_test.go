@@ -101,7 +101,8 @@ func TestPanelFileRoundTrips(t *testing.T) {
 func TestRefusalNamesTheRoutesBack(t *testing.T) {
 	tr, _ := ParseTriage("2", "")
 	h := RefusalHint(tr)
-	if !strings.Contains(h, "level 2 measured routes to the loop") || !strings.Contains(h, "--choice outside") {
+	if !strings.Contains(h, "level 2 measured routes to the loop") || !strings.Contains(h, "--choice outside") ||
+		!strings.Contains(h, "loop work supersede") {
 		t.Fatalf("hint = %q", h)
 	}
 	n := TriagedNote(tr, "the reason")

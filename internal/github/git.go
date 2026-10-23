@@ -269,6 +269,17 @@ func (m *Mirror) Resolve(ctx context.Context, ref string) string {
 	return sha
 }
 
+// Reaches reports whether tip reaches the commit sha. git answers exit 1
+// for a commit tip does not reach; any other failure is an error.
+func (m *Mirror) Reaches(ctx context.Context, tip, sha string) (bool, error) {
+	_, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"merge-base", "--is-ancestor", sha, tip}})
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // Lacking lists the commits of remote whose change head lacks, by patch
 // id, as `git cherry` reads it. A rebase of the same commits lacks none.
 // Ported from push in scripts/sdlc/machinery-publish-flow.ts:105-125

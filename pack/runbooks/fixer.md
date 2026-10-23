@@ -23,8 +23,8 @@ Run `loop work peek --stage fixer`. Exit 1 means no escalation waits. Then finis
 
 Take the oldest escalation it lists, and only that one. Read its finding, its level, its choice and
 its item. Run `loop work show <item>`, and read each document the finding names. Your run holds no
-item. The server lets you read and note the item of an escalation that waits for its panel, or that
-you routed. It refuses every other item.
+item. The server lets you read, note and close the item of an escalation that waits for its panel,
+or that you routed. It refuses every other item.
 
 ## 2. Split it into findings
 
@@ -78,12 +78,23 @@ Record your answer on the item, so the next run of its stage reads it in its bri
 loop work note <item> --body "<each finding, its route and the reason the panel gave>"
 ```
 
+Every finding can route to the loop, and one answer can show that the ticket has no work left. The
+base branch, a done item or an ADR then already answers it. Close the ticket with that evidence:
+
+```bash
+loop work supersede <item> --commit <sha> --reason "<the finding and its answer>"
+```
+
+Use `--done <item>` or `--adr <path>` in place of `--commit` when that is the evidence. The server
+checks the evidence. It refuses when a run holds the ticket, or when the ticket has an open pull
+request.
+
 Finish with `loop run finish --outcome done`. Report each finding, its route and the file you sent.
 
 ## 5. Never
 
 - Never route a finding by your own reading. When the judges disagree and you believe one of them,
   the server still routes the finding to a person. Your belief is not a third judge.
-- Never change the item, its documents or its state. The note in section 4 is the one write you
-  make on the item.
+- Never change the item or its documents. The note and the close in section 4 are the only
+  writes you make on the item.
 - Never take a second escalation.

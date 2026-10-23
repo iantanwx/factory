@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -37,6 +39,7 @@ func (m *Machine) Handlers() map[string]rpc.Handler {
 		"work unblock":    m.verb("unblock", "item"),
 		"work shape":      m.workShape,
 		"work duplicate":  m.workDuplicate,
+		"work supersede":  m.workSupersede,
 		"review submit":   m.reviewSubmit,
 		"review rounds":   m.reviewRounds,
 		"decision fire":   m.verb("fire", "decision"),
@@ -78,10 +81,12 @@ func request(call *rpc.Call, prj, target, verb string, params map[string]string)
 // borrowed refuses a run's write on an item its token does not hold. The
 // capability check lets a run reach such an item in one case only: the
 // fixer reads and notes the item of the escalation it routes. So the only
-// write a run makes on a borrowed item is a note.
+// writes a run makes on a borrowed item are a note, and the fixer's
+// supersede when a finding's answer leaves the ticket no work.
 func borrowed(call *rpc.Call, target string) *cli.Refusal {
-	p := call.Principal
-	if p.Kind != cli.PrincipalRun || p.Item == target || call.Inv.Verb.Path == "work note" {
+	p, path := call.Principal, call.Inv.Verb.Path
+	if p.Kind != cli.PrincipalRun || p.Item == target || path == "work note" ||
+		path == "work supersede" && p.Stage == config.StageFixer {
 		return nil
 	}
 	return &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "borrowed_item", Item: target,
@@ -198,6 +203,62 @@ func (m *Machine) workDuplicate(ctx context.Context, call *rpc.Call) cli.Result 
 		return r.Result()
 	}
 	return m.Apply(ctx, request(call, prj, bug, "duplicate", map[string]string{"of": of}))
+}
+
+// SupersedeChecker reads the evidence of `work supersede` back from GitHub
+// and the project's base branch. kind is an Evidence constant. It refuses
+// when the ticket's branch holds an open pull request, whatever the
+// evidence.
+type SupersedeChecker func(ctx context.Context, project, item, kind, ref string) *cli.Refusal
+
+// SetSupersedeChecker sets the reader of supersede evidence. The GitHub
+// setup sets it before the socket binds.
+func (m *Machine) SetSupersedeChecker(f SupersedeChecker) { m.supersedeCheck = f }
+
+// workSupersede closes a ticket that has no work left, because a commit on
+// the base, a done item or an ADR on the base already answers it (alpha
+// 4fc932ebd, 161a2158a). Without it, an implementer that finds its change
+// on main has no exit: the rubric routes that finding to the loop, so its
+// escalation is refused, and the ticket fails twice and is held. The
+// table checks the state, the lease and the evidence's shape first, and
+// the GitHub reads run last, inside the item's lock, so a refused read
+// records nothing.
+func (m *Machine) workSupersede(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := call.Project(ownProject)
+	if r != nil {
+		return r.Result()
+	}
+	item := call.Inv.Arg("item")
+	if r := borrowed(call, item); r != nil {
+		return r.Result()
+	}
+	var kind, ref string
+	for _, k := range []string{EvidenceCommit, EvidenceDone, EvidenceADR} {
+		if v := strings.TrimSpace(call.Inv.Flags[k]); v != "" {
+			if kind != "" {
+				kind = ""
+				break
+			}
+			kind, ref = k, v
+		}
+	}
+	if kind == "" {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "bad_evidence", Item: item,
+			Hint: "name the evidence with exactly one of --commit, --done or --adr"})
+	}
+	reason := strings.TrimSpace(call.Inv.Flags["reason"])
+	if reason == "" {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "no_reason", Item: item,
+			Hint: "--reason says how the evidence answers the ticket; a person reads it"})
+	}
+	req := request(call, prj, item, VerbSupersede, map[string]string{"evidence": kind, "ref": ref, "reason": reason})
+	req.Before = func(ctx context.Context) *cli.Refusal {
+		if m.supersedeCheck == nil {
+			return cli.InternalRefusal(errors.New("machine: the server reads no GitHub, so it cannot check the evidence of a supersede"))
+		}
+		return m.supersedeCheck(ctx, prj, item, kind, ref)
+	}
+	return m.Apply(ctx, req)
 }
 
 // ShapeResult is what work shape answers.

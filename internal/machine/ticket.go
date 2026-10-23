@@ -2,6 +2,8 @@ package machine
 
 import (
 	"fmt"
+	"io/fs"
+	"regexp"
 	"slices"
 
 	"github.com/iantanwx/loop/internal/beadsx"
@@ -61,6 +63,70 @@ func enqueueGuard(c *change) *cli.Refusal {
 	return nil
 }
 
+// Evidence kinds of work supersede. Each names what already answers a
+// ticket: a commit on the base branch, a done item, or an ADR on the base.
+const (
+	EvidenceCommit = "commit"
+	EvidenceDone   = "done"
+	EvidenceADR    = "adr"
+)
+
+var shaPattern = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+// supersedeGuard refuses the close while another run holds the ticket's
+// lease: that run works the ticket now, and a close from outside would
+// race it. The run that holds the lease may close its own ticket.
+func supersedeGuard(c *change) *cli.Refusal {
+	if c.item.Owner == "" || c.item.Owner == c.req.Actor.RunID {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeLeaseHeld, Rule: "lease_held", Item: c.item.ID, CurrentStatus: c.item.Status,
+		Hint: fmt.Sprintf("%s belongs to run %s until that run settles; only that run closes it", c.item.ID, c.item.Owner)}
+}
+
+// supersede checks the shape of the evidence, and that a done item is
+// done, then records the evidence and the reason as facts, so the closed
+// ticket shows why it closed. The machine holds no git, so the reads of
+// GitHub and the base branch run after it, in Request.Before.
+func supersede(c *change) *cli.Refusal {
+	for _, p := range []string{"evidence", "ref", "reason"} {
+		if r := c.needParam(p); r != nil {
+			return r
+		}
+	}
+	kind, ref := c.param("evidence"), c.param("ref")
+	bad := func(hint string) *cli.Refusal {
+		return &cli.Refusal{Code: cli.CodeUsage, Rule: "bad_evidence", Item: c.item.ID, Hint: hint}
+	}
+	switch kind {
+	case EvidenceCommit:
+		if !shaPattern.MatchString(ref) {
+			return bad("--commit names a commit by 7 to 40 lowercase hexadecimal characters")
+		}
+	case EvidenceDone:
+		if ref == c.item.ID {
+			return bad(c.item.ID + " cannot answer itself")
+		}
+		it, r := c.m.Read(c.ctx, c.item.Project, ref)
+		if r != nil {
+			return r
+		}
+		if it.Status != Done {
+			return &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "evidence_not_done", Item: c.item.ID,
+				Hint: fmt.Sprintf("%s is in %s; only a done item answers another", ref, it.Status)}
+		}
+	case EvidenceADR:
+		if !fs.ValidPath(ref) {
+			return bad("--adr names a path inside the repository, such as docs/adr/0007-name.md")
+		}
+	default:
+		return bad("name the evidence with exactly one of --commit, --done or --adr")
+	}
+	c.setFact(FactSupersededBy, kind+" "+ref)
+	c.setFact(FactSupersedeReason, c.param("reason"))
+	return nil
+}
+
 func ticketTable() *Table {
 	states := []State{
 		{Name: Backlog, Category: beadsx.CategoryFrozen},
@@ -115,6 +181,10 @@ func ticketTable() *Table {
 		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: []string{Todo},
 			set: answerResume, Facts: []string{FactEntry, FactResume, FactResumeEntry, FactEscalation, FactAnswer, FactAmendment}},
 		{Verb: "cancel", From: []string{Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop},
+		// A ticket that the base, a done item or an ADR already answers has
+		// no work left. A state that holds a pull request never closes so.
+		{Verb: VerbSupersede, From: []string{Backlog, Todo, InProgress}, To: Canceled, Command: "work supersede",
+			Lease: LeaseDrop, guard: supersedeGuard, set: supersede, Facts: []string{FactSupersededBy, FactSupersedeReason}},
 		{Verb: VerbNote, From: live, To: ToSame, Command: "work note", set: notePut, Facts: []string{FactNote}},
 		editRow(live),
 	}

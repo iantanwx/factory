@@ -124,6 +124,17 @@ finding by `../loop-sdlc-triage/SKILL.md`, then escalate or finish as the case s
 - **A secret looks missing.** Run `loop secret check <name>` first. Put its output in the finding.
 - **A contract has no test that can fail.** Name the contract and what you tried to assert.
 - **A question has no answer in the item, the documents or the notes.** It is a finding. Score it.
+- **The base branch already holds the change, or a ruling makes the ticket moot.** Do not build it
+  again, and do not escalate it. The rubric sends this finding back to the loop. Close the ticket
+  with one piece of evidence and a reason:
+
+  ```bash
+  loop work supersede <item> --commit <sha> --reason "<how the commit answers the ticket>"
+  ```
+
+  Use `--done <item>` for a done item, or `--adr <path>` for an ADR on the base, in place of
+  `--commit`. The server checks the evidence. It refuses when the ticket has an open pull request.
+  Then finish `done`.
 
 ## 6. Never
 

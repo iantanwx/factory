@@ -115,6 +115,7 @@ func RefusalHint(t Triage) string {
 		"The item keeps its state and your lease, and no person was told; your reason is recorded on the item as a triaged note. "+
 		"Level 1 or 2: run the command that answers the finding, and quote its output in what you write next. "+
 		"Level 3: apply the derived answer, and name the rule and the document it rests on. "+
+		"When the base branch, a done item or an ADR already answers the ticket, close it with `loop work supersede`. "+
 		"Raise again only when the level is wrong (read that level's \"Not this level when\" paragraph in the sdlc-triage skill), "+
 		"or when one answer sends a message, spends money, publishes, deploys or changes a vendor or production system: then pass --choice outside.",
 		l.Ordinal, l.Name, strings.ToLower(l.Answers))
