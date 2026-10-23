@@ -11,6 +11,7 @@ package direct
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 
@@ -67,8 +68,10 @@ func (d *Direct) lock(project string) func() {
 }
 
 // Poll merges the PR at its reviewed head, one merge at a time for each
-// project. A PR that conflicts with its base goes to rework with no merge
-// call. A head that moved is refused by GitHub, and the PR stays pending
+// project. A draft, or a PR whose base is not the project's default
+// branch, is dequeued under a reason that names it, with no merge call. A
+// PR that conflicts with its base goes to rework with no merge call. A
+// head that moved is refused by GitHub, and the PR stays pending
 // until the hand-off job or the reactor returns the ticket to review. Any
 // other refusal is read from what GitHub reports about the PR: a
 // conflict, a branch behind the base, or red CI. A refusal while GitHub
@@ -83,6 +86,9 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	}
 	if res, ok := merge.Terminal(cur); ok {
 		return res, nil
+	}
+	if res, ok, err := d.refused(ctx, pr.Project, cur); err != nil || ok {
+		return res, err
 	}
 	if res, ok := merge.Conflicting(cur); ok {
 		return res, nil
@@ -132,4 +138,25 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 		res.Detail = api.Message
 	}
 	return res, nil
+}
+
+// refused is the result of an open PR that the loop must not merge as it
+// stands: a draft, or a PR whose base is not the project's default
+// branch. ok is false for any other PR. GitHub refuses a draft with no
+// reason the loop reads, and it merges a PR into any base, where the
+// merge never moves the ticket to done. So the refusal comes before the
+// merge call and names its reason.
+func (d *Direct) refused(ctx context.Context, p config.Project, cur github.PR) (res merge.Result, ok bool, err error) {
+	if cur.Draft {
+		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Draft, Detail: "the PR is a draft"}, true, nil
+	}
+	base, err := d.gh.DefaultBranch(ctx, p)
+	if err != nil {
+		return merge.Result{}, false, err
+	}
+	if cur.Base.Ref != base {
+		return merge.Result{Outcome: merge.Dequeued, Reason: merge.WrongBase,
+			Detail: fmt.Sprintf("the PR merges into %s, not %s", cur.Base.Ref, base)}, true, nil
+	}
+	return merge.Result{}, false, nil
 }
