@@ -29,6 +29,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -242,6 +243,13 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	if kind != "intake" && item == "" {
 		return cli.Reject(cli.CodeUsage, "no_item", "a "+kind+" room serves one work item; name it with --item")
 	}
+	tr, err := escalation.ParseTriage(inv.Flags["score"], inv.Flags["choice"])
+	if err != nil {
+		return cli.Reject(cli.CodeUsage, "bad_score", err.Error())
+	}
+	if tr.Route() == escalation.RouteLoop {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeRoutedToLoop, Rule: "triage_routes_to_loop", Item: item, Hint: routedHint(tr)})
+	}
 	if r := s.cfg.Redactor.Refusal("secret_in_reason", "reason", reason); r != nil {
 		return r.Result()
 	}
@@ -258,7 +266,7 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	var r Room
 	var reopen bool
-	err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+	err = s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		var err error
 		r, err = scanRoom(tx.QueryRow(roomCols+` WHERE r.project = ? AND r.item = ? AND r.kind = ? AND r.closed_at IS NULL
 			ORDER BY r.opened_at DESC LIMIT 1`, project, item, kind))
@@ -299,6 +307,19 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Internal(err)
 	}
 	return cli.Found(map[string]any{"room": got, "reopened": reopen})
+}
+
+// routedHint is what the coordinator reads when the rubric sends the
+// room's finding back to the loop: a room costs the operator's attention,
+// so it opens only for a finding no document answers.
+func routedHint(t escalation.Triage) string {
+	l := t.Level
+	return fmt.Sprintf("level %d %s routes to the loop, not to a person: %s answers the finding, so no room opens and no hold is taken. "+
+		"New work: file it with `loop work create` (an architecture epic with `loop epic create --architecture`). "+
+		"Level 1 or 2: run the command that answers the finding. Level 3: apply the derived answer, and name the rule and the document it rests on. "+
+		"Open the room again only when the level is wrong (read that level's \"Not this level when\" paragraph in the sdlc-triage skill), "+
+		"or when one answer sends a message, spends money, publishes, deploys or changes a vendor or production system: then pass --choice outside.",
+		l.Ordinal, l.Name, strings.ToLower(l.Answers))
 }
 
 // intakeCap applies the intake cap to a new intake room that names no
