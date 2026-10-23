@@ -90,9 +90,9 @@ actions (read and write), and checks and metadata (read).
    the App's private key in the secret store as
    `_host/GITHUB_APP_KEY_<OWNER>`, and writes the App's owner and id into
    `host.yaml`.
-3. The browser lands on the App's installation page. Pick **Only select
-   repositories**, choose the project repositories, and click **Install**.
-   `loop doctor` fails an installation on all repositories.
+3. The browser lands on the App's installation page. Pick **All
+   repositories**, or choose the project repositories, and click
+   **Install**. The loop acts only on the projects you register.
 
 When the browser runs on another machine and the host has no Tailscale,
 forward the port first
@@ -161,7 +161,8 @@ is already right, so you can run it again:
   App, it prints a link that opens the App form, as install does. Click
   **Create GitHub App**. For an organisation, you must be an owner of it.
 - It waits for the App to be on the repository. When it is not, it prints
-  the App's install page. Pick the repository and click **Install**.
+  the App's install page. Pick the repository, or all repositories, and
+  click **Install**.
   Register waits 30 minutes, then fails with code `no_app`.
 
 When the project has no CI yet, start Claude Code or Codex in the clone
@@ -221,7 +222,7 @@ branch:
    its pull request, and that merge carries no `loop/eligible` status.
 
 Install the App on this repository too, from the App's settings on GitHub,
-under **Install App**. Keep the installation on selected repositories.
+under **Install App**, unless it is installed on all repositories.
 
 ## Choose a merge mechanism
 

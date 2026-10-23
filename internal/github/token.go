@@ -293,16 +293,15 @@ func PermissionLevel(l string) int {
 	return 0
 }
 
-// CheckInstallation reads the installation and returns one checklist line
-// for each fault: an installation set to all repositories, or any
-// permission beyond the granted set (KTD15).
+// CheckInstallation reads the installation and returns a failed checklist
+// line when it holds any permission beyond the granted set (KTD15). The
+// installation may select every repository of its owner: the loop acts
+// only on the projects the operator registers.
 func (s *Service) CheckInstallation(ctx context.Context, p config.Project) ([]CheckLine, error) {
 	in, err := s.Installation(ctx, p)
 	if err != nil {
 		return nil, err
 	}
-	lines := []CheckLine{{Check: "installation_repositories", OK: in.RepositorySelection == "selected",
-		Detail: fmt.Sprintf("the App's installation must select repositories, not %q; select only the project repositories", in.RepositorySelection)}}
 	var extra []string
 	for _, k := range slices.Sorted(maps.Keys(in.Permissions)) {
 		want, ok := allowedPermissions[k]
@@ -310,7 +309,6 @@ func (s *Service) CheckInstallation(ctx context.Context, p config.Project) ([]Ch
 			extra = append(extra, k+":"+in.Permissions[k])
 		}
 	}
-	lines = append(lines, CheckLine{Check: "installation_permissions", OK: len(extra) == 0,
-		Detail: "the App holds permissions beyond the loop's set; remove " + strings.Join(extra, ", ")})
-	return lines, nil
+	return []CheckLine{{Check: "installation_permissions", OK: len(extra) == 0,
+		Detail: "the App holds permissions beyond the loop's set; remove " + strings.Join(extra, ", ")}}, nil
 }

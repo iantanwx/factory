@@ -60,7 +60,7 @@ func TestTokenThatReachesAnotherRepositoryIsRefused(t *testing.T) {
 	}
 }
 
-func TestDoctorFailsOnAllRepositoriesOrAnExtraPermission(t *testing.T) {
+func TestDoctorFailsOnAnExtraPermission(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
 	if bad := failed(e.svc.Doctor(ctx, e.project)); len(bad) != 0 {
@@ -68,7 +68,7 @@ func TestDoctorFailsOnAllRepositoriesOrAnExtraPermission(t *testing.T) {
 	}
 	e.api.SetInstall("all", map[string]string{"contents": "write", "administration": "read", "checks": "write", "metadata": "read"})
 	bad := failed(e.svc.Doctor(ctx, e.project))
-	if !slices.Contains(bad, "installation_repositories") || !slices.Contains(bad, "installation_permissions") {
+	if slices.Contains(bad, "installation_repositories") || !slices.Contains(bad, "installation_permissions") {
 		t.Fatalf("doctor = %v", bad)
 	}
 	for _, l := range e.svc.Doctor(ctx, e.project) {

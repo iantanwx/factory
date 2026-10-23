@@ -136,7 +136,7 @@ func (s *Service) CheckRules(ctx context.Context, p config.Project) ([]CheckLine
 }
 
 // Doctor runs every GitHub check of one project for `loop doctor`: the
-// installation's repository selection and permissions, and the branch
+// installation's permissions, and the branch
 // rules. A check that cannot run is one failed line, never a pass.
 func (s *Service) Doctor(ctx context.Context, p config.Project) []CheckLine {
 	var lines []CheckLine

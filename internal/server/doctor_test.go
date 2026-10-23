@@ -49,14 +49,14 @@ func TestDoctorChecksGitHubOnTheServer(t *testing.T) {
 		t.Fatalf("a good setup failed %q", f)
 	}
 
-	// The App lacks workflows, holds administration, and the installation
-	// selects every repository.
+	// The App lacks workflows and holds administration. The installation
+	// selects every repository, which doctor allows.
 	w.api.SetInstall("all", map[string]string{"contents": "write", "pull_requests": "write", "statuses": "write",
 		"checks": "read", "actions": "read", "metadata": "read", "administration": "write"})
 	w.api.SetRules([]any{map[string]any{"type": "pull_request"}})
 	got, _ = w.gh.Doctor(ctx, w.srv.Projects)
 	f := strings.Join(failed(got[0].Lines), " ")
-	for _, want := range []string{"installation_repositories", "installation_permissions", "installation_required_permissions",
+	for _, want := range []string{"installation_permissions", "installation_required_permissions",
 		"ci_required", "eligible_required"} {
 		if !strings.Contains(f, want) {
 			t.Errorf("failed %q lacks %s", f, want)

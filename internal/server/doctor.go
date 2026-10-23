@@ -27,7 +27,7 @@ type ProjectDoctor struct {
 
 // Doctor runs the checks of `loop doctor` that need GitHub, so the
 // platform credentials never leave the server: for each project, the
-// installation's repository selection and permissions, the default
+// installation's permissions, the default
 // branch's rules, and project config on the default branch. A check
 // that cannot run is a failed line, never a pass.
 func (g *GitHub) Doctor(ctx context.Context, projects *config.Projects) ([]ProjectDoctor, error) {
