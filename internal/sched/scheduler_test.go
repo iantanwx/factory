@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -534,5 +535,88 @@ func TestBriefCarriesTheEditedBody(t *testing.T) {
 	var b brief.Brief
 	if err := json.Unmarshal(raw, &b); err != nil || b.Item == nil || b.Item.Body != "The edited body." {
 		t.Fatalf("brief = %s", raw)
+	}
+}
+
+// A crashed attempt's uncommitted work stays in its kept checkout. The
+// next attempt's brief names that checkout and each dirty file in it, so
+// the run can carry the work over. A kept checkout with nothing dirty,
+// and one of another item, go unnamed.
+func TestBriefNamesTheKeptCheckoutOfACrashedAttempt(t *testing.T) {
+	w := newWorld(t)
+	w.ticket(machine.Todo)
+	w.ticket(machine.Todo)
+	dirty := w.dispatch(machine.StageImplementer)
+	clean := w.dispatch(machine.StageImplementer)
+	if err := os.WriteFile(filepath.Join(dirty.Checkout, "README.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dirty.Checkout, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirty.Checkout, "pkg", "work.go"), []byte("package pkg\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w.host.Exit(dirty.Session.ID, 1)
+	w.host.Exit(clean.Session.ID, 1)
+	w.tick()
+	briefs := map[string]brief.Brief{}
+	mds := map[string]string{}
+	for range 2 {
+		st := w.dispatch(machine.StageImplementer)
+		raw, err := os.ReadFile(filepath.Join(st.Checkout, brief.BriefJSON))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b brief.Brief
+		if err := json.Unmarshal(raw, &b); err != nil {
+			t.Fatal(err)
+		}
+		md, err := os.ReadFile(filepath.Join(st.Checkout, brief.BriefMD))
+		if err != nil {
+			t.Fatal(err)
+		}
+		briefs[st.Item], mds[st.Item] = b, string(md)
+	}
+	want := []brief.KeptCheckout{{RunID: dirty.RunID, Path: dirty.Checkout, Dirty: []string{"README.md", "pkg/work.go"}}}
+	got := briefs[dirty.Item].KeptCheckouts
+	if !slices.EqualFunc(got, want, func(a, b brief.KeptCheckout) bool {
+		return a.RunID == b.RunID && a.Path == b.Path && slices.Equal(a.Dirty, b.Dirty)
+	}) {
+		t.Fatalf("kept checkouts = %+v, want %+v", got, want)
+	}
+	for _, s := range []string{dirty.Checkout, dirty.RunID, "`README.md`", "`pkg/work.go`"} {
+		if !strings.Contains(mds[dirty.Item], s) {
+			t.Fatalf("brief.md lacks %q:\n%s", s, mds[dirty.Item])
+		}
+	}
+	if got := briefs[clean.Item].KeptCheckouts; len(got) != 0 || strings.Contains(mds[clean.Item], dirty.Checkout) {
+		t.Fatalf("the clean item's brief names a kept checkout: %+v\n%s", got, mds[clean.Item])
+	}
+}
+
+// dirtyPaths names a modified, a deleted, a renamed and an untracked
+// path, each once, and nothing in a clean checkout.
+func TestDirtyPathsNamesEachChangedPathOnce(t *testing.T) {
+	_, repo := makeProjectRepo(t, t.TempDir())
+	if got, err := dirtyPaths(context.Background(), repo); err != nil || len(got) != 0 {
+		t.Fatalf("clean checkout: %v, %v", got, err)
+	}
+	gitIn(t, repo, "mv", "README.md", "READ ME.md")
+	gitIn(t, repo, "rm", "-q", ".loop/secrets.yaml")
+	if err := os.WriteFile(filepath.Join(repo, ".loop", "config.yaml"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dirtyPaths(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	want := []string{".loop/config.yaml", ".loop/secrets.yaml", "READ ME.md", "new.txt"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("dirty = %q, want %q", got, want)
 	}
 }

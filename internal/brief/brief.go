@@ -54,8 +54,11 @@ type Brief struct {
 	MaxAttempts   int      `json:"max_attempts,omitempty"`
 	PriorFailures []string `json:"prior_failures,omitempty"`
 	Handoff       []string `json:"handoff,omitempty"`
-	AllowedNext   []string `json:"allowed_next"`
-	Secrets       Secrets  `json:"secrets"`
+	// KeptCheckouts names the checkouts of the item's earlier attempts
+	// that ended with no finish and still hold uncommitted work.
+	KeptCheckouts []KeptCheckout `json:"kept_checkouts,omitempty"`
+	AllowedNext   []string       `json:"allowed_next"`
+	Secrets       Secrets        `json:"secrets"`
 	// Faults lists the loop faults filed from this project and stage that
 	// are open, acknowledged, or fixed in the last FaultWindow (KTD31).
 	Faults []Fault `json:"faults,omitempty"`
@@ -82,6 +85,21 @@ type Item struct {
 	Labels    []string          `json:"labels,omitempty"`
 	Documents []string          `json:"documents,omitempty"`
 	Facts     map[string]string `json:"facts,omitempty"`
+}
+
+// MaxDirty is how many dirty files a brief names for one kept checkout.
+const MaxDirty = 50
+
+// KeptCheckout is the checkout of an earlier attempt that ended with no
+// finish. The server keeps it, and its uncommitted work, for the next run.
+type KeptCheckout struct {
+	RunID  string `json:"run_id"`
+	Path   string `json:"path"`
+	Branch string `json:"branch,omitempty"`
+	// Dirty lists at most MaxDirty modified, added, deleted or untracked
+	// paths. More counts the paths left out.
+	Dirty []string `json:"dirty"`
+	More  int      `json:"more,omitempty"`
 }
 
 // Secrets names the manifest secrets in .env and the ones with no value.
@@ -129,6 +147,27 @@ func (b Brief) Markdown() string {
 	}
 	for _, h := range b.Handoff {
 		line("- Handoff note: %s", h)
+	}
+	if len(b.KeptCheckouts) > 0 {
+		line("")
+		line("## Uncommitted work of earlier attempts")
+		line("")
+		line("Each earlier attempt below ended with no finish. Its checkout is kept with the work it never committed.")
+		line("Read each file there, and carry over what serves the item. Change nothing in that checkout.")
+		for _, k := range b.KeptCheckouts {
+			line("")
+			if k.Branch != "" {
+				line("- Run %s: `%s` (branch %s)", k.RunID, k.Path, k.Branch)
+			} else {
+				line("- Run %s: `%s`", k.RunID, k.Path)
+			}
+			for _, d := range k.Dirty {
+				line("  - `%s`", d)
+			}
+			if k.More > 0 {
+				line("  - and %d more: run `git -C %s status` to list them", k.More, k.Path)
+			}
+		}
 	}
 	if len(b.Faults) > 0 {
 		line("")
