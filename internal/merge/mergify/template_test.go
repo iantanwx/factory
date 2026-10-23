@@ -123,6 +123,34 @@ func TestTemplateQueuesOnTheLabelAndTheStatusWithMergeCommits(t *testing.T) {
 	}
 }
 
+// A draft check that hangs times out, so it frees the queue, and a merge
+// outside the queue, such as the operator's sign-off merge of a document,
+// resets each draft check (alpha .mergify.yml, merge-queue plan).
+func TestTemplateTimesOutAHungCheckAndResetsOnAnOutsideMerge(t *testing.T) {
+	doc := render(t, fixture())
+	rule := list(t, doc, "queue_rules")[0].(map[string]any)
+	if rule["checks_timeout"] != "90 min" {
+		t.Fatalf("checks_timeout = %v; want 90 min", rule["checks_timeout"])
+	}
+	if q := doc["merge_queue"].(map[string]any); q["reset_on_external_merge"] != "always" {
+		t.Fatalf("reset_on_external_merge = %v; want always", q["reset_on_external_merge"])
+	}
+}
+
+// With no required check on the base, the queue still requires the gates
+// job, so no ruleset never means a merge with no CI.
+func TestTemplateWithNoRequiredCheckRequiresTheGatesJob(t *testing.T) {
+	tp := fixture()
+	tp.Checks = nil
+	rule := list(t, render(t, tp), "queue_rules")[0]
+	if q := strs(list(t, rule, "queue_conditions")); !slices.Contains(q, "check-success = gates") {
+		t.Fatalf("queue_conditions %v lack the gates job", q)
+	}
+	if m := strs(list(t, rule, "merge_conditions")); !slices.Equal(m, []string{"check-success = gates"}) {
+		t.Fatalf("merge_conditions = %v; want the gates job", m)
+	}
+}
+
 func TestTemplateRefusesUnsafeInput(t *testing.T) {
 	for name, tp := range map[string]Template{
 		"no bot":        {Base: "main"},
