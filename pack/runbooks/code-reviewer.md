@@ -57,13 +57,21 @@ note it, and finish `failed`.
 
 For each contract, the test names the contract, and the test fails at the merge base.
 
-1. Make a second worktree at the merge base, with `git worktree add --detach` into a directory from
-   `mktemp -d`. Your reviewed checkout then stays at the head.
-2. Copy only the test files, and the fixtures they need, from the head into that worktree.
-3. Run them there. A test that passes at the merge base fails the contract. Reject.
-4. A red run from a missing import fails for the wrong reason. Change one line of the code under
-   test in the second worktree instead, and check that the expected assertion fails.
-5. Delete the second worktree with `git worktree remove`.
+1. Run `loop review proof --test <files> --base <base ref> --run "<command>"`. Put commas between
+   the test files. Add `--bring <files>` for the fixtures they need. Take the command from the
+   policy. With no `--run`, the proof runs the test gate of the base config.
+2. The proof makes a worktree at the merge base, and brings only those files from the head. It runs
+   the setup and the tests there, and it always removes the worktree. Your checkout stays at the
+   head.
+3. Read the answer:
+   - Exit 0 with `result` `red`: the tests fail at the merge base. Read `tail` to learn why.
+   - `GREEN_AT_BASE`: the tests pass at the merge base. The contract fails. Reject.
+   - `PROOF_UNDECIDED`: the setup failed, or a signal stopped the tests. Run the proof again once.
+   - `CHECKOUT_NOT_CLEAN`: the hint names each difference. Bring the head in again by section 1.
+4. A red run from a missing import fails for the wrong reason. Make a worktree at the head with
+   `git worktree add --detach` into a directory from `mktemp -d`. Change one line of the code under
+   test there, and check that the expected assertion fails. Then remove it with
+   `git worktree remove --force`.
 
 A contract that the base already keeps is an invariant. Prove it with one change to the code under
 test that makes the test fail, and record each change in the comment. When no change makes it

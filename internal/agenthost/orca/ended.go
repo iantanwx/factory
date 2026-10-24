@@ -22,6 +22,8 @@ import (
 // Ended applies KTD8. A session ended when orca proves its process exited,
 // or when every transcript of the session shows its last turn ended with
 // nothing pending, and the session then wrote nothing for the quiet period.
+// A Claude session whose agent wrote only a usage limit ends at once
+// (limit.go): it did no work, and it can do none before the reset.
 // Every doubt answers "not ended": Unknown liveness, an unreadable
 // transcript, a transcript of another checkout, a tool call still running.
 //
@@ -50,6 +52,15 @@ func (h *Host) ended(s agenthost.Session, st agenthost.Settlement) (agenthost.En
 	}
 	if len(ts) == 0 {
 		return agenthost.EndReport{Reason: "no transcript of this session names its checkout"}, nil
+	}
+	if s.Harness == agenthost.Claude {
+		if lim := limitRun(ts, s.Checkout); lim != nil {
+			since := lim.At
+			if since.IsZero() || since.After(now) {
+				since = now
+			}
+			return agenthost.EndReport{Ended: true, Cause: agenthost.EndLimit, Since: since, Limit: lim, Reason: limitReason(lim)}, nil
+		}
 	}
 	var since time.Time
 	for _, t := range ts {
@@ -436,8 +447,11 @@ func (s *claudeScan) keeps() string {
 	if n, ok := s.last["pendingBackgroundAgentCount"].(float64); ok && n > 0 {
 		return fmt.Sprintf("its last turn ended with %d background agent(s) still at work", int(n))
 	}
-	if (s.lastAssistant != nil && s.lastAssistant["isApiErrorMessage"] == true) || s.resumes {
-		return "its last turn ended on an API error or a usage limit, and Claude Code may resume it"
+	if s.lastAssistant != nil && s.lastAssistant["isApiErrorMessage"] == true {
+		return "its last turn ended on " + refusalOf(s.lastAssistant) + ", and Claude Code may resume it"
+	}
+	if s.resumes {
+		return "its last turn ended on a usage limit, and Claude Code may resume it"
 	}
 	var waiting []string
 	for _, t := range s.started {

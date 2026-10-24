@@ -131,6 +131,11 @@ var surface = []Verb{
 		Flag{Name: "body", Type: FlagString, Description: "the review comment; the server posts it on the item's pull request and records it with the verdict"})),
 	server("review", "threads", "list review threads", []string{"reviewer run"}, []Arg{itemArg}),
 	server("review", "rounds", "list review rounds", []string{"reviewer run"}, []Arg{itemArg}),
+	client("review", "proof", "run the pull request's tests at the merge base in a throwaway worktree, remove the worktree whatever happens, and check that the reviewed checkout is still clean at its head", []string{"reviewer run"}, nil,
+		Flag{Name: "test", Type: FlagString, Required: true, Description: "the test files to bring from the head, comma-separated paths inside the checkout"},
+		Flag{Name: "bring", Type: FlagString, Description: "other files the tests need from the head, such as a fixture the pull request added; comma-separated"},
+		Flag{Name: "base", Type: FlagString, Description: "the base ref; the proof runs at its merge base with HEAD; origin/<the brief's base branch> when absent"},
+		Flag{Name: "run", Type: FlagString, Description: "the shell command that runs the tests, with the test paths in \"$@\"; the base config's test gate when absent"}),
 
 	write(server("branch", "push", "push the item's branch through the server", runOrRoom, nil)),
 	write(server("branch", "sync", "fetch the base and the item's branch into the mirror, and name the mirror path, each head sha and the refs a checkout fetches with no credential", runOrRoom, nil)),

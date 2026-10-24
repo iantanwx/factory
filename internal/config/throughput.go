@@ -76,11 +76,14 @@ func isPool(key string) bool {
 // sets the caps of implementer, reviewers, code-reviewer and intake. The
 // current loop capped no other stage, so each other cap is a starting
 // value for the operator to tune. The schedules follow the current timer
-// table (scripts/sdlc/timer-table.ts MAIN_CRONS, alpha).
+// table (scripts/sdlc/timer-table.ts MAIN_CRONS, alpha). The implementer
+// holds the minutes of all three implementer rows there, because one tick
+// starts at most one run of a stage. internal/sched/cadence_test.go holds
+// why.
 func DefaultThroughput() map[string]Throughput {
 	every5 := "*/5 * * * *"
 	return map[string]Throughput{
-		StageImplementer:     {Cap: 8, Schedule: "3,18,33,48 * * * *"},
+		StageImplementer:     {Cap: 8, Schedule: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"},
 		StageCodeReviewer:    {Cap: 8, Schedule: every5},
 		StageDocReviewer:     {Cap: 10, Schedule: "26,56 * * * *"},
 		"reviewers":          {Cap: 10},
@@ -127,6 +130,50 @@ func (c *HostConfig) validateThroughput(ck *checker) {
 	}
 }
 
+// AgentJob is one stage kind that host config defines: an agent run that
+// claims no item and starts on Schedule, ported from the daily dispatch
+// row of the current loop (scripts/sdlc/daily-dispatch.ts, alpha). Runbook
+// is the repository path the run follows. A project runs the job only when
+// its config lists it under stages, which may override its harness, model,
+// budget and schedule like any run stage's.
+type AgentJob struct {
+	Cap      int    `yaml:"cap"`
+	Schedule string `yaml:"schedule"`
+	Runbook  string `yaml:"runbook"`
+}
+
+// AgentJob returns the agent job of name, when host config defines one.
+func (c *HostConfig) AgentJob(name string) (AgentJob, bool) {
+	j, ok := c.AgentJobs[name]
+	return j, ok
+}
+
+// AgentJobNames lists the agent jobs, sorted.
+func (c *HostConfig) AgentJobNames() []string { return slices.Sorted(maps.Keys(c.AgentJobs)) }
+
+func (c *HostConfig) validateAgentJobs(ck *checker) {
+	for _, name := range c.AgentJobNames() {
+		j, f := c.AgentJobs[name], "agent_jobs."+name
+		switch {
+		case !validIdent(name):
+			ck.fail(f, "must be a lower-case identifier")
+			continue
+		case slices.Contains(ThroughputKeys(), name):
+			ck.fail(f, "names a stage, native job or pool of this loop")
+			continue
+		}
+		if j.Cap < 1 {
+			ck.fail(f+".cap", "must be at least 1")
+		}
+		if j.Schedule == "" || HasControl(j.Schedule) {
+			ck.fail(f+".schedule", "must be a nonempty schedule")
+		}
+		if j.Runbook == "" || !repoPath(j.Runbook) {
+			ck.fail(f+".runbook", "must be a clean path inside the repository")
+		}
+	}
+}
+
 // Limit is one cap a stage's admission checks: the cap and the stages
 // whose live runs count against it.
 type Limit struct {
@@ -136,8 +183,12 @@ type Limit struct {
 }
 
 // Limits returns the stage's own limit, then the limit of each pool that
-// holds the stage. A stage with no entry has none.
+// holds the stage. An agent job's own cap is its one limit. A stage with
+// no entry has none.
 func (c *HostConfig) Limits(stage string) []Limit {
+	if j, ok := c.AgentJob(stage); ok {
+		return []Limit{{Name: stage, Cap: j.Cap, Stages: []string{stage}}}
+	}
 	e, ok := c.Throughput[stage]
 	if !ok || isPool(stage) {
 		return nil
