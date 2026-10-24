@@ -47,6 +47,9 @@ type HealthConfig struct {
 	// AuditWorkflow is the file name under .github/workflows of the
 	// project's dependency audit, such as audit.yml.
 	AuditWorkflow string `yaml:"audit_workflow,omitempty"`
+	// CIBudget is the longest a completed run of the base branch or of the
+	// merge queue may take.
+	CIBudget time.Duration `yaml:"ci_budget,omitempty"`
 }
 
 // workflowFileRe matches the file name of a workflow under
@@ -191,6 +194,9 @@ func (c *ProjectConfig) validate() error {
 	}
 	if w := c.Health.AuditWorkflow; w != "" && !workflowFileRe.MatchString(w) {
 		ck.fail("health.audit_workflow", "must be the file name of a workflow under .github/workflows, such as audit.yml")
+	}
+	if c.Health.CIBudget < 0 {
+		ck.fail("health.ci_budget", "must be a positive duration, such as 5m")
 	}
 	return ck.err()
 }
