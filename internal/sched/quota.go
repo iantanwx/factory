@@ -26,6 +26,23 @@ var DefaultModels = map[agenthost.Harness]string{
 	agenthost.Codex:  "gpt-5-codex",
 }
 
+// DefaultEfforts is the effort a stage runs at when project config names
+// none for it, ported from the effort column of ROW_PINS in alpha's
+// stage-models.ts. The doc-reviewer runs at medium to spare its quota, and
+// each author and the code-reviewer at high. A stage with no row, such as
+// an agent job, runs at the harness's own default.
+var DefaultEfforts = map[string]string{
+	config.StageImplementer:  "high",
+	config.StageCodeReviewer: "high",
+	config.StageDocReviewer:  "medium",
+	config.StageSpecAuthor:   "high",
+	config.StageDecomposer:   "high",
+	config.StageAmender:      "medium",
+	config.StageFixer:        "medium",
+	config.StageReproducer:   "medium",
+	config.StageIntake:       "medium",
+}
+
 // QuotaLimit is the used percent at which the chooser skips a harness,
 // ported from quota.maxUsedPercent in alpha's .slothbot. A run started
 // into the last tenth of a window can spend it before it finishes.
@@ -37,7 +54,9 @@ const QuotaSpent = 100.0
 
 // profiles lists the profiles a stage may take, in order: the project's
 // stage config (claude when it names no harness), then each other harness
-// that host config lists a login for, at its default model.
+// that host config lists a login for, at its default model. The stage
+// config's effort holds on its own harness only. Each profile else takes
+// the stage's default effort.
 func profiles(stage string, pc *config.ProjectConfig, hc *config.HostConfig) []Profile {
 	sc := pc.Stages[stage]
 	h := agenthost.Harness(sc.Harness)
@@ -48,13 +67,17 @@ func profiles(stage string, pc *config.ProjectConfig, hc *config.HostConfig) []P
 	if m == "" {
 		m = DefaultModels[h]
 	}
-	out := []Profile{{Harness: h, Model: m}}
+	e := sc.Effort
+	if e == "" {
+		e = DefaultEfforts[stage]
+	}
+	out := []Profile{{Harness: h, Model: m, Effort: e}}
 	for _, l := range hc.Harnesses {
 		lh := agenthost.Harness(l.Name)
 		if DefaultModels[lh] == "" || slices.ContainsFunc(out, func(p Profile) bool { return p.Harness == lh }) {
 			continue
 		}
-		out = append(out, Profile{Harness: lh, Model: DefaultModels[lh]})
+		out = append(out, Profile{Harness: lh, Model: DefaultModels[lh], Effort: DefaultEfforts[stage]})
 	}
 	return out
 }

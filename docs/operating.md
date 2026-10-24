@@ -219,6 +219,28 @@ session up. It sends that session one message that names the new release
 and tells it to read its runbook again. When the session ends, the server
 starts the next one under the new release, in the same worktree.
 
+## Checkout cleanup
+
+The scheduler runs a cleanup pass on each cleanup interval. It judges the
+checkout of each run that ended and of each room that `loop room close`
+ended. That includes a run checkout that the server kept when the run's
+session ended with no finish. A checkout that a lease, a live session or an
+open room uses is never judged.
+
+The pass deletes a checkout through `orca worktree rm` when its tree is
+clean and each of its commits is held. A commit is held when a remote
+holds it, when the base branch holds it, or when the base branch holds its
+patch under another commit id (`git cherry`), as after a rebase. The
+terminal in the checkout closes with it.
+
+A checkout with uncommitted work, or with a commit that no remote and no
+base holds, stays. The pass raises one `checkout_kept` alert that awaits
+a person. It names the checkout's path and the reason. Push the work, or
+remove the checkout with `orca worktree rm --worktree path:<path> --force`.
+The next pass deletes a clean, pushed checkout, and the alert closes with
+it. When you removed the checkout by hand, answer the alert. The pass
+raises it again only when the reason changes.
+
 ## Schedule an agent job
 
 An agent job is an agent run that claims no item and starts on a cron,
@@ -323,7 +345,7 @@ At each run start, the server writes each secret the run's stage
 receives into the `.env` of the entry's `dir`, or the checkout's root
 `.env` when the entry names none. An entry with no `stages` reaches every
 stage. A stage is a stage name, such as `implementer`, or a room:
-`intake-room`, `decision-room` or `review-room`. So a key that one app
+`intake-room`, `decision-room`, `review-room` or `architect-room`. So a key that one app
 uses reaches that app's `.env` only, in the runs that need it. Each file
 holds only its own names, and the server deletes each one when the run
 settles. A repository that tracks a file at one of those paths starts no

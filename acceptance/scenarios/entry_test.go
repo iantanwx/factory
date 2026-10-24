@@ -78,6 +78,43 @@ func TestArchitectureEpicWaitsForItsADR(t *testing.T) {
 	wantStatus(w, epic, machine.SpecDrafting)
 }
 
+// Parity 1.32: the operator and an architect room write the ADR of one
+// architecture epic. The room pushes the ADR to the epic's branch and
+// opens its pull request, and the epic stays in architecture. The
+// operator's merge is the sign-off: the reactor then moves the epic to
+// spec_needed. The room applies the operator's words, and the coordinator
+// closes it.
+func TestArchitectRoomLandsTheADR(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	r := w.Must(w.Coordinator("epic", "create", "--architecture", "--project", acceptance.Project,
+		"--title", "Move the widget store to Postgres", "--body", "The operator asked for an ADR on the widget store."))
+	epic := r.Str("epic")
+	room, co := openRoom(w, "architect", epic, "the operator wants to decide the widget store")
+
+	const adr = "docs/adr/0001-widget-store.md"
+	w.Commit(co, "docs(adr): 0001 widget store", map[string]string{adr: "# ADR 0001: Widget store\n\n**Ticket:** " + epic +
+		"\n\nUse Postgres.\n"})
+	w.Must(w.In(co, "branch", "push"))
+	w.Must(w.In(co, "pr", "open", "--title", "docs(adr): 0001 widget store", "--body", "ADR 0001 records the operator's answer."))
+	pr := w.PRFor(epic)
+	if pr == nil {
+		t.Fatal("the architect room opened no pull request on the epic's branch")
+	}
+	w.React()
+	wantStatus(w, epic, machine.Architecture)
+
+	w.MergeByHand(pr)
+	w.React()
+	wantStatus(w, epic, machine.SpecNeeded)
+	if got := w.Show(epic).Facts[machine.FactADR]; got != adr {
+		t.Fatalf("the epic records ADR %q", got)
+	}
+	dec, _ := json.Marshal(map[string]any{"decision": "ADR 0001: the widget store moves to Postgres.",
+		"statement": "Postgres. We already run it for billing."})
+	w.Must(w.In(co, "room", "apply", room, "--file", w.WriteFile("decision.json", string(dec))))
+	w.Must(w.Coordinator("room", "close", room))
+}
+
 // F-10: an epic that an ADR named only in prose, and that the reactor
 // before the fix moved to spec_needed, returns to architecture with no
 // adr fact on the next reactor pass. The epic on the ADR's Ticket line
