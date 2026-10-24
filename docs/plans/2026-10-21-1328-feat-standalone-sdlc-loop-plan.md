@@ -554,7 +554,8 @@ stateDiagram-v2
   running --> unknown: host cannot say
   unknown --> running: host confirms live
   unknown --> crashed: host proves exit
-  unknown --> alerted: age bound passed (no reclaim)
+  unknown --> crashed: age bound passed, complete inventory holds no row and no trace (counted)
+  unknown --> alerted: age bound passed, still traced or inventory incomplete (no reclaim)
   finished --> settled: lease released or kept, checkout settled
   crashed --> settled: stage-correct state restored, checkout kept
   settled --> [*]
