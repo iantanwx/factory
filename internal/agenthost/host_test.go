@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/iantanwx/loop/internal/agenthost"
 )
@@ -68,6 +71,35 @@ func TestHarnessArgv(t *testing.T) {
 		if _, err := agenthost.HarnessArgv(s, nil); !errors.Is(err, agenthost.ErrBadSpec) {
 			t.Errorf("case %d: HarnessArgv = %v; want ErrBadSpec", i, err)
 		}
+	}
+}
+
+// C-bug-1: the first message opens with the session's title on one line:
+// newlines and control characters are replaced, and its length is bounded.
+// The prompt file instruction follows on the same line, so a host that
+// types the message into a terminal submits it once. No prompt text joins.
+func TestFirstMessageOpensWithOneTitleLine(t *testing.T) {
+	spec := agenthost.StartSpec{
+		Kind: agenthost.KindStage, Checkout: "/r/c", Harness: agenthost.Claude, Model: "opus", PromptFile: "/p/prompt.txt",
+		Title: "loop alpha implementer tk-1: Fix\nthe\tthing\x1b[31m\r" + strings.Repeat(" long", 200),
+	}
+	argv, err := agenthost.HarnessArgv(spec, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := argv[len(argv)-1]
+	if !strings.HasPrefix(msg, "loop alpha implementer tk-1: Fix the thing") {
+		t.Errorf("first message %q does not open with the title", msg)
+	}
+	if strings.ContainsFunc(msg, unicode.IsControl) {
+		t.Errorf("first message %q is not one line", msg)
+	}
+	title, ok := strings.CutSuffix(msg, agenthost.PromptInstruction("/p/prompt.txt"))
+	if !ok {
+		t.Fatalf("first message %q does not end with the prompt file instruction", msg)
+	}
+	if n := utf8.RuneCountInString(title); n > 200 {
+		t.Errorf("the title holds %d runes", n)
 	}
 }
 

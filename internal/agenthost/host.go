@@ -8,7 +8,8 @@
 //   - Every doubt reads as Unknown. A failed read, a stale handle, an
 //     incomplete inventory and a host restart never read as Exited or Absent.
 //   - The prompt reaches the agent only through a file. No process argument
-//     carries prompt text (HarnessArgv).
+//     carries prompt text (HarnessArgv). Only the session's one-line title
+//     opens the first message (FirstMessage).
 //   - An ended session closes and keeps its checkout (KTD8).
 //   - Every stage run, room and coordinator runs in a terminal session whose
 //     PTY the host's daemon owns. Such a session survived an orca-serve
@@ -23,6 +24,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Liveness is what the host can prove about one session's process.
@@ -153,9 +155,14 @@ func ParseRunID(s string) (RunID, error) {
 	return id, nil
 }
 
+// MaxCheckoutName bounds a checkout name, in bytes. The orca host refuses
+// a longer one.
+const MaxCheckoutName = 128
+
 // CheckoutSpec asks the host for a new checkout.
 type CheckoutSpec struct {
-	// Name is the worktree name. The host derives the path from it.
+	// Name is the worktree name. The host derives the path from it. It
+	// holds at most MaxCheckoutName bytes.
 	Name string `json:"name"`
 	// BaseBranch is the ref the checkout starts from. Empty means the repo default.
 	BaseBranch string `json:"base_branch,omitempty"`
@@ -184,7 +191,8 @@ type StartSpec struct {
 	Effort string `json:"effort,omitempty"`
 	// PromptFile holds the prompt. Only its path reaches a process argument.
 	PromptFile string `json:"prompt_file"`
-	// Title labels the session in the host's UI.
+	// Title labels the session in the host's UI and opens its first
+	// message. It names the session's work; Label makes it one line.
 	Title string `json:"title,omitempty"`
 	// RequireVerifiedModel marks an escalated-model role. Such a session
 	// does not start unless its model receipt reads Verified.
@@ -493,8 +501,33 @@ func PromptInstruction(promptFile string) string {
 		" and follow the instructions in it. That file is your whole prompt for this session."
 }
 
+// MaxLabel bounds a session label, in runes.
+const MaxLabel = 160
+
+// Label makes s one line that a terminal title and a first message can
+// carry: each run of spaces and control characters becomes one space, and
+// a label longer than MaxLabel runes is cut and ends with an ellipsis.
+func Label(s string) string {
+	s = strings.Join(strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
+	if r := []rune(s); len(r) > MaxLabel {
+		s = strings.TrimSpace(string(r[:MaxLabel-1])) + "…"
+	}
+	return s
+}
+
+// FirstMessage is the one message a session starts with. It opens with
+// the session's title, so the host's list names the work, and then names
+// the prompt file. It is one line, so a host that types it into a terminal
+// submits it once. It never holds prompt text.
+func FirstMessage(s StartSpec) string {
+	if t := Label(s.Title); t != "" {
+		return t + " — " + PromptInstruction(s.PromptFile)
+	}
+	return PromptInstruction(s.PromptFile)
+}
+
 // HarnessArgv builds the argument vector that starts the harness. extra
-// comes from host config and goes before the prompt instruction. The vector
+// comes from host config and goes before the first message. The vector
 // names the prompt file and never holds prompt text.
 func HarnessArgv(s StartSpec, extra []string) ([]string, error) {
 	if err := s.Validate(); err != nil {
@@ -510,7 +543,7 @@ func HarnessArgv(s StartSpec, extra []string) ([]string, error) {
 		}
 	}
 	argv = append(argv, extra...)
-	return append(argv, PromptInstruction(s.PromptFile)), nil
+	return append(argv, FirstMessage(s)), nil
 }
 
 // InsideRoot reports whether path is strictly inside root, after both are

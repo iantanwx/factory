@@ -122,7 +122,8 @@ func newSchedWorld(t *testing.T, opts Options) *schedWorld {
 
 // A run finishes through the CLI from its own checkout. The call is the
 // run's last CLI call, and the finish settles the run and frees its lease.
-// drain from the host then reports nothing in flight.
+// drain from the host then reports nothing in flight. The reviewer
+// submitted no verdict, so the done finish moved nothing and is stalled.
 func TestRunFinishOverTheSocket(t *testing.T) {
 	w := newSchedWorld(t, Options{})
 	if w.srv.Sched == nil {
@@ -146,7 +147,7 @@ func TestRunFinishOverTheSocket(t *testing.T) {
 		t.Fatalf("no envelope: %s", out.String())
 	}
 	data, _ := env["data"].(map[string]any)
-	if env["exit"] != float64(0) || data["class"] != "done" || data["released"] != true {
+	if env["exit"] != float64(0) || data["class"] != "stalled" || data["released"] != true {
 		t.Fatalf("run finish = %s", out.String())
 	}
 	var class string
@@ -156,7 +157,7 @@ func TestRunFinishOverTheSocket(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if class != "done" || !last.Valid {
+	if class != "stalled" || !last.Valid {
 		t.Fatalf("class %s, last CLI call %v", class, last)
 	}
 	l, _ := w.srv.Machine.Lease(context.Background(), "alpha", id)
