@@ -156,7 +156,7 @@ func TestProductionWiringWithFakes(t *testing.T) {
 func TestEscalationJudgeRunsInTheCallersProcess(t *testing.T) {
 	t.Chdir(t.TempDir())
 	var out strings.Builder
-	code := run(context.Background(), []string{"escalation", "judge", "--finding", "f"}, strings.NewReader(""), &out, io.Discard)
+	code := run(context.Background(), []string{"escalation", "judge", "4", "--finding", "f"}, strings.NewReader(""), &out, io.Discard)
 	if code != 2 || !strings.Contains(out.String(), `"no_rubric"`) {
 		t.Fatalf("judge = %d %s", code, out.String())
 	}

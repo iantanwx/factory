@@ -45,8 +45,12 @@ The escalating run's own score is evidence, not a judge. Never pass it off as a 
 Make one directory with `mktemp -d`. Ask the panel once for each finding, each into its own file:
 
 ```bash
-loop escalation judge --finding "<F1, in one sentence>" --out <dir>/f1.json
+loop escalation judge <escalation> --finding "<F1, in one sentence>" --out <dir>/f1.json
 ```
+
+The command reads the decisions that the operator recorded on the escalation's item, and gives
+them to both judges. These are the inbox answers on the item, the coordinator's notes on it, and
+each answered question about it. `loop escalation decisions <escalation>` prints the same list.
 
 Never type a judge's level or reason yourself. Never reword a finding and ask again. A panel that
 sent a finding to a person did send it.
