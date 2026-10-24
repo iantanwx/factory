@@ -332,7 +332,16 @@ func (s *Service) prLogs(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		job = n
 	}
-	logs, err := s.Logs(ctx, prj, pr.Head.SHA, job)
+	var logs []LogExcerpt
+	var err error
+	switch {
+	case call.Inv.Flags["queue"] != "true":
+		logs, err = s.Logs(ctx, prj, pr.Head.SHA, job)
+	case job != 0:
+		return cli.Reject(cli.CodeUsage, "queue_and_job", "--queue reads the merge queue's draft; --job reads one job of the head")
+	default:
+		logs, err = s.QueueLogs(ctx, prj, pr.Head.SHA)
+	}
 	if err != nil {
 		return Refuse(err)
 	}
