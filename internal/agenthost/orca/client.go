@@ -149,6 +149,8 @@ type Host struct {
 	// cfg.Now is the scheduler's clock, and a test moves it apart from
 	// the files. Tests set wall through export_test.go.
 	wall func() time.Time
+	// heads caches the head of each Codex rollout (rollouthead.go).
+	heads rolloutHeads
 	// headReads counts the rollout heads read from disk.
 	headReads atomic.Int64
 }
