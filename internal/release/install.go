@@ -12,13 +12,15 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
 )
 
 // Installer sets up one instance (R40): the running binary in
-// versions/<v>/, the current symlink, the pinned bd and dolt, the default
-// host config, the key file, the host-admin credential and the service.
+// versions/<v>/, the current symlink, the pinned bd and dolt, the pinned
+// third-party skills, the default host config, the key file, the
+// host-admin credential and the service.
 type Installer struct {
 	Layout  Layout
 	Service ServiceManager
@@ -31,6 +33,10 @@ type Installer struct {
 	Meta Metadata
 	// Setup does the host steps outside the instance. Nil skips them.
 	Setup *HostSetup
+	// Skills are the running binary's third-party skill pins.
+	Skills []pack.ThirdParty
+	// Fetcher fetches the skills when one is missing or drifted.
+	Fetcher SkillFetcher
 }
 
 // InstallReport is the JSON of `loop install`.
@@ -48,6 +54,8 @@ type InstallReport struct {
 	// Drift lists each difference from what install writes. Install
 	// reports what remains after it ran. --check changes nothing.
 	Drift []string `json:"drift"`
+	// Skills names each skill install fetched.
+	Skills []string `json:"skills,omitempty"`
 }
 
 // Install sets the instance up and registers the service. It never
@@ -89,6 +97,10 @@ func (in *Installer) Install(ctx context.Context) (InstallReport, error) {
 	if err != nil {
 		return InstallReport{}, err
 	}
+	skills, err := in.placeSkills(ctx)
+	if err != nil {
+		return InstallReport{}, err
+	}
 	if _, err := os.Stat(in.Layout.HostConfig()); errors.Is(err, fs.ErrNotExist) {
 		cfg := config.DefaultHost(dir)
 		cfg.Beads = config.BeadsConfig{BD: in.Layout.Bin("bd"), Dolt: in.Layout.Bin("dolt")}
@@ -121,8 +133,10 @@ func (in *Installer) Install(ctx context.Context) (InstallReport, error) {
 		return InstallReport{}, fmt.Errorf("release: register the service: %w", err)
 	}
 	// A service that was already running read host config before the App
-	// was in it.
-	if appAdded && statErr == nil {
+	// was in it, or built its pack before the skills of current were there.
+	cur, _ := in.Layout.CurrentVersion()
+	skillsAdded := len(skills) > 0 && cur == in.Meta.Version
+	if (appAdded || skillsAdded) && statErr == nil {
 		if err := in.Service.Stop(ctx); err != nil {
 			return InstallReport{}, err
 		}
@@ -131,8 +145,32 @@ func (in *Installer) Install(ctx context.Context) (InstallReport, error) {
 		}
 	}
 	rep, err := in.Check(ctx)
-	rep.Binaries, rep.Setup = bins, notes
+	rep.Binaries, rep.Setup, rep.Skills = bins, notes, skills
 	return rep, err
+}
+
+// placeSkills fetches every pin and places the whole set in
+// versions/<v>/skills/ when one is missing or drifted, and returns the names
+// it fetched. When every pin matches it fetches nothing.
+func (in *Installer) placeSkills(ctx context.Context) ([]string, error) {
+	dir := in.Layout.Skills(in.Meta.Version)
+	if len(CheckSkills(in.Skills, dir)) == 0 {
+		return nil, nil
+	}
+	trees, err := in.Fetcher.Fetch(ctx, in.Skills)
+	if errors.Is(err, ErrPinMismatch) {
+		return nil, refuse(CodeChecksumMismatch, "skill_mismatch", "%v", err)
+	} else if err != nil {
+		return nil, refuse(CodeReleaseUnavailable, "skill_fetch_failed", "%v", err)
+	}
+	if err := PlaceSkills(trees, dir); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(in.Skills))
+	for _, p := range in.Skills {
+		names = append(names, p.Name)
+	}
+	return names, nil
 }
 
 // placeSelf copies the running binary into versions/<v>/ with its
@@ -186,6 +224,7 @@ func (in *Installer) Check(_ context.Context) (InstallReport, error) {
 	rep.Current = cur
 
 	rep.Drift = append(rep.Drift, CheckPins(in.Pins, in.Layout.join(BinDir))...)
+	rep.Drift = append(rep.Drift, CheckSkills(in.Skills, in.Layout.Skills(in.Meta.Version))...)
 
 	cfg, err := config.LoadHost(in.Layout.HostConfig())
 	if err != nil {
