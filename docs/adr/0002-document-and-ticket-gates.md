@@ -51,8 +51,12 @@ This run measured each fact below in source. The last list names what it assumed
   `internal/pipeline/decompose.go:122` at `6bfba44`, `internal/machine/verbs.go:211`, `:322`).
   None reads the body.
 - The decomposer runbook lists seven body sections, from Source to Stop conditions
-  (`pack/runbooks/decomposer.md:58-67`). The reproducer runbook lists the sections of a shaped
-  bug (`pack/runbooks/reproducer.md:55-64`).
+  (`pack/runbooks/decomposer.md:58-67`). The reproducer runbook lists the eight sections of a
+  shaped bug: Contract C-bug-1, Source, Reproduction, What was seen, Priority, Files, Done means
+  and Out of scope (`pack/runbooks/reproducer.md:57-63`). A shaped bug has no Change section and
+  no Contracts to prove section. Its Reproduction holds the whole test in a fenced block
+  (`reproducer.md:59`). The code-reviewer runbook names a bug's contracts C-bug-1 and so on
+  (`pack/runbooks/code-reviewer.md:41`).
 - Main already refuses a batch of more than 25 tickets (`internal/pipeline/decompose.go:39` at
   `6bfba44`, `TicketCap`).
 - Tickertown's `ticketGate` (`scripts/sdlc/ticket-body.ts:170-179`) runs on `queue create
@@ -63,6 +67,12 @@ This run measured each fact below in source. The last list names what it assumed
   unslop prose rules, two bold-markup rules, and four rules of tickertown's product: QA states,
   design tickets, frames from `design/manifest.json`, and raster art under
   `apps/tickertown/public/`.
+- Tickertown's body total leaves out Contracts to prove, QA states and the test fence in
+  Reproduction (`ticket-budget.ts:134`, `:196`). It leaves the fence out because "the fence is the
+  proof, and it holds no prose to cut, so its size follows the fault and not the author"
+  (`ticket-budget.ts:57-63`). A tickertown bug ticket uses every ticket section, Contracts to
+  prove among them (`docs/templates/ticket.md:411`). So tickertown has one section list, and the
+  loop has two.
 
 **G3: the `citations` gate has no coverage report, `--since`, file arguments, `@scope/` alias or
 cross-PRD rule.** Measured:
@@ -81,7 +91,7 @@ cross-PRD rule.** Measured:
 **G4: no gate refuses a placeholder spec, and no command names an epic's spec path.** Measured:
 
 - The `prd` gate refuses a sizing line that holds the template's placeholder
-  (`internal/gates/prd.go:50`). The `adr` gate refuses the template's instruction block and checks
+  (`internal/gates/prd.go:52`). The `adr` gate refuses the template's instruction block and checks
   the four sections (`internal/gates/adr.go`). No gate reads `docs/plans/*-spec.md`, except the
   `prose` gate (`internal/gates/prose.go:32`).
 - The epic records its PRD path as `prd_path` and its ADR path as `adr`
@@ -118,6 +128,10 @@ Assumed, not measured:
 - The coordinator can carry an operator's answer to the amender as a comment on the spec PR. The
   amender's trigger reads "a person's comments". The spec of factorio-wnl checks which author the
   reactor counts as a person.
+- The decomposer and reproducer runbooks name each section in bold, and they do not say that a
+  body writes it as a `## ` heading. This run did not count the ticket bodies on the record. G2
+  and G5 read `## ` headings, and the spec checks the bodies of the open tickets against that
+  form.
 - A spec that passed review always has its sections in the template's order. The doc-reviewer
   rejects one that does not (`pack/runbooks/doc-reviewer.md:70-71`), so a gate on the order
   rejects no spec on main today. The spec checks this against the two specs in `docs/plans/`.
@@ -144,15 +158,26 @@ rule, because open questions are normal in review, and a red gate would stop the
 should read them. The refusal at decompose catches a spec that a person merged on GitHub.
 
 **G2. The server refuses a ticket body under an epic, and a shaped bug body, that lacks a
-required section of its runbook or breaks tickertown's word budget.** The required sections are
-Source, Change, Contracts to prove, Files, Done means and Out of scope. A shaped bug also needs
-Reproduction and What was seen. The limits are 400 words for the body without Contracts to prove,
-150 for Change, 60 for Done means, 60 for Out of scope, and 8 contracts of 80 words each. A
-PRD-less ticket that the coordinator creates (plan R48) gets no check, because its body quotes the
-operator. We reject the STE and unslop rules on a body, because they need Python on the host, and
-the server would then run the prose toolchain on each write. The `prose` gate already reads the
-documents that bodies cite. We reject the QA states, design, frame and art rules, because each
-names tickertown's product paths.
+required section of its own runbook or breaks tickertown's word budget.** Each shape has its own
+list, because the two runbooks write different bodies:
+
+- A ticket under an epic needs Source, Change, Contracts to prove, Files, Done means and Out of
+  scope (`decomposer.md:58-67`). Its limits are 400 words for the body without Contracts to
+  prove, 150 for Change, 60 for Done means, 60 for Out of scope, and 8 contracts of 80 words each.
+- A shaped bug needs a `Contract C-bug-<n>` section, Source, Reproduction, What was seen,
+  Priority, Files, Done means and Out of scope (`reproducer.md:57-63`). It needs no Change and no
+  Contracts to prove section. Its limits are 400 words for the body without the Contract section
+  and without the test fence in Reproduction, 80 words for the contract, 60 for Done means and 60
+  for Out of scope. The words around the fence still count.
+
+We reject a count of the test fence, because the fence holds the test, not prose, and its size
+follows the fault (`ticket-budget.ts:57-63`). We reject one list for both shapes, as tickertown
+has, because the loop's reproducer writes no Change section and names its one contract in a
+section of its own. A PRD-less ticket that the coordinator creates (plan R48) gets no check,
+because its body quotes the operator. We reject the STE and unslop rules on a body, because they
+need Python on the host, and the server would then run the prose toolchain on each write. The
+`prose` gate already reads the documents that bodies cite. We reject the QA states, design, frame
+and art rules, because each names tickertown's product paths.
 
 **G3. The loop ports none of the `citations` extensions.** In the loop a PRD defines its own story
 labels, so no story stands outside a PRD to be uncovered, and no story can be claimed twice. Plan
@@ -169,11 +194,15 @@ Linear branch name, and the loop's spec path holds the epic id already. We rejec
 the lookup, because `loop work show` already prints the facts of an epic.
 
 **G5. `loop review submit` on a ticket refuses a verdict whose body does not name each contract id
-under the ticket's `## Contracts to prove`.** The rule holds for a pass and for a reject. We
-reject tickertown's JSON checklist, because the loop records one comment for each round, and a
-second format of the same review would be a second text to keep true. We reject checks for each
-Done means line and each stop condition, because CI checks the gates that Done means names, and a
-stop condition stops the implementer, not the reviewer.
+of the ticket: each id under `## Contracts to prove` for a ticket under an epic, and the
+`C-bug-<n>` id in the heading of each `## Contract C-bug-<n>` section for a shaped bug.** The rule
+holds for a pass and for a reject. We reject a change to the reproducer's shape for this check,
+because the server can read the id from the heading that G2 already requires. We reject
+tickertown's JSON checklist, because the loop records one comment for each round, and a second
+format of the same review would be a second text to keep true. We reject checks for each Done
+means line and each stop condition. CI checks the gates that Done means names. Few tickets carry
+a stop condition, and a fired one routes to an escalation, not to the verdict
+(`pack/runbooks/code-reviewer.md:114`).
 
 **G6. The loop does not port the frame rules.** They name Figma, Septin, Layer 2,
 `design/manifest.json` and tickertown's app paths, and tickertown's ADR 0020 decided them for its
@@ -190,18 +219,21 @@ What changes:
   is unchanged.
 - **Decompose.** `internal/pipeline/decompose.go` reads the spec at the base through `spec_path`,
   and refuses the batch with the same rule. It also checks each ticket body by G2.
-- **Ticket bodies.** A new body check in `internal/pipeline` serves `work create --epic`,
-  `epic decompose` and `work shape`. `internal/machine/verbs.go` `workEdit` runs it on a ticket
-  that holds an `epic` or `bug` fact. A refusal names each missing section and each count over
-  its limit.
+- **Ticket bodies.** A new body check in `internal/pipeline` holds the two section lists and the
+  two budgets of G2. `work create --epic` and `epic decompose` run the ticket shape. `work shape`
+  runs the bug shape, and it leaves the Reproduction fence out of the total.
+  `internal/machine/verbs.go` `workEdit` runs the shape that the ticket's `epic` or `bug` fact
+  names. A refusal names the shape, each missing section and each count over its limit.
 - **The epic's facts.** `internal/machine/rows.go` gains `spec_path`. The reactor sets it from the
   changed files of the spec PR on `doc_merged`.
 - **Gates.** `internal/gates` gains a `spec` gate with `Docs: true`. The section list lives in Go
   once, and a test holds it equal to `pack/skills/loop-sdlc-documents/spec.md`.
 - **Review.** `review submit` reads the ticket body, and refuses with a new rule,
-  `contract_unnamed`, that names each missing contract id.
+  `contract_unnamed`, that names each missing contract id. On a shaped bug it reads the id from
+  the `## Contract C-bug-<n>` heading.
 - **The pack.** The coordinator runbook says how an answer reaches the spec before sign-off. The
-  decomposer and reproducer runbooks name the limits of G2. The code-reviewer runbook names the
+  decomposer runbook names the ticket shape of G2, and the reproducer runbook names the bug
+  shape, each with its `## ` headings and its limits. The code-reviewer runbook names the
   rule of G5.
 
 What this makes easy: a spec with an open question cannot become tickets, and a ticket that
@@ -237,7 +269,11 @@ Epic factorio-wnl owns these checks, through its spec and tickets:
 - A test proves that a sign-off answer on a spec with an undecided open question merges nothing,
   and refuses with `open_questions`.
 - A test proves that `epic decompose` refuses on a spec at the base with an undecided entry.
-- A test proves that the server refuses a ticket body with no Change section or with 401 words,
-  and that it accepts a PRD-less ticket with the same body.
+- A test proves that the server refuses a ticket body with no Change section or with 401 words
+  outside Contracts to prove, and that it accepts a PRD-less ticket with the same body.
+- A test proves that `work shape` refuses a bug body with no Reproduction section or with 401
+  words outside the Contract section and the test fence. It accepts a bug body with no Change
+  section, and one whose Reproduction fence holds 500 words.
 - `loop gates --list --docs` names a `spec` gate.
-- A test proves that `review submit` refuses a body that omits one contract id of the ticket.
+- A test proves that `review submit` refuses a body that omits one contract id of the ticket,
+  and a body on a shaped bug that omits `C-bug-1`.
