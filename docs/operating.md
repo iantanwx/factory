@@ -166,7 +166,11 @@ is already right, so you can run it again:
 - It writes the loop skills into the clone, under `.claude/skills` and
   `.agents/skills`, and lists them in `.git/info/exclude`.
 - It registers the project with the server, with the repository name as
-  its id. Give another id as `loop register <id>`.
+  its id. Give another id as `loop register <id>`. The registration
+  records the default branch. Every run of the project starts from it:
+  its checkout, its brief, and the base files that admission reads. A
+  registration made before the loop recorded the branch reads as `main`
+  until you run `loop register` again.
 - It finds the loop App of the repository's owner. When the owner has no
   App, it prints a link that opens the App form, as install does. Click
   **Create GitHub App**. For an organisation, you must be an owner of it.
@@ -255,14 +259,16 @@ a lock file. `secrets` runs gitleaks, in CI only.
 `loop gates --fast` skips `test` and `build`, `loop gates --docs` runs the
 document gates alone, and `loop gates --only <gate>` runs one.
 
-`loop project add alpha --repo owner/alpha --path /home/me/src/alpha` does
-the registration step alone.
+`loop project add alpha --repo owner/alpha --path /home/me/src/alpha --branch trunk` does
+the registration step alone. With no `--branch`, the project's base is `main`.
 
 When you transfer a repository to another owner on GitHub, update the
 clone's `origin`, install the App on the new owner, and run
 `loop register` again. It finds the project by the clone's path and moves
 it with `loop project move <id> --repo <new owner/name>`. The project keeps
-its id, secrets and history.
+its id, secrets and history. When you rename the default branch on GitHub,
+run `loop register` again. It records the new branch with
+`loop project move <id> --repo <owner/name> --branch <branch>`.
 
 ## Set the default-branch ruleset
 

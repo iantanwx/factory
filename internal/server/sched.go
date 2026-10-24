@@ -111,8 +111,8 @@ func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 }
 
 // LocalRefs reads a project's committed files from its own directory at
-// origin/main, with no user or system git config. A server without the
-// GitHub mirror uses it.
+// origin/<its registered default branch>, with no user or system git
+// config. A server without the GitHub mirror uses it.
 func LocalRefs(_ context.Context, p config.Project) (config.RefReader, string, error) {
 	return func(ctx context.Context, ref, path string) ([]byte, error) {
 		run := func(args ...string) ([]byte, error) { return gitx.Run(ctx, p.Path, args...) }
@@ -123,5 +123,5 @@ func LocalRefs(_ context.Context, p config.Project) (config.RefReader, string, e
 			return nil, err
 		}
 		return run("show", ref+":"+path)
-	}, sched.DefaultBaseBranch, nil
+	}, p.BaseBranch(), nil
 }

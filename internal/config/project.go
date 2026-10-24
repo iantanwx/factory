@@ -202,6 +202,18 @@ type ProjectSnapshot struct {
 	Manifest    *Manifest
 	ConfigRaw   []byte
 	ManifestRaw []byte // nil when the default manifest is absent
+	// Branch is the default branch the read named. A run of the project
+	// starts from it.
+	Branch string
+}
+
+// BaseBranch is the branch a run starts from: the branch of the read, or
+// main for a snapshot that names none.
+func (s *ProjectSnapshot) BaseBranch() string {
+	if s.Branch == "" {
+		return DefaultBranch
+	}
+	return s.Branch
 }
 
 // ReadProjectSnapshot reads project config and the secret manifest from the
@@ -223,7 +235,7 @@ func ReadProjectSnapshot(ctx context.Context, read RefReader, defaultBranch stri
 	if err != nil {
 		return nil, err
 	}
-	snap := &ProjectSnapshot{Config: cfg, ConfigRaw: raw, Manifest: &Manifest{}}
+	snap := &ProjectSnapshot{Config: cfg, ConfigRaw: raw, Manifest: &Manifest{}, Branch: defaultBranch}
 	mraw, err := read(ctx, ref, cfg.ManifestPath())
 	switch {
 	case errors.Is(err, fs.ErrNotExist) && cfg.Manifest == "":
