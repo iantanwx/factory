@@ -29,6 +29,9 @@ import (
 //     relative pack path, each skill a runbook reads named by its path,
 //     each policy file, and no step in an unattended runbook that asks a
 //     person
+//   - no hand-back in the coordinator's runbook or in a skill or agent it
+//     reads: no step that sends the operator to merge, upgrade or install,
+//     or to run a loop verb the coordinator may call (handback.go)
 //   - each agent: its front matter, tools that only read, a loop command
 //     only where the schema marks the verb a read the coordinator may
 //     call, a runbook that dispatches it and names it, and each path from
@@ -455,6 +458,7 @@ func Check(src fs.FS, reg *cli.Registry) ([]Finding, error) {
 	if err != nil {
 		return nil, err
 	}
+	held := handBackFiles(m)
 	for _, f := range files {
 		raw, err := fs.ReadFile(src, f.source)
 		if err != nil {
@@ -462,6 +466,9 @@ func Check(src fs.FS, reg *cli.Registry) ([]Finding, error) {
 		}
 		text := string(raw)
 		out = append(out, ix.text(f.source, text)...)
+		if heldToHandBack(held, f.source) {
+			out = append(out, ix.handBack(f.source, text)...)
+		}
 		if f.agent != "" {
 			out = append(out, agentPaths(tree, f.source, text)...)
 			out = append(out, ix.agentFindings(f.source, f.agent, text)...)

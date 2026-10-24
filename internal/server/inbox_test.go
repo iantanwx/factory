@@ -92,6 +92,55 @@ func TestDecisionTimersFireTheByDateOnce(t *testing.T) {
 	}
 }
 
+// A code-reviewer's spec defect pages a person now, as a code pass with
+// `epic` escalates the epic (code-reviewer.md:1098-1130, alpha). A run may
+// not fire a decision it does not hold, so `decision file --now` files and
+// fires it in one write: the decision waits on a person in the inbox, and
+// the coordinator hears of it. --now with --by names two triggers.
+func TestDecisionFiledNowWaitsOnAPersonAtOnce(t *testing.T) {
+	w := newHumanWorld(t, "")
+	item := todoTicket(t, w.bx)
+	rev := w.runToken("rev-1", item, machine.StageCodeReviewer)
+	waits := w.fileDecisionAs(rev, "the spec names no retry limit")
+	if env, _ := w.as(rev, "decision", "fire", waits); env["code"] != cli.CodeCapabilityDenied {
+		t.Fatalf("a run fired a decision it does not hold: %v", env)
+	}
+	env, code := w.as(rev, "decision", "file", "--title", "the spec names no backoff", "--trigger", "the code-reviewer passed a ticket on a spec defect",
+		"--body", "spec section 4.2 names no backoff", "--now")
+	if code != 0 {
+		t.Fatalf("decision file --now = %d %v", code, env)
+	}
+	data := env["data"].(map[string]any)
+	d := data["decision"].(string)
+	if data["status"] != machine.NeedsHuman || w.show(d).Status != machine.NeedsHuman {
+		t.Fatalf("filed now = %v, stored %s", data, w.show(d).Status)
+	}
+	e := entryByID(w.entries("person"), "decision/alpha/"+d)
+	if e == nil || !strings.Contains(e["text"].(string), "<!--sdlc:agent run=rev-1-->\nthe code-reviewer passed a ticket on a spec defect\n<!--/sdlc:agent-->") {
+		t.Fatalf("the decision filed now = %v", e)
+	}
+	w.waitNotified("decision/alpha/" + d)
+	if env, _ := w.as(rev, "decision", "file", "--title", "the spec names no jitter", "--trigger", "launch", "--now",
+		"--by", w.clock.Now().UTC().Format("2006-01-02")); env["code"] != cli.CodeUsage {
+		t.Fatalf("--now with --by = %v", env)
+	}
+}
+
+// fileDecisionAs files a decision from checkout with no --now, and checks
+// that it waits in pending with no inbox entry.
+func (w *humanWorld) fileDecisionAs(checkout, title string) string {
+	w.t.Helper()
+	env, code := w.as(checkout, "decision", "file", "--title", title, "--trigger", "the first paying user")
+	if code != 0 {
+		w.t.Fatalf("decision file = %d %v", code, env)
+	}
+	d := env["data"].(map[string]any)["decision"].(string)
+	if w.show(d).Status != machine.DecisionPending || entryByID(w.entries(""), "decision/alpha/"+d) != nil {
+		w.t.Fatalf("a decision filed with no --now = %s", w.show(d).Status)
+	}
+	return d
+}
+
 // `inbox defer --until` hides the entry until that time. A deferred
 // decision goes back to pending, and decision-timers fires it at that
 // time, also across a server restart. The time is in SQLite, and beads
@@ -194,8 +243,13 @@ func TestInboxSaysWhoEachEntryWaitsOn(t *testing.T) {
 	if sign == nil || sign["awaits"] != "person" || !strings.Contains(sign["text"].(string), "PRD passed review") {
 		t.Fatalf("sign-off = %v", sign)
 	}
-	if env, _ := w.coordinator("inbox", "answer", "signoff/alpha/"+ep.ID, "--body", "ok"); env["code"] != cli.CodeTransitionNotAllowed {
-		t.Fatalf("an inbox answer signed off: %v", env)
+	// A server with no GitHub cannot merge the document, so the answer
+	// moves nothing. The acceptance suite merges one (factorio-8qm).
+	if env, _ := w.coordinator("inbox", "answer", "signoff/alpha/"+ep.ID, "--body", "ok"); env["code"] != cli.CodeNotImplemented {
+		t.Fatalf("an inbox answer with no GitHub: %v", env)
+	}
+	if got := w.show(ep.ID).Status; got != machine.PRDSignoff {
+		t.Fatalf("a refused sign-off moved the epic to %s", got)
 	}
 	byKind := map[string]string{}
 	for _, e := range es {

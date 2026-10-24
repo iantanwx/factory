@@ -64,6 +64,7 @@ service MergeService {
 service EscalationService {
   rpc Raise(VerbRequest) returns (Envelope);
   rpc Route(VerbRequest) returns (Envelope);
+  rpc Decisions(VerbRequest) returns (Envelope);
 }
 
 service DecisionService {
@@ -84,6 +85,7 @@ service FaultService {
 
 service CoordinatorService {
   rpc Send(VerbRequest) returns (Envelope);
+  rpc Upgrade(VerbRequest) returns (Envelope);
 }
 
 service InboxService {

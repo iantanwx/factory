@@ -328,6 +328,31 @@ func TestRemoveEnv(t *testing.T) {
 	}
 }
 
+// A brief that names its runbook keeps it: an agent job's run follows a
+// runbook in the repository, not one of the pack.
+func TestInjectKeepsTheRunbookTheBriefNames(t *testing.T) {
+	dir := gitRepo(t)
+	b := testBrief()
+	b.Stage, b.Role, b.Item, b.Attempt = "nightly-qa", "nightly-qa", nil, 0
+	b.Runbook = "docs/runbooks/nightly-qa.md"
+	res, err := Inject(context.Background(), Injection{Checkout: dir, Harness: agenthost.Claude, Pack: testPack(), Brief: b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, BriefJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Brief
+	if err := json.Unmarshal(raw, &got); err != nil || got.Runbook != "docs/runbooks/nightly-qa.md" {
+		t.Fatalf("brief = %s, %v", raw, err)
+	}
+	prompt, _ := os.ReadFile(res.Prompt)
+	if want := "Then follow the runbook at docs/runbooks/nightly-qa.md."; !strings.Contains(string(prompt), want) {
+		t.Fatalf("the prompt does not name the job's runbook:\n%s", prompt)
+	}
+}
+
 func readEnv(t *testing.T, path string) map[string]string {
 	t.Helper()
 	data, err := os.ReadFile(path)

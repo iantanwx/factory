@@ -106,7 +106,7 @@ func (s *Scheduler) alertHeld(ctx context.Context, r runRow, out admission.Outco
 			Subject:   fmt.Sprintf("%s stopped taking %s after %d failed attempts at the same inputs", r.Stage, r.Item, len(out.Failures)),
 			Body: strings.Join(runs, "\n") + "\n\n" + fmt.Sprintf("`loop work show %s` shows the item's last note, and `loop run show <run>` shows each run. "+
 				"Only changed inputs admit a new attempt: `loop work edit %s --title <title> --body <body>`, a change of a declared file "+
-				"or a cited document on the base, or a new release. The count never resets. Answer this entry with what changed.", r.Item, r.Item)})
+				"or a cited document on the base, a push to the pull request of a code review, or a new release. The count never resets. Answer this entry with what changed.", r.Item, r.Item)})
 		return
 	}
 	if out.Class != admission.ClassBlocked {

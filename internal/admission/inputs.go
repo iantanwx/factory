@@ -22,23 +22,28 @@ type BaseReader interface {
 	Files(ctx context.Context, project string, prefixes []string) (map[string]string, error)
 }
 
-// Task is the text of one work item that its retry identity covers.
+// Task is what one work item's retry identity covers.
 type Task struct {
 	Title string
 	Body  string
+	// Head is the head of the item's open pull request. Only a code
+	// review reads it, and it is empty for every other stage.
+	Head string
 }
 
 // inputsHash is the retry identity of R10: the item's title and body, the
 // content of its declared paths and cited documents on the base, and the
-// loop release version. Nothing else enters it, so a change of harness,
-// model or PR head, or a merge that changes no declared path, keeps it.
+// loop release version. A code review adds the head of the item's pull
+// request, so a push offers a held review again (admission-input.ts,
+// alpha). Nothing else enters it, so a change of harness or model, or a
+// merge that changes no declared path, keeps it.
 func inputsHash(t Task, files map[string]string, release string) string {
 	pairs := make([][2]string, 0, len(files))
 	for p, id := range files {
 		pairs = append(pairs, [2]string{p, id})
 	}
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i][0] < pairs[j][0] })
-	raw, _ := json.Marshal([]any{t.Title, t.Body, pairs, release})
+	raw, _ := json.Marshal([]any{t.Title, t.Body, pairs, release, t.Head})
 	return hexid.SHA256(raw)
 }
 

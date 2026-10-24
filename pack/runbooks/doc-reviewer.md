@@ -99,5 +99,5 @@ another document says which side is wrong, reject, and name that document.
 
 ## 6. Never
 
-- Never edit the document, and never merge it. The operator's merge is the sign-off.
+- Never edit the document, and never merge it. The operator's approval is the sign-off, and the server merges.
 - Never create an epic, and never split one.

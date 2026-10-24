@@ -262,7 +262,10 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 		return Result{}, err
 	}
 	b := in.Brief
-	b.PackVersion, b.PackHash, b.Runbook = in.Pack.Version, hash, Runbook(in.Harness, b.Stage)
+	b.PackVersion, b.PackHash = in.Pack.Version, hash
+	if b.Runbook == "" {
+		b.Runbook = Runbook(in.Harness, b.Stage)
+	}
 	if b.Attempt > 0 && b.MaxAttempts == 0 {
 		b.MaxAttempts = MaxAttempts
 	}

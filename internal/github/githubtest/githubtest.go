@@ -274,6 +274,8 @@ type PR struct {
 	// Labels and MergeableState serve the merge fakes (merge.go).
 	Labels         []string
 	MergeableState string
+	// Reviewers lists each login requested for review, in order.
+	Reviewers []string
 }
 
 func (p *PR) json() map[string]any {
@@ -283,7 +285,7 @@ func (p *PR) json() map[string]any {
 	}
 	out := map[string]any{
 		"number": p.Number, "html_url": fmt.Sprintf("https://example.invalid/pull/%d", p.Number), "state": p.State,
-		"title": p.Title, "draft": p.Draft, "merge_commit_sha": p.MergeSHA, "updated_at": p.UpdatedAt.UTC().Format(time.RFC3339),
+		"title": p.Title, "body": p.Body, "draft": p.Draft, "merge_commit_sha": p.MergeSHA, "updated_at": p.UpdatedAt.UTC().Format(time.RFC3339),
 		"head": map[string]any{"ref": p.Head, "sha": p.HeadSHA, "repo": map[string]any{"full_name": repo}},
 		"base": map[string]any{"ref": p.Base, "sha": strings.Repeat("b", 40)},
 	}
@@ -306,10 +308,13 @@ type World struct {
 	// summaries holds the reviews of each PR: a review's state and the
 	// body a person wrote when they submitted it.
 	summaries map[int][]map[string]any
-	files     int
-	failNext  map[string]int
-	clock     time.Time
-	merge     mergeWorld
+	// threads holds the state GraphQL reads for each review thread, by
+	// the id of its root comment.
+	threads  map[int64]threadState
+	files    int
+	failNext map[string]int
+	clock    time.Time
+	merge    mergeWorld
 	// HeadOf answers the head sha of a new PR's branch. A fixed sha when
 	// nil.
 	HeadOf func(branch string) string
@@ -318,7 +323,8 @@ type World struct {
 // NewWorld returns an empty world.
 func NewWorld() *World {
 	return &World{runs: map[string][]map[string]any{}, failNext: map[string]int{}, comments: map[int][]map[string]any{},
-		reviews: map[int][]map[string]any{}, summaries: map[int][]map[string]any{}, clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
+		reviews: map[int][]map[string]any{}, summaries: map[int][]map[string]any{}, threads: map[int64]threadState{},
+		clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
 }
 
 func (w *World) tick() time.Time {
@@ -381,6 +387,26 @@ func (w *World) Comments(n int) []map[string]any {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return slices.Clone(w.comments[n])
+}
+
+// threadState is the state GraphQL reads for one review thread.
+type threadState struct{ resolved, outdated, hidden bool }
+
+// SetThread sets the state of the review thread whose root comment is
+// root. A hidden thread is one GraphQL does not name. A thread nobody
+// set is open and current.
+func (w *World) SetThread(root int64, resolved, outdated, hidden bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.threads[root] = threadState{resolved: resolved, outdated: outdated, hidden: hidden}
+}
+
+// Unsay deletes comment id of PR n, as a person does on GitHub. A reply
+// keeps the in_reply_to_id of a root comment that is gone.
+func (w *World) Unsay(n int, id int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.reviews[n] = slices.DeleteFunc(w.reviews[n], func(c map[string]any) bool { return c["id"] == id })
 }
 
 // Said is a comment that somebody other than the loop App wrote on a PR.
@@ -464,6 +490,7 @@ func CheckRun(name, sha, status, conclusion string, started time.Time) map[strin
 
 var (
 	rePull     = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)$`)
+	reRequest  = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)/requested_reviewers$`)
 	rePullSub  = regexp.MustCompile(`^/repos/` + Repo + `/(pulls|issues)/(\d+)/(files|comments|reviews)$`)
 	reReplies  = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)/comments/(\d+)/replies$`)
 	reChecks   = regexp.MustCompile(`^/repos/` + Repo + `/commits/([0-9a-f]+)/check-runs$`)
@@ -539,6 +566,22 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 		WriteJSON(rw, 200, w.prs[n-1].json())
+	case r.Method == http.MethodPatch && rePull.MatchString(path):
+		n, _ := strconv.Atoi(rePull.FindStringSubmatch(path)[1])
+		if n < 1 || n > len(w.prs) {
+			return false
+		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		pr := w.prs[n-1]
+		if t, ok := body["title"]; ok {
+			pr.Title = t
+		}
+		if b, ok := body["body"]; ok {
+			pr.Body = b
+		}
+		pr.UpdatedAt = w.tick()
+		WriteJSON(rw, 200, pr.json())
 	case r.Method == http.MethodGet && rePullSub.MatchString(path):
 		m := rePullSub.FindStringSubmatch(path)
 		n, _ := strconv.Atoi(m[2])
@@ -563,6 +606,17 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			}
 			WriteJSON(rw, 200, out)
 		}
+	case r.Method == http.MethodPost && reRequest.MatchString(path):
+		p := w.pr(reRequest.FindStringSubmatch(path)[1])
+		if p == nil {
+			return false
+		}
+		var body struct {
+			Reviewers []string `json:"reviewers"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		p.Reviewers = append(p.Reviewers, body.Reviewers...)
+		WriteJSON(rw, 201, p.json())
 	case r.Method == http.MethodPost && (rePullSub.MatchString(path) || reReplies.MatchString(path)):
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)

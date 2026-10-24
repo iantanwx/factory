@@ -118,8 +118,9 @@ loop branch push
 loop pr open --title "<title>" --body "<body>"
 ```
 
-`loop pr open` opens the pull request of the item branch, or shows the one that is open. It also
-hands the item to review, and that move ends your claim on the item. So run it once, after every
+`loop pr open` opens the pull request of the item branch, or shows the one that is open. On the
+open one it writes the title and the body when they differ from what it holds, and `updated` in its
+answer says so. With no `--body`, the body stays as it is. It also hands the item to review, and that move ends your claim on the item. So run it once, after every
 other write of the run, even when the pull request is already open.
 
 Run `loop gates --fast` before you push. It runs the loop's own gates, then each stack gate that
@@ -207,8 +208,9 @@ These rules bind every runbook. Your runbook adds the rules that are its own.
 - **Never write to an item your run does not hold.** The server refuses it, and the attempt to
   write is a fault in your run. The fixer has one exception. It may note the item of the
   escalation that it routes.
-- **Never merge.** The server hands an eligible pull request to the project's merge mechanism. A
-  person merges a PRD or a spec, and that merge is the sign-off.
+- **Never merge.** The server hands an eligible pull request to the project's merge mechanism. The
+  operator signs off a PRD or a spec. The coordinator records that approval, and the server merges
+  the document.
 - **Never edit the loop's files.** The `.loop/` files and the `loop-*` skills belong to the loop.
   The server writes them again at each start.
 - **Never run `bd`, and never push with git.** The server is the one writer of the record.

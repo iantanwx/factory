@@ -180,3 +180,35 @@ func TestAE9ALoopFaultReportReachesTheCoordinatorAndItsResolutionReachesRuns(t *
 		t.Fatal("a fixed fault stays in the inbox")
 	}
 }
+
+// Parity 4.9 and 1.23 (admission-input.ts, alpha): the PR head enters the
+// code review's retry identity. A review that finished blocked, and a
+// review that failed twice, each hold the ticket at review until a push
+// moves the head. The push offers the review again.
+func TestAPushOffersAHeldReviewAgain(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	id := createTicket(w, "Add a", "Create `a.txt` holding the line `a`.")
+	implement(w, id, map[string]string{"a.txt": "a\n"})
+	wantStatus(w, id, machine.InReview)
+
+	run := w.Dispatch(machine.StageCodeReviewer)
+	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "blocked"))
+	if st, ref := w.TryDispatch(machine.StageCodeReviewer); st != nil || ref != nil {
+		t.Fatalf("the blocked review started again at the same head: %+v %+v", st, ref)
+	}
+	w.PushBranch("loop/"+id, "a fix after the blocked review", map[string]string{"a.txt": "a fixed\n"})
+	w.React()
+	wantStatus(w, id, machine.InReview)
+	for range 2 {
+		run = w.Dispatch(machine.StageCodeReviewer)
+		w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "failed"))
+	}
+	if st, ref := w.TryDispatch(machine.StageCodeReviewer); st != nil || ref != nil {
+		t.Fatalf("a review started after two failures at the same head: %+v %+v", st, ref)
+	}
+	w.PushBranch("loop/"+id, "a fix after two failed reviews", map[string]string{"a.txt": "a fixed again\n"})
+	w.React()
+	if run = w.Dispatch(machine.StageCodeReviewer); run.Item != id {
+		t.Fatalf("the code-reviewer took %s, want %s", run.Item, id)
+	}
+}

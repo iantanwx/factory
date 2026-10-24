@@ -20,6 +20,7 @@ type PR struct {
 	URL            string     `json:"html_url"`
 	State          string     `json:"state"` // open or closed
 	Title          string     `json:"title"`
+	Body           string     `json:"body"`
 	Draft          bool       `json:"draft"`
 	MergedAt       *time.Time `json:"merged_at"`
 	MergeCommitSHA string     `json:"merge_commit_sha"`
@@ -59,6 +60,11 @@ type PRView struct {
 	Base           string `json:"base"`
 	Draft          bool   `json:"draft"`
 	MergeableState string `json:"mergeable_state,omitempty"`
+	// Body is whole, with no omitempty: the implementer records its
+	// red-green evidence there, and a reviewer reads it through `pr show`.
+	// An empty body is an answer too. Ported from shownFrom in
+	// scripts/sdlc/pr.ts (alpha).
+	Body string `json:"body"`
 }
 
 // View is the CLI form of a PR.
@@ -68,7 +74,7 @@ func (pr PR) View() PRView {
 		state = "merged"
 	}
 	return PRView{Number: pr.Number, URL: pr.URL, State: state, Title: pr.Title, Head: pr.Head.Ref,
-		HeadSHA: pr.Head.SHA, Base: pr.Base.Ref, Draft: pr.Draft, MergeableState: pr.MergeableState}
+		HeadSHA: pr.Head.SHA, Base: pr.Base.Ref, Draft: pr.Draft, MergeableState: pr.MergeableState, Body: pr.Body}
 }
 
 // FindPR returns the PR whose head is branch in the project repository:
@@ -109,23 +115,26 @@ func (s *Service) GetPR(ctx context.Context, p config.Project, number int) (PR, 
 // already open on that head branch, so `pr open` twice on one branch opens
 // one PR (KTD6: a PR's natural key is its head branch). branch is the
 // item's branch, BranchOf. Ported from createPullRequest in
-// scripts/sdlc/pr-open.ts:165 (alpha).
-func (s *Service) OpenPR(ctx context.Context, p config.Project, branch, title, body string) (PR, bool, error) {
+// scripts/sdlc/pr-open.ts:165 (alpha). On the PR already open it writes
+// title and body when they differ from what the PR holds, so a rework's
+// revised body reaches the reviewer (F-13); updated says it wrote. An
+// empty title or body leaves that field as it is.
+func (s *Service) OpenPR(ctx context.Context, p config.Project, branch, title, body string) (pr PR, created, updated bool, err error) {
 	if ItemOf(branch) == "" {
-		return PR{}, false, fmt.Errorf("github: %s is no item branch", branch)
+		return PR{}, false, false, fmt.Errorf("github: %s is no item branch", branch)
 	}
 	base, err := s.DefaultBranch(ctx, p)
 	if err != nil {
-		return PR{}, false, err
+		return PR{}, false, false, err
 	}
 	unlock := s.lock(p.ID + "\x00pr\x00" + branch)
 	defer unlock()
-	if pr, err := s.FindPR(ctx, p, branch); err != nil {
-		return PR{}, false, err
-	} else if pr != nil && pr.State == "open" {
-		return *pr, false, nil
+	if found, err := s.FindPR(ctx, p, branch); err != nil {
+		return PR{}, false, false, err
+	} else if found != nil && found.State == "open" {
+		pr, updated, err = s.editPR(ctx, p, *found, title, body)
+		return pr, false, updated, err
 	}
-	var pr PR
 	_, err = s.repoDo(ctx, p, ScopePulls, Call{Method: http.MethodPost, Path: repoPath(p, "/pulls"),
 		Body: map[string]any{"title": title, "body": body, "head": branch, "base": base}}, &pr)
 	var api *APIError
@@ -133,13 +142,36 @@ func (s *Service) OpenPR(ctx context.Context, p config.Project, branch, title, b
 		// Another call opened it first.
 		found, ferr := s.FindPR(ctx, p, branch)
 		if ferr == nil && found != nil {
-			return *found, false, nil
+			pr, updated, err = s.editPR(ctx, p, *found, title, body)
+			return pr, false, updated, err
 		}
 	}
 	if err != nil {
+		return PR{}, false, false, err
+	}
+	return pr, true, false, nil
+}
+
+// editPR writes title and body to an open PR with one PATCH when either
+// differs from what the PR holds. An empty title or body is left out, so
+// the PR keeps its own. It reports whether it wrote.
+func (s *Service) editPR(ctx context.Context, p config.Project, pr PR, title, body string) (PR, bool, error) {
+	patch := map[string]any{}
+	if title != "" && title != pr.Title {
+		patch["title"] = title
+	}
+	if body != "" && body != pr.Body {
+		patch["body"] = body
+	}
+	if len(patch) == 0 {
+		return pr, false, nil
+	}
+	var out PR
+	if _, err := s.repoDo(ctx, p, ScopePulls, Call{Method: http.MethodPatch,
+		Path: repoPath(p, "/pulls/"+strconv.Itoa(pr.Number)), Body: patch}, &out); err != nil {
 		return PR{}, false, err
 	}
-	return pr, true, nil
+	return out, true, nil
 }
 
 // File is one changed file of a PR.
@@ -249,9 +281,35 @@ type Comment struct {
 	InReplyTo   int64     `json:"in_reply_to,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	URL         string    `json:"url"`
+	// Thread is the review thread of a review comment. A conversation
+	// comment belongs to no thread.
+	Thread *ThreadState `json:"thread,omitempty"`
 
 	// bot marks a comment a program wrote: the loop App, or another.
 	bot bool
+}
+
+// ThreadState is one review thread as GitHub's GraphQL reads it. Ported
+// from threadsFrom in scripts/sdlc/github-pull.ts:154-184 (alpha).
+type ThreadState struct {
+	// ID is the thread's root review comment, the id `pr reply --thread`
+	// takes.
+	ID       int64 `json:"id"`
+	Resolved bool  `json:"resolved"`
+	Outdated bool  `json:"outdated"`
+	// AwaitingUs is true while the thread is open and the last word is
+	// not the loop App's. It needs no status field: a person comments and
+	// the thread is ours, the App replies and it is theirs. An outdated
+	// thread still counts, because the comment was about something real.
+	AwaitingUs bool `json:"awaiting_us"`
+}
+
+// root is the id of the review thread's first comment.
+func (c Comment) root() int64 {
+	if c.InReplyTo != 0 {
+		return c.InReplyTo
+	}
+	return c.ID
 }
 
 type rawComment struct {
@@ -313,12 +371,12 @@ func (s *Service) comments(ctx context.Context, p config.Project, path, kind str
 	return out, nil
 }
 
-// Threads reads a PR's review comments, its conversation comments and
-// the summaries of its reviews. A review summary reads as a conversation
-// comment: it opens no thread, and a conversation comment answers it.
-// A review with no body is an approval click, not feedback, so it is
-// left out, as is a pending review nobody submitted.
-func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]Comment, error) {
+// allComments reads a PR's review comments, its conversation comments
+// and the summaries of its reviews, by REST alone. A review summary reads
+// as a conversation comment: it opens no thread, and a conversation
+// comment answers it. A review with no body is an approval click, not
+// feedback, so it is left out, as is a pending review nobody submitted.
+func (s *Service) allComments(ctx context.Context, p config.Project, number int) ([]Comment, error) {
 	review, err := s.comments(ctx, p, fmt.Sprintf("/pulls/%d/comments", number), "review")
 	if err != nil {
 		return nil, err
@@ -337,6 +395,116 @@ func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]
 		}
 	}
 	return append(review, talk...), nil
+}
+
+// Threads reads a PR's comments as allComments does, and gives each
+// review comment the state of its thread.
+func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]Comment, error) {
+	cs, err := s.allComments(ctx, p, number)
+	if err != nil {
+		return nil, err
+	}
+	// The comments are read first, so GraphQL names the thread of each
+	// one that still exists.
+	states, err := s.threadStates(ctx, p, number)
+	if err != nil {
+		return nil, err
+	}
+	last := map[int64]Comment{}
+	for _, c := range cs {
+		if c.Kind != "review" {
+			continue
+		}
+		if _, ok := stateOf(states, c); !ok {
+			return nil, &UnavailableError{Err: fmt.Errorf("GitHub names no review thread for comment %d of #%d", c.ID, number)}
+		}
+		root := c.root()
+		if l, ok := last[root]; !ok || !c.CreatedAt.Before(l.CreatedAt) {
+			last[root] = c
+		}
+	}
+	for i, c := range cs {
+		if c.Kind != "review" {
+			continue
+		}
+		root := c.root()
+		t, _ := stateOf(states, c)
+		cs[i].Thread = &ThreadState{ID: root, Resolved: t.Resolved, Outdated: t.Outdated,
+			AwaitingUs: !t.Resolved && last[root].AuthorClass != AuthorApp}
+	}
+	return cs, nil
+}
+
+// stateOf finds the thread of review comment c by its own id, else by
+// its root's. A reply keeps the id of a root comment a person deleted,
+// and GraphQL then names the thread only by the comments left.
+func stateOf(states map[int64]ThreadState, c Comment) (ThreadState, bool) {
+	if t, ok := states[c.ID]; ok {
+		return t, true
+	}
+	t, ok := states[c.root()]
+	return t, ok
+}
+
+const threadsQuery = `query LoopReviewThreads($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { isResolved isOutdated comments(first: 100) { nodes { databaseId } } }
+      }
+    }
+  }
+}`
+
+// threadStates reads the state of each review thread of a PR, keyed by
+// the database id of each of the thread's first 100 comments, which REST
+// names. A longer thread is found by its root comment.
+func (s *Service) threadStates(ctx context.Context, p config.Project, number int) (map[int64]ThreadState, error) {
+	own, name, _ := strings.Cut(p.Repo, "/")
+	out := map[int64]ThreadState{}
+	var after any
+	for page := 1; page <= maxCommentPages; page++ {
+		var ans struct {
+			Repository struct {
+				PullRequest *struct {
+					ReviewThreads struct {
+						PageInfo struct {
+							HasNextPage bool   `json:"hasNextPage"`
+							EndCursor   string `json:"endCursor"`
+						} `json:"pageInfo"`
+						Nodes []struct {
+							IsResolved bool `json:"isResolved"`
+							IsOutdated bool `json:"isOutdated"`
+							Comments   struct {
+								Nodes []struct {
+									DatabaseID int64 `json:"databaseId"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		}
+		if err := s.GraphQL(ctx, p, ScopeRead, threadsQuery,
+			map[string]any{"owner": own, "name": name, "number": number, "after": after}, &ans); err != nil {
+			return nil, err
+		}
+		pr := ans.Repository.PullRequest
+		if pr == nil {
+			return nil, &UnavailableError{Err: fmt.Errorf("GitHub names no PR #%d", number)}
+		}
+		for _, t := range pr.ReviewThreads.Nodes {
+			for _, c := range t.Comments.Nodes {
+				out[c.DatabaseID] = ThreadState{Resolved: t.IsResolved, Outdated: t.IsOutdated}
+			}
+		}
+		if !pr.ReviewThreads.PageInfo.HasNextPage {
+			break
+		}
+		after = pr.ReviewThreads.PageInfo.EndCursor
+	}
+	return out, nil
 }
 
 // awaitsAnswer reports whether a person's comment on a PR waits for the
@@ -383,7 +551,7 @@ func marker(key string) string { return "<!-- loop:comment " + key + " -->" }
 // and the call answers replayed.
 func (s *Service) Reply(ctx context.Context, p config.Project, number int, thread int64, body, key string) (Comment, bool, error) {
 	mark := marker(key)
-	existing, err := s.Threads(ctx, p, number)
+	existing, err := s.allComments(ctx, p, number)
 	if err != nil {
 		return Comment{}, false, err
 	}

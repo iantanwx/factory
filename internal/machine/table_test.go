@@ -160,6 +160,10 @@ func epicEdges() []edge {
 		{SpecAmending, "spec_amended", SpecSignoff},
 		{PRDAmending, "doc_merged", PRDSignoff},
 		{SpecAmending, "doc_merged", SpecSignoff},
+		// factorio-8qm: the server pins a moved document head, and the
+		// document stays in sign-off.
+		{PRDSignoff, "signoff_head", PRDSignoff},
+		{SpecSignoff, "signoff_head", SpecSignoff},
 	}
 	// Text: a closed document PR escalates and never cancels.
 	e = append(e, each([]string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending}, "pr_closed", Escalated)...)

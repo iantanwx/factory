@@ -21,10 +21,11 @@ is not two judges. A run argues for the choice it already made. So the server bu
 things with the score. An escalation with no score is impossible. The server refuses a level that
 the run itself puts in the loop half. Every escalation records a level that a later audit reads.
 
-**The fixer asks two judges.** For each finding, `loop escalation judge --finding "<one sentence>"`
-asks two judges the two questions below. A convergence reader then scores how far apart the two
-answers are. `loop escalation route <escalation> --file <panel file>` sends the panels to the
-server, and the server routes each finding. The judges say who answers. The fixer says what the
+**The fixer asks two judges.** For each finding,
+`loop escalation judge <escalation> --finding "<one sentence>"` asks two judges the two questions
+below. A convergence reader then scores how far apart the two answers are.
+`loop escalation route <escalation> --file <panel file>` sends the panels to the server, and the
+server routes each finding. The judges say who answers. The fixer says what the
 answer is.
 
 **The escalating run's own score is evidence, and it is no judge's answer.** The server refuses
@@ -42,8 +43,10 @@ no rubric could predict the answer.
 ## What a judge reads
 
 A judge reads the escalation body, the item, each document the body names, and this rubric. A
-judge runs no command and reads no dashboard. So every level below names a kind of evidence. No
-level asks a judge for a fact it cannot read.
+judge also reads each decision that the operator recorded on the item: the inbox answers on the
+item, the coordinator's notes on it, and each answered question about it. A recorded decision is
+evidence, as a document is. A judge runs no command and reads no dashboard. So every level below
+names a kind of evidence. No level asks a judge for a fact it cannot read.
 
 ## One finding is the unit
 
