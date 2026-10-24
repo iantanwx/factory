@@ -627,6 +627,9 @@ func TestFixerReleaseThatNamesNoEntryWritesNothing(t *testing.T) {
 		{"no_entry", []string{"--release", "lib/parse.go", "--forbids", "lib/*", "--condition", "Add the parser."}},
 		{"not_covered", []string{"--release", "app/other.go", "--forbids", "lib/**", "--condition", "Add the parser."}},
 		{"incomplete_release", []string{"--release", "lib/parse.go", "--forbids", "lib/**"}},
+		{"path_not_plain", []string{"--release", "lib/x` `.github/workflows/ci.yml", "--forbids", "lib/**", "--condition", "Add the parser."}},
+		{"condition_not_plain", []string{"--release", "lib/parse.go", "--forbids", "lib/**",
+			"--condition", "Edit only this file; never touch `.github/workflows/ci.yml`."}},
 	} {
 		env, code := w.as(fixer, append([]string{"escalation", "route", id, "--file", "panel.json"}, tc.args...)...)
 		if code != 2 || env["code"] != cli.CodeUsage || env["rule"] != tc.rule {

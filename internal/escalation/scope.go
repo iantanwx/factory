@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/iantanwx/loop/internal/admission"
 )
@@ -99,6 +100,14 @@ func CleanPath(p string) string {
 		c += "/"
 	}
 	return c
+}
+
+// plain reports whether text holds no backtick and no control character,
+// such as a line break. The loop reads every backticked token of "May
+// change" as a path, and a line break starts a bullet of its own. Text
+// that holds either one writes a path the guards never read.
+func plain(text string) bool {
+	return !strings.ContainsFunc(text, func(r rune) bool { return r == '`' || unicode.IsControl(r) })
 }
 
 // prefixOf is the literal prefix of a glob: everything before its first
@@ -204,6 +213,14 @@ func ReleasePath(body string, r Release) (string, *ReleaseRefusal) {
 		return "", &ReleaseRefusal{"no_condition", "--condition names what the implementer may do at the path; " +
 			"a released path with no condition is the whole entry"}
 	}
+	if !plain(path) || strings.ContainsFunc(path, unicode.IsSpace) {
+		return "", &ReleaseRefusal{"path_not_plain", fmt.Sprintf("%q holds a backtick, a space or a line break; "+
+			"name one path, and nothing else", path)}
+	}
+	if !plain(condition) {
+		return "", &ReleaseRefusal{"condition_not_plain", "--condition holds a backtick or a line break, and the loop " +
+			"reads each backticked word of \"May change\" as a path; state the condition in plain words on one line"}
+	}
 	clean := CleanPath(path)
 	if clean == "" {
 		return "", &ReleaseRefusal{"outside_checkout", fmt.Sprintf("`%s` is absolute or climbs out of the checkout; "+
@@ -247,5 +264,25 @@ func ReleasePath(body string, r Release) (string, *ReleaseRefusal) {
 	out[last] = fmt.Sprintf("%s\n%s`%s`: %s %s", lines[last], marker, path, condition, releasedSentence(r.Escalation))
 	out[end] = fmt.Sprintf("%s The fixer released `%s` into %q for escalation %d, and nothing else here.",
 		lines[end], path, admission.MayChange, r.Escalation)
-	return strings.Join(out, "\n"), nil
+	released := strings.Join(out, "\n")
+	if wider := widens(body, released, path); wider != "" {
+		return "", &ReleaseRefusal{"reads_wider", fmt.Sprintf("after the release the loop would also read `%s` as a "+
+			"path the ticket may change; name no path in --condition but the released one", wider)}
+	}
+	return released, nil
+}
+
+// widens returns a path that the loop reads in the released body and not
+// in the old one, other than the released path, or "". It checks the edit
+// with the loop's own reader, so the guards above and that reader agree on
+// what the release widened.
+func widens(old, released, path string) string {
+	before := admission.DeclaredPaths(old)
+	want := admission.DeclaredPaths("## Files\n\n" + admission.MayChange + ":\n- `" + path + "`\n")
+	for _, p := range admission.DeclaredPaths(released) {
+		if !slices.Contains(before, p) && !slices.Contains(want, p) {
+			return p
+		}
+	}
+	return ""
 }

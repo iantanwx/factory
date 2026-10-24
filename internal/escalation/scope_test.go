@@ -1,8 +1,11 @@
 package escalation
 
 import (
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/admission"
 )
 
 // tic70 is the shape of TIC-70 (alpha): the contract needs a file under a
@@ -74,6 +77,23 @@ func TestReleasePathRefusals(t *testing.T) {
 		{"an absolute path", tic70, release("/packages/db/x.go", "packages/**"), "outside_checkout"},
 		{"a climb out of the checkout", tic70, release("packages/../../x.go", "packages/**"), "outside_checkout"},
 		{"the checkout itself", tic70, release("packages/..", "packages/**"), "outside_checkout"},
+		// The loop reads every backticked token of "May change" as a path, so
+		// the text the release writes holds no backtick and no line break of
+		// its own.
+		{"a backtick in the path", tic70, release("packages/x` `.github/workflows/ci.yml", "packages/**"), "path_not_plain"},
+		{"a line break in the path", tic70, release("packages/x\n* `.loop/config.yaml`", "packages/**"), "path_not_plain"},
+		{"a space in the path", tic70, release("packages/db/my file.go", "packages/**"), "path_not_plain"},
+		{"a backticked path in the condition", tic70, Release{Path: "packages/db/x.go", Forbids: "packages/**",
+			Condition: "Edit only this file; never touch `.github/workflows/ci.yml`.", Escalation: 7}, "condition_not_plain"},
+		{"a line break in the condition", tic70, Release{Path: "packages/db/x.go", Forbids: "packages/**",
+			Condition: "Edit this file.\n* `.loop/config.yaml`", Escalation: 7}, "condition_not_plain"},
+		// The plain text of a condition can still cite a Markdown path, which
+		// the retry identity reads. A path the release adds there must be the
+		// released one.
+		{"a cited PRD in the condition", tic70, Release{Path: "packages/db/x.go", Forbids: "packages/**",
+			Condition: "Edit it as docs/prd/0001-db.md asks.", Escalation: 7}, "reads_wider"},
+		{"a cited path under the glob in the condition", tic70, Release{Path: "packages/db/x.go", Forbids: "packages/**",
+			Condition: "Edit it as packages/db/README.md says.", Escalation: 7}, "reads_wider"},
 	} {
 		if _, r := ReleasePath(tc.body, tc.rel); r == nil || r.Rule != tc.rule {
 			t.Errorf("%s: %+v, want %s", tc.name, r, tc.rule)
@@ -136,5 +156,19 @@ func TestReleasedByNamesOneEscalationAndOnePath(t *testing.T) {
 	}
 	if ReleasedBy(tic70, "packages/db/src/**", 7) {
 		t.Error("a body with no release holds one")
+	}
+}
+
+// The paths the loop reads in "May change" after a release are the paths
+// it read before, and the released one. The guard and the reader agree.
+func TestReleasePathAddsOnlyTheReleasedPathToWhatTheLoopReads(t *testing.T) {
+	got, r := ReleasePath(tic70, Release{Path: "packages/db/x.go", Forbids: "packages/**",
+		Condition: "Add the one migration, and nothing else.", Escalation: 7})
+	if r != nil {
+		t.Fatalf("refused: %+v", r)
+	}
+	want := []string{"apps/web/src/", "packages/db/x.go"}
+	if paths := admission.DeclaredPaths(got); !slices.Equal(paths, want) {
+		t.Fatalf("DeclaredPaths = %q, want %q", paths, want)
 	}
 }
