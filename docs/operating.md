@@ -218,6 +218,15 @@ message from any shell on the host with
 `loop coordinator send --body "<message>"`. One coordinator serves every
 project.
 
+Every other session names its work in Orca. A stage run's terminal title
+and the first line of its first message read
+`loop <project> <stage> <item>: <item title>`, and its worktree is
+`loop-<project>-<stage>-<item>-<title slug>-<run id>`. Orca takes a
+worktree name of at most 128 bytes, so a long project id shortens the
+slug first, then drops the item; the run id always stays. A room's title and
+first line read `loop <kind> room <item>: <reason>`, without the item when
+the room has none.
+
 Only that session holds the coordinator's token, in `.loop/token` of its
 worktree. A session in your own clone holds none, and the server refuses
 its coordinator verbs. The coordinator may run the host verbs `upgrade`,
