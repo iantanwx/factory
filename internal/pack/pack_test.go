@@ -265,15 +265,16 @@ func TestCoordinatorShipsItsReadOnlySubagents(t *testing.T) {
 // source.
 const tickertownCommit = "64e293f9ae2db7831d12462e76ffe1aa3deacd8c"
 
-// TestWritingSkillsShipWithTheirReaders proves C3 of the tickertown skills
-// spec: the pack holds exactly the listed skills, each writing skill is
-// flagged, carries the Codex file and names its source, and the runbooks
-// that list it are its row of the spec's reader table.
-func TestWritingSkillsShipWithTheirReaders(t *testing.T) {
+// TestPortedSkillsShipWithTheirReaders proves C3 and C4 of the tickertown
+// skills spec: the pack holds exactly the listed skills, each writing and
+// code skill is flagged, carries the Codex file and names its source, and
+// the runbooks that list it are its row of the spec's reader table.
+func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 	want := []string{
-		"loop-brainstorm", "loop-bro", "loop-commit", "loop-encode-lessons", "loop-fault", "loop-init",
-		"loop-reflect", "loop-sdlc-documents", "loop-sdlc-glossary", "loop-sdlc-review", "loop-sdlc-split",
-		"loop-sdlc-triage", "loop-sdlc-turn", "loop-unslop",
+		"loop-boundaries", "loop-brainstorm", "loop-bro", "loop-commit", "loop-domain-modeling",
+		"loop-encode-lessons", "loop-fault", "loop-init", "loop-least-code", "loop-reader-load", "loop-reflect",
+		"loop-sdlc-documents", "loop-sdlc-glossary", "loop-sdlc-review", "loop-sdlc-split", "loop-sdlc-triage",
+		"loop-sdlc-turn", "loop-test-behavior-not-implementation", "loop-unslop", "loop-verifiable-units",
 	}
 	dirs, err := fs.ReadDir(pack.Source(), "skills")
 	if err != nil {
@@ -291,6 +292,13 @@ func TestWritingSkillsShipWithTheirReaders(t *testing.T) {
 		"loop-commit": {"amender", "implementer", "intake-room", "review-room", "spec-author"},
 		"loop-bro":    {"decomposer"},
 		"loop-unslop": {"amender", "decomposer", "intake-room", "spec-author"},
+
+		"loop-boundaries":                       {"code-reviewer", "implementer"},
+		"loop-least-code":                       {"code-reviewer", "implementer"},
+		"loop-reader-load":                      {"code-reviewer", "implementer"},
+		"loop-verifiable-units":                 {"implementer"},
+		"loop-test-behavior-not-implementation": {"code-reviewer", "implementer", "reproducer"},
+		"loop-domain-modeling":                  {"doc-reviewer", "implementer", "spec-author"},
 	}
 	m, err := pack.ReadManifest(pack.Source())
 	if err != nil {

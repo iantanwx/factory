@@ -79,10 +79,11 @@ is outside your change, run `loop pr rerun` to run the failed checks again.
 
 **Then the contracts.** The contracts in the item body are the job. Everything else helps you keep
 them. Read each document the brief names, and the user stories each contract cites. Compare your
-approach with the code next to it.
+approach with the code next to it. Order the work by `../loop-verifiable-units/SKILL.md`.
 
 **Write the test first, and watch it fail.** A test that passes before the change proves nothing.
-The code-reviewer runs your test at the merge base, and a pass there rejects the work.
+The code-reviewer runs your test at the merge base, and a pass there rejects the work. Write each
+test by `../loop-test-behavior-not-implementation/SKILL.md`.
 
 - Go from red to green once for each piece, not once for the whole item. A long red hides which
   piece broke.
@@ -94,7 +95,13 @@ The code-reviewer runs your test at the merge base, and a pass there rejects the
 - A change to documents only still owes a proof command, such as a search. Run it before and after
   the edit, and record both results in the pull request body.
 
+**Then write the code.** Put each guard and each piece of wiring by `../loop-boundaries/SKILL.md`.
+Model the domain by `../loop-domain-modeling/SKILL.md`.
+
 ## 4. Finish the work
+
+Before you commit, read your diff by `../loop-least-code/SKILL.md` and
+`../loop-reader-load/SKILL.md`. Cut what they find.
 
 1. Commit. Write the message by `../loop-commit/SKILL.md`. A gate can read commits and not the
    working tree.

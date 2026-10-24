@@ -2,17 +2,17 @@
   "runbooks": {
     "implementer": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-commit"],
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-commit", "loop-verifiable-units", "loop-test-behavior-not-implementation", "loop-boundaries", "loop-domain-modeling", "loop-least-code", "loop-reader-load"],
       "policy": "implementer"
     },
     "code-reviewer": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-triage"],
+      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-test-behavior-not-implementation", "loop-boundaries", "loop-least-code", "loop-reader-load"],
       "policy": "code-reviewer"
     },
     "doc-reviewer": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents", "loop-domain-modeling"]
     },
     "amender": {
       "attended": false,
@@ -20,7 +20,7 @@
     },
     "spec-author": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents", "loop-unslop", "loop-commit"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents", "loop-unslop", "loop-commit", "loop-domain-modeling"]
     },
     "decomposer": {
       "attended": false,
@@ -32,7 +32,7 @@
     },
     "reproducer": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-test-behavior-not-implementation"]
     },
     "coordinator": {
       "attended": true,
@@ -58,12 +58,16 @@
     }
   },
   "skills": [
+    "loop-boundaries",
     "loop-brainstorm",
     "loop-bro",
     "loop-commit",
+    "loop-domain-modeling",
     "loop-encode-lessons",
     "loop-fault",
     "loop-init",
+    "loop-least-code",
+    "loop-reader-load",
     "loop-reflect",
     "loop-sdlc-documents",
     "loop-sdlc-glossary",
@@ -71,7 +75,9 @@
     "loop-sdlc-split",
     "loop-sdlc-triage",
     "loop-sdlc-turn",
-    "loop-unslop"
+    "loop-test-behavior-not-implementation",
+    "loop-unslop",
+    "loop-verifiable-units"
   ],
   "agents": [
     "loop-alert-root-cause",

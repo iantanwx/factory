@@ -43,7 +43,7 @@ The spec holds these sections, in this order:
    under Assumptions, because every ticket inherits it.
 4. **Assumptions**: each one with what would show that it is false.
 5. **Approach**.
-6. **Domain model**, or "None".
+6. **Domain model**, or "None". Write it by `../loop-domain-modeling/SKILL.md`.
 7. **Interfaces**.
 8. **Data**, or "None".
 9. **Flows**.
