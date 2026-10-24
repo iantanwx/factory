@@ -378,18 +378,19 @@ func (h *hostVerbs) coordinator() (bool, error) {
 }
 
 // handOff starts the coordinator's upgrade or rollback outside its session
-// (factorio-obc). The verb drains and restarts the server, and the new
-// release restarts the coordinator session and revokes its token, so a
-// process in that session would die before the verb ends. The detached
-// process works in the home directory with no token, as the host, and the
-// server checks it again there.
+// (factorio-obc). The verb drains, stops and restarts the server, which can
+// take hours. In the session it would hold the coordinator's turn for the
+// whole drain, call drain, a host-only verb, with the coordinator's token,
+// and die when the session ends. The detached process works in the home
+// directory with no token, as the host, and the server checks it again
+// there.
 func (h *hostVerbs) handOff(ctx context.Context, dir string, args []string) cli.Result {
 	st, err := h.detach(ctx, dir, args)
 	if err != nil {
 		return fail(fmt.Errorf("start loop %s outside the coordinator's session: %w", args[0], err))
 	}
 	return cli.Found(map[string]any{"started": true, "verb": args[0], "unit": st.Unit, "command": st.Command,
-		"next": fmt.Sprintf("loop %s drains this server, stops it and starts it again, and the new release restarts this session; "+
+		"next": fmt.Sprintf("loop %s drains this server, stops it and starts it again, outside this session; "+
 			"after the restart, run `loop version` and report the version it names", strings.Join(args, " "))})
 }
 
