@@ -138,3 +138,36 @@ func TestWorkflowRunsOfANamedWorkflow(t *testing.T) {
 		t.Fatalf("err = %v, want a 404", err)
 	}
 }
+
+// RunJobs reads the jobs of the attempt it names, not of the run's latest
+// attempt, so a job that failed and then passed shows both conclusions.
+// An attempt GitHub does not hold answers 404.
+func TestRunJobsReadsOneAttempt(t *testing.T) {
+	e := newEnv(t)
+	world := e.withWorld()
+	world.AddRun(&gt.Run{ID: 91, Workflow: "ci.yml", HeadSHA: shaA, Attempt: 2, Conclusion: "success", Jobs: [][]gt.Job{
+		{{ID: 1, Name: "lint", Conclusion: "success"}, {ID: 2, Name: "Go tests (race)", Conclusion: "failure"}},
+		{{ID: 3, Name: "lint", Conclusion: "success"}, {ID: 4, Name: "Go tests (race)", Conclusion: "success"}},
+	}})
+
+	jobs, err := e.svc.RunJobs(context.Background(), e.project, 91, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []JobView{{ID: 1, Name: "lint", Conclusion: "success"}, {ID: 2, Name: "Go tests (race)", Conclusion: "failure"}}
+	if len(jobs) != 2 || jobs[0] != want[0] || jobs[1] != want[1] {
+		t.Fatalf("jobs = %+v, want %+v", jobs, want)
+	}
+	if calls := runCalls(e, "/actions/runs/91/attempts/1/jobs"); len(calls) != 1 || !strings.Contains(calls[0], "per_page=100") {
+		t.Fatalf("calls = %v", e.api.Calls())
+	}
+	if jobs, err := e.svc.RunJobs(context.Background(), e.project, 91, 2); err != nil || len(jobs) != 2 || jobs[1].Conclusion != "success" {
+		t.Fatalf("attempt 2: jobs = %+v, err = %v", jobs, err)
+	}
+
+	_, err = e.svc.RunJobs(context.Background(), e.project, 91, 3)
+	var api *APIError
+	if !errors.As(err, &api) || api.Status != http.StatusNotFound {
+		t.Fatalf("err = %v, want a 404", err)
+	}
+}

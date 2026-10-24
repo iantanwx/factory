@@ -698,3 +698,31 @@ func (s *Service) WorkflowRuns(ctx context.Context, p config.Project, q RunQuery
 	}
 	return nil, fmt.Errorf("github: %s has more than %d workflow runs since %s", p.Repo, maxRunPages*100, q.Since.UTC().Format(time.RFC3339))
 }
+
+// JobView is one job of one attempt of a run.
+type JobView struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Conclusion string `json:"conclusion"`
+}
+
+// RunJobs lists the jobs of one attempt of a run, every page of them. The
+// run listing shows the latest attempt only, so an earlier attempt's
+// failed job is read here.
+func (s *Service) RunJobs(ctx context.Context, p config.Project, runID int64, attempt int) ([]JobView, error) {
+	var out []JobView
+	for page := 1; ; page++ {
+		var batch struct {
+			Jobs []JobView `json:"jobs"`
+		}
+		resp, err := s.repoDo(ctx, p, ScopeRead, Call{Method: http.MethodGet,
+			Path: repoPath(p, fmt.Sprintf("/actions/runs/%d/attempts/%d/jobs?per_page=100&page=%d", runID, attempt, page))}, &batch)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, batch.Jobs...)
+		if !nextPage(resp.Header) {
+			return out, nil
+		}
+	}
+}

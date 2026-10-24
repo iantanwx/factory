@@ -89,7 +89,7 @@ var PartNames = []string{"stalls", "questions", "decisions", "bugs", "backlog", 
 
 // Parts returns the shipped part list. Each part entry adds its part.
 func Parts() []Part {
-	return []Part{stallsPart, questionsPart(), decisionsPart(), bugsPart(), backlogPart(), pullsPart, mainPart, auditPart, inboxPart(), serverPart()}
+	return []Part{stallsPart, questionsPart(), decisionsPart(), bugsPart(), backlogPart(), pullsPart, mainPart, ciPart, flakyPart, auditPart, inboxPart(), serverPart()}
 }
 
 // Intervals are the scheduler's own, from sched.Config.
@@ -124,11 +124,10 @@ type World interface {
 }
 
 // GitHubReads are the GET reads of the GitHub parts, made with ScopeRead.
-// The entry of the ci and flaky parts adds RunJobs with the type it reads
-// (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Work 10).
 type GitHubReads interface {
 	OpenPulls(ctx context.Context, p config.Project) ([]github.PR, error)
 	WorkflowRuns(ctx context.Context, p config.Project, q github.RunQuery) ([]github.RunView, error)
+	RunJobs(ctx context.Context, p config.Project, runID int64, attempt int) ([]github.JobView, error)
 }
 
 // Key builds overwatch:<part>:<subject>, with the subject's segments joined

@@ -332,3 +332,7 @@ func (r githubReads) OpenPulls(ctx context.Context, p config.Project) ([]github.
 func (r githubReads) WorkflowRuns(ctx context.Context, p config.Project, q github.RunQuery) ([]github.RunView, error) {
 	return r.svc.WorkflowRuns(ctx, p, q)
 }
+
+func (r githubReads) RunJobs(ctx context.Context, p config.Project, runID int64, attempt int) ([]github.JobView, error) {
+	return r.svc.RunJobs(ctx, p, runID, attempt)
+}

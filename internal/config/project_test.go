@@ -139,6 +139,32 @@ func TestProjectConfigHealthAuditWorkflow(t *testing.T) {
 	}
 }
 
+// health.ci_budget is an optional duration with no default. A negative
+// budget is refused, since no run fits it.
+func TestProjectConfigHealthCIBudget(t *testing.T) {
+	cfg, err := ParseProjectConfig([]byte(validProjectConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Health.CIBudget != 0 {
+		t.Fatalf("ci_budget with no health block = %v, want none", cfg.Health.CIBudget)
+	}
+	cfg, err = ParseProjectConfig([]byte(validProjectConfig + "health:\n  ci_budget: 5m\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Health.CIBudget != 5*time.Minute {
+		t.Fatalf("ci_budget = %v, want 5m", cfg.Health.CIBudget)
+	}
+	if _, err := ParseProjectConfig([]byte(validProjectConfig + "health:\n  ci_budget: -1m\n")); !errors.Is(err, ErrInvalid) ||
+		!strings.Contains(err.Error(), "health.ci_budget") {
+		t.Fatalf("ci_budget -1m: err = %v, want a refusal of health.ci_budget", err)
+	}
+	if _, err := ParseProjectConfig([]byte(validProjectConfig + "health:\n  ci_budget: five minutes\n")); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a ci_budget that is no duration: err = %v, want ErrInvalid", err)
+	}
+}
+
 // merge.required_checks names the CI checks a ticket's head must pass
 // before it is eligible and before any mechanism merges it. A config
 // that names none leaves the list empty, and the GitHub service then

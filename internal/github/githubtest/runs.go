@@ -24,6 +24,15 @@ type Run struct {
 	Status     string // completed when empty
 	Conclusion string // empty while the run has not completed
 	CreatedAt  time.Time
+	Took       time.Duration // from its start to its last update; a minute when zero
+	Jobs       [][]Job       // the jobs of each attempt, the first attempt first
+}
+
+// Job is one job of one attempt of a run. AddRun fills a zero ID.
+type Job struct {
+	ID         int64
+	Name       string
+	Conclusion string
 }
 
 func (r *Run) json() map[string]any {
@@ -33,7 +42,7 @@ func (r *Run) json() map[string]any {
 		"run_attempt": r.Attempt, "status": r.Status, "conclusion": nil,
 		"created_at":     r.CreatedAt.UTC().Format(time.RFC3339),
 		"run_started_at": r.CreatedAt.UTC().Format(time.RFC3339),
-		"updated_at":     r.CreatedAt.Add(time.Minute).UTC().Format(time.RFC3339),
+		"updated_at":     r.CreatedAt.Add(r.Took).UTC().Format(time.RFC3339),
 		"html_url":       fmt.Sprintf("https://example.invalid/actions/runs/%d", r.ID),
 	}
 	if r.Conclusion != "" {
@@ -65,6 +74,16 @@ func (w *World) AddRun(r *Run) *Run {
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = w.tick()
 	}
+	if r.Took == 0 {
+		r.Took = time.Minute
+	}
+	for a := range r.Jobs {
+		for i := range r.Jobs[a] {
+			if r.Jobs[a][i].ID == 0 {
+				r.Jobs[a][i].ID = r.ID*100 + int64(a*10+i+1)
+			}
+		}
+	}
 	w.wruns = append(w.wruns, r)
 	return r
 }
@@ -77,13 +96,42 @@ func (w *World) AddWorkflow(file string) {
 	w.workflows = append(w.workflows, file)
 }
 
-var reWorkflowRuns = regexp.MustCompile(`^/repos/` + Repo + `/actions/workflows/([^/]+)/runs$`)
+var (
+	reWorkflowRuns = regexp.MustCompile(`^/repos/` + Repo + `/actions/workflows/([^/]+)/runs$`)
+	reAttemptJobs  = regexp.MustCompile(`^/repos/` + Repo + `/actions/runs/(\d+)/attempts/(\d+)/jobs$`)
+)
 
-// serveRuns answers a list of workflow runs, or reports false for any
-// other request. The caller holds w.mu.
+// serveAttemptJobs answers the jobs of one attempt of a run, as GitHub's
+// actions/runs/<id>/attempts/<n>/jobs does. A run or an attempt the world
+// does not hold is 404. The caller holds w.mu.
+func (w *World) serveAttemptJobs(rw http.ResponseWriter, m []string) {
+	id, _ := strconv.ParseInt(m[1], 10, 64)
+	attempt, _ := strconv.Atoi(m[2])
+	i := slices.IndexFunc(w.wruns, func(run *Run) bool { return run.ID == id })
+	if i < 0 || attempt < 1 || attempt > w.wruns[i].Attempt {
+		WriteJSON(rw, 404, map[string]string{"message": "Not Found"})
+		return
+	}
+	run := w.wruns[i]
+	out := []any{}
+	if attempt <= len(run.Jobs) {
+		for _, j := range run.Jobs[attempt-1] {
+			out = append(out, map[string]any{"id": j.ID, "run_id": run.ID, "run_attempt": attempt, "name": j.Name,
+				"head_sha": run.HeadSHA, "status": "completed", "conclusion": j.Conclusion})
+		}
+	}
+	WriteJSON(rw, 200, map[string]any{"total_count": len(out), "jobs": out})
+}
+
+// serveRuns answers a list of workflow runs, or the jobs of one attempt
+// of a run, or reports false for any other request. The caller holds w.mu.
 func (w *World) serveRuns(rw http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return false
+	}
+	if m := reAttemptJobs.FindStringSubmatch(r.URL.Path); m != nil {
+		w.serveAttemptJobs(rw, m)
+		return true
 	}
 	list := slices.Clone(w.wruns)
 	switch m := reWorkflowRuns.FindStringSubmatch(r.URL.Path); {

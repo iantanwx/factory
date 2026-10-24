@@ -72,6 +72,10 @@ func (r serviceReads) WorkflowRuns(ctx context.Context, p config.Project, q gith
 	return r.svc.WorkflowRuns(ctx, p, q)
 }
 
+func (r serviceReads) RunJobs(ctx context.Context, p config.Project, runID int64, attempt int) ([]github.JobView, error) {
+	return r.svc.RunJobs(ctx, p, runID, attempt)
+}
+
 func newGHWorld(t *testing.T, projects ...config.Project) *ghWorld {
 	t.Helper()
 	fw := newFakeWorld(t)
@@ -159,6 +163,14 @@ func TestC26AFailedGitHubReadCostsItsProjectsPart(t *testing.T) {
 			w.prs().AddRun(&gt.Run{ID: 9101, Workflow: "audit.yml", Event: "schedule", HeadSHA: headA, Conclusion: "failure",
 				CreatedAt: w.now.Add(-time.Hour)})
 		}, "overwatch:audit:alpha:audit-yml@9101", "audit.yml"},
+		{"ci", func(w *ghWorld) {
+			w.ciBudget("alpha", 5*time.Minute)
+			w.ciBudget("beta", 5*time.Minute)
+			w.prs().AddRun(&gt.Run{Workflow: "ci.yml", HeadSHA: headA, Conclusion: "success", Took: 9 * time.Minute, CreatedAt: w.now.Add(-time.Hour)})
+		}, "overwatch:ci:alpha:push", "beta"},
+		{"flaky", func(w *ghWorld) {
+			w.prs().AddRun(rerun(headA, "failure", "success", w.now.Add(-time.Hour)))
+		}, "overwatch:flaky:alpha:ci-yml/go-tests-race", "beta"},
 	}
 	store := readingPart("claims", Reading{Notes: []string{"no lease is held"}})
 	for _, c := range cases {
