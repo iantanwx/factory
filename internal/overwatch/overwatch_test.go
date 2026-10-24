@@ -158,10 +158,12 @@ func TestPartNamesHoldTheFifteenInTheSpecOrder(t *testing.T) {
 	if !reflect.DeepEqual(PartNames, want) {
 		t.Fatalf("PartNames = %q", PartNames)
 	}
+	seen := map[string]bool{}
 	for _, p := range Parts() {
-		if !slices.Contains(PartNames, p.Name) {
-			t.Fatalf("Parts() holds %q, which PartNames does not name", p.Name)
+		if !slices.Contains(PartNames, p.Name) || seen[p.Name] {
+			t.Fatalf("Parts() holds %q outside PartNames, or twice", p.Name)
 		}
+		seen[p.Name] = true
 	}
 	if PartDeadline != 60*time.Second {
 		t.Fatalf("PartDeadline = %s", PartDeadline)
