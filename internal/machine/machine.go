@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
@@ -208,6 +209,9 @@ type Item struct {
 	Facts  map[string]string `json:"facts"`
 	// AllowedNext names the verbs the table allows from Status.
 	AllowedNext []string `json:"allowed_next"`
+	// Updated is when beads last wrote the item. The work query dates an
+	// item's entry into Status by it when no transition records that entry.
+	Updated time.Time `json:"-"`
 }
 
 // Fact returns one fact by name.
@@ -231,6 +235,7 @@ func view(project string, is beadsx.Issue) (Item, *Table, error) {
 	it := Item{
 		Project: project, ID: is.ID, Kind: t.Kind, Title: title, Body: body, Status: is.Status,
 		Seq: seq, Epoch: epoch, Facts: map[string]string{}, AllowedNext: t.AllowedNext(is.Status),
+		Updated: is.UpdatedAt,
 	}
 	for k, v := range is.Metadata {
 		switch k {
