@@ -251,8 +251,12 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		return fmt.Errorf("sched: the coordinator's base branch: %w", err)
 	}
 	if cs.Checkout == "" {
+		spec, err := BaseCheckout(ctx, s.cfg.BaseHead, cc.Project, base, coordinatorCheckout)
+		if err != nil {
+			return err
+		}
 		s.checkoutMu.Lock()
-		co, err := s.cfg.Checkouts(cc.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: coordinatorCheckout, BaseBranch: base})
+		co, err := s.cfg.Checkouts(cc.Project).CreateCheckout(ctx, spec)
 		s.checkoutMu.Unlock()
 		if err != nil {
 			return fmt.Errorf("sched: the coordinator's checkout: %w", err)

@@ -91,10 +91,11 @@ func (r *baseRecorder) CreateCheckout(ctx context.Context, spec agenthost.Checko
 	return r.CheckoutHost.CreateCheckout(ctx, spec)
 }
 
-// A room starts from the branch its project config was read from, and its
-// brief names that branch.
+// A room starts from the branch its project config was read from, at the
+// head the remote holds for it (C-bug-1), and its brief names that branch.
 func TestRoomStartsFromTheProjectBranch(t *testing.T) {
 	w := newRoomWorld(t)
+	head := pushTrunk(t, w.repo())
 	snap, err := w.opts.Sched.ProjectConfig(context.Background(), "alpha")
 	if err != nil {
 		t.Fatal(err)
@@ -117,8 +118,8 @@ func TestRoomStartsFromTheProjectBranch(t *testing.T) {
 	rec.mu.Lock()
 	got := rec.bases["loop-"+r["room"].(string)]
 	rec.mu.Unlock()
-	if got != "trunk" {
-		t.Fatalf("room checkout base = %q, want trunk; bases %v", got, rec.bases)
+	if got != head {
+		t.Fatalf("room checkout base = %q, want the head of trunk %s; bases %v", got, head, rec.bases)
 	}
 	raw, err := os.ReadFile(filepath.Join(r["checkout"].(string), brief.BriefJSON))
 	if err != nil {
@@ -128,4 +129,24 @@ func TestRoomStartsFromTheProjectBranch(t *testing.T) {
 	if err := json.Unmarshal(raw, &b); err != nil || b.BaseBranch != "trunk" {
 		t.Fatalf("room brief base = %q, %v; want trunk", b.BaseBranch, err)
 	}
+}
+
+// pushTrunk pushes a branch trunk to the origin of the project clone repo
+// from another clone, one commit ahead of main, and returns its head.
+func pushTrunk(t *testing.T, repo string) string {
+	t.Helper()
+	origin := filepath.Join(filepath.Dir(repo), "origin.git")
+	other := filepath.Join(t.TempDir(), "trunk")
+	gitT(t, filepath.Dir(other), "clone", "-q", origin, other)
+	if err := os.WriteFile(filepath.Join(other, "trunk.txt"), []byte("trunk\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, other, "add", "-A")
+	gitT(t, other, "commit", "-q", "-m", "trunk")
+	gitT(t, other, "push", "-q", "origin", "HEAD:refs/heads/trunk")
+	head := revParse(t, origin, "trunk")
+	if head == revParse(t, origin, "main") {
+		t.Fatal("trunk is main")
+	}
+	return head
 }
