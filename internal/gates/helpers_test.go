@@ -28,6 +28,20 @@ func testRepo(t *testing.T, base map[string]string) *Repo {
 	return r
 }
 
+// cloneRepo clones src, whose main is then origin/main of the clone.
+func cloneRepo(t *testing.T, src string) *Repo {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "clone")
+	git(t, src, "clone", "-q", src, dir)
+	git(t, dir, "config", "user.email", "t@example.com")
+	git(t, dir, "config", "user.name", "t")
+	r, err := Open(context.Background(), dir, "origin/main", io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
 // commit writes files and commits them with msg on the current branch.
 func commit(t *testing.T, r *Repo, msg string, files map[string]string) {
 	t.Helper()

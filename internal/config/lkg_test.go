@@ -135,3 +135,37 @@ func TestMissingConfigWithNoLastKnownGoodRaisesNoAlert(t *testing.T) {
 		t.Fatalf("alerts = %+v, want none", a)
 	}
 }
+
+// A snapshot names the branch it was read from, and so does the last
+// known good config that stands in for an invalid read: a run starts from
+// that branch.
+func TestSnapshotNamesItsBranch(t *testing.T) {
+	ctx := context.Background()
+	st := openStore(t)
+	if err := StoreProjectRow(st)(ctx, Project{ID: "alpha", Repo: "iantanwx/alpha", Path: "/srv/a"}); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{ProjectConfigPath: validProjectConfig}
+	read := func(_ context.Context, ref, path string) ([]byte, error) {
+		if b, ok := files[path]; ok && ref == "origin/trunk" {
+			return []byte(b), nil
+		}
+		return nil, fs.ErrNotExist
+	}
+	snap, err := ReadProjectSnapshot(ctx, read, "trunk")
+	if err != nil || snap.Branch != "trunk" {
+		t.Fatalf("snapshot = %+v, %v; want branch trunk", snap, err)
+	}
+	l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st)}
+	if got, err := l.Load(ctx, "alpha", read, "trunk"); err != nil || got.Branch != "trunk" {
+		t.Fatalf("load = %+v, %v", got, err)
+	}
+	files[ProjectConfigPath] = "merge: {mechanism: bors}\n"
+	got, err := l.Load(ctx, "alpha", read, "trunk")
+	if err != nil || !got.Stale || got.Branch != "trunk" {
+		t.Fatalf("stale load = %+v, %v; want the last known good config on trunk", got, err)
+	}
+	if (&ProjectSnapshot{}).BaseBranch() != "main" || snap.BaseBranch() != "trunk" {
+		t.Fatalf("BaseBranch = %q, %q", (&ProjectSnapshot{}).BaseBranch(), snap.BaseBranch())
+	}
+}

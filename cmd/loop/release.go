@@ -17,6 +17,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/hexid"
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/server"
 )
@@ -44,6 +45,8 @@ type hostVerbs struct {
 	keys func() ([]release.PublicKey, error)
 	// prov fetches pinned binaries.
 	prov release.Provisioner
+	// fetcher fetches pinned third-party skills.
+	fetcher release.SkillFetcher
 	// self is the running binary.
 	self func() (string, error)
 	// home is the operator's home directory.
@@ -179,7 +182,8 @@ func (h *hostVerbs) installer(ctx context.Context, dir string) (*release.Install
 	if err != nil {
 		return nil, err
 	}
-	return &release.Installer{Layout: release.Layout{Dir: dir}, Service: svc, Prov: h.prov, Pins: pins, Self: self, Meta: meta}, nil
+	return &release.Installer{Layout: release.Layout{Dir: dir}, Service: svc, Prov: h.prov, Pins: pins, Self: self, Meta: meta,
+		Skills: pack.ThirdPartyPins(), Fetcher: h.fetcher}, nil
 }
 
 func (h *hostVerbs) install(ctx context.Context, inv cli.Invocation) cli.Result {

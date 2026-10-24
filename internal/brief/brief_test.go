@@ -488,3 +488,42 @@ func TestMarkdownNamesKeptCheckouts(t *testing.T) {
 		t.Fatalf("a brief with no kept checkout names one:\n%s", md)
 	}
 }
+
+// A repair brief carries the red build: each failed check, the gate that
+// failed, the failing tests and the excerpt of its log, so the run sees
+// the failure before any read.
+func TestMarkdownCarriesTheRedBuild(t *testing.T) {
+	b := Brief{RunID: "r-1", Project: "alpha", Stage: "implementer", Role: "implementer",
+		Item: &Item{ID: "tk-1", Kind: "ticket", Title: "Fix", Status: "repair"},
+		RedBuild: &RedBuild{PR: 7, Head: "abc123", Checks: []FailedCheck{
+			{Name: "gates", URL: "https://example.invalid/job/1", Gate: "test",
+				Tests:   []FailedTest{{Package: "example.com/x/pkg", Name: "TestAdd"}},
+				Excerpt: []string{"--- FAIL: TestAdd (0.00s)", "    add_test.go:9: got 3, want 4"}},
+			{Name: "lint", URL: "https://example.invalid/job/2", Excerpt: []string{"lint: line too long"}},
+			{Name: "acceptance", URL: "https://example.invalid/job/3", Unreadable: "github: 502"},
+		}}}
+	got := b.Markdown()
+	for _, want := range []string{
+		"## Red build of PR #7 at abc123",
+		"Check `gates` failed: https://example.invalid/job/1",
+		"The gate that failed: `test`.",
+		"- `example.com/x/pkg` > TestAdd",
+		"The first 2 lines of the log:",
+		"````text\n--- FAIL: TestAdd (0.00s)\n    add_test.go:9: got 3, want 4\n````",
+		"The log names no failing test. The excerpt is the end of the failed job.",
+		"The last 1 lines of the log:",
+		"CI log unreadable: github: 502",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("the brief lacks %q:\n%s", want, got)
+		}
+	}
+	unread := Brief{RunID: "r-3", RedBuild: &RedBuild{Unreadable: "github: 502"}}.Markdown()
+	if !strings.Contains(unread, "## Red build\n") || !strings.Contains(unread, "CI log unreadable: github: 502") {
+		t.Fatalf("a red build that did not read:\n%s", unread)
+	}
+	none := Brief{RunID: "r-2", Item: &Item{ID: "tk-1", Status: "in_progress"}}.Markdown()
+	if strings.Contains(none, "Red build") {
+		t.Fatalf("a brief with no red build names one:\n%s", none)
+	}
+}
