@@ -393,13 +393,14 @@ func TestRestoreNamesItsSnapshot(t *testing.T) {
 
 // startDoctorServer runs an in-process server on instance. With answer
 // set, doctor-github answers it; without, the server runs no GitHub actor.
-func startDoctorServer(t *testing.T, instance string, answer []map[string]any) {
+// Each setup step runs once the server is composed.
+func startDoctorServer(t *testing.T, instance string, answer []map[string]any, setup ...func(*server.Server) error) {
 	t.Helper()
-	opts := server.Options{Instance: instance, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	opts := server.Options{Instance: instance, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Setup: setup}
 	if answer != nil {
-		opts.Setup = []func(*server.Server) error{func(s *server.Server) error {
+		opts.Setup = append(opts.Setup, func(s *server.Server) error {
 			return s.RPC.Handle("doctor-github", func(context.Context, *rpc.Call) cli.Result { return cli.List(answer) })
-		}}
+		})
 	}
 	ready := make(chan struct{})
 	opts.Ready = ready
@@ -449,6 +450,53 @@ func TestDoctorAsksTheServerForTheGitHubChecks(t *testing.T) {
 	if len(lines) != 2 || lines[0].Check != "alpha/project_config" || !lines[0].OK ||
 		lines[1].Check != "alpha/eligible_required" || lines[1].OK || lines[1].Detail != "require loop/eligible" {
 		t.Fatalf("with the server up: %+v", lines)
+	}
+}
+
+// loop doctor lists the .env of a checkout with no live run, which only
+// the server can tell, and loop doctor --fix removes it (KTD17). With the
+// server down, the stale_env line reads unchecked and fails.
+func TestDoctorFixRemovesAStaleEnv(t *testing.T) {
+	instance := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rpc.EnsureAdminCredential(instance); err != nil {
+		t.Fatal(err)
+	}
+	h := testHostVerbs(t, instance, &procService{t: t, instance: instance})
+	checkout := t.TempDir()
+	envFile := filepath.Join(checkout, ".env")
+	if err := os.WriteFile(envFile, []byte("API_KEY=v\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	env := runVerb(t, h, "doctor")
+	if hint, _ := env["hint"].(string); !strings.Contains(hint, "stale_env: unchecked") {
+		t.Fatalf("with the server down: %v", env)
+	}
+
+	// A crashed run's checkout: its run ended, and the checkout is kept.
+	startDoctorServer(t, instance, nil, func(s *server.Server) error {
+		return s.Store.Write(context.Background(), func(tx *store.Tx) error {
+			_, err := tx.Exec(`INSERT INTO checkouts (id, project, path, run_id, state, created_at, updated_at)
+				VALUES ('r-kept', 'alpha', ?, 'r-kept', 'kept', 1, 1)`, checkout)
+			return err
+		})
+	})
+	env = runVerb(t, h, "doctor")
+	if hint, _ := env["hint"].(string); !strings.Contains(hint, "stale_env: "+envFile+": no live run") {
+		t.Fatalf("doctor does not list the stale .env: %v", env)
+	}
+	if _, err := os.Stat(envFile); err != nil {
+		t.Fatalf("doctor with no --fix removed the .env: %v", err)
+	}
+	env = runVerb(t, h, "doctor", "--fix")
+	if hint, _ := env["hint"].(string); strings.Contains(hint, "stale_env") {
+		t.Fatalf("doctor --fix still fails the stale_env line: %v", env)
+	}
+	if _, err := os.Stat(envFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("doctor --fix left the .env: %v", err)
 	}
 }
 

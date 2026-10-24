@@ -26,16 +26,18 @@ type ManifestReader func(ctx context.Context, p config.Project, branch string) (
 // wire registers the verbs this unit implements.
 func (s *Server) wire() error {
 	for path, h := range map[string]rpc.Handler{
-		"status":           s.status,
-		"project add":      s.projectAdd,
-		"project list":     s.projectList,
-		"project show":     s.projectShow,
-		"project remove":   s.projectRemove,
-		"project move":     s.projectMove,
-		"secret check":     s.secretCheck,
-		"secret set":       s.secretSet,
-		"secret import":    s.secretImport,
-		"coordinator send": s.coordinatorSend,
+		"status":              s.status,
+		"project add":         s.projectAdd,
+		"project list":        s.projectList,
+		"project show":        s.projectShow,
+		"project remove":      s.projectRemove,
+		"project move":        s.projectMove,
+		"secret check":        s.secretCheck,
+		"secret set":          s.secretSet,
+		"secret import":       s.secretImport,
+		"coordinator send":    s.coordinatorSend,
+		"coordinator upgrade": s.coordinatorUpgrade,
+		"doctor-env":          s.doctorEnv,
 	} {
 		if err := s.RPC.Handle(path, h); err != nil {
 			return err

@@ -106,8 +106,9 @@ The code-reviewer runs your test at the merge base, and a pass there rejects the
    changed for each finding, and each finding you answered with no change. A round with no reply
    leaves the reviewer at the head it rejected.
 7. Run `loop pr open --title "<title>" --body "<body>"` in every kind of work. It opens the pull
-   request, or shows the one that is open. It also hands the ticket to review, and it ends your
-   claim. So run it after every other write of the run.
+   request, or shows the one that is open. On the open one it writes the title and the body when
+   they differ, and `updated` says so. A rework repairs a body finding this way. It also hands the
+   ticket to review, and it ends your claim. So run it after every other write of the run.
 8. Finish with `loop run finish --outcome done`.
 
 ## 5. Stop when a stop condition holds

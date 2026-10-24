@@ -26,7 +26,9 @@ import (
 // and the server writes it into each run's .env at mode 0600 as it writes
 // every manifest secret, and removes it at settlement (KTD17). The fixer's
 // `escalation judge` reads it from its own checkout's .env, or from its
-// process environment, and never prints it. The server holds no harness
+// process environment, and never prints it. The judge reads the root .env
+// only, so the entry names no dir, and its stages, when set, hold fixer.
+// The server holds no harness
 // login and calls Jev never.
 const JevKeyVar = "TYPESAFE_API_KEY"
 
@@ -60,6 +62,11 @@ type Judging struct {
 	// cli.FindCheckout when nil.
 	Getwd        func() (string, error)
 	FindCheckout func(dir string) (string, error)
+	// Recorded reads the operator's decisions recorded on the escalation's
+	// item: the coordinator's notes and the inbox answers on it. Each
+	// judge reads them. Production sets it with ServerRecorded; nil reads
+	// none.
+	Recorded func(ctx context.Context, escalation string) ([]string, error)
 }
 
 // Live is the production panel: the two judges the owner named
@@ -189,8 +196,10 @@ func readConvergence(raw []byte) (*Reading, error) {
 
 // JudgePrompt is the prompt one judge reads about one finding
 // (judgePrompt, alpha). It never names the other judge or its answer.
-func JudgePrompt(rubric, finding string) string {
-	return strings.Join([]string{
+// decisions are the operator's decisions recorded on the escalation's
+// item. With none, the prompt holds no decisions section.
+func JudgePrompt(rubric, finding string, decisions []string) string {
+	lines := []string{
 		"You are one of two independent judges. Another judge answers the same question separately,",
 		"and you will not see its answer. Score the finding below against the rubric that follows.",
 		"",
@@ -207,10 +216,20 @@ func JudgePrompt(rubric, finding string) string {
 		"",
 		finding,
 		"",
-		"## The rubric",
-		"",
-		rubric,
-	}, "\n")
+	}
+	if len(decisions) > 0 {
+		lines = append(lines,
+			"## Decisions the operator recorded on the item",
+			"",
+			"The operator already gave each decision below about this item, and the loop recorded it.",
+			"Read them as you read a document. When one answers the finding, name it in your reason.",
+			"")
+		for i, d := range decisions {
+			lines = append(lines, fmt.Sprintf("### Decision %d", i+1), "", strings.TrimSpace(d), "")
+		}
+	}
+	lines = append(lines, "## The rubric", "", rubric)
+	return strings.Join(lines, "\n")
 }
 
 // ParseJudge narrows one judge's reply. It reads the last balanced JSON
@@ -347,6 +366,10 @@ func JudgeVerb(j Judging) cli.Handler {
 			return cli.Reject(cli.CodeUsage, "no_cwd", err.Error())
 		}
 		checkout, _ := find(cwd)
+		esc := strings.TrimSpace(inv.Arg("escalation"))
+		if esc == "" {
+			return cli.Reject(cli.CodeUsage, "no_escalation", "name the escalation the finding belongs to; `loop work peek --stage fixer` lists them")
+		}
 		finding := strings.TrimSpace(inv.Flags["finding"])
 		if finding == "" {
 			return cli.Reject(cli.CodeUsage, "no_finding", "--finding names one finding in one sentence")
@@ -371,7 +394,22 @@ func JudgeVerb(j Judging) cli.Handler {
 			return cli.Reject(cli.CodeUsage, "judges", fmt.Sprintf("the panel holds %d judges, and the rubric asks for %d", len(j.Judges), JudgesRequired))
 		}
 
-		prompt := JudgePrompt(rubric, finding)
+		var decisions []string
+		if j.Recorded != nil {
+			if decisions, err = j.Recorded(ctx, esc); err != nil {
+				if r, ok := errors.AsType[*RecordRefusal](err); ok {
+					return r.Result
+				}
+				return cli.Reject(cli.CodeInternal, "recorded_decisions", fmt.Sprintf("read the decisions recorded on escalation %s: %v", esc, err))
+			}
+		}
+		key, from := jevKey(checkout)
+		if key != "" {
+			for i, d := range decisions {
+				decisions[i] = strings.ReplaceAll(d, key, "[REDACTED]")
+			}
+		}
+		prompt := JudgePrompt(rubric, finding, decisions)
 		answers := make([]*JudgeAnswer, len(j.Judges))
 		failed := make([]string, len(j.Judges))
 		var wg sync.WaitGroup
@@ -400,7 +438,6 @@ func JudgeVerb(j Judging) cli.Handler {
 				notes = append(notes, "judge: "+failed[i])
 			}
 		}
-		key, from := jevKey(checkout)
 		switch {
 		case key == "":
 			notes = append(notes, "jev: "+JevKeyVar+" is not available, so nothing scores the convergence")
@@ -421,7 +458,8 @@ func JudgeVerb(j Judging) cli.Handler {
 		if notes == nil {
 			notes = []string{}
 		}
-		return cli.Found(map[string]any{"panel": panel, "panel_file": file, "decision": decision, "key_from": from, "notes": notes})
+		return cli.Found(map[string]any{"panel": panel, "panel_file": file, "decision": decision, "key_from": from, "notes": notes,
+			"recorded_decisions": len(decisions)})
 	}
 }
 

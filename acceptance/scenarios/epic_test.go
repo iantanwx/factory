@@ -29,7 +29,7 @@ A visitor names one widget.
 // names, and returns the room's id and checkout.
 func openRoom(w *acceptance.World, kind, item, reason string) (string, string) {
 	w.T.Helper()
-	args := []string{"room", "open", "--kind", kind, "--project", acceptance.Project, "--reason", reason}
+	args := []string{"room", "open", "--kind", kind, "--project", acceptance.Project, "--reason", reason, "--score", "4"}
 	if item != "" {
 		args = append(args, "--item", item)
 	}

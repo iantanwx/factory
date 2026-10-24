@@ -35,8 +35,8 @@ func TestDeclaredPaths(t *testing.T) {
 
 // Parity: "retry input changes with task and declared source, not
 // unrelated main commits or display metadata" (admission-input.test.ts,
-// alpha). The machinery tree, the PR head and the CI state no longer enter
-// the identity.
+// alpha). The machinery tree and the CI state no longer enter the
+// identity. The PR head enters it when admission reads one.
 func TestInputsHash(t *testing.T) {
 	ctx := context.Background()
 	base := newFakeBase(nil)
@@ -66,6 +66,9 @@ func TestInputsHash(t *testing.T) {
 	}
 	if in(task, "v2") == second {
 		t.Fatal("a release did not change the identity")
+	}
+	if in(Task{Title: "item", Body: declaredBody, Head: "h2"}, "v1") == second {
+		t.Fatal("a PR head did not change the identity")
 	}
 	if _, err := computeInputs(ctx, nil, "alpha", task, "v1"); err == nil {
 		t.Fatal("declared paths with no base reader passed")

@@ -169,3 +169,53 @@ func TestHostLoaderWithNoGoodConfigFails(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+const agentJobsHost = "agent_jobs:\n  nightly-qa: {cap: 1, schedule: \"55 2 * * *\", runbook: docs/runbooks/nightly-qa.md}\n"
+
+// An agent job is a stage kind host config defines: an agent run that
+// claims no item and starts on its own cron. Its cap is its own limit.
+func TestAgentJobIsAnItemlessStageWithItsOwnLimit(t *testing.T) {
+	cfg, err := ParseHost([]byte(validHost + agentJobsHost))
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, ok := cfg.AgentJob("nightly-qa")
+	if !ok || j.Cap != 1 || j.Schedule != "55 2 * * *" || j.Runbook != "docs/runbooks/nightly-qa.md" {
+		t.Fatalf("AgentJob(nightly-qa) = %+v, %v", j, ok)
+	}
+	if _, ok := cfg.AgentJob("implementer"); ok {
+		t.Fatal("a run stage reads as an agent job")
+	}
+	if got := cfg.AgentJobNames(); !slices.Equal(got, []string{"nightly-qa"}) {
+		t.Fatalf("AgentJobNames = %v", got)
+	}
+	ls := cfg.Limits("nightly-qa")
+	if len(ls) != 1 || ls[0].Name != "nightly-qa" || ls[0].Cap != 1 || !slices.Equal(ls[0].Stages, []string{"nightly-qa"}) {
+		t.Fatalf("Limits(nightly-qa) = %+v", ls)
+	}
+}
+
+// An agent job that shadows a stage, a native job or a pool, or that has
+// no cap, no schedule or no clean runbook path in the repository, fails
+// to load and names the field.
+func TestAgentJobRefusals(t *testing.T) {
+	cases := map[string]struct{ entry, names string }{
+		"shadows a stage":      {"  fixer: {cap: 1, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.fixer"},
+		"shadows a native job": {"  merge-handoff: {cap: 1, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.merge-handoff"},
+		"shadows a pool":       {"  reviewers: {cap: 1, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.reviewers"},
+		"bad name":             {"  Nightly: {cap: 1, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.Nightly"},
+		"zero cap":             {"  nightly: {cap: 0, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.nightly.cap"},
+		"no schedule":          {"  nightly: {cap: 1, runbook: a.md}\n", "agent_jobs.nightly.schedule"},
+		"no runbook":           {"  nightly: {cap: 1, schedule: \"0 3 * * *\"}\n", "agent_jobs.nightly.runbook"},
+		"absolute runbook":     {"  nightly: {cap: 1, schedule: \"0 3 * * *\", runbook: /etc/a.md}\n", "agent_jobs.nightly.runbook"},
+		"runbook outside":      {"  nightly: {cap: 1, schedule: \"0 3 * * *\", runbook: ../a.md}\n", "agent_jobs.nightly.runbook"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseHost([]byte(validHost + "agent_jobs:\n" + c.entry))
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("err = %v, want a refusal that names %s", err, c.names)
+			}
+		})
+	}
+}

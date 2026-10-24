@@ -165,7 +165,7 @@ func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 		return r.Result()
 	}
 	if req.Before != nil {
-		if r := req.Before(ctx); r != nil {
+		if r := req.Before(ctx, c.item); r != nil {
 			return r.Result()
 		}
 	}

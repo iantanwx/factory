@@ -35,6 +35,15 @@ type ProjectConfig struct {
 	Stages      map[string]StageConfig `yaml:"stages,omitempty"`
 	Gates       []Command              `yaml:"gates,omitempty"`
 	PolicyHooks []Command              `yaml:"policy_hooks,omitempty"`
+	Signoff     SignoffConfig          `yaml:"signoff,omitempty"`
+}
+
+// SignoffConfig names who signs the project's documents off. GitHub
+// notifies each reader when the server opens a PRD or a spec PR, the two
+// documents a person merges. Empty means GitHub notifies nobody, and the
+// operator learns of a sign-off from the inbox only.
+type SignoffConfig struct {
+	Readers []string `yaml:"readers,omitempty"` // GitHub logins, never an organisation
 }
 
 // TrackerConfig names the project's tracker adapter. Empty means none.
@@ -77,11 +86,8 @@ func ParseProjectConfig(data []byte) (*ProjectConfig, error) {
 
 func (c *ProjectConfig) validate() error {
 	ck := &checker{source: ProjectConfigPath}
-	if c.Manifest != "" {
-		clean := path.Clean(c.Manifest)
-		if path.IsAbs(c.Manifest) || clean != c.Manifest || clean == ".." || strings.HasPrefix(clean, "../") || HasControl(c.Manifest) {
-			ck.fail("manifest", "must be a clean path inside the repository")
-		}
+	if c.Manifest != "" && !repoPath(c.Manifest) {
+		ck.fail("manifest", "must be a clean path inside the repository")
 	}
 	if HasControl(strings.ReplaceAll(c.Setup, "\n", "")) {
 		ck.fail("setup", "must not hold a control character")
@@ -112,6 +118,17 @@ func (c *ProjectConfig) validate() error {
 	}
 	checkCommands(ck, "gates", c.Gates)
 	checkCommands(ck, "policy_hooks", c.PolicyHooks)
+	seen := map[string]bool{}
+	for i, r := range c.Signoff.Readers {
+		f := fmt.Sprintf("signoff.readers[%d]", i)
+		switch {
+		case !ownerRe.MatchString(r):
+			ck.fail(f, "must be a GitHub login")
+		case seen[strings.ToLower(r)]:
+			ck.fail(f, "names a reader twice")
+		}
+		seen[strings.ToLower(r)] = true
+	}
 	return ck.err()
 }
 
@@ -130,6 +147,13 @@ func checkCommands(ck *checker, field string, cmds []Command) {
 			ck.fail(f+".run", "must be a nonempty command")
 		}
 	}
+}
+
+// repoPath reports whether p is a clean relative path inside the
+// repository.
+func repoPath(p string) bool {
+	clean := path.Clean(p)
+	return !path.IsAbs(p) && clean == p && clean != ".." && !strings.HasPrefix(clean, "../") && !HasControl(p)
 }
 
 // ManifestPath is the repository path of the secret manifest.

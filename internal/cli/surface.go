@@ -75,6 +75,8 @@ var (
 	scopeFlag = Flag{Name: "scope", Type: FlagString, Enum: []string{"project", "global"},
 		Description: "project when absent; global stores one value that every project whose manifest names it uses"}
 	bodyFlag = Flag{Name: "body", Type: FlagString, Required: true, Description: "the text to write"}
+	// fixFlag makes loop doctor remove each .env that no live run holds (KTD17).
+	fixFlag = Flag{Name: "fix", Type: FlagBool, Description: "remove each .env in a checkout with no live run"}
 	// fileFlag names a file the CLI reads and sends with the call (ExtraFile).
 	fileFlag = Flag{Name: "file", Type: FlagString, Required: true, Description: "the file to send, read by the CLI"}
 )
@@ -111,7 +113,7 @@ var surface = []Verb{
 		Flag{Name: "kind", Type: FlagString, Enum: []string{"ticket", "bug"}, Description: "ticket when absent; bug files a raw report that the reproducer shapes into a ticket, the coordinator only, with --request"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the ticket title, or the bug's one-line summary"},
 		Flag{Name: "body", Type: FlagString, Description: "the ticket body, or the bug report: what the operator saw and how to see it again"},
-		Flag{Name: "epic", Type: FlagString, Description: "the epic whose merged PRD the ticket implements"},
+		Flag{Name: "epic", Type: FlagString, Description: "the epic whose merged PRD the ticket implements; or, for the coordinator with --request and no --story, the architecture epic whose ADR the ticket writes"},
 		Flag{Name: "story", Type: FlagString, Description: "the PRD story labels the ticket cites, comma-separated, for example US-01,US-02; needs --epic"},
 		Flag{Name: "request", Type: FlagString, Description: "the operator's own words that ask for PRD-less work; the coordinator only"},
 		projectFlag)),
@@ -129,13 +131,18 @@ var surface = []Verb{
 		Flag{Name: "body", Type: FlagString, Description: "the review comment; the server posts it on the item's pull request and records it with the verdict"})),
 	server("review", "threads", "list the pull request's comments, each review comment with its thread's resolved, outdated and awaiting-us state", []string{"reviewer run"}, []Arg{itemArg}),
 	server("review", "rounds", "list review rounds", []string{"reviewer run"}, []Arg{itemArg}),
+	client("review", "proof", "run the pull request's tests at the merge base in a throwaway worktree, remove the worktree whatever happens, and check that the reviewed checkout is still clean at its head", []string{"reviewer run"}, nil,
+		Flag{Name: "test", Type: FlagString, Required: true, Description: "the test files to bring from the head, comma-separated paths inside the checkout"},
+		Flag{Name: "bring", Type: FlagString, Description: "other files the tests need from the head, such as a fixture the pull request added; comma-separated"},
+		Flag{Name: "base", Type: FlagString, Description: "the base ref; the proof runs at its merge base with HEAD; origin/<the brief's base branch> when absent"},
+		Flag{Name: "run", Type: FlagString, Description: "the shell command that runs the tests, with the test paths in \"$@\"; the base config's test gate when absent"}),
 
 	write(server("branch", "push", "push the item's branch through the server", runOrRoom, nil)),
 	write(server("branch", "sync", "fetch the base and the item's branch into the mirror, and name the mirror path, each head sha and the refs a checkout fetches with no credential", runOrRoom, nil)),
 
-	write(server("pr", "open", "open the item's pull request, or show the one open on its branch, and hand the item to review", runOrRoom, nil,
+	write(server("pr", "open", "open the item's pull request, or update the title and body of the one open on its branch, and hand the item to review", runOrRoom, nil,
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the pull request title"},
-		Flag{Name: "body", Type: FlagString, Description: "the pull request body"})),
+		Flag{Name: "body", Type: FlagString, Description: "the pull request body; absent, the open pull request keeps its body"})),
 	server("pr", "show", "show the item's pull request", runOrRoom, nil),
 	server("pr", "files", "list the pull request's changed files", runOrRoom, nil),
 	server("pr", "diff", "print the pull request's diff", runOrRoom, nil),
@@ -155,7 +162,8 @@ var surface = []Verb{
 		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},
 		Flag{Name: "choice", Type: FlagString, Enum: []string{"inside", "outside"}, Description: "outside when one answer acts outside the repository; inside when absent"},
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the finding and the evidence behind the score"})),
-	client("escalation", "judge", "run the triage panel in the fixer's process and write the panel file", []string{"fixer"}, nil,
+	server("escalation", "decisions", "list the operator's decisions recorded on the escalation's item: inbox answers, coordinator notes and answered questions", []string{"fixer"}, []Arg{escalationArg}),
+	client("escalation", "judge", "run the triage panel in the fixer's process, with the operator's decisions recorded on the escalation's item, and write the panel file", []string{"fixer"}, []Arg{escalationArg},
 		Flag{Name: "finding", Type: FlagString, Required: true, Description: "one finding, in one sentence"},
 		Flag{Name: "out", Type: FlagString, Description: "the panel file to write; a new temporary file when absent"},
 		Flag{Name: "rubric", Type: FlagString, Description: "the triage rubric; the pack's sdlc-triage skill in the checkout when absent"}),
@@ -165,6 +173,7 @@ var surface = []Verb{
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the question"},
 		Flag{Name: "trigger", Type: FlagString, Required: true, Description: "the event that forces the answer, in one sentence"},
 		Flag{Name: "by", Type: FlagString, Description: "a date the trigger names, YYYY-MM-DD; decision-timers fires the decision on that day"},
+		Flag{Name: "now", Type: FlagBool, Description: "the trigger already fired: the decision waits on a person in the inbox at once; not with --by"},
 		Flag{Name: "body", Type: FlagString, Description: "the evidence behind the question"})),
 	write(server("decision", "fire", "fire a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 	write(server("decision", "defer", "defer a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
@@ -188,6 +197,9 @@ var surface = []Verb{
 
 	write(server("coordinator", "send", "type a message into the coordinator's terminal, as the operator would", hostOnly, nil,
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the message"})),
+	write(server("coordinator", "upgrade", "on the operator's decision, have the server run loop upgrade outside every checkout; it drains and restarts the server", coordinator,
+		[]Arg{{Name: "version", Description: "the release to install; the latest when absent"}},
+		Flag{Name: "body", Type: FlagString, Required: true, Description: "the operator's decision, in the operator's own words"})),
 
 	server("inbox", "list", "list inbox entries", coordinator, nil,
 		Flag{Name: "awaits", Type: FlagString, Enum: []string{"person", "coordinator"}, Description: "only entries that wait on this actor"}),
@@ -202,11 +214,13 @@ var surface = []Verb{
 	server("inbox", "wait", "wait for a new inbox entry; exit 4 means call again", coordinator, nil,
 		Flag{Name: "since", Type: FlagString, Description: "the cursor of the last entry seen"}),
 
-	write(server("room", "open", "open a room, or reopen an idle or interrupted one", coordinator, nil,
+	write(server("room", "open", "open a room for a finding the triage rubric routes to a person, or reopen an idle or interrupted one", coordinator, nil,
 		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review"}, Description: "the kind of room"},
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
 		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none"},
-		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"})),
+		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"},
+		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},
+		Flag{Name: "choice", Type: FlagString, Enum: []string{"inside", "outside"}, Description: "outside when one answer acts outside the repository; inside when absent"})),
 	write(server("room", "apply", "apply the room's decision file", []string{"room"}, []Arg{roomArg}, fileFlag)),
 	write(server("room", "close", "close a room", coordinator, []Arg{roomArg})),
 	server("room", "list", "list rooms", coordinator, nil,
@@ -216,7 +230,7 @@ var surface = []Verb{
 		Flag{Name: "path", Type: FlagString, Required: true, Description: "the PRD's path in the repository, committed at the checkout's HEAD"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic and pull request title"},
 		Flag{Name: "body", Type: FlagString, Description: "the pull request body"})),
-	write(server("epic", "create", "create an architecture epic; it waits until an ADR that names it lands on the base branch", coordinator, nil,
+	write(server("epic", "create", "create an architecture epic; it waits until an ADR whose Ticket line names it lands on the base branch", coordinator, nil,
 		Flag{Name: "architecture", Type: FlagBool, Description: "required: the epic follows an ADR, not a PRD; a PRD epic starts with prd submit in an intake room"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic title"},
 		Flag{Name: "body", Type: FlagString, Description: "what the ADR decides, and why the operator asked for it"},
@@ -258,8 +272,9 @@ var surface = []Verb{
 	topLevel(write(server("host", "drain", "admit no new run and wait for in-flight runs", hostOnly, nil))),
 	topLevel(client("host", "serve", "run the server", hostOnly, nil,
 		Flag{Name: "instance", Type: FlagString, Description: "the instance directory; ~/.local/state/loop when absent"})),
-	topLevel(client("host", "doctor", "check the host's setup", hostOnly, nil)),
+	topLevel(client("host", "doctor", "check the host's setup", hostOnly, nil, fixFlag)),
 	topLevel(server("host", "doctor-github", "run the GitHub checks of loop doctor on the server, which holds the credentials", hostOnly, nil)),
+	topLevel(server("host", "doctor-env", "list each .env in a checkout with no live run; the server knows which runs live", hostOnly, nil, fixFlag)),
 
 	topLevel(client("meta", "gates", "run the gates of the project checkout in the current directory: the loop's own gates, then the stack commands of .loop/config.yaml", anyone, nil,
 		Flag{Name: "fast", Type: FlagBool, Description: "run every gate except test and build"},

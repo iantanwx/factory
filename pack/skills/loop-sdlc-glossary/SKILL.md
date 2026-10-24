@@ -30,14 +30,15 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | `implementer` | Builds one ticket in one pull request, and repairs a red build | ticket `todo`, `repair` |
 | `code-reviewer` | Reviews the pull request of one ticket | ticket `in_review` |
 | `doc-reviewer` | Reviews one PRD or one spec | epic `prd_review`, `spec_review` |
-| `amender` | Revises a PRD once after its first reject | epic `prd_amending` |
+| `amender` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
 | `spec-author` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
 | `decomposer` | Cuts one approved spec into tickets in one batch | epic `spec_approved` |
 | `fixer` | Routes each escalation through the triage panel | escalations that wait for a panel |
 | `reproducer` | Turns one bug report into a failing test and a shaped ticket | bug `reported` |
 
 The server performs every other move. It reacts to GitHub: a red build moves a ticket to `repair`,
-a new head after a pass returns it to `in_review`, and a merge moves it to `done`. It hands each
+a new head after a pass returns it to `in_review`, and a merge moves it to `done`. A person's
+unanswered comment on a PRD or a spec in review or in sign-off moves its epic to the amender. It hands each
 eligible pull request to the project's merge mechanism. No agent merges.
 
 ## Loop states
@@ -45,8 +46,8 @@ eligible pull request to the project's merge mechanism. No agent merges.
 - **Ticket**: `backlog`, `todo`, `in_progress`, `in_review`, `repair`, `ready_to_merge`, `queued`,
   `escalated`, `done`, `canceled`.
 - **Epic**: `prd_review`, `prd_amending`, `prd_signoff`, `architecture`, `spec_needed`,
-  `spec_drafting`, `spec_review`, `spec_signoff`, `spec_approved`, `decomposing`, `execution`,
-  `escalated`, `done`.
+  `spec_drafting`, `spec_review`, `spec_signoff`, `spec_amending`, `spec_approved`, `decomposing`,
+  `execution`, `escalated`, `done`.
 - **Bug**: `reported`, `reproducing`, `escalated`, `shaped`, `duplicate`, `canceled`.
 - **Decision**: `pending`, `needs_human`, `done`, `canceled`.
 
@@ -60,7 +61,8 @@ names a verb, and the transition table picks the state.
 - **Spec**: states how one epic is built. It is the last document a person reads before the
   decomposer cuts tickets.
 - **Ticket**: the unit that the implementer and the code-reviewer read.
-- **Sign-off**: the operator's merge of a PRD or a spec pull request. No stage merges a document.
+- **Sign-off**: the operator's approval of a PRD or a spec pull request at one head. The
+  coordinator records it, and the server merges the document. No stage merges a document.
 - **Project policy**: the rules of one project for one role, in `.loop/policy/<role>.md` in the
   project's repository. The loop's runbooks name roles. The policy names the project's tools.
 

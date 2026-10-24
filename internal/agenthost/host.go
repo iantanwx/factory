@@ -310,7 +310,20 @@ const (
 	// EndQuiet: the transcript shows the last turn ended, and the checkout
 	// stayed quiet for the quiet period.
 	EndQuiet EndCause = "quiet"
+	// EndLimit: the agent wrote only a usage limit and no work of its own.
+	// The session ends at once, with no quiet period.
+	EndLimit EndCause = "limit"
 )
+
+// Limit is the usage limit a session's agent wrote when it did no work.
+type Limit struct {
+	// Message is the text the agent wrote, as the harness wrote it.
+	Message string `json:"message"`
+	// At is when the agent wrote it.
+	At time.Time `json:"at,omitzero"`
+	// ResetAt is when the limit resets. Zero means the record names none.
+	ResetAt time.Time `json:"reset_at,omitzero"`
+}
 
 // EndReport answers whether a session ended (KTD8).
 type EndReport struct {
@@ -320,6 +333,8 @@ type EndReport struct {
 	Since time.Time `json:"since,omitzero"`
 	// Reason says what keeps the session, or the evidence that ended it.
 	Reason string `json:"reason"`
+	// Limit is set when the cause is EndLimit.
+	Limit *Limit `json:"limit,omitempty"`
 	// Settlement is the liveness read the answer rests on, when the host
 	// made one, so the caller need not read it again. A failed read is
 	// Unknown.

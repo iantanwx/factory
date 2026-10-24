@@ -22,6 +22,8 @@ import (
 // Ended applies KTD8. A session ended when orca proves its process exited,
 // or when every transcript of the session shows its last turn ended with
 // nothing pending, and the session then wrote nothing for the quiet period.
+// A Claude session whose agent wrote only a usage limit ends at once
+// (limit.go): it did no work, and it can do none before the reset.
 // Every doubt answers "not ended": Unknown liveness, an unreadable
 // transcript, a transcript of another checkout, a tool call still running.
 //
@@ -50,6 +52,15 @@ func (h *Host) ended(s agenthost.Session, st agenthost.Settlement) (agenthost.En
 	}
 	if len(ts) == 0 {
 		return agenthost.EndReport{Reason: "no transcript of this session names its checkout"}, nil
+	}
+	if s.Harness == agenthost.Claude {
+		if lim := limitRun(ts, s.Checkout); lim != nil {
+			since := lim.At
+			if since.IsZero() || since.After(now) {
+				since = now
+			}
+			return agenthost.EndReport{Ended: true, Cause: agenthost.EndLimit, Since: since, Limit: lim, Reason: limitReason(lim)}, nil
+		}
 	}
 	var since time.Time
 	for _, t := range ts {
@@ -436,8 +447,11 @@ func (s *claudeScan) keeps() string {
 	if n, ok := s.last["pendingBackgroundAgentCount"].(float64); ok && n > 0 {
 		return fmt.Sprintf("its last turn ended with %d background agent(s) still at work", int(n))
 	}
-	if (s.lastAssistant != nil && s.lastAssistant["isApiErrorMessage"] == true) || s.resumes {
-		return "its last turn ended on an API error or a usage limit, and Claude Code may resume it"
+	if s.lastAssistant != nil && s.lastAssistant["isApiErrorMessage"] == true {
+		return "its last turn ended on " + refusalOf(s.lastAssistant) + ", and Claude Code may resume it"
+	}
+	if s.resumes {
+		return "its last turn ended on a usage limit, and Claude Code may resume it"
 	}
 	var waiting []string
 	for _, t := range s.started {
@@ -454,11 +468,13 @@ func (s *claudeScan) keeps() string {
 	return ""
 }
 
-// codexFinished ports codexFinished in alpha's codex-finished.ts, without
-// its background-resource ledger (CodexResources). The final turn must end
-// in task_complete for the turn that task_started opened, in a session whose
-// session_meta names the checkout. Any unrecognized record keeps the agent.
+// codexFinished ports codexFinished in alpha's codex-finished.ts. The final
+// turn must end in task_complete for the turn that task_started opened, in a
+// session whose session_meta names the checkout, and every background
+// resource the ledger reads must have settled. Any unrecognized record keeps
+// the agent.
 func codexFinished(text []byte, dir string) finish {
+	resources := newCodexResources()
 	var session, turn, reason string
 	completed := false
 	var newest time.Time
@@ -501,10 +517,14 @@ func codexFinished(text []byte, dir string) finish {
 			completed = turn != "" && str(p["turn_id"]) == turn
 		case r.Type == "response_item":
 			completed = false
+			if ptype != "message" && ptype != "reasoning" && ptype != "agent_message" {
+				resources.response(p)
+			}
 		case r.Type == "turn_context" || r.Type == "world_state" || r.Type == "inter_agent_communication_metadata":
 			completed = false
 		case r.Type == "event_msg" && ptype == "item_completed":
 			completed = false
+			resources.item(p["item"], str(p["thread_id"]), session)
 		case r.Type == "event_msg" && ptype != "token_count":
 			completed = false
 			if ptype == "error" || ptype == "turn_aborted" {
@@ -515,6 +535,9 @@ func codexFinished(text []byte, dir string) finish {
 		case r.Type != "event_msg" && r.Type != "token_usage_record":
 			reason = "the Codex rollout contains an unrecognized record"
 		}
+	}
+	if reason == "" {
+		reason = resources.pending()
 	}
 	if reason == "" && (session == "" || !completed) {
 		reason = "the Codex session has no proven completed final turn"

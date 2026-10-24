@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -88,6 +89,12 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, ok := opts.Pulls.(lazyPulls); !ok {
+		t.Fatalf("the open pull requests of the Depends on hold are not wired: %+v", opts.Pulls)
+	}
+	if _, err := opts.Pulls.OpenPulls(context.Background(), "alpha"); !errors.Is(err, errNoGitHub) {
+		t.Fatalf("an open pull request read before setup = %v", err)
+	}
 	if _, ok := opts.BaseFiles.(lazyBase); !ok || opts.ManifestReader == nil || opts.Sched.Refs == nil {
 		t.Fatalf("the GitHub readers are not wired: %+v", opts)
 	}
@@ -128,6 +135,9 @@ func TestProductionWiringWithFakes(t *testing.T) {
 			t.Fatalf("the pipeline verb %s is not registered: %v", verb, err)
 		}
 	}
+	if _, err := opts.Pulls.OpenPulls(context.Background(), "alpha"); err == nil || errors.Is(err, errNoGitHub) {
+		t.Fatalf("the open pull request reader did not read through the service: %v", err)
+	}
 	if _, err := (lazyBase{w.github}).Files(context.Background(), "alpha", nil); err == nil {
 		t.Fatal("the base reader read a project that is not registered")
 	}
@@ -146,8 +156,19 @@ func TestProductionWiringWithFakes(t *testing.T) {
 func TestEscalationJudgeRunsInTheCallersProcess(t *testing.T) {
 	t.Chdir(t.TempDir())
 	var out strings.Builder
-	code := run(context.Background(), []string{"escalation", "judge", "--finding", "f"}, strings.NewReader(""), &out, io.Discard)
+	code := run(context.Background(), []string{"escalation", "judge", "4", "--finding", "f"}, strings.NewReader(""), &out, io.Discard)
 	if code != 2 || !strings.Contains(out.String(), `"no_rubric"`) {
 		t.Fatalf("judge = %d %s", code, out.String())
+	}
+}
+
+// The binary runs `review proof` in the reviewer's own checkout. Outside a
+// git checkout it refuses before it makes any worktree.
+func TestReviewProofRunsInTheCallersCheckout(t *testing.T) {
+	t.Chdir(t.TempDir())
+	var out strings.Builder
+	code := run(context.Background(), []string{"review", "proof", "--test", "a_test.go"}, strings.NewReader(""), &out, io.Discard)
+	if code != 2 || !strings.Contains(out.String(), `"not_a_checkout"`) {
+		t.Fatalf("review proof = %d %s", code, out.String())
 	}
 }

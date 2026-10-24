@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/machine"
 )
 
 // `pr open` twice on one head branch opens one PR.
@@ -18,11 +20,11 @@ func TestOpenPRTwiceOpensOnePR(t *testing.T) {
 	e := newEnv(t)
 	w := e.withWorld()
 	ctx := context.Background()
-	first, created, err := e.svc.OpenPR(ctx, e.project, BranchFor("tk-1"), "title", "body")
+	first, created, _, err := e.svc.OpenPR(ctx, e.project, BranchFor("tk-1"), "title", "body")
 	if err != nil || !created {
 		t.Fatalf("first open: %v created=%v", err, created)
 	}
-	second, created, err := e.svc.OpenPR(ctx, e.project, BranchFor("tk-1"), "title", "body")
+	second, created, _, err := e.svc.OpenPR(ctx, e.project, BranchFor("tk-1"), "title", "body")
 	if err != nil || created || second.Number != first.Number {
 		t.Fatalf("second open: %v created=%v #%d", err, created, second.Number)
 	}
@@ -90,17 +92,22 @@ func TestThreadsNameResolvedOutdatedAndAwaitingUs(t *testing.T) {
 	w := e.withWorld()
 	pr := w.Add(&gt.PR{Head: "loop/tk-1", HeadSHA: shaA})
 	ctx := context.Background()
-	open := w.Review(pr.Number, "owner", false, 0, "rename this")
-	answered := w.Review(pr.Number, "owner", false, 0, "add a test")
-	w.Review(pr.Number, "loop[bot]", true, answered, "added")
-	resolved := w.Review(pr.Number, "owner", false, 0, "typo")
+	say := func(root int64, body string) int64 {
+		return w.Say(pr.Number, gt.Said{Login: "owner", Association: "OWNER", Review: true, InReplyTo: root, Body: body})
+	}
+	open := say(0, "rename this")
+	answered := say(0, "add a test")
+	if _, _, err := e.svc.Reply(ctx, e.project, pr.Number, answered, "added", "key0"); err != nil {
+		t.Fatal(err)
+	}
+	resolved := say(0, "typo")
 	w.SetThread(resolved, true, false, false)
-	stale := w.Review(pr.Number, "owner", false, 0, "old line")
+	stale := say(0, "old line")
 	w.SetThread(stale, false, true, false)
 	if _, _, err := e.svc.Reply(ctx, e.project, pr.Number, stale, "looking", "key1"); err != nil {
 		t.Fatal(err)
 	}
-	w.Review(pr.Number, "owner", false, stale, "still wrong")
+	say(stale, "still wrong")
 	if _, _, err := e.svc.Reply(ctx, e.project, pr.Number, 0, "summary", "key2"); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +163,7 @@ func TestThreadsRefuseAThreadWithNoState(t *testing.T) {
 	e := newEnv(t)
 	w := e.withWorld()
 	pr := w.Add(&gt.PR{Head: "loop/tk-1", HeadSHA: shaA})
-	root := w.Review(pr.Number, "owner", false, 0, "rename this")
+	root := w.Say(pr.Number, gt.Said{Login: "owner", Association: "OWNER", Review: true, Body: "rename this"})
 	w.SetThread(root, false, false, true)
 	if cs, err := e.svc.Threads(context.Background(), e.project, pr.Number); err == nil {
 		t.Fatalf("threads = %+v, want an error", cs)
@@ -193,5 +200,60 @@ func TestNoSourceRebasesOrForcePushes(t *testing.T) {
 	}
 	if read < 10 {
 		t.Fatalf("the scan read %d sources", read)
+	}
+}
+
+// OpenPulls reads every page of the open pull requests, and no closed one,
+// for the `## Depends on` hold.
+func TestOpenPullsReadEveryOpenPage(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	for i := range 120 {
+		w.Add(&gt.PR{Head: "feat/b" + strconv.Itoa(i+1)})
+	}
+	w.Add(&gt.PR{Head: "feat/closed", State: "closed"})
+	open, err := e.svc.OpenPulls(context.Background(), testProject)
+	if err != nil || len(open) != 120 {
+		t.Fatalf("open: %d %v", len(open), err)
+	}
+	if open[0].Number != 1 || open[0].Head.Ref != "feat/b1" || open[119].Head.Ref != "feat/b120" {
+		t.Fatalf("open: %+v ... %+v", open[0], open[119])
+	}
+	var pages []string
+	for _, c := range e.api.Calls() {
+		if strings.Contains(c, "/pulls?") {
+			pages = append(pages, c)
+		}
+	}
+	if len(pages) != 2 || !strings.HasSuffix(pages[0], "/pulls?page=1&per_page=100&state=open") {
+		t.Fatalf("pages read: %v", pages)
+	}
+}
+
+// Ported from `pr show` in scripts/sdlc/pr.ts (alpha): the implementer
+// records its red-green evidence in the PR body, and a reviewer reads it
+// through `pr show`, whole, on an open PR and on a merged one.
+func TestPRShowPrintsTheBody(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	const evidence = "## Evidence\n\nred: go test ./x -run TestA FAIL\ngreen: go test ./x -run TestA ok\n"
+	open := e.ticket(machine.InProgress, "")
+	w.Add(&gt.PR{Head: BranchFor(open), HeadSHA: shaA, Body: evidence})
+	merged := e.ticket(machine.InProgress, "")
+	w.Add(&gt.PR{Head: BranchFor(merged), HeadSHA: shaA, State: "closed", Merged: true, MergeSHA: shaM, Body: evidence})
+	for _, item := range []string{open, merged} {
+		res := e.runCall("pr show", item, machine.StageCodeReviewer, nil, nil)
+		mustOK(t, res)
+		raw, err := json.Marshal(res.Data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["body"] != evidence {
+			t.Fatalf("pr show of %s: body %q, want %q (%s)", item, got["body"], evidence, raw)
+		}
 	}
 }

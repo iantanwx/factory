@@ -9,7 +9,8 @@ option go_package = "github.com/iantanwx/loop/gen/loop/v1;loopv1";
 // One service for each CLI noun, and one RPC for each server-side verb.
 // Client-side verbs (escalation judge, install, upgrade, rollback, restore,
 // serve, doctor) have no RPC. The client-side doctor calls doctor-github
-// for the checks that need the server's GitHub credentials.
+// for the checks that need the server's GitHub credentials, and doctor-env
+// for each .env in a checkout with no live run.
 
 service WorkService {
   rpc Peek(VerbRequest) returns (Envelope);
@@ -63,6 +64,7 @@ service MergeService {
 service EscalationService {
   rpc Raise(VerbRequest) returns (Envelope);
   rpc Route(VerbRequest) returns (Envelope);
+  rpc Decisions(VerbRequest) returns (Envelope);
 }
 
 service DecisionService {
@@ -83,6 +85,7 @@ service FaultService {
 
 service CoordinatorService {
   rpc Send(VerbRequest) returns (Envelope);
+  rpc Upgrade(VerbRequest) returns (Envelope);
 }
 
 service InboxService {
@@ -131,6 +134,7 @@ service ProjectService {
 service HostService {
   rpc Drain(VerbRequest) returns (Envelope);
   rpc DoctorGithub(VerbRequest) returns (Envelope);
+  rpc DoctorEnv(VerbRequest) returns (Envelope);
 }
 
 service MetaService {

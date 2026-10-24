@@ -269,10 +269,13 @@ type PR struct {
 	Title     string
 	Body      string
 	Fork      bool
+	Draft     bool
 	UpdatedAt time.Time
 	// Labels and MergeableState serve the merge fakes (merge.go).
 	Labels         []string
 	MergeableState string
+	// Reviewers lists each login requested for review, in order.
+	Reviewers []string
 }
 
 func (p *PR) json() map[string]any {
@@ -282,7 +285,7 @@ func (p *PR) json() map[string]any {
 	}
 	out := map[string]any{
 		"number": p.Number, "html_url": fmt.Sprintf("https://example.invalid/pull/%d", p.Number), "state": p.State,
-		"title": p.Title, "merge_commit_sha": p.MergeSHA, "updated_at": p.UpdatedAt.UTC().Format(time.RFC3339),
+		"title": p.Title, "body": p.Body, "draft": p.Draft, "merge_commit_sha": p.MergeSHA, "updated_at": p.UpdatedAt.UTC().Format(time.RFC3339),
 		"head": map[string]any{"ref": p.Head, "sha": p.HeadSHA, "repo": map[string]any{"full_name": repo}},
 		"base": map[string]any{"ref": p.Base, "sha": strings.Repeat("b", 40)},
 	}
@@ -301,8 +304,13 @@ type World struct {
 	runs     map[string][]map[string]any
 	statuses []string
 	comments map[int][]map[string]any
-	review   map[int][]map[string]any
-	threads  map[int64]*threadState
+	reviews  map[int][]map[string]any
+	// summaries holds the reviews of each PR: a review's state and the
+	// body a person wrote when they submitted it.
+	summaries map[int][]map[string]any
+	// threads holds the state GraphQL reads for each review thread, by
+	// the id of its root comment.
+	threads  map[int64]threadState
 	files    int
 	failNext map[string]int
 	clock    time.Time
@@ -315,7 +323,8 @@ type World struct {
 // NewWorld returns an empty world.
 func NewWorld() *World {
 	return &World{runs: map[string][]map[string]any{}, failNext: map[string]int{}, comments: map[int][]map[string]any{},
-		review: map[int][]map[string]any{}, threads: map[int64]*threadState{}, clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
+		reviews: map[int][]map[string]any{}, summaries: map[int][]map[string]any{}, threads: map[int64]threadState{},
+		clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
 }
 
 func (w *World) tick() time.Time {
@@ -383,41 +392,65 @@ func (w *World) Comments(n int) []map[string]any {
 // threadState is the state GraphQL reads for one review thread.
 type threadState struct{ resolved, outdated, hidden bool }
 
-// Review stores a review comment on PR n by login and returns its id. The
-// loop App wrote it when app is true, else the repository owner did.
-// inReplyTo names the root comment of its thread; zero opens a thread.
-func (w *World) Review(n int, login string, app bool, inReplyTo int64, body string) int64 {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.addReview(n, login, app, inReplyTo, body)["id"].(int64)
-}
-
-func (w *World) addReview(n int, login string, app bool, inReplyTo int64, body string) map[string]any {
-	id := int64(5000)
-	for _, cs := range w.review {
-		id += int64(len(cs))
-	}
-	c := map[string]any{"id": id, "body": body, "path": "a.go", "line": 1, "in_reply_to_id": inReplyTo,
-		"user": map[string]any{"login": login, "type": "User"}, "author_association": "OWNER",
-		"created_at": w.tick().Format(time.RFC3339)}
-	if app {
-		c["user"] = map[string]any{"login": login, "type": "Bot"}
-		c["author_association"] = "NONE"
-		c["performed_via_github_app"] = map[string]any{"id": AppID}
-	}
-	if inReplyTo == 0 {
-		w.threads[id] = &threadState{}
-	}
-	w.review[n] = append(w.review[n], c)
-	return c
-}
-
 // SetThread sets the state of the review thread whose root comment is
-// root. A hidden thread is one GraphQL does not name.
+// root. A hidden thread is one GraphQL does not name. A thread nobody
+// set is open and current.
 func (w *World) SetThread(root int64, resolved, outdated, hidden bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.threads[root] = &threadState{resolved: resolved, outdated: outdated, hidden: hidden}
+	w.threads[root] = threadState{resolved: resolved, outdated: outdated, hidden: hidden}
+}
+
+// Said is a comment that somebody other than the loop App wrote on a PR.
+type Said struct {
+	Login string
+	// Association is GitHub's author_association, such as OWNER.
+	Association string
+	Bot         bool
+	// Review makes it a review comment, else a conversation comment. A
+	// review comment with InReplyTo answers the thread that comment opened.
+	Review    bool
+	InReplyTo int64
+	// Summary makes it a submitted review with this state, such as
+	// APPROVED, and Body the review's summary, which can be empty.
+	Summary string
+	Body    string
+}
+
+// Say adds c to PR n, bumps the PR's update time as GitHub does, and
+// returns the comment's id.
+func (w *World) Say(n int, c Said) int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	kind := "User"
+	if c.Bot {
+		kind = "Bot"
+	}
+	m := w.comment(n, c.Body, map[string]any{"login": c.Login, "type": kind}, c.Association)
+	switch {
+	case c.Summary != "":
+		m["state"], m["submitted_at"] = c.Summary, m["created_at"]
+		delete(m, "created_at")
+		w.summaries[n] = append(w.summaries[n], m)
+	case !c.Review:
+		w.comments[n] = append(w.comments[n], m)
+	default:
+		if c.InReplyTo != 0 {
+			m["in_reply_to_id"] = c.InReplyTo
+		}
+		w.reviews[n] = append(w.reviews[n], m)
+	}
+	if p := w.pr(strconv.Itoa(n)); p != nil {
+		p.UpdatedAt = w.clock
+	}
+	return m["id"].(int64)
+}
+
+// comment is one comment of PR n, with an id unique on the PR and the
+// world's clock as its creation time.
+func (w *World) comment(n int, body string, user map[string]any, assoc string) map[string]any {
+	return map[string]any{"id": int64(1000 + len(w.comments[n]) + len(w.reviews[n]) + len(w.summaries[n])), "body": body, "user": user,
+		"author_association": assoc, "created_at": w.tick().Format(time.RFC3339)}
 }
 
 // SetRuns sets the check runs of a sha.
@@ -449,7 +482,8 @@ func CheckRun(name, sha, status, conclusion string, started time.Time) map[strin
 
 var (
 	rePull     = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)$`)
-	rePullSub  = regexp.MustCompile(`^/repos/` + Repo + `/(pulls|issues)/(\d+)/(files|comments)$`)
+	reRequest  = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)/requested_reviewers$`)
+	rePullSub  = regexp.MustCompile(`^/repos/` + Repo + `/(pulls|issues)/(\d+)/(files|comments|reviews)$`)
 	reReplies  = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)/comments/(\d+)/replies$`)
 	reChecks   = regexp.MustCompile(`^/repos/` + Repo + `/commits/([0-9a-f]+)/check-runs$`)
 	reCombined = regexp.MustCompile(`^/repos/` + Repo + `/commits/([0-9a-f]+)/status$`)
@@ -476,6 +510,9 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 		list := slices.Clone(w.prs)
 		if h := q.Get("head"); h != "" {
 			list = slices.DeleteFunc(list, func(p *PR) bool { return Owner+":"+p.Head != h })
+		}
+		if st := q.Get("state"); st == "open" || st == "closed" {
+			list = slices.DeleteFunc(list, func(p *PR) bool { return p.State != st })
 		}
 		if q.Get("sort") == "updated" {
 			sort.Slice(list, func(i, j int) bool { return list[i].UpdatedAt.After(list[j].UpdatedAt) })
@@ -521,48 +558,77 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 		WriteJSON(rw, 200, w.prs[n-1].json())
+	case r.Method == http.MethodPatch && rePull.MatchString(path):
+		n, _ := strconv.Atoi(rePull.FindStringSubmatch(path)[1])
+		if n < 1 || n > len(w.prs) {
+			return false
+		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		pr := w.prs[n-1]
+		if t, ok := body["title"]; ok {
+			pr.Title = t
+		}
+		if b, ok := body["body"]; ok {
+			pr.Body = b
+		}
+		pr.UpdatedAt = w.tick()
+		WriteJSON(rw, 200, pr.json())
 	case r.Method == http.MethodGet && rePullSub.MatchString(path):
 		m := rePullSub.FindStringSubmatch(path)
 		n, _ := strconv.Atoi(m[2])
-		switch {
-		case m[3] == "files":
+		switch m[3] {
+		case "files":
 			out := []any{}
 			for i := (page-1)*100 + 1; i <= w.files && i <= page*100; i++ {
 				out = append(out, map[string]any{"filename": fmt.Sprintf("f%03d.txt", i), "status": "added", "additions": 1})
 			}
 			WriteJSON(rw, 200, out)
-		case m[1] == "issues":
-			out := []any{}
-			for _, c := range w.comments[n] {
-				out = append(out, c)
-			}
-			WriteJSON(rw, 200, out)
-		case page == 1:
-			out := []any{}
-			for _, c := range w.review[n] {
-				out = append(out, c)
-			}
-			WriteJSON(rw, 200, out)
 		default:
-			WriteJSON(rw, 200, []any{})
+			list := w.comments[n]
+			switch {
+			case m[3] == "reviews":
+				list = w.summaries[n]
+			case m[1] == "pulls":
+				list = w.reviews[n]
+			}
+			out := []any{}
+			for _, c := range list {
+				out = append(out, c)
+			}
+			WriteJSON(rw, 200, out)
 		}
+	case r.Method == http.MethodPost && reRequest.MatchString(path):
+		p := w.pr(reRequest.FindStringSubmatch(path)[1])
+		if p == nil {
+			return false
+		}
+		var body struct {
+			Reviewers []string `json:"reviewers"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		p.Reviewers = append(p.Reviewers, body.Reviewers...)
+		WriteJSON(rw, 201, p.json())
 	case r.Method == http.MethodPost && (rePullSub.MatchString(path) || reReplies.MatchString(path)):
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		var n int
+		var thread int64
 		if m := rePullSub.FindStringSubmatch(path); m != nil {
 			n, _ = strconv.Atoi(m[2])
 		} else {
 			m := reReplies.FindStringSubmatch(path)
 			n, _ = strconv.Atoi(m[1])
-			root, _ := strconv.ParseInt(m[2], 10, 64)
-			WriteJSON(rw, 201, w.addReview(n, "loop[bot]", true, root, body["body"]))
-			return true
+			thread, _ = strconv.ParseInt(m[2], 10, 64)
 		}
-		c := map[string]any{"id": 1000 + len(w.comments[n]), "body": body["body"],
-			"user": map[string]any{"login": "loop[bot]", "type": "Bot"}, "performed_via_github_app": map[string]any{"id": AppID},
-			"author_association": "NONE"}
-		w.comments[n] = append(w.comments[n], c)
+		c := w.comment(n, body["body"], map[string]any{"login": "loop[bot]", "type": "Bot"}, "NONE")
+		c["performed_via_github_app"] = map[string]any{"id": AppID}
+		if thread == 0 {
+			w.comments[n] = append(w.comments[n], c)
+		} else {
+			c["in_reply_to_id"] = thread
+			w.reviews[n] = append(w.reviews[n], c)
+		}
 		WriteJSON(rw, 201, c)
 	case r.Method == http.MethodGet && reChecks.MatchString(path):
 		runs := w.runs[reChecks.FindStringSubmatch(path)[1]]

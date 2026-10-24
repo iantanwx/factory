@@ -29,6 +29,9 @@ type Transition struct {
 	At       time.Time         `json:"at"`
 }
 
+// Fact returns the value the move set on one fact, or "".
+func (t Transition) Fact(name string) string { return t.Set[factPrefix+name] }
+
 // insertHistory writes the history row of an intent in its applied mark.
 func insertHistory(tx *store.Tx, in store.Intent, f facts) error {
 	raw, err := json.Marshal(struct {

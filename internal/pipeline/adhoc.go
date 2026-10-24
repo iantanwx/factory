@@ -21,7 +21,9 @@ type CreateResult struct {
 // ticket names the epic whose merged PRD it implements and the story
 // labels it cites. Only the coordinator creates a ticket with no PRD, and
 // only when it cites the operator's own request; it never waives the PRD
-// on its own. A run's PRD-less ticket is PRD_REQUIRED. With --kind bug the
+// on its own. A run's PRD-less ticket is PRD_REQUIRED. The ticket that
+// writes an architecture epic's ADR is such PRD-less work, and it still
+// names its epic. With --kind bug the
 // coordinator files the operator's bug report in reported, the state the
 // reproducer stage claims from, under the same rule.
 func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
@@ -61,6 +63,26 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		if epic.Kind != machine.KindEpic {
 			return cli.Reject(cli.CodeUsage, "not_an_epic", fmt.Sprintf("%s is a %s, not an epic", epicID, epic.Kind))
+		}
+		if epic.Fact(machine.FactPRDPath) == "" {
+			// An architecture epic follows an ADR and never has a PRD, so
+			// its ticket (the one that writes the ADR) is PRD-less work
+			// under R48 that still names its epic: the run that holds it
+			// reads the epic it decides (F-16).
+			switch {
+			case pr.Kind != cli.PrincipalCoordinator:
+				return cli.Reject(cli.CodePRDRequired, "prd_first",
+					fmt.Sprintf("%s is an architecture epic with no PRD; only the coordinator creates its ticket, when the operator asks for it", epicID))
+			case len(stories) > 0:
+				return cli.Reject(cli.CodeUsage, "story_without_prd",
+					fmt.Sprintf("%s is an architecture epic with no PRD, so its ticket cites no story; drop --story", epicID))
+			case request == "":
+				return cli.Reject(cli.CodePRDRequired, "no_operator_request",
+					"a ticket under an architecture epic has no PRD, so it needs the operator's request: quote the operator's own words with --request")
+			}
+			facts[machine.FactEpic] = epicID
+			facts[machine.FactRequest] = request
+			break
 		}
 		labels, ref := p.prdLabels(ctx, epic)
 		if ref != nil {
@@ -143,9 +165,9 @@ type EpicResult struct {
 
 // epicCreate is `loop epic create --architecture`: the coordinator creates
 // an epic that follows an ADR, not a PRD. It waits in architecture until
-// the GitHub reactor sees an ADR that names it on the base branch, and
-// that ADR is the operator's sign-off (R46). A PRD epic starts with prd
-// submit in an intake room instead.
+// the GitHub reactor sees an ADR whose Ticket line names it on the base
+// branch, and that ADR is the operator's sign-off (R46). A PRD epic
+// starts with prd submit in an intake room instead.
 func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	if pr.Kind != cli.PrincipalCoordinator {

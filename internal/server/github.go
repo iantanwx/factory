@@ -79,13 +79,27 @@ func (g *GitHub) Setup(s *Server) error {
 	}
 	s.Projects.AddHooks = append(s.Projects.AddHooks, svc.AddHook)
 	g.Service, g.Reactor = svc, github.NewReactor(svc)
+	if s.Inbox != nil {
+		// A sign-off answer merges the document PR (ADR 0010).
+		s.Inbox.SetGitHub(svc)
+	}
 	if s.Machine != nil {
 		// review submit posts its body on the item's PR before the
 		// verdict is recorded.
 		s.Machine.SetReviewCommenter(svc.ReviewComment)
+		// review submit --head compares the head with the PR's live
+		// head before the verdict is recorded.
+		s.Machine.SetPRHeadReader(svc.PRHead)
+		// A code pass needs green CI at the head it names.
+		s.Machine.SetPassGate(svc.PassCI)
 		// work supersede reads its evidence and the ticket's pull
 		// request back before the close is recorded.
 		s.Machine.SetSupersedeChecker(svc.SupersedeEvidence)
+	}
+	if s.Admission != nil {
+		// The PR head enters a code review's retry identity, so a push
+		// offers a held review again.
+		s.Admission.SetPRHeadReader(svc.PRHead)
 	}
 	return s.RPC.Handle("doctor-github", g.doctorVerb(s))
 }

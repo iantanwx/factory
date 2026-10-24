@@ -306,9 +306,9 @@ func (w *World) serveGraphQL(rw http.ResponseWriter, r *http.Request) {
 	case strings.Contains(body.Query, "LoopReviewThreads"):
 		num, _ := body.Variables["number"].(float64)
 		nodes := []any{}
-		for _, c := range w.review[int(num)] {
+		for _, c := range w.reviews[int(num)] {
 			id := c["id"].(int64)
-			if t := w.threads[id]; c["in_reply_to_id"] == int64(0) && !t.hidden {
+			if t := w.threads[id]; c["in_reply_to_id"] == nil && !t.hidden {
 				nodes = append(nodes, map[string]any{"isResolved": t.resolved, "isOutdated": t.outdated,
 					"comments": map[string]any{"nodes": []any{map[string]any{"databaseId": id}}}})
 			}

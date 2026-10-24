@@ -445,8 +445,9 @@ func TestCoordinatorFilesABugForTheReproducer(t *testing.T) {
 }
 
 // The coordinator creates an architecture epic. It waits in architecture
-// until an ADR that names it lands on the base. A run creates none, the
-// verb needs --architecture, and a stored secret is refused.
+// until an ADR whose Ticket line names it lands on the base. A run
+// creates none, the verb needs --architecture, and a stored secret is
+// refused.
 func TestCoordinatorCreatesAnArchitectureEpic(t *testing.T) {
 	w := newWorld(t)
 	w.red.SetStored([]secrets.NamedValue{{Name: testProject + "/API_KEY", Value: "s3cr3t-value-for-epic"}})

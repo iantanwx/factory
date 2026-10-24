@@ -29,6 +29,13 @@ import (
 //     relative pack path, each skill a runbook reads named by its path,
 //     each policy file, and no step in an unattended runbook that asks a
 //     person
+//   - no hand-back in the coordinator's runbook or in a skill or agent it
+//     reads: no step that sends the operator to merge, upgrade or install,
+//     or to run a loop verb the coordinator may call (handback.go)
+//   - each agent: its front matter, tools that only read, a loop command
+//     only where the schema marks the verb a read the coordinator may
+//     call, a runbook that dispatches it and names it, and each path from
+//     the agent directory to the skill root
 //
 // It does not check positional arguments, a required flag missing from a
 // mention, or whether a sentence describes what a verb does.
@@ -327,24 +334,32 @@ func placeholder(t string) bool {
 	return strings.ContainsAny(t, "<>${}") || strings.Contains(t, "...")
 }
 
-func (ix *index) command(toks []string) [][2]string {
+// resolve returns the verb paths the words of one invocation name, each
+// alternative of an alternation apart, and the words after them. It
+// returns no path for a mention of a noun alone, and unknown for a first
+// word that is no noun or top-level verb.
+func (ix *index) resolve(toks []string) (paths, rest []string, unknown bool) {
 	if len(toks) == 0 || placeholder(toks[0]) || strings.HasPrefix(toks[0], "-") {
-		return nil
+		return nil, nil, false
 	}
-	var paths []string
-	rest := toks[1:]
 	switch {
 	case ix.verbs[toks[0]] != nil && ix.verbs[toks[0]].TopLevel:
-		paths = []string{toks[0]}
+		return []string{toks[0]}, toks[1:], false
 	case ix.nouns[toks[0]]:
 		if len(toks) < 2 || placeholder(toks[1]) || strings.HasPrefix(toks[1], "-") {
-			return nil // a mention of the noun, or of its verbs in general
+			return nil, nil, false // a mention of the noun, or of its verbs in general
 		}
 		for _, v := range strings.Split(toks[1], "|") {
 			paths = append(paths, toks[0]+" "+v)
 		}
-		rest = toks[2:]
-	default:
+		return paths, toks[2:], false
+	}
+	return nil, nil, true
+}
+
+func (ix *index) command(toks []string) [][2]string {
+	paths, rest, unknown := ix.resolve(toks)
+	if unknown {
 		return [][2]string{{"verb", fmt.Sprintf("`loop %s` names no noun or top-level verb in the schema", toks[0])}}
 	}
 	var out [][2]string
@@ -436,10 +451,14 @@ func Check(src fs.FS, reg *cli.Registry) ([]Finding, error) {
 	if err != nil {
 		return append(out, Finding{File: ManifestFile, Kind: "manifest", Detail: err.Error()}), nil
 	}
+	if _, err := Agents(src); err != nil {
+		return append(out, Finding{File: ManifestFile, Kind: "manifest", Detail: err.Error()}), nil
+	}
 	files, err := markdown(src)
 	if err != nil {
 		return nil, err
 	}
+	held := handBackFiles(m)
 	for _, f := range files {
 		raw, err := fs.ReadFile(src, f.source)
 		if err != nil {
@@ -447,6 +466,14 @@ func Check(src fs.FS, reg *cli.Registry) ([]Finding, error) {
 		}
 		text := string(raw)
 		out = append(out, ix.text(f.source, text)...)
+		if heldToHandBack(held, f.source) {
+			out = append(out, ix.handBack(f.source, text)...)
+		}
+		if f.agent != "" {
+			out = append(out, agentPaths(tree, f.source, text)...)
+			out = append(out, ix.agentFindings(f.source, f.agent, text)...)
+			continue
+		}
 		out = append(out, packPaths(tree, f, text)...)
 		if path.Base(f.injected) == "SKILL.md" {
 			out = append(out, frontmatter(f.source, path.Dir(f.injected), text)...)
@@ -459,9 +486,11 @@ func Check(src fs.FS, reg *cli.Registry) ([]Finding, error) {
 }
 
 // packFile is one Markdown file: where the source holds it, where a run's
-// skill root receives it, and the stage of a runbook.
+// skill root receives it, the stage of a runbook, and the name of an
+// agent. An agent lands outside the skill root, so it has no injected
+// path.
 type packFile struct {
-	source, injected, stage string
+	source, injected, stage, agent string
 }
 
 func markdown(src fs.FS) ([]packFile, error) {
@@ -472,16 +501,26 @@ func markdown(src fs.FS) ([]packFile, error) {
 	}
 	for _, r := range runbooks {
 		stage := strings.TrimSuffix(path.Base(r), ".md")
-		out = append(out, packFile{r, Injected(stage) + "/SKILL.md", stage})
+		out = append(out, packFile{source: r, injected: Injected(stage) + "/SKILL.md", stage: stage})
 	}
 	err = fs.WalkDir(src, "skills", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(name, ".md") {
 			return err
 		}
-		out = append(out, packFile{name, strings.TrimPrefix(name, "skills/"), ""})
+		out = append(out, packFile{source: name, injected: strings.TrimPrefix(name, "skills/")})
 		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, err
+	}
+	agents, err := fs.Glob(src, "agents/*.md")
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range agents {
+		out = append(out, packFile{source: a, agent: strings.TrimSuffix(path.Base(a), ".md")})
+	}
+	return out, nil
 }
 
 func manifestFindings(src fs.FS, m *Manifest) []Finding {
@@ -500,6 +539,21 @@ func manifestFindings(src fs.FS, m *Manifest) []Finding {
 	for _, d := range skills {
 		if !slices.Contains(m.Skills, d.Name()) {
 			add("skills/%s is a skill the manifest does not list", d.Name())
+		}
+	}
+	agents, _ := fs.ReadDir(src, "agents")
+	for _, d := range agents {
+		if name, ok := strings.CutSuffix(d.Name(), ".md"); !ok || d.IsDir() || !slices.Contains(m.Agents, name) {
+			add("agents/%s is an agent the manifest does not list", d.Name())
+		}
+	}
+	for _, a := range m.Agents {
+		used := false
+		for _, rb := range m.Runbooks {
+			used = used || slices.Contains(rb.Agents, a)
+		}
+		if !used {
+			add("agent %s is in no runbook's agents, so nothing dispatches it", a)
 		}
 	}
 	return out
@@ -527,23 +581,33 @@ func packPaths(tree fs.FS, f packFile, text string) []Finding {
 	return out
 }
 
-func frontmatter(file, dir, text string) []Finding {
-	bad := func(format string, args ...any) []Finding {
-		return []Finding{{File: file, Line: 1, Kind: "frontmatter", Detail: fmt.Sprintf(format, args...)}}
-	}
+// frontFields reads the fields of a file's front matter, or says why it
+// has none.
+func frontFields(text string) (map[string]string, string) {
 	rest, ok := strings.CutPrefix(text, "---\n")
 	if !ok {
-		return bad("%s opens with no front matter; it needs name: %s and a description", file, dir)
+		return nil, "the file opens with no front matter"
 	}
 	head, _, ok := strings.Cut(rest, "\n---\n")
 	if !ok {
-		return bad("the front matter of %s does not close", file)
+		return nil, "the front matter does not close"
 	}
 	fields := map[string]string{}
 	for _, l := range strings.Split(head, "\n") {
 		if k, v, ok := strings.Cut(l, ":"); ok {
 			fields[strings.TrimSpace(k)] = strings.TrimSpace(v)
 		}
+	}
+	return fields, ""
+}
+
+func frontmatter(file, dir, text string) []Finding {
+	bad := func(format string, args ...any) []Finding {
+		return []Finding{{File: file, Line: 1, Kind: "frontmatter", Detail: fmt.Sprintf(format, args...)}}
+	}
+	fields, why := frontFields(text)
+	if why != "" {
+		return bad("%s: %s; it needs name: %s and a description", file, why, dir)
 	}
 	if fields["name"] != dir {
 		return bad("front matter names %q, and the skill directory is %s", fields["name"], dir)
@@ -554,8 +618,90 @@ func frontmatter(file, dir, text string) []Finding {
 	return nil
 }
 
+// readTools are the harness tools an agent of the pack may hold. Bash
+// runs any command, so the gate also reads each loop command the agent
+// names.
+var readTools = []string{"Read", "Grep", "Glob", "Bash"}
+
+// agentPath is a path from the checkout root into the skill root. Agents
+// ship only to Claude Code, and a subagent runs at the checkout root with
+// no word of where its definition lives.
+var (
+	agentPath    = regexp.MustCompile(`\.claude/skills/(loop-[a-z0-9-]+(?:/[A-Za-z0-9._-]+)*)/?`)
+	agentRelPath = regexp.MustCompile(`\.\./(?:skills/)?loop-[a-z0-9-]+(?:/[A-Za-z0-9._-]+)*/?`)
+)
+
+// agentPaths checks each path an agent names into the skill root. A path
+// relative to the agent file names nothing for the subagent that reads it.
+func agentPaths(tree fs.FS, file, text string) []Finding {
+	var out []Finding
+	for i, line := range strings.Split(text, "\n") {
+		for _, m := range agentPath.FindAllStringSubmatch(line, -1) {
+			if _, err := fs.Stat(tree, m[1]); err != nil {
+				out = append(out, Finding{File: file, Line: i + 1, Kind: "path", Detail: fmt.Sprintf("%s names nothing in the pack", m[0])})
+			}
+		}
+		for _, m := range agentRelPath.FindAllString(line, -1) {
+			out = append(out, Finding{File: file, Line: i + 1, Kind: "path",
+				Detail: fmt.Sprintf("%s names nothing from the checkout root; an agent names a skill as .claude/skills/loop-*", m)})
+		}
+	}
+	return out
+}
+
+// agentFindings checks one agent: front matter that names it, tools that
+// only read, and each loop command a read the coordinator may call. The
+// coordinator dispatches each agent, so the agent's commands run with
+// its token.
+func (ix *index) agentFindings(file, name, text string) []Finding {
+	add := func(out []Finding, line int, kind, format string, args ...any) []Finding {
+		return append(out, Finding{File: file, Line: line, Kind: kind, Detail: fmt.Sprintf(format, args...)})
+	}
+	fields, bad := frontFields(text)
+	if bad != "" {
+		return add(nil, 1, "frontmatter", "%s; it needs name: %s, a description and tools", bad, name)
+	}
+	var out []Finding
+	if fields["name"] != name {
+		out = add(out, 1, "frontmatter", "front matter names %q, and the agent file is %s.md", fields["name"], name)
+	}
+	if fields["description"] == "" {
+		out = add(out, 1, "frontmatter", "the front matter of %s holds no description", name)
+	}
+	if fields["tools"] == "" {
+		out = add(out, 1, "agent", "%s names no tools, so it inherits every tool, and some of them write", name)
+	}
+	for _, t := range strings.Split(fields["tools"], ",") {
+		if t = strings.TrimSpace(t); t != "" && !slices.Contains(readTools, t) {
+			out = add(out, 1, "agent", "tool %s is no read; an agent of the pack holds only %s", t, strings.Join(readTools, ", "))
+		}
+	}
+	code, _ := split(text)
+	for _, s := range code {
+		for _, toks := range ix.calls(s) {
+			paths, _, _ := ix.resolve(toks)
+			for _, p := range paths {
+				v := ix.verbs[p]
+				switch {
+				case v == nil:
+				case v.Write:
+					out = add(out, s.line, "agent", "`loop %s` writes; an agent only reads, and the coordinator does the write", p)
+				case v.Side != cli.SideServer || !slices.Contains(v.Callers, "coordinator") && !slices.Contains(v.Callers, "anyone"):
+					out = add(out, s.line, "agent", "`loop %s` is no server read the coordinator may call, and an agent runs with its token", p)
+				}
+			}
+		}
+	}
+	return out
+}
+
 func runbookFindings(file string, rb Runbook, text string) []Finding {
 	var out []Finding
+	for _, a := range rb.Agents {
+		if !strings.Contains(text, a) {
+			out = append(out, Finding{File: file, Kind: "agent", Detail: fmt.Sprintf("the runbook dispatches agent %s and never names it", a)})
+		}
+	}
 	for _, s := range rb.Skills {
 		if p := "../" + s + "/SKILL.md"; !strings.Contains(text, p) {
 			out = append(out, Finding{File: file, Kind: "skill", Detail: fmt.Sprintf("the runbook reads %s and never names %s", s, p)})

@@ -115,10 +115,16 @@ stages:
   decomposer: {}
   fixer: {}
   reproducer: {}
+signoff:
+  readers: [<the GitHub login of each person who merges a PRD or a spec>]
 ```
 
 Name all six stack gates. `loop gates` fails a gate that the config does not name. Run
 `loop gates` in the clone, and fix each finding before you go on.
+
+Ask the operator who signs the PRDs and the specs off. The server asks each reader for a review
+when it opens a PRD or a spec pull request, so GitHub notifies them. Name a person's login, never
+an organisation. Delete `signoff` when nobody wants the request.
 
 ## 6. Policy and ledger
 

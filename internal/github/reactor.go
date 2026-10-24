@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -42,8 +43,9 @@ const maxPullPages = 10
 // moves any non-terminal item to done, a closed PR escalates its item, a
 // new head after a review pass returns the ticket to review, and red CI
 // on a ticket in review sends it to repair. CI cancelled by a newer push
-// is superseded, not red. An ADR on the base that names an architecture
-// epic moves the epic to spec_needed.
+// is superseded, not red. An ADR on the base whose Ticket line names an
+// architecture epic moves the epic to spec_needed. A person's unanswered
+// comment on a document in review or sign-off moves its epic to the amender.
 type Reactor struct {
 	s   *Service
 	m   *machine.Machine
@@ -207,6 +209,9 @@ func (r *Reactor) tickProject(ctx context.Context, p config.Project) error {
 	if err := r.pollCI(ctx, p); err != nil {
 		errs = append(errs, err)
 	}
+	if err := r.amendments(ctx, p); err != nil {
+		errs = append(errs, err)
+	}
 	if err := r.eligibility(ctx, p); err != nil {
 		errs = append(errs, err)
 	}
@@ -295,18 +300,43 @@ func (r *Reactor) pollPulls(ctx context.Context, p config.Project, base string) 
 // other place in v1.
 const ADRDir = "docs/adr/"
 
-// adrs applies adr_landed to each architecture epic that an ADR on the
-// base branch names (R46): a merge that adds the ADR to the base is the
-// operator's sign-off. It reads the ADR's text in the mirror at sha, which
-// SyncBase just fetched, and never a GitHub answer. A read finds an ADR
-// that landed while the server was down too. The first ADR in path order
-// that names the epic is the one the epic records.
+// adrTicket is an ADR's Ticket line, the pattern of the adr gate
+// (internal/gates/adr.go): the id of the architecture epic the ADR
+// decides, or none.
+var adrTicket = regexp.MustCompile(`(?m)^\*\*Ticket:\*\*\s*(\S+)`)
+
+// ticketOf is the id on an ADR's Ticket line, with the trailing
+// punctuation the gate allows trimmed. An ADR with no Ticket line gives "".
+func ticketOf(text string) string {
+	m := adrTicket.FindStringSubmatch(text)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimRight(m[1], ".,;")
+}
+
+// adrs applies adr_landed to each architecture epic whose id the Ticket
+// line of an ADR on the base branch names (R46): a merge that adds the ADR
+// to the base is the operator's sign-off. An epic the ADR names anywhere
+// else stays where it is. It reads the ADR's text in the mirror at sha,
+// which SyncBase just fetched, and never a GitHub answer. A read finds an
+// ADR that landed while the server was down too. The first ADR in path
+// order whose Ticket line names the epic is the one the epic records.
+//
+// It also returns to architecture each spec_needed epic whose adr fact
+// names an ADR on the base whose Ticket line names another epic, or none:
+// the reactor once joined an ADR to every epic its text named (F-10).
 func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error {
 	epics, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: machine.Architecture})
 	if ref != nil {
 		return fmt.Errorf("list architecture epics: %s", ref.Hint)
 	}
-	if len(epics) == 0 || sha == "" {
+	landed, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: machine.SpecNeeded})
+	if ref != nil {
+		return fmt.Errorf("list spec_needed epics: %s", ref.Hint)
+	}
+	landed = slices.DeleteFunc(landed, func(ep machine.Item) bool { return ep.Fact(machine.FactADR) == "" })
+	if len(epics) == 0 && len(landed) == 0 || sha == "" {
 		return nil
 	}
 	files, err := r.s.Files(ctx, p.ID, []string{ADRDir})
@@ -320,17 +350,33 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 		}
 	}
 	slices.Sort(paths)
-	texts := make([]string, len(paths))
-	for i, path := range paths {
+	tickets := make(map[string]string, len(paths))
+	for _, path := range paths {
 		data, err := r.s.Mirror(p).Show(ctx, sha, path)
 		if err != nil {
 			return err
 		}
-		texts[i] = string(data)
+		if id := ticketOf(string(data)); id != "" {
+			tickets[path] = id
+		}
 	}
 	var errs []error
+	for _, ep := range landed {
+		path := ep.Fact(machine.FactADR)
+		if id, ok := tickets[path]; !ok || id == ep.ID {
+			continue
+		}
+		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbADRMisjoined, ExpectedStatus: machine.SpecNeeded,
+			Params: map[string]string{"path": path}, Actor: machine.Server("reactor")})
+		if err := machine.Settled(res); err != nil {
+			errs = append(errs, fmt.Errorf("%s adr_misjoined: %w", ep.ID, err))
+		} else if res.Refusal == nil {
+			r.log.InfoContext(ctx, "returned to architecture an epic that its ADR's Ticket line does not name",
+				"project", p.ID, "item", ep.ID, "adr", path, "ticket", tickets[path])
+		}
+	}
 	for _, ep := range epics {
-		i := slices.IndexFunc(texts, func(text string) bool { return namesItem(text, ep.ID) })
+		i := slices.IndexFunc(paths, func(path string) bool { return tickets[path] == ep.ID })
 		if i < 0 {
 			continue
 		}
@@ -341,28 +387,6 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// namesItem reports whether text names the item id as a whole word: the
-// id with no id character before it, and none after it. A full stop
-// after the id ends a sentence, unless an id character follows it.
-func namesItem(text, id string) bool {
-	idChar := func(b byte) bool {
-		return b == '-' || b == '_' || b >= '0' && b <= '9' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z'
-	}
-	for from := 0; ; {
-		i := strings.Index(text[from:], id)
-		if i < 0 {
-			return false
-		}
-		start, end := from+i, from+i+len(id)
-		before := start == 0 || !idChar(text[start-1]) && text[start-1] != '.'
-		after := end == len(text) || !idChar(text[end]) && (text[end] != '.' || end+1 == len(text) || !idChar(text[end+1]))
-		if before && after {
-			return true
-		}
-		from = start + 1
-	}
 }
 
 // pollCI reads the CI of each ticket in review. A check run's end does not
@@ -392,6 +416,54 @@ func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 			Params: map[string]string{"head": pr.Head.SHA}, Actor: machine.Server("reactor")})
 		if err := machine.Settled(res); err != nil {
 			errs = append(errs, fmt.Errorf("%s ci_red: %w", it.ID, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// amendments moves to the amender each epic whose open document PR holds
+// a person's comment that the loop has not answered (1.12): a PRD or a
+// spec in review or in sign-off. The machine refuses to move an epic a
+// run holds, so a held epic waits, and loses nothing: only a reply
+// answers the comment, so the next tick after the run ends reads it
+// again. A comment does not change a PR's head or its CI, and a held
+// epic leaves the PR cursor behind, so this reads the threads of each
+// such epic on every tick, as pollCI reads the CI. Ported from amendQueue in scripts/sdlc/pr-amend.ts (alpha).
+func (r *Reactor) amendments(ctx context.Context, p config.Project) error {
+	var errs []error
+	for _, state := range machine.AmendableStates() {
+		epics, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: state})
+		if ref != nil {
+			return fmt.Errorf("list epics in %s: %s", state, ref.Hint)
+		}
+		for _, ep := range epics {
+			n, err := strconv.Atoi(ep.Fact(machine.FactDocPR))
+			if err != nil {
+				continue
+			}
+			cs, err := r.s.Threads(ctx, p, n)
+			if err != nil {
+				return err
+			}
+			if !awaitsAnswer(cs) {
+				continue
+			}
+			// A merged or closed PR is the PR poll's to read.
+			pr, err := r.s.GetPR(ctx, p, n)
+			if err != nil {
+				return err
+			}
+			if pr.State != "open" {
+				continue
+			}
+			res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbPersonComment, ExpectedStatus: state,
+				Params: map[string]string{"head": pr.Head.SHA, "pr": strconv.Itoa(n)}, Actor: machine.Server("reactor")})
+			if res.Refusal != nil && res.Refusal.Code == cli.CodeLeaseHeld {
+				continue
+			}
+			if err := machine.Settled(res); err != nil {
+				errs = append(errs, fmt.Errorf("%s person_comment: %w", ep.ID, err))
+			}
 		}
 	}
 	return errors.Join(errs...)

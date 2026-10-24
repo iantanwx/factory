@@ -21,28 +21,30 @@ var intakeCounted = []string{
 }
 
 // liveRuns counts the runs of the stages that have not ended, on the whole
-// instance. Host config is instance scope, so its caps are too.
-func liveRuns(q querier, stages []string) (int, error) {
+// instance, except the run named by except. Host config is instance scope,
+// so its caps are too.
+func liveRuns(q querier, stages []string, except string) (int, error) {
 	marks := strings.TrimSuffix(strings.Repeat("?, ", len(stages)), ", ")
-	args := make([]any, len(stages))
-	for i, s := range stages {
-		args[i] = s
+	args := []any{except}
+	for _, s := range stages {
+		args = append(args, s)
 	}
 	var n int
-	err := q.QueryRow(`SELECT count(*) FROM runs WHERE ended_at IS NULL AND stage IN (`+marks+`)`, args...).Scan(&n)
+	err := q.QueryRow(`SELECT count(*) FROM runs WHERE ended_at IS NULL AND run_id <> ? AND stage IN (`+marks+`)`, args...).Scan(&n)
 	return n, err
 }
 
-// capRefusal checks every limit of the stage. extra is the run this call
-// already reserved, which counts as live: 0 before a reservation, 1 after.
-func capRefusal(q querier, stage string, limits []config.Limit, extra int) (*cli.Refusal, error) {
+// capRefusal checks every limit of the stage. caller is the run that asks,
+// which its own count leaves out: "" when no run asks, as in Admit before
+// its reservation and in the scheduler's peek.
+func capRefusal(q querier, stage string, limits []config.Limit, caller string) (*cli.Refusal, error) {
 	for _, l := range limits {
-		n, err := liveRuns(q, l.Stages)
+		n, err := liveRuns(q, l.Stages, caller)
 		if err != nil {
 			return nil, err
 		}
-		if n-extra >= l.Cap {
-			return capFull(stage, l, n-extra), nil
+		if n >= l.Cap {
+			return capFull(stage, l, n), nil
 		}
 	}
 	return nil, nil
