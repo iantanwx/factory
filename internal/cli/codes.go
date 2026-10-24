@@ -70,6 +70,7 @@ const (
 	CodeNoOperatorStatement  = "NO_OPERATOR_STATEMENT"
 	CodeGatesFailed          = "GATES_FAILED"
 	CodeStoryUnknown         = "STORY_UNKNOWN"
+	CodeCINotGreen           = "CI_NOT_GREEN"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -115,6 +116,7 @@ var baseRefusals = []RefusalCode{
 	{CodeNoOperatorStatement, ExitRefused, codes.FailedPrecondition, false, "the room's decision file cites no operator statement; a room applies only what a person decided"},
 	{CodeGatesFailed, ExitRefused, codes.FailedPrecondition, false, "a gate of loop gates failed; the hint names it, and stderr holds each finding"},
 	{CodeStoryUnknown, ExitRefused, codes.FailedPrecondition, false, "a ticket cites no story label, or a label its epic's merged PRD does not hold; the whole batch is refused"},
+	{CodeCINotGreen, ExitRefused, codes.FailedPrecondition, false, "a code pass needs every required check green at the head it names; the same call lands once CI is green there"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

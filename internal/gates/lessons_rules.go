@@ -93,8 +93,10 @@ func citation(r ledgerRow, id string) []Finding {
 
 // home checks what a row's Where it lives cell holds, given its shape. A
 // numbered rung names files in the checkout, or gates the project runs:
-// a gate of .loop/config.yaml, or one of the loop's own.
-func home(r ledgerRow, sh, id string, repo *Repo, gateNames map[string]bool) []Finding {
+// a gate of .loop/config.yaml, or one of the loop's own. unreached is nil
+// unless the row is at the rung of a check script, and then it names each
+// file no gate reaches.
+func home(r ledgerRow, sh, id string, repo *Repo, gateNames map[string]bool, unreached func(string) bool) []Finding {
 	switch sh {
 	case shapeNone:
 		if len(r.holds) > 0 {
@@ -121,6 +123,9 @@ func home(r ledgerRow, sh, id string, repo *Repo, gateNames map[string]bool) []F
 		}
 		if filepath.IsLocal(n) {
 			if _, err := os.Stat(filepath.Join(repo.Root, n)); err == nil {
+				if unreached != nil && unreached(n) {
+					out = append(out, finding("wired", "%s reached rung %s and names %s, and no gate of .loop/config.yaml runs it", id, r.rung, n))
+				}
 				continue
 			}
 		}
@@ -177,6 +182,19 @@ func checkLedger(repo *Repo, text string, l ladder, led ledger) []Finding {
 	for _, g := range List(repo.Config) {
 		gateNames[g.Name] = true
 	}
+	scriptRung := ""
+	for _, x := range l.rungs {
+		if x.mechanism == scriptMechanism {
+			scriptRung = strconv.Itoa(x.strength)
+		}
+	}
+	var reach map[string]bool
+	unreached := func(n string) bool {
+		if reach == nil {
+			reach = reached(repo)
+		}
+		return !reach[filepath.ToSlash(filepath.Clean(n))]
+	}
 	seen, named, answers := map[string]bool{}, map[string]bool{}, map[string]string{}
 	for _, r := range led.rows {
 		id := label(r)
@@ -199,7 +217,11 @@ func checkLedger(repo *Repo, text string, l ladder, led ledger) []Finding {
 			add(r.line, finding("rung", "%s is %s and reads rung %q, which that scope cannot take", id, r.scope, r.rung))
 			continue
 		}
-		add(r.line, home(r, sh, id, repo, gateNames)...)
+		var check func(string) bool
+		if sh == shapeNumbered && r.rung == scriptRung {
+			check = unreached
+		}
+		add(r.line, home(r, sh, id, repo, gateNames, check)...)
 		answer := r.scope + "/" + r.rung + "/" + strings.Join(r.holds, ",")
 		first, ok := answers[r.lesson]
 		switch {

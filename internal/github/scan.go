@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,14 +21,17 @@ const gitlinkMode = "160000"
 // zeroSHA is the object id git prints for a side that does not exist.
 const zeroSHA = "0000000000000000000000000000000000000000"
 
-// injectedPrefixes are the paths the server injects into a checkout
-// (KTD17, KTD19). A commit that touches one would publish the brief, the
-// run token, the pack or the .env file.
-var injectedPrefixes = []string{".loop/", ".claude/skills/loop-", ".agents/skills/loop-"}
+// injectedPrefixes are the pack skill directories the server injects into
+// a checkout (KTD17).
+var injectedPrefixes = []string{".claude/skills/loop-", ".agents/skills/loop-"}
 
-// injected reports whether p is a path the server injects.
+// injected reports whether p is a path the server injects (KTD17, KTD19):
+// one of cli.InjectedFiles, or a file of the pack. A commit that touches
+// one would publish the brief, the run token, the pack or the .env file.
+// Every other .loop/ path, such as .loop/policy/<role>.md, .loop/config.yaml
+// or .loop/secrets.yaml, belongs to the repository, and a run may change it.
 func injected(p string) bool {
-	if p == ".loop" || p == ".env" {
+	if slices.Contains(cli.InjectedFiles(), p) {
 		return true
 	}
 	for _, pre := range injectedPrefixes {

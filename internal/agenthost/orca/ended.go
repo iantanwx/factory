@@ -454,11 +454,13 @@ func (s *claudeScan) keeps() string {
 	return ""
 }
 
-// codexFinished ports codexFinished in alpha's codex-finished.ts, without
-// its background-resource ledger (CodexResources). The final turn must end
-// in task_complete for the turn that task_started opened, in a session whose
-// session_meta names the checkout. Any unrecognized record keeps the agent.
+// codexFinished ports codexFinished in alpha's codex-finished.ts. The final
+// turn must end in task_complete for the turn that task_started opened, in a
+// session whose session_meta names the checkout, and every background
+// resource the ledger reads must have settled. Any unrecognized record keeps
+// the agent.
 func codexFinished(text []byte, dir string) finish {
+	resources := newCodexResources()
 	var session, turn, reason string
 	completed := false
 	var newest time.Time
@@ -501,10 +503,14 @@ func codexFinished(text []byte, dir string) finish {
 			completed = turn != "" && str(p["turn_id"]) == turn
 		case r.Type == "response_item":
 			completed = false
+			if ptype != "message" && ptype != "reasoning" && ptype != "agent_message" {
+				resources.response(p)
+			}
 		case r.Type == "turn_context" || r.Type == "world_state" || r.Type == "inter_agent_communication_metadata":
 			completed = false
 		case r.Type == "event_msg" && ptype == "item_completed":
 			completed = false
+			resources.item(p["item"], str(p["thread_id"]), session)
 		case r.Type == "event_msg" && ptype != "token_count":
 			completed = false
 			if ptype == "error" || ptype == "turn_aborted" {
@@ -515,6 +521,9 @@ func codexFinished(text []byte, dir string) finish {
 		case r.Type != "event_msg" && r.Type != "token_usage_record":
 			reason = "the Codex rollout contains an unrecognized record"
 		}
+	}
+	if reason == "" {
+		reason = resources.pending()
 	}
 	if reason == "" && (session == "" || !completed) {
 		reason = "the Codex session has no proven completed final turn"

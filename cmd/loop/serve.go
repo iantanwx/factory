@@ -112,6 +112,7 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		// Admission needs its base reader when the server composes, before
 		// Setup builds the service. The wrapper reads through the service.
 		opts.BaseFiles = lazyBase{gh}
+		opts.Pulls = lazyPulls{gh}
 		opts.ManifestReader = func(ctx context.Context, p config.Project, branch string) (*config.Manifest, error) {
 			if gh.Service == nil {
 				return nil, errNoGitHub
@@ -197,6 +198,25 @@ func (l lazyBase) Files(ctx context.Context, project string, prefixes []string) 
 		return nil, errNoGitHub
 	}
 	return l.gh.Service.Files(ctx, project, prefixes)
+}
+
+// lazyPulls is admission's reader of open pull requests over the GitHub
+// service, for the `## Depends on` hold.
+type lazyPulls struct{ gh *server.GitHub }
+
+func (l lazyPulls) OpenPulls(ctx context.Context, project string) ([]admission.PullHead, error) {
+	if l.gh.Service == nil {
+		return nil, errNoGitHub
+	}
+	prs, err := l.gh.Service.OpenPulls(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]admission.PullHead, len(prs))
+	for i, pr := range prs {
+		out[i] = admission.PullHead{Number: pr.Number, Branch: pr.Head.Ref}
+	}
+	return out, nil
 }
 
 var _ admission.BaseReader = lazyBase{}

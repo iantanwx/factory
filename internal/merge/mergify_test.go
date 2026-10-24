@@ -2,6 +2,7 @@ package merge_test
 
 import (
 	"errors"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -132,6 +133,30 @@ func TestMergifyProjectAddOpensOneTemplatePR(t *testing.T) {
 	}
 	if n := len(e.world.PRs()); n != 1 {
 		t.Fatalf("%d PRs; want 1", n)
+	}
+}
+
+// On a plan with no rulesets, `project add` still opens the template PR,
+// and the template requires the gates job: nothing else requires CI there.
+func TestMergifyProjectAddOnAPlanWithNoRulesetsRequiresTheGatesJob(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusForbidden} {
+		e := newMergify(t)
+		e.api.ServeApp("loop-fixture")
+		e.api.SetRules(nil)
+		e.api.SetNoRulesStatus(status)
+		err := e.mech.Check(e.ctx, e.project)
+		var setup *mergify.SetupError
+		if !errors.As(err, &setup) {
+			t.Fatalf("%d: add = %v; want a refusal that names the template PR", status, err)
+		}
+		got, _ := e.world.File(mergify.SetupBranch, mergify.ConfigPath)
+		want, err := mergify.Render(mergify.Template{Bot: "loop-fixture[bot]", Base: "main", Checks: []string{"gates"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != string(want) {
+			t.Fatalf("%d: the template PR holds %q; want the template that requires gates", status, got)
+		}
 	}
 }
 

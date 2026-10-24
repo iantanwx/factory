@@ -20,6 +20,10 @@ commands_restrictions:
               - {{cond "check-success =" .Eligible}}
 
 merge_queue:
+  # A merge outside the queue, such as the operator's sign-off merge of a
+  # document, resets each draft check, so no draft merges untested on the
+  # new base.
+  reset_on_external_merge: always
   queued_label: queued
   checking_label: checking
   dequeued_label: {{.Dequeued}}
@@ -31,6 +35,10 @@ queue_rules:
       min: 1
       max: 6
     batch_max_wait_time: 5 min
+    # A draft check that hangs times out and frees the queue. The time
+    # counts the wait for a runner. Keep it at least the timeout-minutes of
+    # the gates job.
+    checks_timeout: 90 min
     max_checks_retries: 0
     # Merge commits land the reviewed commits unchanged.
     merge_method: merge
@@ -45,11 +53,9 @@ queue_rules:
 {{- range .Checks}}
       - {{cond "check-success =" .}}
 {{- end}}
-{{- if .Checks}}
     merge_conditions:
 {{- range .Checks}}
       - {{cond "check-success =" .}}
-{{- end}}
 {{- end}}
 
 pull_request_rules:

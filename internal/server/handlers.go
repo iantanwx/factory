@@ -36,6 +36,7 @@ func (s *Server) wire() error {
 		"secret set":       s.secretSet,
 		"secret import":    s.secretImport,
 		"coordinator send": s.coordinatorSend,
+		"doctor-env":       s.doctorEnv,
 	} {
 		if err := s.RPC.Handle(path, h); err != nil {
 			return err
