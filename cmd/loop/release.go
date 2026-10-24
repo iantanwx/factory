@@ -324,7 +324,7 @@ func (h *hostVerbs) upgrade(ctx context.Context, inv cli.Invocation) cli.Result 
 			return fail(&release.Error{Code: release.CodeReleaseUnavailable, Rule: "latest_unavailable", Hint: err.Error()})
 		}
 	}
-	u := &release.Upgrader{Host: host, Source: src, Keys: keys, Platform: h.platform, Prov: h.prov, Self: self}
+	u := &release.Upgrader{Host: host, Source: src, Keys: keys, Platform: h.platform, Prov: h.prov, Fetcher: h.fetcher, Self: self}
 	rep, err := u.Run(ctx, version)
 	if err != nil {
 		return fail(err)

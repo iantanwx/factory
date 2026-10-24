@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/iantanwx/loop/internal/hexid"
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -26,9 +27,12 @@ type releaseWorld struct {
 	t     *testing.T
 	srv   *httptest.Server
 	mu    sync.Mutex
-	files map[string][]byte // "/<version>/<asset>"
+	files map[string][]byte // "/<version>/<asset>", and "/skills/<name>" for a skill archive
 	pub   PublicKey
 	sec   SecretKey
+	// thirdParty is the third-party.json that publish serves; nil serves a
+	// release that pins no skill.
+	thirdParty []byte
 }
 
 func newReleaseWorld(t *testing.T) *releaseWorld {
@@ -51,12 +55,21 @@ func newReleaseWorld(t *testing.T) *releaseWorld {
 
 func (w *releaseWorld) source() Source { return Source{Base: w.srv.URL, HTTP: w.srv.Client()} }
 
+// fetcher reads each skill archive from /skills/<name>.
+func (w *releaseWorld) fetcher() SkillFetcher {
+	return SkillFetcher{HTTP: w.srv.Client(), URL: func(p pack.ThirdParty) string { return w.srv.URL + "/skills/" + p.Name }}
+}
+
 // publish signs and serves a release whose linux/amd64 binary is bin.
 // signer and trusted override the key and the trusted comment.
 func (w *releaseWorld) publish(meta Metadata, bin []byte, signer *SecretKey, trusted string) {
 	w.t.Helper()
 	metaBytes := meta.Encode()
-	sums := Checksums{AssetName("linux", "amd64"): hexid.SHA256(bin), MetadataFile: hexid.SHA256(metaBytes)}
+	pins := w.thirdParty
+	if pins == nil {
+		pins = []byte(`{"skills": []}` + "\n")
+	}
+	sums := Checksums{AssetName("linux", "amd64"): hexid.SHA256(bin), MetadataFile: hexid.SHA256(metaBytes), ThirdPartyAsset: hexid.SHA256(pins)}
 	if signer == nil {
 		signer = &w.sec
 	}
@@ -72,6 +85,7 @@ func (w *releaseWorld) publish(meta Metadata, bin []byte, signer *SecretKey, tru
 	prefix := "/" + meta.Version + "/"
 	w.files[prefix+AssetName("linux", "amd64")] = bin
 	w.files[prefix+MetadataFile] = metaBytes
+	w.files[prefix+ThirdPartyAsset] = pins
 	w.files[prefix+ChecksumsFile] = sums.Bytes()
 	w.files[prefix+SignatureFile] = sig
 }
@@ -191,6 +205,7 @@ func (w *instanceWorld) upgrader(rw *releaseWorld) *Upgrader {
 	return &Upgrader{
 		Host:   Host{Layout: w.layout, Service: w.svc, Server: w.server},
 		Source: rw.source(), Keys: []PublicKey{rw.pub}, Platform: testPlatform, Prov: w.pins.prov, Self: w.meta,
+		Fetcher: rw.fetcher(),
 	}
 }
 

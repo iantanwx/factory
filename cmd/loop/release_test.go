@@ -1,7 +1,9 @@
 package main
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,10 +23,12 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/server"
@@ -199,7 +203,9 @@ func TestReachableNeverWaits(t *testing.T) {
 // CLI that calls while the server is down completes against the new
 // server. A run started under v1.0.0 still holds its token after the
 // drain, and its calls succeed against v1.1.0, because both schemas hold
-// the verb.
+// the verb. A skill of v1.1.0 that fails its pin refuses the upgrade and
+// changes nothing (C15); once it matches, the upgrade places it in
+// versions/v1.1.0/skills/.
 func TestUpgradeAcrossARealServer(t *testing.T) {
 	const v1, v2 = "v1.0.0", "v1.1.0"
 	bin1, bin2 := binary(t, v1), binary(t, v2)
@@ -266,7 +272,16 @@ func TestUpgradeAcrossARealServer(t *testing.T) {
 	asset := release.AssetName(runtime.GOOS, runtime.GOARCH)
 	bin2Bytes, _ := os.ReadFile(bin2)
 	metaRaw := meta(v2).Encode()
-	sums := release.Checksums{asset: sha(bin2Bytes), release.MetadataFile: sha(metaRaw)}
+	skill := "---\nname: demo\ndescription: A demo skill.\n---\n\nDo the demo.\n"
+	pin := pack.ThirdParty{Name: "demo", Repo: "owner/repo", Commit: strings.Repeat("a", 40), Path: "skills/demo"}
+	if pin.SHA256, err = pack.TreeHash(fstest.MapFS{"SKILL.md": {Data: []byte(skill), Mode: 0o644}}); err != nil {
+		t.Fatal(err)
+	}
+	pinsRaw, err := json.Marshal(map[string][]pack.ThirdParty{"skills": {pin}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums := release.Checksums{asset: sha(bin2Bytes), release.MetadataFile: sha(metaRaw), "third-party.json": sha(pinsRaw)}
 	sig, err := release.Sign(sec, sums.Bytes(), release.TrustedComment(v2))
 	if err != nil {
 		t.Fatal(err)
@@ -275,8 +290,14 @@ func TestUpgradeAcrossARealServer(t *testing.T) {
 	files["/"+v2+"/"+release.MetadataFile] = metaRaw
 	files["/"+v2+"/"+release.ChecksumsFile] = sums.Bytes()
 	files["/"+v2+"/"+release.SignatureFile] = sig
+	files["/"+v2+"/third-party.json"] = pinsRaw
+	// The skill's archive first holds an edit that its pin does not.
+	var filesMu sync.Mutex
+	files["/skills/demo"] = skillTarGz(t, "skills/demo/SKILL.md", skill+"An edit upstream.\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		filesMu.Lock()
 		data, ok := files[r.URL.Path]
+		filesMu.Unlock()
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -315,13 +336,44 @@ func TestUpgradeAcrossARealServer(t *testing.T) {
 	h := testHostVerbs(t, instance, svc)
 	h.source = func() release.Source { return release.Source{Base: srv.URL, HTTP: srv.Client()} }
 	h.keys = func() ([]release.PublicKey, error) { return []release.PublicKey{pub}, nil }
+	h.fetcher = release.SkillFetcher{HTTP: srv.Client(), URL: func(p pack.ThirdParty) string { return srv.URL + "/skills/" + p.Name }}
+	onStop := svc.onStop
+	svc.onStop = nil
 	env := runVerb(t, h, "upgrade", v2)
+	if env["code"] != release.CodeChecksumMismatch || env["rule"] != "skill_mismatch" {
+		t.Fatalf("upgrade with a mismatched skill = %v", env)
+	}
+	if cur, _ := layout.CurrentVersion(); cur != v1 {
+		t.Fatalf("a refused upgrade moved current to %s", cur)
+	}
+	if _, err := os.Stat(layout.VersionDir(v2)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a refused upgrade wrote %s: %v", layout.VersionDir(v2), err)
+	}
+	if got := strings.Join(svc.events, " "); got != "start" {
+		t.Fatalf("a refused upgrade acted on the service: %q", got)
+	}
+	if r := loop(t, bin1, instance, checkout, "", "status"); r.exit != 0 || r.env["server_version"] != v1 {
+		t.Fatalf("status after a refused upgrade: %s", r.stdout)
+	}
+
+	// The archive now holds the pinned tree.
+	filesMu.Lock()
+	files["/skills/demo"] = skillTarGz(t, "skills/demo/SKILL.md", skill)
+	filesMu.Unlock()
+	svc.onStop = onStop
+	env = runVerb(t, h, "upgrade", v2)
 	if env["exit"] != float64(0) {
 		t.Fatalf("upgrade = %v", env)
 	}
 	data := env["data"].(map[string]any)
 	if data["drain"].(map[string]any)["skipped"] == nil || data["snapshot"] == "" || data["started"] != true {
 		t.Fatalf("upgrade report = %v", data)
+	}
+	if got, err := os.ReadFile(filepath.Join(instance, "versions", v2, "skills", "demo", "SKILL.md")); err != nil || string(got) != skill {
+		t.Fatalf("versions/%s/skills/demo/SKILL.md = %q %v", v2, got, err)
+	}
+	if drift := release.CheckSkills([]pack.ThirdParty{pin}, filepath.Join(instance, "versions", v2, "skills")); len(drift) != 0 {
+		t.Fatalf("drift after the upgrade: %q", drift)
 	}
 	waiting.Wait()
 	if during.exit != 0 || during.env["server_version"] != v2 {
@@ -349,6 +401,27 @@ func TestUpgradeAcrossARealServer(t *testing.T) {
 	if got := strings.Join(svc.events, " "); got != "start stop start stop start" {
 		t.Fatalf("service events = %q", got)
 	}
+}
+
+// skillTarGz is a GitHub tarball of one file under its top directory.
+func skillTarGz(t *testing.T, name, body string) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(zw)
+	if err := tw.WriteHeader(&tar.Header{Name: "repo-abc/" + name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }
 
 func loopNoFatal(bin, instance, dir string, args ...string) result {
