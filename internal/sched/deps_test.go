@@ -183,6 +183,28 @@ func TestDependencyAdvanceReleasesACanceledBlockerWithNoOpenPull(t *testing.T) {
 	}
 }
 
+// One tick reads the open pull requests at most once, however many
+// dependants wait on a canceled blocker.
+func TestDependencyAdvanceReadsThePullsOnceATick(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	p := &pulls{}
+	w.readPulls(p)
+	d := w.ticket(machine.Backlog)
+	w.dependsOn(d, w.ticket(machine.Canceled), beadsx.DepBlocks)
+	e := w.ticket(machine.Backlog)
+	w.dependsOn(e, w.ticket(machine.Canceled), beadsx.DepBlocks)
+	if err := w.s.advanceDependencies(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 1 {
+		t.Fatalf("%d reads of the open pull requests for two dependants, want 1", p.reads)
+	}
+	if w.status(d) != machine.Todo || w.status(e) != machine.Todo {
+		t.Fatalf("dependents = %s, %s; want todo, todo", w.status(d), w.status(e))
+	}
+}
+
 // A canceled blocker that still holds an open pull request has not
 // landed: that pull request can still merge its code.
 func TestDependencyAdvanceHoldsACanceledBlockerWithAnOpenPull(t *testing.T) {

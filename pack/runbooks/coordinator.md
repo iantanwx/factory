@@ -83,10 +83,14 @@ read with the event you blame. Read the state back after each write you report.
   it with `loop stage resume <stage>`. Report each one.
 - **The same item stands still wake after wake.** Say so in the report. Never escalate it a second
   time. A duplicate changes nothing.
-- **A backlog ticket waits on a canceled blocker, or on no blocking edge.** The server never frees
-  that ticket alone. Read the ticket and each blocker with `loop work show <item>`. When the ticket
-  still holds without the canceled work, run `loop work unblock <item>`. When it does not, bring
-  it to the operator.
+- **A backlog ticket waits on a canceled blocker whose pull request is still open, or on no
+  blocking edge.** The server never frees that ticket alone. Read the ticket and each blocker with
+  `loop work show <item>`. When the ticket still holds without the canceled work, run
+  `loop work unblock <item>`. When it does not, bring it to the operator.
+- **A ticket left backlog because its blocker was canceled.** The server frees the dependants of a
+  canceled blocker that holds no open pull request, as if the blocker had landed. Read each freed
+  ticket with `loop work show <item>`. When it still needs the canceled work, change it with
+  `loop work edit <item>` so it no longer does, or bring it to the operator.
 - **The operator drops an escalated item.** Run `loop work cancel <item>`, and quote the
   operator's words in the report.
 - **A merged change or a ruling leaves a ticket with no work.** Run
