@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -38,6 +39,7 @@ func (m *Machine) Handlers() map[string]rpc.Handler {
 		"work cancel":     m.verb("cancel", "item"),
 		"work unblock":    m.verb("unblock", "item"),
 		"work shape":      m.workShape,
+		"work ask":        m.workAsk,
 		"work duplicate":  m.workDuplicate,
 		"work supersede":  m.workSupersede,
 		"review submit":   m.reviewSubmit,
@@ -231,6 +233,38 @@ func (m *Machine) workEdit(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "nothing_to_edit", Item: item, Hint: "name the new text with --title, --body or both"})
 	}
 	return m.Apply(ctx, request(call, prj, item, "edit", params))
+}
+
+// askQuestion is one top-level list item of an ask's body. An indented
+// item is part of the question above it.
+var askQuestion = regexp.MustCompile(`^(?:[-*+]|\d+[.)])\s+\S`)
+
+// maxQuestions bounds one ask (scripts/sdlc/bugs-report-ask.ts:42, alpha):
+// a reporter is a person, and answers a short ask.
+const maxQuestions = 3
+
+// workAsk asks a bug's reporter one to three questions. The table counts
+// the asks and refuses the third.
+func (m *Machine) workAsk(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := call.Project(ownProject)
+	if r != nil {
+		return r.Result()
+	}
+	bug, body := call.Inv.Arg("item"), strings.TrimSpace(call.Inv.Flags["body"])
+	if r := borrowed(call, bug); r != nil {
+		return r.Result()
+	}
+	n := 0
+	for _, line := range strings.Split(body, "\n") {
+		if askQuestion.MatchString(line) {
+			n++
+		}
+	}
+	if n == 0 || n > maxQuestions {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "bad_questions", Item: bug,
+			Hint: fmt.Sprintf("an ask holds one to three questions, each a top-level list item, and this body holds %d", n)})
+	}
+	return m.Apply(ctx, request(call, prj, bug, "ask", map[string]string{"body": body}))
 }
 
 // workDuplicate closes a bug as a duplicate of another item.

@@ -23,6 +23,7 @@ service WorkService {
   rpc Cancel(VerbRequest) returns (Envelope);
   rpc Create(VerbRequest) returns (Envelope);
   rpc Shape(VerbRequest) returns (Envelope);
+  rpc Ask(VerbRequest) returns (Envelope);
   rpc Duplicate(VerbRequest) returns (Envelope);
   rpc Supersede(VerbRequest) returns (Envelope);
 }
