@@ -117,6 +117,62 @@ func TestMissedDeadlineFiresOnceAfterRestart(t *testing.T) {
 	}
 }
 
+// C2: a host config that v0.0.22 wrote holds no overwatch entry. The
+// scheduler ticks the overwatch row on the default schedule, and the file
+// stays as it was.
+func TestC2OldHostConfigTicksOverwatchOnTheDefault(t *testing.T) {
+	w := newWorld(t)
+	fixture, err := os.ReadFile(filepath.Join("..", "config", "testdata", "host-v0.0.22.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.hostPath, fixture, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	n := 0
+	if err := w.s.RegisterInstanceJob("overwatch", func(context.Context) error {
+		mu.Lock()
+		defer mu.Unlock()
+		n++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calls := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return n
+	}
+	for _, c := range []struct {
+		at   string
+		want int
+	}{
+		{"2026-10-21T10:00:30Z", 0}, // the first sight sets the deadline after now
+		{"2026-10-21T10:03:30Z", 1},
+		{"2026-10-21T10:10:30Z", 1},
+		{"2026-10-21T10:13:30Z", 2},
+		{"2026-10-21T10:53:30Z", 3},
+	} {
+		w.clock.Set(at(t, c.at))
+		w.tick()
+		if got := calls(); got != c.want {
+			t.Fatalf("at %s overwatch ran %d times, want %d", c.at, got, c.want)
+		}
+	}
+	if got := w.count(`SELECT count(*) FROM schedule WHERE kind = 'cron' AND project = '' AND stage = 'overwatch' AND cron_expr = ?`,
+		"3,13,23,33,43,53 * * * *"); got != 1 {
+		t.Fatalf("%d overwatch rows on the default schedule, want 1", got)
+	}
+	after, err := os.ReadFile(w.hostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(fixture) {
+		t.Fatalf("the scheduler changed host config:\n%s", after)
+	}
+}
+
 // leaseCheck wraps the fake host and records the item's lease owner when a
 // run starts.
 type leaseCheck struct {
