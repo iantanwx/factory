@@ -1,7 +1,7 @@
 // Package decision files decisions and runs the decision-timers native job.
 // A decision waits in pending for its trigger. `decision fire`, a
-// --by date or the end of an inbox defer sends it to a person in
-// needs_human. The other decision verbs are the state machine's: the
+// --by date, the end of an inbox defer or `decision file --now` sends it to
+// a person in needs_human. The other decision verbs are the state machine's: the
 // table ports DECISION_MOVES (scripts/sdlc/decision-states.ts, alpha).
 package decision
 
@@ -62,7 +62,11 @@ func (s *Service) Register(srv *rpc.Server) error {
 }
 
 // file is `loop decision file`: a question that waits for its trigger. A
-// run files in its own project, and the coordinator names one.
+// run files in its own project, and the coordinator names one. --now says
+// the trigger already fired, so the same write fires the decision to a
+// person: a run may not fire a decision it does not hold, and a spec defect
+// a code-reviewer finds must page a person now (code-reviewer.md:1098-1130,
+// alpha, escalates the epic).
 func (s *Service) file(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
 	project, ref := call.Project("a run files decisions in its own project only")
@@ -79,6 +83,10 @@ func (s *Service) file(ctx context.Context, call *rpc.Call) cli.Result {
 			return cli.Reject(cli.CodeUsage, "bad_by", "--by is a date, YYYY-MM-DD")
 		}
 	}
+	now := inv.Flags["now"] == "true"
+	if now && by != "" {
+		return cli.Reject(cli.CodeUsage, "now_and_by", "--now says the trigger fired, and --by names a day it fires; pass one")
+	}
 	body := inv.Flags["body"]
 	if s.Redactor != nil {
 		for _, t := range []string{title, trigger, body} {
@@ -92,12 +100,22 @@ func (s *Service) file(ctx context.Context, call *rpc.Call) cli.Result {
 	if by != "" {
 		facts[inbox.FactBy] = by
 	}
+	actor := machine.Actor{Name: p.Actor(), RunID: p.RunID}
 	id, res := s.Machine.Create(ctx, machine.CreateRequest{Project: project, Kind: machine.KindDecision, Title: title,
-		Description: body, Verb: machine.VerbFile, Actor: machine.Actor{Name: p.Actor(), RunID: p.RunID}, Facts: facts})
+		Description: body, Verb: machine.VerbFile, Actor: actor, Facts: facts})
 	if res.Refusal != nil {
 		return res
 	}
-	return cli.Found(map[string]any{"decision": id, "project": project, "status": machine.DecisionPending, "by": by})
+	status := machine.DecisionPending
+	if now {
+		if res := s.Machine.Apply(ctx, machine.Request{Project: project, Item: id, Verb: machine.VerbFire, Actor: actor,
+			ExpectedStatus: machine.DecisionPending}); res.Refusal != nil {
+			return res
+		}
+		status = machine.NeedsHuman
+		s.changed()
+	}
+	return cli.Found(map[string]any{"decision": id, "project": project, "status": status, "by": by})
 }
 
 // Tick is the decision-timers job for one project. It fires each pending
