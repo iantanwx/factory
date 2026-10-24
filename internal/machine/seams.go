@@ -51,8 +51,8 @@ type ListFilter struct {
 	Facts map[string]string
 }
 
-// List reads the work items of one project in id order. A bead of a type
-// no kind uses is skipped.
+// List reads the work items of one project in id order, with no body. A
+// bead of a type no kind uses is skipped.
 func (m *Machine) List(ctx context.Context, project string, f ListFilter) ([]Item, *cli.Refusal) {
 	bc, err := m.cfg.Beads(project)
 	if err != nil {
@@ -85,6 +85,7 @@ func (m *Machine) List(ctx context.Context, project string, f ListFilter) ([]Ite
 		if err != nil {
 			continue
 		}
+		it.Body = ""
 		out = append(out, it)
 	}
 	return out, nil

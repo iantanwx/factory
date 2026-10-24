@@ -128,7 +128,11 @@ func commentKey(call *rpc.Call) string {
 // server checks it for a secret, posts it on the item's pull request once
 // every other check of the write passed, and then records it as the
 // review fact under the same compare-and-set as the verdict. A comment
-// GitHub refuses records nothing.
+// GitHub refuses records nothing. A code pass first needs green CI at the
+// head it names (alpha pr-comment.ts 74-91): the pass writes the reviewed
+// head that loop/eligible is posted on, so a pass at red or pending CI
+// records nothing and posts no comment. A reject needs no green build, and
+// a document's pass reads no CI.
 func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -153,10 +157,17 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	req := request(call, prj, item, verb, params)
 	key := commentKey(call)
-	req.Before = func(ctx context.Context) *cli.Refusal {
+	req.Before = func(ctx context.Context, it Item) *cli.Refusal {
+		// The live head first: a stale head is refused head_changed, not
+		// for CI at a commit the PR no longer holds.
 		if head != "" && m.prHead != nil {
 			if r := m.headHeld(ctx, prj, item, head); r != nil {
-				return r
+				return refusedAt(r, item, it)
+			}
+		}
+		if verb == "review_pass" && it.Kind == KindTicket && m.passGate != nil {
+			if r := m.passGate(ctx, prj, item, params["head"]); r != nil {
+				return refusedAt(r, item, it)
 			}
 		}
 		if body != "" && m.reviewComment != nil {
@@ -165,6 +176,16 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 		return nil
 	}
 	return m.Apply(ctx, req)
+}
+
+// refusedAt names the item, its status and its next moves in a refusal
+// from a Before hook, which the hook's reader leaves out.
+func refusedAt(r *cli.Refusal, item string, it Item) *cli.Refusal {
+	r.Item, r.CurrentStatus = item, it.Status
+	if r.AllowedNext == nil {
+		r.AllowedNext = it.AllowedNext
+	}
+	return r
 }
 
 // headHeld refuses a verdict at a head the item's pull request no longer
@@ -278,7 +299,7 @@ func (m *Machine) workSupersede(ctx context.Context, call *rpc.Call) cli.Result 
 			Hint: "--reason says how the evidence answers the ticket; a person reads it"})
 	}
 	req := request(call, prj, item, VerbSupersede, map[string]string{"evidence": kind, "ref": ref, "reason": reason})
-	req.Before = func(ctx context.Context) *cli.Refusal {
+	req.Before = func(ctx context.Context, _ Item) *cli.Refusal {
 		if m.supersedeCheck == nil {
 			return cli.InternalRefusal(errors.New("machine: the server reads no GitHub, so it cannot check the evidence of a supersede"))
 		}
@@ -420,6 +441,14 @@ type PRHeadReader func(ctx context.Context, project, item string) (string, *cli.
 // SetPRHeadReader sets the reader of live pull request heads. The GitHub
 // setup sets it before the socket binds.
 func (m *Machine) SetPRHeadReader(f PRHeadReader) { m.prHead = f }
+
+// PassGate reads CI at head, the head a code review passes. It refuses
+// unless every required check is green there.
+type PassGate func(ctx context.Context, project, item, head string) *cli.Refusal
+
+// SetPassGate sets the reader of CI for a code pass. The GitHub setup sets
+// it before the socket binds.
+func (m *Machine) SetPassGate(f PassGate) { m.passGate = f }
 
 // TaskText is the title and the body of an item's task: the text work
 // edit wrote, or the bead's own, and then an answer that amends the task.

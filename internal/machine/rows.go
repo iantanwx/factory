@@ -29,6 +29,8 @@ const (
 	FactAnswer       = "answer"        // the last answer a person gave through the inbox
 	FactAmendment    = "amendment"     // an answer that amends the task; it enters the inputs (R10)
 	FactDocPR        = "doc_pr"        // the PR number of the epic's current document
+	FactAmendFrom    = "amend_from"    // the state a person's comment found the document in
+	FactAmendHead    = "amend_head"    // the document PR's head when that comment moved it
 	FactPRDPath      = "prd_path"      // the PRD's path in the repository
 	FactPRDMerged    = "prd_merged"    // the merge commit of the epic's PRD: the operator's sign-off
 	FactADR          = "adr"           // the path of the ADR that replaced the PRD of an architecture epic, on the base

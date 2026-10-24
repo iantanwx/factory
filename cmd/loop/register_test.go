@@ -78,7 +78,8 @@ func TestRegisterWithoutRulesets(t *testing.T) {
 	}
 }
 
-// The skills land under both harnesses' roots, and git ignores them.
+// The skills land under both harnesses' roots, the agents under Claude
+// Code's, and git ignores them.
 func TestRegisterInstallsTheSkills(t *testing.T) {
 	clone := t.TempDir()
 	if out, err := exec.Command("git", "init", "-q", clone).CombinedOutput(); err != nil {
@@ -95,6 +96,9 @@ func TestRegisterInstallsTheSkills(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(clone, root, "loop-init", "SKILL.md")); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(clone, ".claude/agents/loop-escalation-prep.md")); err != nil {
+		t.Fatal(err)
 	}
 	out, err := exec.Command("git", "-C", clone, "status", "--porcelain", "--untracked-files=all").Output()
 	if err != nil || len(out) != 0 {

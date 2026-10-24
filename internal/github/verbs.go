@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -116,11 +117,12 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 
 // openVerbs maps the status an item holds when its run opens or updates
 // its PR to the table verb that hands the item to review. The amender
-// pushes its revision to the PRD's open PR, and its `pr open` returns the
-// epic to review.
+// pushes its revision to the document's open PR, and its `pr open` returns
+// the epic to review, or to sign-off when it pushed nothing.
 var openVerbs = map[machine.Kind]map[string]string{
 	machine.KindTicket: {machine.InProgress: "pr_open", machine.Repair: "fix_pushed"},
-	machine.KindEpic:   {machine.SpecDrafting: "pr_open", machine.PRDAmending: "prd_amended"},
+	machine.KindEpic: {machine.SpecDrafting: "pr_open", machine.PRDAmending: "prd_amended",
+		machine.SpecAmending: "spec_amended"},
 }
 
 func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
@@ -149,10 +151,24 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 	if verb == "" {
 		return cli.Found(out)
 	}
+	head := pr.Head.SHA
+	if it.Status == machine.PRDAmending || it.Status == machine.SpecAmending {
+		// GitHub moves a PR's head some time after a push. The amended
+		// row compares the head with the one a comment found, so it
+		// reads the server's own newest push first: a revision read as
+		// no change would skip the review.
+		pushed, err := s.lastPush(ctx, prj.ID, branch)
+		if err != nil {
+			return Refuse(err)
+		}
+		if pushed != "" {
+			head = pushed
+		}
+	}
 	p := call.Principal
 	res := s.cfg.Machine.Apply(ctx, machine.Request{
 		Project: prj.ID, Item: item, Verb: verb, ExpectedStatus: it.Status, RequestID: call.Inv.RequestID,
-		Params: map[string]string{"head": pr.Head.SHA, "pr": strconv.Itoa(pr.Number)},
+		Params: map[string]string{"head": head, "pr": strconv.Itoa(pr.Number)},
 		Actor:  machine.Actor{Name: p.Actor(), RunID: p.RunID, Fenced: p.Kind == cli.PrincipalRun, Epoch: p.Epoch},
 	})
 	if res.Refusal != nil {
@@ -395,6 +411,62 @@ func (s *Service) PRHead(ctx context.Context, project, item string) (string, *cl
 			Hint: fmt.Sprintf("%s has no open pull request on %s to hold the reviewed head", item, branch)}
 	}
 	return pr.Head.SHA, nil
+}
+
+// PassCI is the machine's PassGate: a code pass needs green CI at the head
+// it names (alpha pr-comment.ts 74-91). Every check on head must be green,
+// and each check the branch rules require must have reported there. A
+// check that has not reported counts as one that has not passed, so a
+// head with no check is never green. A repository whose plan has no
+// rulesets requires no check by name. The machine calls it after every
+// other check of the pass, and before the comment is posted, so a refused
+// pass posts nothing and writes no reviewed head for loop/eligible.
+func (s *Service) PassCI(ctx context.Context, project, item, head string) *cli.Refusal {
+	if !shaRe.MatchString(head) {
+		return &cli.Refusal{Code: cli.CodeUsage, Rule: "head_not_sha",
+			Hint: fmt.Sprintf("--head %q must be the full sha of the pull request head that `loop pr show` prints", head)}
+	}
+	prj, err := s.project(project)
+	if err != nil {
+		r := Refusal(err)
+		return &r
+	}
+	_, required, err := s.BranchRules(ctx, prj)
+	if err != nil && !noRulesets(err) {
+		r := Refusal(err)
+		return &r
+	}
+	rep, err := s.Checks(ctx, prj, head)
+	if err != nil {
+		r := Refusal(err)
+		return &r
+	}
+	var red, waiting []string
+	for _, c := range rep.Checks {
+		switch c.State {
+		case CIRed:
+			red = append(red, c.Name)
+		case CIPending:
+			waiting = append(waiting, c.Name)
+		}
+	}
+	for _, name := range required {
+		if !slices.ContainsFunc(rep.Checks, func(c CheckView) bool { return c.Name == name }) {
+			waiting = append(waiting, name+" (not reported)")
+		}
+	}
+	switch {
+	case len(red) > 0:
+		return &cli.Refusal{Code: cli.CodeCINotGreen, Rule: "ci_failed",
+			Hint: fmt.Sprintf("a pass needs green CI at %s, and %s failed there; reject, or wait for the repair", short(head), strings.Join(red, ", "))}
+	case len(waiting) > 0 || len(rep.Checks) == 0:
+		if len(waiting) == 0 {
+			waiting = []string{"no check has reported"}
+		}
+		return &cli.Refusal{Code: cli.CodeCINotGreen, Rule: "ci_pending",
+			Hint: fmt.Sprintf("a pass needs green CI at %s, and %s; run `loop pr checks` until every check is green, then submit again", short(head), strings.Join(waiting, ", "))}
+	}
+	return nil
 }
 
 // SupersedeEvidence reads the evidence of `work supersede` back, as the

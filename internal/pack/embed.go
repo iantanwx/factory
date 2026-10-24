@@ -20,5 +20,9 @@ func Brief() (brief.Pack, error) {
 	if err != nil {
 		return brief.Pack{}, err
 	}
-	return brief.Pack{Version: cli.Version, FS: tree}, nil
+	agents, err := Agents(Source())
+	if err != nil {
+		return brief.Pack{}, err
+	}
+	return brief.Pack{Version: cli.Version, FS: tree, Agents: agents}, nil
 }

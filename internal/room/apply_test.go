@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // A room applies only what a person decided: a decision file with no
@@ -38,5 +39,15 @@ func TestRoomPromptNamesItsRunbookAndReason(t *testing.T) {
 	}
 	if Stage("decision") != "decision-room" {
 		t.Fatal(Stage("decision"))
+	}
+}
+
+// A manifest entry may name each room's stage, so a key reaches one kind
+// of room only.
+func TestManifestTakesEveryRoomStage(t *testing.T) {
+	for _, k := range Kinds {
+		if _, err := config.ParseManifest([]byte("secrets:\n  - name: K\n    stages: [" + Stage(k) + "]\n")); err != nil {
+			t.Fatalf("%s: %v", Stage(k), err)
+		}
 	}
 }

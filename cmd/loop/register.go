@@ -171,9 +171,9 @@ func (h *hostVerbs) remote(ctx context.Context, ctl *serverControl, path string,
 	return res
 }
 
-// installSkills writes the loop skills into the clone for Claude Code and
-// Codex, and keeps them out of git through info/exclude, as a run's
-// checkout does.
+// installSkills writes the loop skills and agents into the clone for
+// Claude Code and Codex, and keeps them out of git through info/exclude,
+// as a run's checkout does.
 func installSkills(ctx context.Context, clone string) ([]string, error) {
 	p, err := pack.Brief()
 	if err != nil {
@@ -183,7 +183,7 @@ func installSkills(ctx context.Context, clone string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var dirs []string
+	var files, dirs []string
 	for _, h := range []agenthost.Harness{agenthost.Claude, agenthost.Codex} {
 		if err := p.Write(clone, h); err != nil {
 			return nil, err
@@ -191,8 +191,13 @@ func installSkills(ctx context.Context, clone string) ([]string, error) {
 		for _, s := range skills {
 			dirs = append(dirs, brief.SkillRoot(h)+"/"+s)
 		}
+		agents, err := p.AgentFiles(h)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, agents...)
 	}
-	return skills, brief.Exclude(ctx, clone, nil, dirs)
+	return skills, brief.Exclude(ctx, clone, files, dirs)
 }
 
 // ciChecks names the checks that ran on the head of the default branch:

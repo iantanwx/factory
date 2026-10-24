@@ -100,3 +100,22 @@ func TestListSelectsByFact(t *testing.T) {
 		t.Fatalf("read = %+v %+v", it, r)
 	}
 }
+
+// F-10: adr_misjoined returns an epic to architecture and clears its adr
+// fact, only while the fact still names the ADR the caller read.
+func TestADRMisjoinedNeedsTheADRItRead(t *testing.T) {
+	w := newWorld(t)
+	ep := w.create(KindEpic, "create_architecture", nil)
+	w.must(ep, "adr_landed", map[string]string{"path": "docs/adr/0007-x.md"})
+	r := wantCode(t, w.apply(ep, VerbADRMisjoined, map[string]string{"path": "docs/adr/0001-y.md"}), cli.CodeStatusChanged)
+	if r.Rule != "adr_changed" {
+		t.Fatalf("rule %q", r.Rule)
+	}
+	if it := w.show(ep); it.Status != SpecNeeded || it.Fact(FactADR) != "docs/adr/0007-x.md" {
+		t.Fatalf("a refused return changed the epic: %s %v", it.Status, it.Facts)
+	}
+	w.must(ep, VerbADRMisjoined, map[string]string{"path": "docs/adr/0007-x.md"})
+	if it := w.show(ep); it.Status != Architecture || it.Fact(FactADR) != "" {
+		t.Fatalf("after the return: %s %v", it.Status, it.Facts)
+	}
+}

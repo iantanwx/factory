@@ -22,6 +22,9 @@ type Mechanism struct {
 	withdrawn map[int]bool
 	// CheckErr is what Check answers.
 	CheckErr error
+	// WithdrawErr is what Withdraw answers. A withdrawal that fails
+	// leaves the PR held.
+	WithdrawErr error
 }
 
 // New returns an empty fake.
@@ -56,6 +59,9 @@ func (m *Mechanism) Requeue(ctx context.Context, pr merge.PR) error {
 func (m *Mechanism) Withdraw(_ context.Context, pr merge.PR) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.WithdrawErr != nil {
+		return m.WithdrawErr
+	}
 	delete(m.held, pr.Number)
 	m.withdrawn[pr.Number] = true
 	return nil

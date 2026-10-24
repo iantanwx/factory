@@ -45,6 +45,9 @@ type CoordinatorState struct {
 	Session  *agenthost.Session `json:"session,omitempty"`
 	// Release is the server release that started the session.
 	Release string `json:"release,omitempty"`
+	// NotifiedRelease is the later release that the session was told
+	// about, so each release messages a live session once.
+	NotifiedRelease string `json:"notified_release,omitempty"`
 }
 
 // Coordinator returns the coordinator session as the store holds it.
@@ -127,20 +130,10 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 		s.log.WarnContext(ctx, "the coordinator's project is not registered; starting another", "project", cs.Project, "checkout", cs.Checkout)
 		cs = CoordinatorState{}
 	}
-	if cs.Session != nil && cs.Release != s.cfg.Release {
-		// The session reads the runbooks and the brief of the release that
-		// started it, and the host starts agents the way that release did.
-		// A new release restarts it in the same checkout.
-		_ = s.cfg.Agents.Close(ctx, cs.Session.ID)
-		if _, err := s.cfg.Tokens.Revoke(ctx, cs.RunID); err != nil {
-			s.log.ErrorContext(ctx, "revoke the coordinator token", "err", err)
-		}
-		s.log.WarnContext(ctx, "the release changed; restarting the coordinator", "run", cs.RunID, "from", cs.Release, "to", s.cfg.Release)
-		cs.Session = nil
-	}
 	if cs.Session != nil {
 		st, err := s.cfg.Agents.Settle(ctx, cs.Session.ID)
 		if err == nil && st.Liveness == agenthost.Live {
+			s.tellCoordinatorRelease(ctx, cc, &cs)
 			return
 		}
 		if err != nil || st.Liveness != agenthost.Exited {
@@ -172,6 +165,34 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 	if err := s.saveCoordinator(ctx, cs); err != nil {
 		s.log.ErrorContext(ctx, "store the coordinator", "err", err)
 	}
+}
+
+// tellCoordinatorRelease tells a live session that started under another
+// release about this one, once. An upgrade never closes a live session: it
+// holds the operator's conversation, its subagents and writes in flight.
+// The session runs on under the release that started it, and the next one
+// starts under this release once it ends. A refused message is not
+// recorded, so the next tick sends it again.
+func (s *Scheduler) tellCoordinatorRelease(ctx context.Context, cc *CoordinatorConfig, cs *CoordinatorState) {
+	if cs.Release == s.cfg.Release || cs.NotifiedRelease == s.cfg.Release {
+		return
+	}
+	// The runbook the message names is the new release's.
+	if err := brief.RefreshPack(ctx, cs.Checkout, cc.Harness, s.cfg.Pack); err != nil {
+		s.log.WarnContext(ctx, "write the new pack into the coordinator's checkout", "checkout", cs.Checkout, "err", err)
+	}
+	text := fmt.Sprintf("loop: the server now runs release %s, and you started under %s. Read %s again. "+
+		"The server starts the next coordinator under %s when this session ends.",
+		s.cfg.Release, cs.Release, brief.Runbook(cc.Harness, CoordinatorStage), s.cfg.Release)
+	if err := s.cfg.Agents.Notify(ctx, cs.Session.ID, text); err != nil {
+		s.log.WarnContext(ctx, "tell the coordinator about the new release", "run", cs.RunID, "err", err)
+		return
+	}
+	cs.NotifiedRelease = s.cfg.Release
+	if err := s.saveCoordinator(ctx, *cs); err != nil {
+		s.log.ErrorContext(ctx, "store the coordinator", "err", err)
+	}
+	s.log.InfoContext(ctx, "told the coordinator about the new release", "run", cs.RunID, "from", cs.Release, "to", s.cfg.Release)
 }
 
 // coordinatorHome reports whether project may hold the coordinator's
@@ -222,6 +243,6 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		_, _ = s.cfg.Tokens.Revoke(ctx, run)
 		return fmt.Errorf("sched: start the coordinator: %w", err)
 	}
-	cs.RunID, cs.Session, cs.Release = run, &sess, s.cfg.Release
+	cs.RunID, cs.Session, cs.Release, cs.NotifiedRelease = run, &sess, s.cfg.Release, ""
 	return nil
 }

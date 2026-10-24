@@ -86,6 +86,8 @@ func (g *GitHub) Setup(s *Server) error {
 		// review submit --head compares the head with the PR's live
 		// head before the verdict is recorded.
 		s.Machine.SetPRHeadReader(svc.PRHead)
+		// A code pass needs green CI at the head it names.
+		s.Machine.SetPassGate(svc.PassCI)
 		// work supersede reads its evidence and the ticket's pull
 		// request back before the close is recorded.
 		s.Machine.SetSupersedeChecker(svc.SupersedeEvidence)

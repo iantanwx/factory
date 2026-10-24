@@ -221,6 +221,9 @@ type Comment struct {
 	InReplyTo   int64     `json:"in_reply_to,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	URL         string    `json:"url"`
+
+	// bot marks a comment a program wrote: the loop App, or another.
+	bot bool
 }
 
 type rawComment struct {
@@ -239,6 +242,8 @@ type rawComment struct {
 		ID int64 `json:"id"`
 	} `json:"performed_via_github_app"`
 	CreatedAt time.Time `json:"created_at"`
+	// SubmittedAt is a review's time. A review has no created_at.
+	SubmittedAt time.Time `json:"submitted_at"`
 }
 
 // class names who wrote a comment: the loop App, the repository owner,
@@ -266,8 +271,12 @@ func (s *Service) comments(ctx context.Context, p config.Project, path, kind str
 			return nil, err
 		}
 		for _, c := range batch {
+			if c.CreatedAt.IsZero() {
+				c.CreatedAt = c.SubmittedAt
+			}
 			out = append(out, Comment{ID: c.ID, Kind: kind, Author: c.User.Login, AuthorClass: s.class(c), Body: c.Body,
-				Path: c.Path, Line: c.Line, InReplyTo: c.InReplyToID, CreatedAt: c.CreatedAt, URL: c.HTMLURL})
+				Path: c.Path, Line: c.Line, InReplyTo: c.InReplyToID, CreatedAt: c.CreatedAt, URL: c.HTMLURL,
+				bot: c.User.Type == "Bot" || c.PerformedVia != nil})
 		}
 		if len(batch) < 100 && !nextPage(resp.Header) {
 			break
@@ -276,7 +285,11 @@ func (s *Service) comments(ctx context.Context, p config.Project, path, kind str
 	return out, nil
 }
 
-// Threads reads a PR's review comments and its conversation comments.
+// Threads reads a PR's review comments, its conversation comments and
+// the summaries of its reviews. A review summary reads as a conversation
+// comment: it opens no thread, and a conversation comment answers it.
+// A review with no body is an approval click, not feedback, so it is
+// left out, as is a pending review nobody submitted.
 func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]Comment, error) {
 	review, err := s.comments(ctx, p, fmt.Sprintf("/pulls/%d/comments", number), "review")
 	if err != nil {
@@ -286,7 +299,50 @@ func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]
 	if err != nil {
 		return nil, err
 	}
+	summaries, err := s.comments(ctx, p, fmt.Sprintf("/pulls/%d/reviews", number), "conversation")
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range summaries {
+		if c.Body != "" && !c.CreatedAt.IsZero() {
+			talk = append(talk, c)
+		}
+	}
 	return append(review, talk...), nil
+}
+
+// awaitsAnswer reports whether a person's comment on a PR waits for the
+// loop's answer: a person has the last word in a review thread, or in the
+// conversation. The loop App's comment answers. Another program's comment
+// is neither a question nor an answer, so a deployment notice after a
+// person's comment answers nobody. A reply answers its thread alone. The
+// REST API does not say whether a person resolved a thread, so only a
+// reply settles one. Ported from unanswered in scripts/sdlc/pr-queues.ts
+// and awaitingUs in scripts/sdlc/github-pull.ts (alpha).
+func awaitsAnswer(cs []Comment) bool {
+	last := map[string]Comment{}
+	for _, c := range cs {
+		if c.bot && c.AuthorClass != AuthorApp {
+			continue
+		}
+		key := c.Kind
+		if c.Kind == "review" {
+			root := c.InReplyTo
+			if root == 0 {
+				root = c.ID
+			}
+			key = fmt.Sprintf("review:%d", root)
+		}
+		if l, ok := last[key]; !ok || c.CreatedAt.After(l.CreatedAt) || c.CreatedAt.Equal(l.CreatedAt) && c.ID > l.ID {
+			last[key] = c
+		}
+	}
+	for _, c := range last {
+		if c.AuthorClass != AuthorApp {
+			return true
+		}
+	}
+	return false
 }
 
 // marker is the natural key of one comment the server posts (KTD6). It

@@ -360,7 +360,7 @@ func (h *hostVerbs) doctor(ctx context.Context, inv cli.Invocation) cli.Result {
 	}
 	d := &release.Doctor{Layout: in.Layout, Installer: in, Home: home, Repos: release.OrcaRepos(execOutput),
 		Remote: func(ctx context.Context) ([]release.DoctorLine, error) { return h.githubLines(ctx, ctl), nil }}
-	lines := d.Run(ctx)
+	lines := append(d.Run(ctx), h.envLines(ctx, ctl, inv.Flags["fix"] == "true")...)
 	if failed := release.Failed(lines); len(failed) > 0 {
 		var hint []string
 		for _, l := range failed {
@@ -369,6 +369,39 @@ func (h *hostVerbs) doctor(ctx context.Context, inv cli.Invocation) cli.Result {
 		return cli.Reject(release.CodeDoctorFailed, "doctor_failed", strings.Join(hint, "; "))
 	}
 	return cli.Found(lines)
+}
+
+// envLines asks the server with `loop doctor-env` for each .env in a
+// checkout with no live run, because only the server knows which runs
+// live. With fix, the server removes each one (KTD17).
+func (h *hostVerbs) envLines(ctx context.Context, ctl *serverControl, fix bool) []release.DoctorLine {
+	fail := func(format string, args ...any) []release.DoctorLine {
+		return []release.DoctorLine{{Check: server.StaleEnvCheck, Detail: fmt.Sprintf(format, args...)}}
+	}
+	if !ctl.Reachable(ctx) {
+		return fail("unchecked: the server is not running, and only the server knows which runs live; start it and run loop doctor again")
+	}
+	v, ok := h.reg.Verb("doctor-env")
+	if !ok {
+		return fail("unchecked: this build has no doctor-env verb")
+	}
+	flags := map[string]string{}
+	if fix {
+		flags["fix"] = "true"
+	}
+	res := ctl.client().Remote(ctx, cli.Invocation{Verb: v, Flags: flags, RequestID: newRequestID()})
+	if r := res.Refusal; r != nil {
+		return fail("the server's .env check could not run: %s %s: %s", r.Code, r.Rule, r.Hint)
+	}
+	var lines []release.DoctorLine
+	raw, err := json.Marshal(res.Data)
+	if err == nil {
+		err = json.Unmarshal(raw, &lines)
+	}
+	if err != nil {
+		return fail("the server's .env check answered in a form this build cannot read: %v", err)
+	}
+	return lines
 }
 
 func execOutput(ctx context.Context, bin string, args ...string) ([]byte, error) {

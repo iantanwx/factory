@@ -112,39 +112,86 @@ func TestReviewSubmitCarriesItsBody(t *testing.T) {
 	}
 }
 
+// A code pass reads CI at its head before it posts its comment: a pass the
+// gate refuses posts nothing, records nothing, and names the ticket's
+// state and its next moves. A reject and a document's pass read no CI.
+func TestReviewPassReadsCIBeforeItsComment(t *testing.T) {
+	w := newWorld(t)
+	log := &commentLog{}
+	w.m.SetReviewCommenter(log.post)
+	var gated []string
+	w.m.SetPassGate(func(_ context.Context, project, item, head string) *cli.Refusal {
+		gated = append(gated, project+"|"+item+"|"+head)
+		return &cli.Refusal{Code: cli.CodeCINotGreen, Rule: "ci_failed", Hint: "ci failed"}
+	})
+
+	id, rev := w.inReview()
+	res := w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA, "body": "Looks right."})
+	wantCode(t, res, cli.CodeCINotGreen)
+	if r := res.Refusal; r.Item != id || r.CurrentStatus != InReview || len(r.AllowedNext) == 0 {
+		t.Fatalf("the refusal names no ticket state: %+v", *r)
+	}
+	if it := w.show(id); it.Status != InReview || it.Fact(FactReviewedHead) != "" || len(log.calls) != 0 {
+		t.Fatalf("a pass at red CI wrote: %s %v %v", it.Status, it.Facts, log.calls)
+	}
+	if len(gated) != 1 || gated[0] != prj+"|"+id+"|"+shaA {
+		t.Fatalf("the gate read %v", gated)
+	}
+	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "reject", "head": shaA, "body": "Fix the test."}))
+	if len(gated) != 1 || len(log.calls) != 1 {
+		t.Fatalf("a reject read CI %v or posted %v", gated, log.calls)
+	}
+
+	ep := w.create(KindEpic, "prd_submit", nil)
+	w.claim(ep, StageDocReviewer, "doc-rev")
+	mustOK(t, w.call("review submit", w.runOn(ep, StageDocReviewer, "doc-rev"), []string{ep}, map[string]string{"verdict": "pass"}))
+	if got := w.show(ep).Status; got != PRDSignoff || len(gated) != 1 {
+		t.Fatalf("a document pass: %s, gate read %v", got, gated)
+	}
+}
+
 // review submit --head compares the head with the pull request's live head
 // at the write, as candidateFeedback in scripts/sdlc/github-health.ts:46-70
-// (alpha) did. A verdict at a head the PR no longer holds records nothing
-// and posts no comment.
+// (alpha) did. A verdict at a head the PR no longer holds records nothing,
+// posts no comment, reads no CI, and names the ticket's state and its next
+// moves.
 func TestReviewSubmitRefusesAHeadThePRNoLongerHolds(t *testing.T) {
 	const shaB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	w := newWorld(t)
 	log := &commentLog{}
 	w.m.SetReviewCommenter(log.post)
 	live := shaB
-	var reads []string
+	var reads, gated []string
 	w.m.SetPRHeadReader(func(_ context.Context, project, item string) (string, *cli.Refusal) {
 		reads = append(reads, project+"|"+item)
 		return live, nil
+	})
+	w.m.SetPassGate(func(_ context.Context, project, item, head string) *cli.Refusal {
+		gated = append(gated, head)
+		return nil
 	})
 
 	id, rev := w.inReview()
 	res := w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA, "body": "Looks right."})
 	wantCode(t, res, cli.CodeStatusChanged)
-	if res.Refusal.Rule != "head_changed" || !strings.Contains(res.Refusal.Hint, shaB[:7]) {
-		t.Fatalf("refusal: %+v", res.Refusal)
+	if r := res.Refusal; r.Rule != "head_changed" || !strings.Contains(r.Hint, shaB[:7]) ||
+		r.Item != id || r.CurrentStatus != InReview || len(r.AllowedNext) == 0 {
+		t.Fatalf("refusal: %+v", *r)
 	}
 	if it := w.show(id); it.Status != InReview || it.Fact(FactReviewedHead) != "" || len(log.calls) != 0 {
 		t.Fatalf("a verdict at a moved head wrote: %s %v %v", it.Status, it.Facts, log.calls)
 	}
-	if len(reads) != 1 || reads[0] != prj+"|"+id {
-		t.Fatalf("head reads: %v", reads)
+	if len(reads) != 1 || reads[0] != prj+"|"+id || len(gated) != 0 {
+		t.Fatalf("head reads %v, CI reads %v", reads, gated)
 	}
 
 	live = shaA
 	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA, "body": "Looks right."}))
 	if it := w.show(id); it.Status != ReadyToMerge || it.Fact(FactReviewedHead) != shaA || len(log.calls) != 1 {
 		t.Fatalf("a verdict at the live head: %s %v %v", it.Status, it.Facts, log.calls)
+	}
+	if len(gated) != 1 || gated[0] != shaA {
+		t.Fatalf("CI reads %v", gated)
 	}
 }
 

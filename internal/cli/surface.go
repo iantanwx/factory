@@ -75,6 +75,8 @@ var (
 	scopeFlag = Flag{Name: "scope", Type: FlagString, Enum: []string{"project", "global"},
 		Description: "project when absent; global stores one value that every project whose manifest names it uses"}
 	bodyFlag = Flag{Name: "body", Type: FlagString, Required: true, Description: "the text to write"}
+	// fixFlag makes loop doctor remove each .env that no live run holds (KTD17).
+	fixFlag = Flag{Name: "fix", Type: FlagBool, Description: "remove each .env in a checkout with no live run"}
 	// fileFlag names a file the CLI reads and sends with the call (ExtraFile).
 	fileFlag = Flag{Name: "file", Type: FlagString, Required: true, Description: "the file to send, read by the CLI"}
 )
@@ -202,11 +204,13 @@ var surface = []Verb{
 	server("inbox", "wait", "wait for a new inbox entry; exit 4 means call again", coordinator, nil,
 		Flag{Name: "since", Type: FlagString, Description: "the cursor of the last entry seen"}),
 
-	write(server("room", "open", "open a room, or reopen an idle or interrupted one", coordinator, nil,
+	write(server("room", "open", "open a room for a finding the triage rubric routes to a person, or reopen an idle or interrupted one", coordinator, nil,
 		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review"}, Description: "the kind of room"},
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
 		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none"},
-		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"})),
+		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"},
+		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},
+		Flag{Name: "choice", Type: FlagString, Enum: []string{"inside", "outside"}, Description: "outside when one answer acts outside the repository; inside when absent"})),
 	write(server("room", "apply", "apply the room's decision file", []string{"room"}, []Arg{roomArg}, fileFlag)),
 	write(server("room", "close", "close a room", coordinator, []Arg{roomArg})),
 	server("room", "list", "list rooms", coordinator, nil,
@@ -216,7 +220,7 @@ var surface = []Verb{
 		Flag{Name: "path", Type: FlagString, Required: true, Description: "the PRD's path in the repository, committed at the checkout's HEAD"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic and pull request title"},
 		Flag{Name: "body", Type: FlagString, Description: "the pull request body"})),
-	write(server("epic", "create", "create an architecture epic; it waits until an ADR that names it lands on the base branch", coordinator, nil,
+	write(server("epic", "create", "create an architecture epic; it waits until an ADR whose Ticket line names it lands on the base branch", coordinator, nil,
 		Flag{Name: "architecture", Type: FlagBool, Description: "required: the epic follows an ADR, not a PRD; a PRD epic starts with prd submit in an intake room"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic title"},
 		Flag{Name: "body", Type: FlagString, Description: "what the ADR decides, and why the operator asked for it"},
@@ -258,8 +262,9 @@ var surface = []Verb{
 	topLevel(write(server("host", "drain", "admit no new run and wait for in-flight runs", hostOnly, nil))),
 	topLevel(client("host", "serve", "run the server", hostOnly, nil,
 		Flag{Name: "instance", Type: FlagString, Description: "the instance directory; ~/.local/state/loop when absent"})),
-	topLevel(client("host", "doctor", "check the host's setup", hostOnly, nil)),
+	topLevel(client("host", "doctor", "check the host's setup", hostOnly, nil, fixFlag)),
 	topLevel(server("host", "doctor-github", "run the GitHub checks of loop doctor on the server, which holds the credentials", hostOnly, nil)),
+	topLevel(server("host", "doctor-env", "list each .env in a checkout with no live run; the server knows which runs live", hostOnly, nil, fixFlag)),
 
 	topLevel(client("meta", "gates", "run the gates of the project checkout in the current directory: the loop's own gates, then the stack commands of .loop/config.yaml", anyone, nil,
 		Flag{Name: "fast", Type: FlagBool, Description: "run every gate except test and build"},
