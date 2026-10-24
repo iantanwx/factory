@@ -121,6 +121,14 @@ func isServerError(r map[string]any, msg string) bool {
 	return e == "server_error" || e == "overloaded_error"
 }
 
+// isTransient reads a server error that is no usage limit: a 5xx, 529 or
+// overloaded_error. Claude Code gives up on it once its own retries ran
+// out, and the same request can succeed later (F-29).
+func isTransient(r map[string]any) bool {
+	msg := textOf(r)
+	return !isLimit(r, msg) && isServerError(r, msg)
+}
+
 func statusOf(r map[string]any, msg string) (int, bool) {
 	if f, ok := r["apiErrorStatus"].(float64); ok {
 		return int(f), true
