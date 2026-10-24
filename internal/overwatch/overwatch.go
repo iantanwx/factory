@@ -175,8 +175,12 @@ type partResult struct {
 // Sweep reads the records and runs every part at once, each under
 // PartDeadline. An error, a panic or a passed deadline becomes code 2 and
 // one UNREAD line for that part only. The report holds one PartReport for
-// each part given, in PartNames order.
+// each part given, in PartNames order. A sweep of no part reads no record:
+// no finding needs one, so it holds code 0.
 func Sweep(ctx context.Context, w World, parts []Part) Report {
+	if len(parts) == 0 {
+		return Report{At: w.Now(), Parts: []PartReport{}}
+	}
 	var (
 		wg      sync.WaitGroup
 		recs    Records
