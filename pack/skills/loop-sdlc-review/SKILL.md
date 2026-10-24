@@ -102,6 +102,20 @@ For each shape, ask one question. Does a third document, or plain arithmetic, sa
 wrong? Then the finding is level 3, `derived`, and it stays in the loop. Reject the work, and state
 the derivation in the comment. A reject that names which document wins can be acted on.
 
+### The two requirement rules
+
+`../loop-sdlc-documents/SKILL.md` states two rules that bind every requirement. No gate reads
+either rule, so you apply both. Read the requirements of the work, and each requirement it cites.
+
+- **Assert a vendor's outcome, never a vendor's mechanism.** Reject a requirement that asserts a
+  vendor's hostname, record value or internal step. Name the outcome that the author can assert
+  instead. A test that reads such a value fails when the vendor moves, and proves nothing about
+  the project.
+- **A later ADR wins a conflict with the ADR it amends.** Search `docs/adr/` for each ADR that
+  cites an ADR the work follows. Reject work that follows the earlier ADR where a later ADR
+  disagrees. The higher number wins, whatever word the later ADR chooses for itself. That rule
+  picks the side, so the finding is level 3, `derived`. Name both ADRs and the requirement of each.
+
 ## 8. Submit at the head you read
 
 Read the head before you start, with `loop pr show`. Read it again before you submit. When the head
