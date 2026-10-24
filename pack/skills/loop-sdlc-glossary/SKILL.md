@@ -61,7 +61,8 @@ names a verb, and the transition table picks the state.
 - **Spec**: states how one epic is built. It is the last document a person reads before the
   decomposer cuts tickets.
 - **Ticket**: the unit that the implementer and the code-reviewer read.
-- **Sign-off**: the operator's merge of a PRD or a spec pull request. No stage merges a document.
+- **Sign-off**: the operator's approval of a PRD or a spec pull request at one head. The
+  coordinator records it, and the server merges the document. No stage merges a document.
 - **Project policy**: the rules of one project for one role, in `.loop/policy/<role>.md` in the
   project's repository. The loop's runbooks name roles. The policy names the project's tools.
 

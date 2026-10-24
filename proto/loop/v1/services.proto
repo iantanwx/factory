@@ -84,6 +84,7 @@ service FaultService {
 
 service CoordinatorService {
   rpc Send(VerbRequest) returns (Envelope);
+  rpc Upgrade(VerbRequest) returns (Envelope);
 }
 
 service InboxService {

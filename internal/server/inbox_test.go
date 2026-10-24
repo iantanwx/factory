@@ -194,8 +194,13 @@ func TestInboxSaysWhoEachEntryWaitsOn(t *testing.T) {
 	if sign == nil || sign["awaits"] != "person" || !strings.Contains(sign["text"].(string), "PRD passed review") {
 		t.Fatalf("sign-off = %v", sign)
 	}
-	if env, _ := w.coordinator("inbox", "answer", "signoff/alpha/"+ep.ID, "--body", "ok"); env["code"] != cli.CodeTransitionNotAllowed {
-		t.Fatalf("an inbox answer signed off: %v", env)
+	// A server with no GitHub cannot merge the document, so the answer
+	// moves nothing. The acceptance suite merges one (factorio-8qm).
+	if env, _ := w.coordinator("inbox", "answer", "signoff/alpha/"+ep.ID, "--body", "ok"); env["code"] != cli.CodeNotImplemented {
+		t.Fatalf("an inbox answer with no GitHub: %v", env)
+	}
+	if got := w.show(ep.ID).Status; got != machine.PRDSignoff {
+		t.Fatalf("a refused sign-off moved the epic to %s", got)
 	}
 	byKind := map[string]string{}
 	for _, e := range es {

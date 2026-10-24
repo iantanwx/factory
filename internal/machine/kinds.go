@@ -60,6 +60,7 @@ const (
 	VerbPersonComment      = "person_comment"
 	VerbPRClosed           = "pr_closed"
 	VerbPRDSubmit          = "prd_submit"
+	VerbSignoffHead        = "signoff_head"
 	VerbSupersede          = "supersede"
 	VerbUnblock            = "unblock"
 )

@@ -281,7 +281,10 @@ func epicTable() *Table {
 		claim(SpecAmending, ToSame, StageAmender),
 		claim(SpecApproved, Decomposing, StageDecomposer),
 
-		{Verb: "review_pass", From: []string{PRDReview}, To: PRDSignoff, Command: "review submit", Lease: LeaseDrop},
+		// A pass pins the head the reviewer read: the sign-off entry names
+		// it, and the server merges only that head (factorio-8qm).
+		{Verb: "review_pass", From: []string{PRDReview}, To: PRDSignoff, Command: "review submit", Lease: LeaseDrop,
+			set: copyParam("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: PRDAmending, Command: "review submit", Lease: LeaseDrop,
 			When: "first_reject", when: firstPRDReject, set: bumpPRDRejects, Facts: []string{FactPRDRejects}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: Escalated, Command: "review submit",
@@ -303,7 +306,8 @@ func epicTable() *Table {
 			Facts: []string{FactADR}},
 		{Verb: "pr_open", From: []string{SpecDrafting}, To: SpecReview, Lease: LeaseDrop,
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
-		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop},
+		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop,
+			set: copyParam("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_reject", From: []string{SpecReview}, To: SpecNeeded, Command: "review submit", Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{SpecSignoff}, To: SpecApproved},
 		{Verb: VerbDecomposed, From: []string{Decomposing}, To: Execution, Lease: LeaseDrop},
@@ -321,6 +325,12 @@ func epicTable() *Table {
 			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
 		{Verb: "doc_merged", From: []string{SpecAmending}, To: SpecSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop,
 			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
+
+		// The document PR moved after the entry was raised. The server pins
+		// the new head, and the sign-off entry is raised again at it, so
+		// the operator approves only a head the entry named.
+		{Verb: VerbSignoffHead, From: []string{PRDSignoff, SpecSignoff}, To: ToSame,
+			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 
 		// A person's unanswered comment on the document PR (1.12).
 		{Verb: VerbPersonComment, From: []string{PRDReview, PRDSignoff}, To: PRDAmending,
