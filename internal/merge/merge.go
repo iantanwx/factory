@@ -105,9 +105,9 @@ func Terminal(cur github.PR) (res Result, ok bool) {
 // it again later", never a conflict. Only the read of one PR carries the
 // state: GitHub's PR list leaves it out.
 const (
-	MergeableDirty   = "dirty"   // the PR conflicts with its base
-	MergeableBehind  = "behind"  // the base moved on, with no conflict
-	MergeableUnknown = "unknown" // GitHub has not computed it yet
+	MergeableDirty   = github.MergeableDirty // the PR conflicts with its base
+	MergeableBehind  = "behind"              // the base moved on, with no conflict
+	MergeableUnknown = "unknown"             // GitHub has not computed it yet
 )
 
 // Conflicting is the result of an open PR that conflicts with its base.
