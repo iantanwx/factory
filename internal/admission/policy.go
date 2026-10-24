@@ -11,6 +11,7 @@
 package admission
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -129,8 +130,15 @@ func asRefusal(err error) *cli.Refusal {
 	return cli.InternalRefusal(err)
 }
 
-// claimStates returns each kind and state a stage claims from, in table
-// order.
+// claimFirst names the states a stage's work query walks before its other
+// claim states. A ticket in repair holds work in flight: its pull request
+// ages against the base while it waits, so the implementer takes it before
+// any ticket in todo (F-19). The order lives here and not in the machine's
+// row order, so a later edit of the table cannot undo it in silence.
+var claimFirst = []stateOf{{machine.KindTicket, machine.Repair}}
+
+// claimStates returns each kind and state a stage claims from, in claim
+// order: the states of claimFirst, then the rest in table order.
 func claimStates(stage string) []stateOf {
 	var out []stateOf
 	for _, t := range machine.Tables() {
@@ -143,7 +151,19 @@ func claimStates(stage string) []stateOf {
 			}
 		}
 	}
+	slices.SortStableFunc(out, func(a, b stateOf) int {
+		return cmp.Compare(claimRank(a), claimRank(b))
+	})
 	return out
+}
+
+// claimRank ranks a state of claimFirst by its place there, and every other
+// state after them all.
+func claimRank(s stateOf) int {
+	if i := slices.Index(claimFirst, s); i >= 0 {
+		return i
+	}
+	return len(claimFirst)
 }
 
 type stateOf struct {
@@ -441,6 +461,13 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 // their count, so a run that fills its stage's cap still finds the work
 // it was started for, such as the fixer's waiting escalations. Every other
 // live run still counts.
+//
+// The query walks the stage's claim states in claim order, and returns the
+// first admissible item. Work in flight comes first: the implementer takes
+// an admissible ticket in repair before any ticket in todo, and a repair
+// ticket that admission would refuse never stops it from taking a todo
+// ticket. Within one state, it takes items in the order the machine lists
+// them.
 func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Candidate, *cli.Refusal) {
 	if a.items == nil {
 		return nil, cli.InternalRefusal(errors.New("admission: no machine attached"))
