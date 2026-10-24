@@ -30,6 +30,14 @@ type TicketSpec struct {
 	BlockedBy []string `json:"blocked_by,omitempty"`
 }
 
+// TicketCap is the most tickets one decompose batch may hold. It is a
+// smoke alarm for a runaway decomposer, not a sizing rule: a count cannot
+// see whether an epic reaches more than one subsystem, and a decomposer at
+// a sizing ceiling would merge slices into fat tickets to comply. The two
+// questions of loop-sdlc-split decide the unit. Twenty-five is the cap
+// tickertown keeps on one epic for the same reason.
+const TicketCap = 25
+
 // BatchTicket is one ticket of the answer.
 type BatchTicket struct {
 	Key    string `json:"key"`
@@ -64,6 +72,12 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&d); err != nil {
 		return cli.Reject(cli.CodeUsage, "bad_file", "the decomposition file is not the JSON object the schema names: "+err.Error())
+	}
+	if n := len(d.Tickets); n > TicketCap {
+		return cli.Reject(cli.CodeUsage, "runaway_batch", fmt.Sprintf("the batch holds %d tickets, and %d is the runaway limit: "+
+			"no ticket was created. This is no sizing rule, so never merge slices to fit under it. An epic this large "+
+			"likely needs a split, and only the operator agrees to one: escalate, and name how many slices the spec "+
+			"needs and the seam where the epic would split (loop-sdlc-split)", n, TicketCap))
 	}
 	order, msg := topoOrder(d.Tickets)
 	if msg != "" {

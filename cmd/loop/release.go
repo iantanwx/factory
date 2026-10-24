@@ -63,6 +63,10 @@ type hostVerbs struct {
 	stderr io.Writer
 	// pollEvery is how often register asks whether an App is installed.
 	pollEvery time.Duration
+	// detach starts `loop <args>` for the instance as a process outside
+	// the caller's session, where the coordinator's upgrade and rollback
+	// run.
+	detach func(ctx context.Context, instance string, args []string) (server.UpgradeStart, error)
 }
 
 func (h *hostVerbs) out() io.Writer {
@@ -94,6 +98,9 @@ func newHostVerbs(r *cli.Registry, c *cli.Client) *hostVerbs {
 	h.setup = h.hostSetup
 	h.cmd = execCmd
 	h.secret = release.ReadSecret
+	h.detach = func(ctx context.Context, instance string, args []string) (server.UpgradeStart, error) {
+		return newUpgradeStarter(instance).start(ctx, args)
+	}
 	return h
 }
 
@@ -282,6 +289,18 @@ func (h *hostVerbs) upgrade(ctx context.Context, inv cli.Invocation) cli.Result 
 	if res != nil {
 		return *res
 	}
+	if coord, err := h.coordinator(); err != nil {
+		return fail(err)
+	} else if coord {
+		args := []string{"upgrade"}
+		if v := inv.Arg("version"); v != "" {
+			if !release.ValidVersion(v) {
+				return cli.Reject(cli.CodeUsage, "bad_version", fmt.Sprintf("%v: %q", server.ErrBadVersion, v))
+			}
+			args = append(args, v)
+		}
+		return h.handOff(ctx, dir, args)
+	}
 	host, err := h.host(dir, ctl)
 	if err != nil {
 		return fail(err)
@@ -317,6 +336,11 @@ func (h *hostVerbs) rollback(ctx context.Context, inv cli.Invocation) cli.Result
 	if res != nil {
 		return *res
 	}
+	if coord, err := h.coordinator(); err != nil {
+		return fail(err)
+	} else if coord {
+		return h.handOff(ctx, dir, []string{"rollback"})
+	}
 	host, err := h.host(dir, ctl)
 	if err != nil {
 		return fail(err)
@@ -326,6 +350,48 @@ func (h *hostVerbs) rollback(ctx context.Context, inv cli.Invocation) cli.Result
 		return fail(err)
 	}
 	return cli.Found(rep)
+}
+
+// coordinator reports whether the caller works in the coordinator's
+// checkout, from where the CLI sends the coordinator's token.
+func (h *hostVerbs) coordinator() (bool, error) {
+	getwd := h.client.Getwd
+	if getwd == nil {
+		getwd = os.Getwd
+	}
+	cwd, err := getwd()
+	if err != nil {
+		return false, fmt.Errorf("read the working directory: %w", err)
+	}
+	checkout, err := cli.FindCheckout(cwd)
+	if errors.Is(err, cli.ErrNoCheckout) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	tf, err := cli.ReadTokenFile(checkout)
+	if err != nil {
+		return false, err
+	}
+	return tf.Kind == cli.PrincipalCoordinator, nil
+}
+
+// handOff starts the coordinator's upgrade or rollback outside its session
+// (factorio-obc). The verb drains, stops and restarts the server, which can
+// take hours. In the session it would hold the coordinator's turn for the
+// whole drain, call drain, a host-only verb, with the coordinator's token,
+// and die when the session ends. The detached process works in the home
+// directory with no token, as the host, and the server checks it again
+// there.
+func (h *hostVerbs) handOff(ctx context.Context, dir string, args []string) cli.Result {
+	st, err := h.detach(ctx, dir, args)
+	if err != nil {
+		return fail(fmt.Errorf("start loop %s outside the coordinator's session: %w", args[0], err))
+	}
+	return cli.Found(map[string]any{"started": true, "verb": args[0], "unit": st.Unit, "command": st.Command,
+		"next": fmt.Sprintf("loop %s drains this server, stops it and starts it again, outside this session; "+
+			"after the restart, run `loop version` and report the version it names", strings.Join(args, " "))})
 }
 
 func (h *hostVerbs) restore(ctx context.Context, inv cli.Invocation) cli.Result {
@@ -438,7 +504,8 @@ func (s *serverControl) client() *cli.Client {
 func newRequestID() string { return "host-" + hexid.Random(8) }
 
 // authorize is the probe the CLI's gate makes: the server checks that the
-// caller of a client-side host verb is no run, room or agent session.
+// caller of a client-side host verb is no run, room or agent session, or
+// is the coordinator in its own checkout.
 func (s *serverControl) authorize(ctx context.Context, path string) *cli.Result {
 	v, ok := s.h.reg.Verb(path)
 	if !ok {

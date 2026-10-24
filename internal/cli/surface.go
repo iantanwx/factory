@@ -15,6 +15,11 @@ var (
 	// reads the item's status before each write of a room (KTD13).
 	readers  = []string{"run", "room", "coordinator"}
 	hostOnly = []string{"host"}
+	// hostOrCoordinator call a host verb: the operator's shell, and the
+	// coordinator of the loop from its own checkout (factorio-obc). The
+	// verb stays a host verb, so a run, a room and a tokenless caller
+	// inside a checkout stay refused.
+	hostOrCoordinator = []string{"host", "host coordinator"}
 	// coordinatorOrHost read the instance's state: the coordinator, and
 	// the operator's own shell.
 	coordinatorOrHost = []string{"coordinator", "host"}
@@ -167,7 +172,10 @@ var surface = []Verb{
 		Flag{Name: "finding", Type: FlagString, Required: true, Description: "one finding, in one sentence"},
 		Flag{Name: "out", Type: FlagString, Description: "the panel file to write; a new temporary file when absent"},
 		Flag{Name: "rubric", Type: FlagString, Description: "the triage rubric; the pack's sdlc-triage skill in the checkout when absent"}),
-	write(server("escalation", "route", "submit the panel file and route the escalation", []string{"fixer"}, []Arg{escalationArg}, fileFlag)),
+	write(server("escalation", "route", "submit the panel file and route the escalation; a loop route may release one path out of the ticket's \"Must not change\" list", []string{"fixer"}, []Arg{escalationArg}, fileFlag,
+		Flag{Name: "release", Type: FlagString, Description: "the one path a loop route moves out of \"Must not change\" and into \"May change\" in the item's body; it enters the retry identity"},
+		Flag{Name: "forbids", Type: FlagString, Description: "with --release: the \"Must not change\" entry that covers the path, spelled as the body spells it"},
+		Flag{Name: "condition", Type: FlagString, Description: "with --release: what the implementer may do at the path, and nothing wider"})),
 
 	write(server("decision", "file", "file a decision that waits for its trigger", runOrCoordinator, nil, projectFlag,
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the question"},
@@ -180,6 +188,8 @@ var surface = []Verb{
 	write(server("decision", "settle", "settle a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag,
 		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
 	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
+
+	server("overwatch", "sweep", "run every overwatch part once and print the report; it rings nobody", coordinatorOrHost, nil),
 
 	write(server("fault", "report", "report a fault in the loop itself, not in the project; the answer names its fault id", faultCallers, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report file, at any path, read by the CLI: the command, its envelope and what you expected; 64 KiB at most"})),
@@ -213,11 +223,13 @@ var surface = []Verb{
 		Flag{Name: "entry", Type: FlagString, Description: "the inbox entry the question is about"})),
 	server("inbox", "wait", "wait for a new inbox entry; exit 4 means call again", coordinator, nil,
 		Flag{Name: "since", Type: FlagString, Description: "the cursor of the last entry seen"}),
+	write(server("inbox", "note", "record the root cause of an open alert; it stays open, and a repeat of it rings no one", coordinator, []Arg{entryArg},
+		Flag{Name: "body", Type: FlagString, Required: true, Description: "the finding: the root cause, its evidence and the act that ends it"})),
 
 	write(server("room", "open", "open a room for a finding the triage rubric routes to a person, or reopen an idle or interrupted one", coordinator, nil,
-		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review"}, Description: "the kind of room"},
+		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review", "architect"}, Description: "the kind of room; an architect room serves one architecture epic"},
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
-		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none"},
+		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none, and an architect room names an epic in architecture"},
 		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"},
 		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},
 		Flag{Name: "choice", Type: FlagString, Enum: []string{"inside", "outside"}, Description: "outside when one answer acts outside the repository; inside when absent"})),
@@ -252,8 +264,8 @@ var surface = []Verb{
 	write(server("project", "add", "register a project", hostOnly, []Arg{projectArg},
 		Flag{Name: "repo", Type: FlagString, Required: true, Description: "the GitHub repository, owner/name"},
 		Flag{Name: "path", Type: FlagString, Required: true, Description: "the project's local directory, an absolute path"})),
-	server("project", "list", "list projects", hostOnly, nil),
-	server("project", "show", "show one project", hostOnly, []Arg{projectArg}),
+	server("project", "list", "list projects", hostOrCoordinator, nil),
+	server("project", "show", "show one project", hostOrCoordinator, []Arg{projectArg}),
 	write(server("project", "remove", "remove a project", hostOnly, []Arg{projectArg})),
 	write(server("project", "move", "point a project at another repository, as after a transfer on GitHub; it keeps the project's secrets and history", hostOnly, []Arg{projectArg},
 		Flag{Name: "repo", Type: FlagString, Required: true, Description: "the new GitHub repository, owner/name"})),
@@ -264,17 +276,17 @@ var surface = []Verb{
 		Flag{Name: "no-github-app", Type: FlagBool, Description: "create no GitHub App"})),
 	topLevel(client("host", "register", "tell the loop about the git clone in the current directory: its ruleset, its registration and the loop skills", hostOnly,
 		[]Arg{{Name: "project", Description: "the project id; the repository name when absent"}})),
-	topLevel(client("host", "upgrade", "install a signed release", hostOnly,
+	topLevel(client("host", "upgrade", "install a signed release", hostOrCoordinator,
 		[]Arg{{Name: "version", Description: "the release to install; the latest when absent"}})),
-	topLevel(client("host", "rollback", "return to an earlier installed version", hostOnly, nil)),
+	topLevel(client("host", "rollback", "return to an earlier installed version", hostOrCoordinator, nil)),
 	topLevel(client("host", "restore", "restore the database from a snapshot", hostOnly,
 		[]Arg{{Name: "snapshot", Description: "the snapshot to restore; the newest when absent"}})),
 	topLevel(write(server("host", "drain", "admit no new run and wait for in-flight runs", hostOnly, nil))),
 	topLevel(client("host", "serve", "run the server", hostOnly, nil,
 		Flag{Name: "instance", Type: FlagString, Description: "the instance directory; ~/.local/state/loop when absent"})),
-	topLevel(client("host", "doctor", "check the host's setup", hostOnly, nil, fixFlag)),
-	topLevel(server("host", "doctor-github", "run the GitHub checks of loop doctor on the server, which holds the credentials", hostOnly, nil)),
-	topLevel(server("host", "doctor-env", "list each .env in a checkout with no live run; the server knows which runs live", hostOnly, nil, fixFlag)),
+	topLevel(client("host", "doctor", "check the host's setup", hostOrCoordinator, nil, fixFlag)),
+	topLevel(server("host", "doctor-github", "run the GitHub checks of loop doctor on the server, which holds the credentials", hostOrCoordinator, nil)),
+	topLevel(server("host", "doctor-env", "list each .env in a checkout with no live run; the server knows which runs live", hostOrCoordinator, nil, fixFlag)),
 
 	topLevel(client("meta", "gates", "run the gates of the project checkout in the current directory: the loop's own gates, then the stack commands of .loop/config.yaml", anyone, nil,
 		Flag{Name: "fast", Type: FlagBool, Description: "run every gate except test and build"},

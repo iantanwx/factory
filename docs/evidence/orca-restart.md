@@ -58,7 +58,8 @@ The restart also had a side effect. It killed the orca native chat session that 
   - the inventory's epoch equals the epoch at which the server last saw the session
   - no row carries the session's incarnation or its PTY under another handle
 - A session whose epoch changed reads `unknown` until a complete inventory of the new epoch reads its exact identity again. The server then stores the result of `Inventory.Readopted`, and a later absence in that epoch can read `absent`.
-- A row that carries the session's incarnation or PTY under a new handle (`Inventory.Traces`) keeps the session `unknown`. This is the daemon-restart case that nothing has measured. KTD9 then keeps the lease for two run budgets and raises a coordinator-owned alert. Nothing reclaims the run automatically.
+- A row that carries the session's incarnation or PTY under a new handle (`Inventory.Traces`) keeps the session `unknown`. This is the daemon-restart case that nothing has measured. KTD9 then keeps the lease for two run budgets and raises a coordinator-owned alert. Nothing reclaims a traced run automatically.
+- A session whose terminal died with an orca restart never matches again, so it reads `unknown` in every later epoch. Past the age bound of two run budgets, `Inventory.Untraced` reads a complete inventory of any epoch: when it lists neither the session's exact identity nor a trace, the server settles the run through `settleEnded` as `crashed`. The run counts once, its lease returns to the stage-correct state, its checkout stays, and the crash alert is raised. An incomplete or failed inventory read settles nothing. The operator decided this on 2026-10-24 ("Reclaim if no trace", loop fault F-21).
 
 ## Orca updates and daemon death (read-only review, 2026-10-21)
 

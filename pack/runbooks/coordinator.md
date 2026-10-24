@@ -22,7 +22,8 @@ Read these first, in this order:
 4. `../loop-reflect/SKILL.md`, when the operator corrects you a second time.
 5. `../loop-encode-lessons/SKILL.md`, which `loop-reflect` starts.
 6. `../loop-sdlc-documents/SKILL.md`, where each project keeps its PRDs, specs and ADRs.
-7. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
+7. `../loop-sdlc-split/SKILL.md`, when an intake room's decision splits an epic.
+8. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
    routes, standing authorizations, health limits and report additions.
 
 Every rule lives in this runbook, in a check, or in a project policy file. No rule lives in a wake
@@ -75,6 +76,11 @@ read with the event you blame. Read the state back after each write you report.
   enters the item's inputs and admits a new attempt. Then answer the alert with what changed.
   At the code-reviewer stage, a push to the pull request also admits a new attempt.
   Never look for a way to reset the count.
+- **An alert stays open after you read its cause.** Record the root cause with
+  `loop inbox note <entry> --body "<finding>"`. The alert stays open, and `loop inbox list` marks it
+  `found` and shows the finding. A repeat of it then rings no one, and its text counts each repeat
+  after the finding. Read that count at each wake. A later note replaces the finding. Answer the
+  alert when the cause is gone.
 - **An item stopped after a blocked run.** Its `run_blocked` alert holds the item at that stage.
   Changed inputs or a move of the item lift the hold. At the code-reviewer stage, a push to the
   pull request lifts it too. When the cause is gone, answer the alert.
@@ -83,10 +89,14 @@ read with the event you blame. Read the state back after each write you report.
   it with `loop stage resume <stage>`. Report each one.
 - **The same item stands still wake after wake.** Say so in the report. Never escalate it a second
   time. A duplicate changes nothing.
-- **A backlog ticket waits on a canceled blocker, or on no blocking edge.** The server never frees
-  that ticket alone. Read the ticket and each blocker with `loop work show <item>`. When the ticket
-  still holds without the canceled work, run `loop work unblock <item>`. When it does not, bring
-  it to the operator.
+- **A backlog ticket waits on a canceled blocker whose pull request is still open, or on no
+  blocking edge.** The server never frees that ticket alone. Read the ticket and each blocker with
+  `loop work show <item>`. When the ticket still holds without the canceled work, run
+  `loop work unblock <item>`. When it does not, bring it to the operator.
+- **A ticket left backlog because its blocker was canceled.** The server frees the dependants of a
+  canceled blocker that holds no open pull request, as if the blocker had landed. Read each freed
+  ticket with `loop work show <item>`. When it still needs the canceled work, change it with
+  `loop work edit <item>` so it no longer does, or bring it to the operator.
 - **The operator drops an escalated item.** Run `loop work cancel <item>`, and quote the
   operator's words in the report.
 - **A merged change or a ruling leaves a ticket with no work.** Run
@@ -116,8 +126,7 @@ same turn:
 
 - A sign-off of a PRD or a spec: `loop inbox answer signoff/<project>/<epic> --body "<words>"`,
   with the operator's own words. The server merges the document. Section 5 states how.
-- An upgrade of the host: `loop coordinator upgrade [<version>] --body "<the operator's words>"`.
-  Section 9 states how.
+- An upgrade of the host: `loop upgrade [<version>]`, from your checkout. Section 9 states how.
 
 When a rule in the repository picks the answer, decide, and name the rule in the report. The
 operator can then overturn it. When a project policy routes a kind of decision to a named role,
@@ -189,7 +198,7 @@ rubric routes to a person. Score the finding first. Pass the level with `--score
 `--choice outside` when one answer acts outside the repository:
 
 ```bash
-loop room open --kind intake|decision|review --project <project> --reason "<why>" --score <level> [--choice outside] [--item <item>]
+loop room open --kind intake|decision|review|architect --project <project> --reason "<why>" --score <level> [--choice outside] [--item <item>]
 ```
 
 The server refuses an open with no score. It refuses levels 1 to 3 with `ROUTED_TO_LOOP`, opens no
@@ -202,6 +211,10 @@ decision, or when the operator is done with it. A room never closes itself.
 A new intake room with no `--item` adds an epic. The server refuses it with `CAP_FULL` while the
 project's epics in counted document states fill the intake cap in host config. Tell the operator
 which epics hold the cap. Open the room when the count drops, or when the operator raises the cap.
+
+When an intake room's decision splits an epic, do the steps that `../loop-sdlc-split/SKILL.md`
+gives the coordinator. Retitle the epic that the split keeps, and open one intake room for each
+other part.
 
 ## 8. New work
 
@@ -239,6 +252,11 @@ The server reads each Markdown file under `docs/adr/` on the base branch. The AD
 `../loop-sdlc-documents/adr.md`. Tell the operator to write the epic id on its `**Ticket:**` line.
 The `adr` gate refuses an ADR with no Ticket line. The spec author then takes the epic.
 
+When the operator wants to write the ADR with an agent, open an architect room on the epic, by
+section 7. The server refuses an architect room on any item but an epic in `architecture`. The
+room writes the ADR with the operator and opens its pull request. When that pull request merges,
+the epic moves.
+
 When the operator asks the loop to write the ADR, file its ticket under the epic. Quote the
 operator's words, and cite no story, since the epic has no PRD:
 
@@ -266,16 +284,19 @@ A run, a room or you report each loop fault. Triage each open one:
    - `loop fault resolve <fault> --not-a-fault --reason "<why>"`, when the loop kept its contract.
 
 `loop version` names the release this host runs. A fault that a later release ends stays a
-reason to upgrade. Name it in the report, and ask the operator whether to upgrade. An upgrade
-drains the loop and restarts the server, so it waits for the operator's decision. When the
-operator decides, start it yourself:
+reason to upgrade. A release needs no step: each push to the loop's `main` that passes CI becomes
+the next release. When a published release ends an open fault, upgrade the host yourself, from
+your checkout:
 
 ```bash
-loop coordinator upgrade [<version>] --body "<the operator's words>"
+loop upgrade [<version>]
 ```
 
-The server starts the upgrade outside every checkout, then restarts. After the restart, run
-`loop version`, and report the release it names.
+The server admits the coordinator on the host verbs, such as `upgrade`, `doctor`, `project list`
+and `project show`, from its own checkout. It refuses a run and a room. The CLI starts the
+upgrade outside your session and outside every checkout, and answers once it started. The
+upgrade drains the loop and restarts the server. After the restart, run `loop version`, and
+report the release it names. Never list a release or an upgrade under "Blocked on you".
 
 ## 10. Report
 
@@ -302,7 +323,7 @@ prepared question. You make each write after you read the result.
 | Agent | Dispatch it for |
 | --- | --- |
 | `loop-escalation-prep` | One inbox entry that waits on the operator. It returns one to three questions with costed options |
-| `loop-alert-root-cause` | One open alert that holds no finding. It returns the root cause and the act that ends it |
+| `loop-alert-root-cause` | One open alert with no `found` mark. It returns the root cause and the act that ends it |
 | `loop-doctor` | One stage that starts no run, finishes no run, or keeps failing to start one |
 | `loop-checkout-forensics` | One checkout that stands too long, or one that vanished |
 

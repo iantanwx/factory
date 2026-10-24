@@ -52,7 +52,7 @@ func (s *Server) composeSched() error {
 	sc, err := sched.New(sched.Config{
 		Store: s.Store, Host: &config.HostLoader{Path: s.HostPath, Alerts: config.StoreAlerter(s.Store)},
 		Projects: s.Projects.List, ProjectConfig: src,
-		Machine: s.Machine, Admission: s.Admission, Beads: s.opts.Beads, Secrets: s.Secrets, Tokens: s.Tokens,
+		Machine: s.Machine, Admission: s.Admission, Beads: s.opts.Beads, Pulls: s.opts.Pulls, Secrets: s.Secrets, Tokens: s.Tokens,
 		Agents: s.opts.Agents, Checkouts: o.Checkouts, Pack: o.Pack, Alerts: config.StoreAlerter(s.Store),
 		Release: cli.Version, Coordinator: o.Coordinator, Now: o.Now, TickInterval: o.TickInterval,
 		Logger: s.log, NewRunID: o.NewRunID,

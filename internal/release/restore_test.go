@@ -284,7 +284,9 @@ func TestRestoreAgainstARealServer(t *testing.T) {
 	if !rep.Started {
 		t.Fatalf("report = %+v", rep)
 	}
-	c := &cli.Client{Instance: w.dir, Budget: 10 * time.Second}
+	// A cwd outside any checkout: the caller's .loop/token is no token of this server.
+	cwd := t.TempDir()
+	c := &cli.Client{Instance: w.dir, Budget: 10 * time.Second, Getwd: func() (string, error) { return cwd, nil }}
 	r := cli.Surface()
 	v, _ := r.Verb("status")
 	if res := c.Remote(context.Background(), cli.Invocation{Verb: v, Flags: map[string]string{}, RequestID: "restore-test"}); res.Refusal != nil {

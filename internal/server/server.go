@@ -95,8 +95,9 @@ type Options struct {
 	// Optional.
 	Dependencies admission.DepReader
 	// Pulls lists a project's open pull requests for admission's
-	// `## Depends on` hold. Optional. `loop serve` sets the GitHub
-	// service's reader.
+	// `## Depends on` hold, and for dependency-advance, which releases
+	// the dependants of a canceled blocker that holds no open pull
+	// request. Optional. `loop serve` sets the GitHub service's reader.
 	Pulls admission.PullReader
 	// Agents is the agent host. With Beads set and admission
 	// composed, the server composes the scheduler: it serves run
@@ -146,6 +147,9 @@ type Server struct {
 	Started time.Time
 
 	human *human
+	// overwatch is the sweep's world and part list, composed with the
+	// machine.
+	overwatch overwatchState
 
 	opts Options
 	log  *slog.Logger

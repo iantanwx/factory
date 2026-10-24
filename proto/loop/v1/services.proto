@@ -75,6 +75,10 @@ service DecisionService {
   rpc Moot(VerbRequest) returns (Envelope);
 }
 
+service OverwatchService {
+  rpc Sweep(VerbRequest) returns (Envelope);
+}
+
 service FaultService {
   rpc Report(VerbRequest) returns (Envelope);
   rpc Show(VerbRequest) returns (Envelope);
@@ -94,6 +98,7 @@ service InboxService {
   rpc Defer(VerbRequest) returns (Envelope);
   rpc Prepare(VerbRequest) returns (Envelope);
   rpc Wait(VerbRequest) returns (Envelope);
+  rpc Note(VerbRequest) returns (Envelope);
 }
 
 service RoomService {

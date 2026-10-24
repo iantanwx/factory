@@ -102,3 +102,30 @@ func TestFirstMessageOpensWithOneTitleLine(t *testing.T) {
 		t.Errorf("the title holds %d runes", n)
 	}
 }
+
+// C-bug-1 (F-21): past the age bound only a complete inventory, of any
+// epoch, that lists neither the exact identity nor a trace settles a run.
+// The exact-identity row matters: orca reads a disconnected live terminal
+// as unknown while its inventory still lists it, and Traces skips that row.
+func TestUntracedNeedsACompleteInventoryWithNoExactRowAndNoTrace(t *testing.T) {
+	s := agenthost.Session{ID: agenthost.RunID{Host: "h", Terminal: "t1", Incarnation: "i1"}, Pty: "p1", Epoch: "e1"}
+	other := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t9", Incarnation: "i9"}, Pty: "p9"}
+	cases := []struct {
+		name string
+		inv  agenthost.Inventory
+		want bool
+	}{
+		{"complete, other epoch, exact row", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{other, {ID: s.ID, Pty: "p1"}}}, false},
+		{"complete, same epoch, exact row", agenthost.Inventory{Complete: true, Epoch: "e1", Rows: []agenthost.Row{{ID: s.ID}}}, false},
+		{"complete, incarnation trace", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{{ID: agenthost.RunID{Host: "h", Terminal: "t2", Incarnation: "i1"}}}}, false},
+		{"complete, PTY trace", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{{ID: agenthost.RunID{Host: "h", Terminal: "t2", Incarnation: "i2"}, Pty: "p1"}}}, false},
+		{"incomplete, no row", agenthost.Inventory{Complete: false, Epoch: "e2", Rows: []agenthost.Row{other}}, false},
+		{"complete, other epoch, no row", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{other}}, true},
+		{"complete, same epoch, empty", agenthost.Inventory{Complete: true, Epoch: "e1"}, true},
+	}
+	for _, c := range cases {
+		if got := c.inv.Untraced(s); got != c.want {
+			t.Errorf("%s: Untraced = %v; want %v", c.name, got, c.want)
+		}
+	}
+}

@@ -23,7 +23,7 @@ const DeferKind = "inbox_defer"
 // Alert kinds that wait on a person: only the operator stores a secret or
 // edits the repository's tracked files. Every other alert asks the
 // coordinator to look (KTD9).
-var personAlerts = map[string]bool{sched.AlertMissingSecret: true, sched.AlertConfigConflict: true}
+var personAlerts = map[string]bool{sched.AlertMissingSecret: true, sched.AlertConfigConflict: true, sched.AlertCheckoutKept: true}
 
 // Entry ids. The id names its kind and its source, so an answer finds the
 // source again without a lookup table.
@@ -325,22 +325,32 @@ func (in *Inbox) rooms(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 }
 
 func (in *Inbox) alerts(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
-	rs, err := tx.QueryContext(ctx, `SELECT id, project, kind, subject, body, count, last_at FROM alerts WHERE state = 'open' ORDER BY id`)
+	rs, err := tx.QueryContext(ctx, `SELECT id, project, kind, subject, body, count, last_at, finding, finding_run,
+		coalesce(finding_count, 0), coalesce(finding_last_at, 0) FROM alerts WHERE state = 'open' ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rs.Close() }()
 	var out []Entry
 	for rs.Next() {
-		var id, at int64
-		var count int
-		var project, kind, subject, body string
-		if err := rs.Scan(&id, &project, &kind, &subject, &body, &count, &at); err != nil {
+		var id, at, foundAt int64
+		var count, foundCount int
+		var project, kind, subject, body, finding, findingRun string
+		if err := rs.Scan(&id, &project, &kind, &subject, &body, &count, &at, &finding, &findingRun, &foundCount, &foundAt); err != nil {
 			return nil, err
 		}
 		e := Entry{ID: rowEntry(KindAlert, id), Kind: KindAlert, Awaits: AwaitsCoordinator, Project: project, Status: kind,
 			Title: subject, Text: body, Next: "loop inbox answer " + rowEntry(KindAlert, id) + " --body <what was done> closes it", At: at}
-		if count > 1 {
+		switch {
+		case finding != "":
+			// The entry keeps the time it had at the note, so a repeat
+			// after the finding rings no one. The count still shows it.
+			e.Found, e.At = true, foundAt
+			if count > 1 {
+				e.Text = fmt.Sprintf("%s\n\nRaised %d times, %d of them after the finding.", body, count, count-foundCount)
+			}
+			e.Text += "\n\nThe finding:\n\n" + AgentText(findingRun, finding)
+		case count > 1:
 			e.Text = fmt.Sprintf("%s\n\nRaised %d times.", body, count)
 		}
 		if personAlerts[kind] {

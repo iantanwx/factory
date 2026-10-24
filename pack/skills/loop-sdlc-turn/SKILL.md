@@ -60,7 +60,9 @@ codes cannot.
 - `REMOTE_AHEAD`: the remote item branch holds commits that your head does not hold. Run
   `loop branch sync`, and bring the item head in by section 4. Merge it, and push again.
 - `UNSAFE_PATH`: your push changes `.gitmodules`, a gitlink, or a filter or LFS line in
-  `.gitattributes`. Only the operator makes that change. Escalate it with `loop escalation raise`.
+  `.gitattributes`. Or your branch changes the merge queue's config, such as `.mergify.yml`,
+  against the base. Only the operator makes that change. Escalate it with `loop escalation raise`.
+  A merge of the base that brings in the operator's config change is no change of yours.
 - `GITHUB_REFUSED`: GitHub refused the request, and `hint` holds its answer. Never send the same
   request again. Escalate it with `loop escalation raise`.
 - `SERVER_UNAVAILABLE`, `DRAINING`, `BEADS_UNAVAILABLE` and `GITHUB_UNAVAILABLE` exit 4. Run
@@ -102,7 +104,18 @@ The server made your checkout from the base branch that the brief names. The loo
   `git push`, and never force a push.
 - **Write each message and body file outside the checkout.** Make a directory with `mktemp -d`, and
   write there. A file in the checkout lands in the diff. A shared path lets two runs write one
-  file.
+  file. Pass a commit message as a file, with `git commit -F <file>`.
+- **Name another checkout by its path.** Start each command that runs git in another checkout with
+  `test -d "$W" || exit 1`. Then name that checkout in each git step with `git -C "$W"`.
+  Never write `cd "$W" &&` followed by more git steps. Cleanup can delete the checkout of a
+  finished run, so a missing checkout is a normal state. After a failed `cd`, the next steps run in your
+  own checkout. They can commit and push a change that is not yours.
+- **Stop at the first failed step of a command that writes.** A shell that runs one command line
+  can continue after a failed step, even with `set -e`. So follow each step with `|| exit 1` when
+  the command ends in a commit, a merge, `loop branch push`, `loop pr open` or another loop write.
+  A push after a failed commit pushes the wrong head. Check the effect before you publish it. For
+  example, read the diff before you commit it. Read a value from the field of the envelope that
+  names it, and never from the first match in the output.
 
 Run each command in the foreground, inside one tool call. A background command dies with your
 session. A session that ends without `loop run finish` counts as a crashed attempt.

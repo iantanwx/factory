@@ -304,6 +304,59 @@ func TestIntakeRoomOpensOnlyUnderTheIntakeCap(t *testing.T) {
 	}
 }
 
+// C-bug-1: each `room open --kind intake` with no --item under the intake
+// cap opens a new room, and an open room's reason never changes. Only an
+// idle or interrupted room is reopened, and only on its own item.
+func TestEachItemlessIntakeOpenIsANewRoom(t *testing.T) {
+	w := newRoomWorld(t)
+	first := w.openRoom("intake", "", "the operator has an idea about widgets")
+	if first["state"] != room.Live {
+		t.Fatalf("first intake room = %v", first)
+	}
+	env, code := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has an idea about gadgets", "--score", "4")
+	if code != 0 {
+		t.Fatalf("second intake open = %d %v", code, env)
+	}
+	data := env["data"].(map[string]any)
+	second := data["room"].(map[string]any)
+	if data["reopened"] == true || second["room"] == first["room"] {
+		t.Fatalf("the second itemless intake open reopened live room %v: %v", first["room"], env)
+	}
+	if got := w.room(first["room"].(string)); got.Reason != "the operator has an idea about widgets" {
+		t.Fatalf("the live room's reason changed to %q", got.Reason)
+	}
+	if n := w.count(`SELECT count(*) FROM rooms WHERE kind = 'intake' AND item = '' AND closed_at IS NULL`); n != 2 {
+		t.Fatalf("open itemless intake rooms = %d, want 2", n)
+	}
+}
+
+// C-bug-1: a second itemless intake open goes through the intake cap like
+// the first. An open itemless intake room does not wave it past a full cap.
+func TestASecondItemlessIntakeOpenMeetsTheIntakeCap(t *testing.T) {
+	w := newRoomWorld(t)
+	ctx := context.Background()
+	is, err := w.bx.Create(ctx, beadsx.CreateSpec{Title: "Widgets", Type: "epic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.bx.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: is.Status, Status: machine.PRDReview}); err != nil {
+		t.Fatal(err)
+	}
+	w.setIntakeCap(2)
+	first := w.openRoom("intake", "", "the operator has an idea about widgets")
+	w.setIntakeCap(1)
+	env, _ := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has an idea about gadgets", "--score", "4")
+	if env["code"] != cli.CodeCapFull {
+		t.Fatalf("a second itemless intake open at the cap = %v", env)
+	}
+	if n := w.count(`SELECT count(*) FROM rooms`); n != 1 {
+		t.Fatalf("rooms after a refused second intake open = %d, want 1", n)
+	}
+	if got := w.room(first["room"].(string)); got.Reason != "the operator has an idea about widgets" {
+		t.Fatalf("the live room's reason changed to %q", got.Reason)
+	}
+}
+
 // A room receives only the secrets its room's stage receives, each in the
 // .env of the entry's directory (parity 9.3, 11.2). An implementer secret
 // with no stored value does not stop an intake room.
@@ -427,5 +480,60 @@ func TestRoomSessionNamesItsWork(t *testing.T) {
 			t.Errorf("terminal title %q is not one line", title)
 		}
 		w.coordinator("room", "close", r["room"].(string))
+	}
+}
+
+// Parity 1.32: an architect room serves one architecture epic, so the
+// operator and an agent write its ADR together. It needs the epic, and an
+// item in any other state is refused before any room opens. Its session
+// reads the architect room's runbook, and the epic stays in architecture:
+// only the ADR's merge moves it.
+func TestArchitectRoomServesAnArchitectureEpic(t *testing.T) {
+	w := newRoomWorld(t)
+	open := func(args ...string) map[string]any {
+		env, _ := w.coordinator(append([]string{"room", "open", "--kind", "architect", "--project", "alpha",
+			"--reason", "the operator wants to decide the widget store", "--score", "4"}, args...)...)
+		return env
+	}
+	if env := open(); env["code"] != cli.CodeUsage || env["rule"] != "no_item" {
+		t.Fatalf("an architect room with no item = %v", env)
+	}
+	ticket := todoTicket(t, w.bx)
+	if env := open("--item", ticket); env["code"] != cli.CodeTransitionNotAllowed || env["rule"] != "not_architecture_epic" {
+		t.Fatalf("an architect room on a ticket = %v", env)
+	}
+	review, res := w.srv.Machine.Create(context.Background(), machine.CreateRequest{Project: "alpha", Kind: machine.KindEpic,
+		Title: "Widget feed", Description: "Feed the widgets.", Verb: machine.VerbPRDSubmit,
+		Params: map[string]string{"pr": "7"}, Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		t.Fatalf("create the epic in review: %+v", *res.Refusal)
+	}
+	if st := w.show(review).Status; st != machine.PRDReview {
+		t.Fatalf("the epic in review is in %s", st)
+	}
+	if env := open("--item", review); env["code"] != cli.CodeTransitionNotAllowed || env["rule"] != "not_architecture_epic" {
+		t.Fatalf("an architect room on an epic in %s = %v", machine.PRDReview, env)
+	}
+	if n := w.count(`SELECT count(*) FROM rooms`); n != 0 {
+		t.Fatalf("a refused architect room left %d rooms", n)
+	}
+
+	epic, res := w.srv.Machine.Create(context.Background(), machine.CreateRequest{Project: "alpha", Kind: machine.KindEpic,
+		Title: "Widget store", Description: "Decide where widgets live.", Verb: machine.VerbCreateArchitecture,
+		Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		t.Fatalf("create the architecture epic: %+v", *res.Refusal)
+	}
+	r := w.openRoom("architect", epic, "the operator wants to decide the widget store")
+	if r["state"] != room.Live || r["kind"] != "architect" {
+		t.Fatalf("architect room = %v", r)
+	}
+	got := w.room(r["room"].(string))
+	prompt, err := os.ReadFile(filepath.Join(got.Checkout, brief.PromptFile))
+	if err != nil || !strings.Contains(string(prompt), "loop-architect-room/SKILL.md") {
+		t.Fatalf("architect room prompt = %s %v", prompt, err)
+	}
+	if st := w.show(epic).Status; st != machine.Architecture {
+		t.Fatalf("opening the room moved the epic to %s", st)
 	}
 }

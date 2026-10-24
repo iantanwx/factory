@@ -215,12 +215,40 @@ the room has none.
 
 Only that session holds the coordinator's token, in `.loop/token` of its
 worktree. A session in your own clone holds none, and the server refuses
-its coordinator verbs. When you remove the coordinator's project, the
+its coordinator verbs. The coordinator may run the host verbs `upgrade`,
+`rollback`, `doctor`, `project list` and `project show` from its worktree,
+as your shell would. A run or a room may not: the server refuses each with
+rule `host_verb_from_checkout` and raises an alert. It also refuses a call
+with no token from inside any checkout. The coordinator's `upgrade`
+and `rollback` run outside its session, as a transient systemd user unit
+in your home directory, so the restart they make cannot end them. When you remove the coordinator's project, the
 server ends the session and starts the next one in a project that is
 still registered. When you upgrade the loop, the server leaves a running
 session up. It sends that session one message that names the new release
 and tells it to read its runbook again. When the session ends, the server
 starts the next one under the new release, in the same worktree.
+
+## Checkout cleanup
+
+The scheduler runs a cleanup pass on each cleanup interval. It judges the
+checkout of each run that ended and of each room that `loop room close`
+ended. That includes a run checkout that the server kept when the run's
+session ended with no finish. A checkout that a lease, a live session or an
+open room uses is never judged.
+
+The pass deletes a checkout through `orca worktree rm` when its tree is
+clean and each of its commits is held. A commit is held when a remote
+holds it, when the base branch holds it, or when the base branch holds its
+patch under another commit id (`git cherry`), as after a rebase. The
+terminal in the checkout closes with it.
+
+A checkout with uncommitted work, or with a commit that no remote and no
+base holds, stays. The pass raises one `checkout_kept` alert that awaits
+a person. It names the checkout's path and the reason. Push the work, or
+remove the checkout with `orca worktree rm --worktree path:<path> --force`.
+The next pass deletes a clean, pushed checkout, and the alert closes with
+it. When you removed the checkout by hand, answer the alert. The pass
+raises it again only when the reason changes.
 
 ## Schedule an agent job
 
@@ -326,7 +354,7 @@ At each run start, the server writes each secret the run's stage
 receives into the `.env` of the entry's `dir`, or the checkout's root
 `.env` when the entry names none. An entry with no `stages` reaches every
 stage. A stage is a stage name, such as `implementer`, or a room:
-`intake-room`, `decision-room` or `review-room`. So a key that one app
+`intake-room`, `decision-room`, `review-room` or `architect-room`. So a key that one app
 uses reaches that app's `.env` only, in the runs that need it. Each file
 holds only its own names, and the server deletes each one when the run
 settles. A repository that tracks a file at one of those paths starts no
@@ -368,11 +396,11 @@ loop upgrade v1.2.3
 loop upgrade          # the newest published release
 ```
 
-You need not run it yourself. Tell the coordinator to upgrade, and it runs
-`loop coordinator upgrade` with your words. The server then starts
-`loop upgrade` as a transient systemd user unit, outside its own service and
-outside every checkout (ADR 0010). The unit's journal holds the report, and
-the coordinator reads the new version back after the restart.
+You need not run it yourself. When a published release ends an open loop
+fault, the coordinator runs `loop upgrade` from its worktree. The CLI then
+starts the upgrade as a transient systemd user unit, outside the server's
+service and outside every checkout. The unit's journal holds the report,
+and the coordinator reads the new version back after the restart.
 
 The loop repository is private, so `loop upgrade` reads its releases through
 the GitHub API with the host's `gh` login, the token `gh auth token` prints.

@@ -2013,6 +2013,108 @@ var DecisionService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	OverwatchService_Sweep_FullMethodName = "/loop.v1.OverwatchService/Sweep"
+)
+
+// OverwatchServiceClient is the client API for OverwatchService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type OverwatchServiceClient interface {
+	Sweep(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+}
+
+type overwatchServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewOverwatchServiceClient(cc grpc.ClientConnInterface) OverwatchServiceClient {
+	return &overwatchServiceClient{cc}
+}
+
+func (c *overwatchServiceClient) Sweep(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, OverwatchService_Sweep_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OverwatchServiceServer is the server API for OverwatchService service.
+// All implementations must embed UnimplementedOverwatchServiceServer
+// for forward compatibility.
+type OverwatchServiceServer interface {
+	Sweep(context.Context, *VerbRequest) (*Envelope, error)
+	mustEmbedUnimplementedOverwatchServiceServer()
+}
+
+// UnimplementedOverwatchServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedOverwatchServiceServer struct{}
+
+func (UnimplementedOverwatchServiceServer) Sweep(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Sweep not implemented")
+}
+func (UnimplementedOverwatchServiceServer) mustEmbedUnimplementedOverwatchServiceServer() {}
+func (UnimplementedOverwatchServiceServer) testEmbeddedByValue()                          {}
+
+// UnsafeOverwatchServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to OverwatchServiceServer will
+// result in compilation errors.
+type UnsafeOverwatchServiceServer interface {
+	mustEmbedUnimplementedOverwatchServiceServer()
+}
+
+func RegisterOverwatchServiceServer(s grpc.ServiceRegistrar, srv OverwatchServiceServer) {
+	// If the following call panics, it indicates UnimplementedOverwatchServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&OverwatchService_ServiceDesc, srv)
+}
+
+func _OverwatchService_Sweep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OverwatchServiceServer).Sweep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OverwatchService_Sweep_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OverwatchServiceServer).Sweep(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// OverwatchService_ServiceDesc is the grpc.ServiceDesc for OverwatchService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var OverwatchService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "loop.v1.OverwatchService",
+	HandlerType: (*OverwatchServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Sweep",
+			Handler:    _OverwatchService_Sweep_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "loop/v1/services.proto",
+}
+
+const (
 	FaultService_Report_FullMethodName  = "/loop.v1.FaultService/Report"
 	FaultService_Show_FullMethodName    = "/loop.v1.FaultService/Show"
 	FaultService_List_FullMethodName    = "/loop.v1.FaultService/List"
@@ -2412,6 +2514,7 @@ const (
 	InboxService_Defer_FullMethodName   = "/loop.v1.InboxService/Defer"
 	InboxService_Prepare_FullMethodName = "/loop.v1.InboxService/Prepare"
 	InboxService_Wait_FullMethodName    = "/loop.v1.InboxService/Wait"
+	InboxService_Note_FullMethodName    = "/loop.v1.InboxService/Note"
 )
 
 // InboxServiceClient is the client API for InboxService service.
@@ -2423,6 +2526,7 @@ type InboxServiceClient interface {
 	Defer(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Prepare(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Wait(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Note(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type inboxServiceClient struct {
@@ -2483,6 +2587,16 @@ func (c *inboxServiceClient) Wait(ctx context.Context, in *VerbRequest, opts ...
 	return out, nil
 }
 
+func (c *inboxServiceClient) Note(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, InboxService_Note_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // InboxServiceServer is the server API for InboxService service.
 // All implementations must embed UnimplementedInboxServiceServer
 // for forward compatibility.
@@ -2492,6 +2606,7 @@ type InboxServiceServer interface {
 	Defer(context.Context, *VerbRequest) (*Envelope, error)
 	Prepare(context.Context, *VerbRequest) (*Envelope, error)
 	Wait(context.Context, *VerbRequest) (*Envelope, error)
+	Note(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedInboxServiceServer()
 }
 
@@ -2516,6 +2631,9 @@ func (UnimplementedInboxServiceServer) Prepare(context.Context, *VerbRequest) (*
 }
 func (UnimplementedInboxServiceServer) Wait(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Wait not implemented")
+}
+func (UnimplementedInboxServiceServer) Note(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Note not implemented")
 }
 func (UnimplementedInboxServiceServer) mustEmbedUnimplementedInboxServiceServer() {}
 func (UnimplementedInboxServiceServer) testEmbeddedByValue()                      {}
@@ -2628,6 +2746,24 @@ func _InboxService_Wait_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _InboxService_Note_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(InboxServiceServer).Note(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: InboxService_Note_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(InboxServiceServer).Note(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // InboxService_ServiceDesc is the grpc.ServiceDesc for InboxService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2654,6 +2790,10 @@ var InboxService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Wait",
 			Handler:    _InboxService_Wait_Handler,
+		},
+		{
+			MethodName: "Note",
+			Handler:    _InboxService_Note_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

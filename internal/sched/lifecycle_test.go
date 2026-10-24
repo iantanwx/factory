@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -51,9 +52,9 @@ func TestLiveRunIsReadoptedAfterALongOutage(t *testing.T) {
 	}
 }
 
-// A host restart that changes handles leaves the run unknown. Past the age
-// bound of two run budgets it raises a coordinator-owned alert and
-// reclaims nothing.
+// A host restart that changes handles leaves the run unknown. Its process
+// is still traced under the new handle, so past the age bound of two run
+// budgets it raises a coordinator-owned alert and reclaims nothing.
 func TestUnknownLivenessPastTheAgeBoundAlertsOnly(t *testing.T) {
 	w := newWorld(t)
 	w.writeHost(nil, nil, func(c *config.HostConfig) { c.RunBudget = time.Hour })
@@ -78,6 +79,90 @@ func TestUnknownLivenessPastTheAgeBoundAlertsOnly(t *testing.T) {
 	}
 	if w.lease(id).Owner != st.RunID || w.status(id) != machine.InProgress || w.failures(id) != 0 {
 		t.Fatal("an unknown run was reclaimed")
+	}
+}
+
+// C-bug-1 (F-21): an orca restart moves the epoch, and a run whose terminal
+// died with it stays unknown forever. Past the age bound, a complete
+// inventory with no terminal and no PTY carrying the run's incarnation
+// reclaims the run as failed. A run still traceable under a new handle
+// stays unknown.
+func TestUnknownRunWithNoTraceIsReclaimedPastTheAgeBound(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) { c.RunBudget = time.Hour })
+	gone, traced := w.ticket(machine.Todo), w.ticket(machine.Todo)
+	g := w.dispatch(machine.StageImplementer)
+	tr := w.dispatch(machine.StageImplementer)
+	if w.lease(gone).Owner != g.RunID {
+		gone, traced = traced, gone
+	}
+	// g leaves uncommitted work, so the cleanup pass keeps its checkout
+	// after the reclaim; a clean, pushed one would go.
+	if err := os.WriteFile(filepath.Join(g.Checkout, "work.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The terminal of g vanishes. The host restarts, and tr's process
+	// reappears under a new handle with the same incarnation and PTY.
+	if err := w.host.Close(context.Background(), g.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.host.Restart(false)
+	w.restart()
+	w.tick()
+	for _, r := range []*Started{g, tr} {
+		if s, _ := w.runState(r.RunID); s != RunUnknown {
+			t.Fatalf("run %s state = %s, want unknown", r.RunID, s)
+		}
+	}
+	w.clock.Advance(90 * time.Minute)
+	w.tick()
+	if s, _ := w.runState(g.RunID); s != RunUnknown || w.lease(gone).Owner != g.RunID {
+		t.Fatalf("vanished run reclaimed before the age bound: state %s", s)
+	}
+	w.clock.Advance(31 * time.Minute)
+	w.tick()
+	w.tick()
+	if s, _ := w.runState(g.RunID); s != "settled" || w.failures(gone) != 1 || w.lease(gone).Owner == g.RunID {
+		t.Fatalf("vanished run: state %s, failures %d, lease %+v; want settled, 1 failure, lease freed",
+			s, w.failures(gone), w.lease(gone))
+	}
+	if w.status(gone) != machine.Todo || w.alerts(AlertRunCrashed) != 1 {
+		t.Fatalf("vanished run: status %s, crash alerts %d; want todo, 1", w.status(gone), w.alerts(AlertRunCrashed))
+	}
+	if _, err := os.Stat(g.Checkout); err != nil {
+		t.Fatalf("vanished run's checkout: %v", err)
+	}
+	if s, _ := w.runState(tr.RunID); s != RunUnknown || w.lease(traced).Owner != tr.RunID || w.failures(traced) != 0 {
+		t.Fatalf("traced run: state %s, lease %+v, failures %d; want unknown and held", s, w.lease(traced), w.failures(traced))
+	}
+	if w.alerts(AlertRunUnknown) != 1 {
+		t.Fatalf("unknown alerts = %d, want 1 for the traced run", w.alerts(AlertRunUnknown))
+	}
+}
+
+// C-bug-1: an incomplete inventory proves nothing absent. Past the age
+// bound, a run with no trace that only incomplete inventories have read
+// keeps its lease and raises only the unknown alert.
+func TestUnknownRunOnAnIncompleteInventoryIsNotReclaimed(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) { c.RunBudget = time.Hour })
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	if err := w.host.Close(context.Background(), st.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.host.Restart(false)
+	w.host.SetInventoryIncomplete(true)
+	w.restart()
+	w.tick()
+	w.clock.Advance(121 * time.Minute)
+	w.tick()
+	w.tick()
+	if s, _ := w.runState(st.RunID); s != RunUnknown || w.lease(id).Owner != st.RunID || w.failures(id) != 0 {
+		t.Fatalf("state %s, lease %+v, failures %d; want unknown and held", s, w.lease(id), w.failures(id))
+	}
+	if w.alerts(AlertRunUnknown) != 1 {
+		t.Fatalf("unknown alerts = %d, want 1", w.alerts(AlertRunUnknown))
 	}
 }
 
@@ -153,6 +238,178 @@ func TestCheckoutCleanup(t *testing.T) {
 	}
 	if s := w.str(`SELECT state FROM checkouts WHERE path = ?`, unpushed.Checkout); s != CheckoutSettled {
 		t.Fatalf("unpushed checkout state = %s", s)
+	}
+}
+
+// commitIn commits one file in dir and returns the new head.
+func commitIn(t *testing.T, dir, file, body, msg string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "add", file)
+	gitIn(t, dir, "commit", "-q", "-m", msg)
+	return gitIn(t, dir, "rev-parse", "HEAD")
+}
+
+// landOnBase lands the file on the base as the merge queue does: after
+// another commit, with a new commit id and the same patch. The project
+// clone then fetches, so every checkout's origin/main holds it.
+func (w *world) landOnBase(file, body string) {
+	w.t.Helper()
+	clone := filepath.Join(w.t.TempDir(), "landing")
+	gitIn(w.t, w.dir, "clone", "-q", w.origin, clone)
+	commitIn(w.t, clone, "other.txt", "other\n", "another pull request")
+	commitIn(w.t, clone, file, body, "the same patch, rebased by the queue")
+	gitIn(w.t, clone, "push", "-q", "origin", "main")
+	gitIn(w.t, w.repo, "fetch", "-q", "origin")
+}
+
+// settledCheckout finishes a code-reviewer run and returns it.
+func (w *world) settledCheckout() *Started {
+	w.t.Helper()
+	w.ticket(machine.InReview)
+	st := w.dispatch(machine.StageCodeReviewer)
+	if _, ref := w.s.Finish(context.Background(), st.RunID, "done"); ref != nil {
+		w.t.Fatal(ref)
+	}
+	return st
+}
+
+// tickertown reclaim-rules.test.ts, ported: a branch whose every patch the
+// base holds counts as pushed, though a rebase gave each commit a new id
+// and no remote holds the old ones (F-9).
+func TestCleanupCountsARebasedBranchAsPushed(t *testing.T) {
+	w := newWorld(t)
+	st := w.settledCheckout()
+	commitIn(t, st.Checkout, "work.txt", "work\n", "work")
+	if ahead := gitIn(t, st.Checkout, "rev-list", "HEAD", "--not", "--remotes"); ahead == "" {
+		t.Fatal("the commit is on a remote already")
+	}
+	w.landOnBase("work.txt", "work\n")
+	if ahead := gitIn(t, st.Checkout, "rev-list", "HEAD", "--not", "--remotes"); ahead == "" {
+		t.Fatal("the commit id reached a remote; the test proves nothing")
+	}
+	w.tick() // closes the finished session
+	rep := w.s.CleanCheckouts(context.Background())
+	if !slices.Contains(rep.Deleted, st.Checkout) || exists(st.Checkout) {
+		t.Fatalf("cleanup kept a branch the base holds by patch: %+v", rep)
+	}
+}
+
+// tickertown reclaim-rules.test.ts, ported: a commit by a patch no remote
+// and no base holds keeps the checkout, the report names the reason, and
+// an inbox alert for a person names the path and the reason. The alert
+// closes once the work is pushed and the checkout goes (F-9).
+func TestCleanupKeepsANewPatchAndSaysWhy(t *testing.T) {
+	w := newWorld(t)
+	st := w.settledCheckout()
+	head := commitIn(t, st.Checkout, "work.txt", "work\n", "work")
+	w.landOnBase("work.txt", "other work\n")
+	w.tick()
+	rep := w.s.CleanCheckouts(context.Background())
+	why, kept := rep.Kept[st.Checkout]
+	if !kept || !strings.Contains(why, "1 commit that no remote and no base holds") || !exists(st.Checkout) {
+		t.Fatalf("report = %+v", rep)
+	}
+	body := w.str(`SELECT body FROM alerts WHERE kind = ? AND state = 'open'`, AlertCheckoutKept)
+	if !strings.Contains(body, st.Checkout) || !strings.Contains(body, why) {
+		t.Fatalf("alert body = %q", body)
+	}
+	// A second pass raises nothing new.
+	w.s.CleanCheckouts(context.Background())
+	if n := w.alerts(AlertCheckoutKept); n != 1 {
+		t.Fatalf("alerts after a second pass = %d", n)
+	}
+	gitIn(t, st.Checkout, "push", "-q", "origin", head+":refs/heads/kept-work")
+	gitIn(t, st.Checkout, "fetch", "-q", "origin")
+	rep = w.s.CleanCheckouts(context.Background())
+	if !slices.Contains(rep.Deleted, st.Checkout) {
+		t.Fatalf("cleanup kept a pushed checkout: %+v", rep)
+	}
+	if n := w.count(`SELECT count(*) FROM alerts WHERE kind = ? AND state = 'open'`, AlertCheckoutKept); n != 0 {
+		t.Fatal("the alert stays after its checkout went")
+	}
+}
+
+// A run checkout that liveness kept goes on the next pass once it is
+// clean and pushed: the run ended, and nothing holds it (F-9).
+func TestCleanupDeletesALivenessKeptCheckout(t *testing.T) {
+	w := newWorld(t)
+	w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.host.Exit(st.Session.ID, 1)
+	w.tick()
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutKept {
+		t.Fatalf("checkout state = %s", s)
+	}
+	rep := w.s.CleanCheckouts(context.Background())
+	if !slices.Contains(rep.Deleted, st.Checkout) || exists(st.Checkout) {
+		t.Fatalf("cleanup kept a clean, pushed checkout that liveness kept: %+v", rep)
+	}
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutDeleted {
+		t.Fatalf("checkout state = %s", s)
+	}
+}
+
+// keptClean returns a clean, pushed checkout whose run liveness kept, and
+// that the next pass would delete but for what the caller adds.
+func (w *world) keptClean() *Started {
+	w.t.Helper()
+	w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.host.Exit(st.Session.ID, 1)
+	w.tick()
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutKept {
+		w.t.Fatalf("checkout state = %s", s)
+	}
+	return st
+}
+
+func (w *world) exec(query string, args ...any) {
+	w.t.Helper()
+	if err := w.st.Write(context.Background(), func(tx *store.Tx) error {
+		_, err := tx.Exec(query, args...)
+		return err
+	}); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// A clean, pushed checkout whose run still owns a lease stays: the run may
+// come back to it (F-9).
+func TestCleanupKeepsACheckoutWhoseRunHoldsALease(t *testing.T) {
+	w := newWorld(t)
+	st := w.keptClean()
+	w.exec(`UPDATE leases SET owner_run_id = ? WHERE project = ? AND item = ?`, st.RunID, prj, st.Item)
+	if n := w.count(`SELECT count(*) FROM leases WHERE owner_run_id = ?`, st.RunID); n != 1 {
+		t.Fatalf("leases owned by the run = %d", n)
+	}
+	rep := w.s.CleanCheckouts(context.Background())
+	if slices.Contains(rep.Deleted, st.Checkout) || !exists(st.Checkout) {
+		t.Fatalf("cleanup deleted a checkout whose run holds a lease: %+v", rep)
+	}
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutKept {
+		t.Fatalf("checkout state = %s", s)
+	}
+}
+
+// A clean, pushed checkout that an open room uses stays, though its run
+// ended and an earlier room on it closed (F-9).
+func TestCleanupKeepsACheckoutAnOpenRoomUses(t *testing.T) {
+	w := newWorld(t)
+	st := w.keptClean()
+	id := w.str(`SELECT id FROM checkouts WHERE run_id = ?`, st.RunID)
+	now := w.clock.Now().UnixMilli()
+	w.exec(`INSERT INTO rooms (id, project, item, checkout_id, state, opened_at, closed_at) VALUES
+		('room-closed', ?, ?, ?, 'closed', ?, ?), ('room-open', ?, ?, ?, 'open', ?, NULL)`,
+		prj, st.Item, id, now, now, prj, st.Item, id, now)
+	rep := w.s.CleanCheckouts(context.Background())
+	if slices.Contains(rep.Deleted, st.Checkout) || !exists(st.Checkout) {
+		t.Fatalf("cleanup deleted a checkout an open room uses: %+v", rep)
+	}
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutKept {
+		t.Fatalf("checkout state = %s", s)
 	}
 }
 
