@@ -94,7 +94,11 @@ type Config struct {
 	// Beads reads an item's body for the brief and the dependency edges of
 	// dependency-advance. Optional. With none, dependency-advance is not
 	// registered.
-	Beads   machine.BeadsResolver
+	Beads machine.BeadsResolver
+	// Pulls lists a project's open pull requests. dependency-advance reads
+	// it to learn whether a canceled blocker landed. Optional. With none, a
+	// canceled blocker holds its dependants.
+	Pulls   admission.PullReader
 	Secrets *secrets.Store
 	Tokens  *rpc.Tokens
 	// Agents is the agent host: start, inventory, liveness, close.
