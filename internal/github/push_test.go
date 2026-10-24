@@ -279,6 +279,63 @@ func TestMergeConfigPathsAreRefused(t *testing.T) {
 	}
 }
 
+// A merge of the base brings in the operator's queue config change. The
+// branch does not change the config, so the push lands, as a PR's net file
+// list against the base would not hold the path either.
+func TestMergeOfTheBaseCarriesTheQueueConfig(t *testing.T) {
+	e := newEnv(t)
+	work := commit(t, e.checkout, "work", map[string]string{"a.txt": "a\n"})
+	if _, err := e.push("tk-1", work); err != nil {
+		t.Fatalf("push of the work: %+v", Refusal(err))
+	}
+	e.baseMoves(t, map[string]string{".mergify.yml": "queue_rules: []\n"})
+	gitT(t, e.checkout, "merge", "-q", "--no-ff", "-m", "merge the base", "main")
+	head := gitT(t, e.checkout, "rev-parse", "HEAD")
+	if _, err := e.push("tk-1", head); err != nil {
+		t.Fatalf("push of the merge of the base: %+v", Refusal(err))
+	}
+	if got := e.remoteSHA("loop/tk-1"); got != head {
+		t.Fatalf("remote loop/tk-1 = %q, want %s", got, head)
+	}
+}
+
+// A merge whose resolution changes the queue config against the base side
+// changes the config itself, so it is refused: a config that neither
+// parent holds, and a drop of the base's config, which matches the work
+// side that forked before the base added it.
+func TestMergeThatResolvesTheQueueConfigIsRefused(t *testing.T) {
+	cases := map[string]func(t *testing.T, e *env){
+		"writes its own": func(t *testing.T, e *env) {
+			writeFile(t, filepath.Join(e.checkout, ".mergify.yml"), "queue_rules:\n  - name: weak\n")
+			gitT(t, e.checkout, "add", ".mergify.yml")
+		},
+		"drops the base's": func(t *testing.T, e *env) {
+			gitT(t, e.checkout, "rm", "-q", "-f", ".mergify.yml")
+		},
+	}
+	for name, resolve := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			work := commit(t, e.checkout, "work", map[string]string{"a.txt": "a\n"})
+			if _, err := e.push("tk-1", work); err != nil {
+				t.Fatalf("push of the work: %+v", Refusal(err))
+			}
+			e.baseMoves(t, map[string]string{".mergify.yml": "queue_rules: []\n"})
+			gitT(t, e.checkout, "merge", "-q", "--no-ff", "--no-commit", "main")
+			resolve(t, e)
+			gitT(t, e.checkout, "commit", "-q", "-m", "merge the base")
+			head := gitT(t, e.checkout, "rev-parse", "HEAD")
+			err := firstErr(e.push("tk-1", head))
+			if got := refusalCode(t, err); got != cli.CodeUnsafePath {
+				t.Fatalf("code %s, want %s", got, cli.CodeUnsafePath)
+			}
+			if r := Refusal(err); r.Rule != "merge_config" {
+				t.Fatalf("refusal %+v; want rule merge_config", r)
+			}
+		})
+	}
+}
+
 // A file that only shares a name with a queue config is no config.
 func TestNestedMergifyFileIsNoMergeConfig(t *testing.T) {
 	e := newEnv(t)
@@ -415,9 +472,16 @@ func TestRefusalsNameTheirRecoveryVerb(t *testing.T) {
 // checkout's work branch onto it.
 func (e *env) onBase(t *testing.T, files map[string]string) {
 	t.Helper()
+	e.baseMoves(t, files)
+	gitT(t, e.checkout, "merge", "-q", "--ff-only", "main")
+}
+
+// baseMoves adds one commit to the base branch on the remote, and leaves
+// the checkout on its work branch, behind the base.
+func (e *env) baseMoves(t *testing.T, files map[string]string) {
+	t.Helper()
 	gitT(t, e.checkout, "checkout", "-q", "main")
 	e.base = commit(t, e.checkout, "base change", files)
 	gitT(t, e.checkout, "push", "-q", e.git.RemoteDir(), "main")
 	gitT(t, e.checkout, "checkout", "-q", "work")
-	gitT(t, e.checkout, "merge", "-q", "--ff-only", "main")
 }
