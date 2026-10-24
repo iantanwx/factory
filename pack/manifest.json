@@ -51,6 +51,10 @@
     "review-room": {
       "attended": true,
       "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-reflect"]
+    },
+    "architect-room": {
+      "attended": true,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-documents", "loop-sdlc-split", "loop-sdlc-glossary", "loop-reflect"]
     }
   },
   "skills": [
