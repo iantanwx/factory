@@ -146,6 +146,9 @@ type Server struct {
 	Started time.Time
 
 	human *human
+	// overwatch is the sweep's world and part list, composed with the
+	// machine.
+	overwatch overwatchState
 
 	opts Options
 	log  *slog.Logger
