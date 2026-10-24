@@ -23,7 +23,9 @@ The ADR's own document checks (the gates, the Ticket line, the number, nine verd
 `worktree.size` in `internal/gates`, no `lessons` noun) passed when the ADR merged. This spec owns
 none of them. Verdicts G6, G8 and G9 port nothing, so no work entry below builds them.
 
-This spec read the loop at the base `7a6bdad`.
+Round 1 read the loop at the base `7a6bdad`. Round 2 merged the base `58a9d93`. Between the two,
+no file that this spec cites changed, except `internal/machine/history.go`, which gained
+`Transition.Fact`.
 
 ## Scope check
 
@@ -34,8 +36,8 @@ This spec read the loop at the base `7a6bdad`.
    workflow, and the pack lines that tell an agent how to use them.
 2. **The base audit.** One step of the reactor tick in `internal/github`, and the merge record it
    reads from `internal/machine`. Why not its own epic: it could be one. It shares no type and no
-   file with component 1. ADR 0003 decided it with the other gaps, and the operator asked for one
-   pass through the SDLC for the whole audit. Open question Q1 proposes the split.
+   file with component 1. ADR 0003 decided it with the other gaps, under this one epic. Open
+   question Q1 proposes the split.
 
 Work entries 1 to 6 build component 1. Each one changes `internal/gates`, the config key or the
 verb that drives them, and the pack lines that name them. Entries 7 and 8 build component 2. No
@@ -52,13 +54,25 @@ that the code forces.
 
 - **A ratcheted gate tells a silent tool from a clean one by an end line, and never by the exit
   code.** The command must print the line `loop:end` as the last non-blank line of its stdout. A
-  stdout with no end line fails the gate with `no_end_line`, whatever the exit code. A `jq` filter
-  prints the line only when its input parsed, as in `jq -r '(.diagnostics[] | "\(.filename)::\(.code)"), "loop:end"'`.
-  A tool that crashed prints no JSON, so `jq` prints no end line. We rejected a rule that the
-  command exits 0, because oxlint exits 1 and govulncheck exits 3 when they find something. Such
-  a command would need `|| true`, and that hides a crash too. We rejected a rule that empty stdout
-  fails, because a clean project prints no key. The ADR asks that the ratchet never read silence
-  as zero ("What this makes hard"). This rule meets it with no parser for any tool.
+  stdout with no end line fails the gate with `no_end_line`, whatever the exit code. We rejected a
+  rule that the command exits 0, because oxlint exits 1 and govulncheck exits 3 when they find
+  something. Such a command would need `|| true`, and that hides a crash too. We rejected a rule
+  that empty stdout fails, because a clean project prints no key. The ADR asks that the ratchet
+  never read silence as zero ("What this makes hard"). This rule meets it with no parser for any
+  tool.
+- **Every ratcheted `jq` line takes one form: `jq -rn '[inputs] | select(length > 0) | (.[] | <keys>), "loop:end"'`.**
+  The form reads the tool's stdout as a stream of JSON documents. It serves a tool that prints
+  one document, such as oxlint, golangci-lint, ruff or `pnpm audit --json`, as a stream of one.
+  It serves a tool that prints a stream, such as `govulncheck -json`, as it is. So no project
+  chooses a form by tool. With jq-1.7 on the loop host, the form prints nothing on empty input,
+  nothing on input that does not parse, and one end line after the keys of a two-document stream.
+  We rejected the per-document form `jq -r '(<keys>), "loop:end"'`, because it prints one end line
+  for each document, so a stream fails with a key after the end line. We rejected `jq -rs` and
+  `jq -rn '[inputs] | ...'` with no `select(length > 0)`, because each prints the end line on
+  empty input, so a crashed tool reads as clean. The key filter never holds `?` or `// empty` on
+  the path to the findings. A tool whose output changed shape then makes `jq` fail before the end
+  line, and the gate fails. With `?`, a renamed field would read as zero findings. C4 and C30 run
+  the form itself, not only a stand-in command.
 - **A gate's stdout carries keys only, and its stderr still streams to the log.** We chose this
   over parsing mixed output, because a key line and a progress line cannot be told apart. A gate
   with no `baseline` keeps today's behaviour: its stdout and stderr both stream, and only the exit
@@ -119,17 +133,48 @@ that the code forces.
   commit. A PRD merge sets `prd_merged`, and a ticket merge sets `merged_sha`. We rejected reusing
   `merged_sha` for the spec, because `merged_sha` means a ticket's merge in `loop work show` and
   in the merge pipeline.
-- **A merge commit passes when its second parent is the reviewed head. A commit with one parent
-  passes when the item held a reviewed head at its merge.** The `direct` mechanism merges with a
-  merge commit at the reviewed head (`internal/github/merge_api.go:90`), so its second parent is
-  exact. Mergify and a GitHub queue may squash, which leaves one parent and no head in git. We
-  rejected a rule that every base commit has two parents, because the loop does not read a
-  project's Mergify method, and that rule would raise an alert for every squash.
-- **The audit runs only on a tick whose `pollPulls` returned no error.** A merge that `pollPulls`
-  failed to read has no record yet, and the audit would report it. We chose to skip the step over
-  a one-tick delay for each commit, because `SyncBase` already fetches the base before
-  `pollPulls` lists pull requests. So every commit that the fetch brought was merged before the
-  list was read.
+- **A document merge that outran its review fails the audit, whatever its parents.** The record
+  says so in `MergeRecord.Outran`: the item's history holds a `doc_merged` row from that
+  document's review or amending state (`prd_review` or `prd_amending` for a PRD, `spec_review` or
+  `spec_amending` for a spec) before the merge row. We chose history over the reviewed head,
+  because an epic holds one `reviewed_head` for both documents, and no epic row clears it
+  (`internal/machine/epic.go:287`, `:310`, `:333` are its only writes). So a spec that a person
+  squash-merges during its review still finds the PRD's head there. A rule that read only the head
+  would pass that merge. We rejected a check that the reviewed head was set in the same document
+  round, because that needs the round boundaries replayed, and the outran row already marks the
+  one path that skips the review.
+- **Any other recorded merge passes at its reviewed head. A merge commit passes when its second
+  parent is that head. A commit with one parent passes when that head is not empty.** The
+  `direct` mechanism merges with a merge commit at the reviewed head
+  (`internal/github/merge_api.go:90`), so its second parent is exact. Mergify and a GitHub queue
+  may squash, which leaves one parent and no head in git. We rejected a rule that every base
+  commit has two parents, because the loop does not read a project's Mergify method, and that rule
+  would raise an alert for every squash. A document that did not outrun its review reached
+  sign-off through a pass, an unchanged amendment from sign-off, or `signoff_head`. Each of the
+  three sets, or keeps, the reviewed head of that same document (`internal/machine/epic.go`). So a
+  non-empty head on a non-outran document merge is that document's pinned head. A ticket clears
+  its reviewed head on a reject, a head change and a dequeue (`internal/machine/ticket.go:166-174`).
+- **The audit runs on every tick. On a tick whose `pollPulls` returned an error, a commit with no
+  merge record stops the walk, and the cursor stays before it.** A merge that `pollPulls` failed
+  to read has no record yet, and the audit would report it. A commit with a record is judged on
+  that tick, because a record never changes after its merge. We chose this over skipping the
+  whole step on such a tick, because `pollPulls` fails when any one pull request fails
+  (`internal/github/reactor.go:281-291`). A merge refusal other than not-found fails on each tick
+  (`:500-515`), so one stuck pull request would stop the audit for good, and raise nothing.
+  When `pollPulls` returned no error, a commit with no record fails at once, because `SyncBase`
+  fetches the base before `pollPulls` lists pull requests. So every commit that the fetch brought
+  was merged before the list was read.
+- **A commit that stops the walk for 15 minutes raises one `base_audit_stalled` alert.** The
+  first tick that stops at a commit writes the commit to the cursor stream `base_audit_stall`.
+  The row's `updated_at` keeps the time of that first stop. A tick that stops at the same commit
+  15 minutes or more after that time raises the alert. Its subject is `<project>@<sha>`, and its
+  body names the commit, the time stopped and the first line of the `pollPulls` error. The walk
+  deletes the row when it passes the commit. We chose a duration over a count of ticks, because
+  the host's schedule sets the tick rate (`internal/config/throughput.go:99`, every minute by
+  default), and a slower schedule would delay a count. We rejected an alert at the first stop,
+  because one failed GitHub read would raise it. ADR 0003 promises that a merge outside the loop
+  reaches the inbox on the next tick. A stuck pull request delays that, and this alert reports
+  the delay.
 - **A base that no longer holds the cursor raises one `base_rewritten` alert, and the cursor moves
   to the new head.** The ADR does not cover a forced push. We rejected an audit of the new range
   from the merge base, because a rewritten base breaks every record before it, and one alert
@@ -137,17 +182,24 @@ that the code forces.
 - **An unreviewed document merge raises an alert.** The outran rows let a person merge a PRD or a
   spec during its review, and that merge counts as sign-off. The ADR passes "a person's merge of a
   reviewed PRD or spec". An outran merge was not reviewed, so its commit raises
-  `unreviewed_merge`. We rejected a pass for every document merge, because the alert is the only
-  trace that a document skipped its review.
+  `unreviewed_merge`, by the outran rule above. We rejected a pass for every document merge,
+  because the alert is the only trace that a document skipped its review.
 
 ## Assumptions
 
 - Each lint or audit tool that a project ratchets prints JSON that `jq` reads. This holds for
   oxlint, golangci-lint, ruff, govulncheck and `pnpm audit`. This is wrong if a project names a
   tool with no machine output.
-- `jq` prints nothing when its input is empty or does not parse. This is wrong if a `jq` release
-  runs a filter once on empty input. Then a crashed tool would print the end line. C4 tests the
-  rule on a command that prints nothing, and not on `jq`.
+- With `-n`, `[inputs] | select(length > 0)` makes `jq` print nothing when its input is empty or
+  does not parse. jq-1.7 on the loop host does. Without `select(length > 0)`, `-n` and `-s` both
+  run the filter once on empty input, and print the end line. This is wrong if a `jq` release
+  prints the end line for the form on empty input. C4 and C30 run the form on the `jq` of CI, so
+  that release fails a test.
+- A ratcheted tool prints at least one JSON document on a clean run. oxlint, golangci-lint, ruff
+  (`[]`), govulncheck and `pnpm audit --json` do. This is wrong if a clean run of a project's tool
+  fails with `no_end_line`. That failure is loud, and it never reads as clean.
+- The CI runner holds `jq` on its `PATH`, as the Ubuntu runner images do. This is wrong if C4 or
+  C30 fails with `jq` not found. The tests fail then, and never skip.
 - GitHub lists a merged pull request as merged as soon as the base fetch sees its commit. This is
   wrong if an `unreviewed_merge` alert names a commit that an item records as its merge one tick
   later.
@@ -204,16 +256,19 @@ of the target or script only, never a flag or an argument after it. A name that 
 **The merge record.** `internal/machine` sets `spec_merged` on the `doc_merged` row from
 `spec_signoff`. `Machine.MergeOf` finds the transition row of one project whose `set` holds the
 commit as `merged_sha`, `prd_merged` or `spec_merged`. It then replays that item's history up to
-the row, and returns the reviewed head that the item held at that moment.
+the row, and returns the reviewed head that the item held at that moment. For a PRD or a spec, it
+sets `Outran` when a `doc_merged` row from that document's review or amending state comes before
+the merge row.
 
-**The base audit.** `Reactor.auditBase` runs in `tickProject` after `pollPulls`, and only when
-`pollPulls` returned no error. It reads the cursor from `github_cursors` under the stream
-`base_audit`. With no cursor, it writes the base head and audits nothing. Otherwise it checks that
-the base head reaches the cursor (`Mirror.Reaches`). It lists the first-parent commits after the
-cursor, oldest first, and judges each one by C22. It raises one alert for each commit that fails,
-and moves the cursor past each commit once that commit's alert is written. A failed write stops
-the walk, and the next tick starts at the first commit it did not finish. The step reads the
-mirror and the store, and it makes no GitHub request.
+**The base audit.** `Reactor.auditBase` runs in `tickProject` after `pollPulls` on every tick,
+and it receives the error that `pollPulls` returned. It reads the cursor from `github_cursors`
+under the stream `base_audit`. With no cursor, it writes the base head and audits nothing.
+Otherwise it checks that the base head reaches the cursor (`Mirror.Reaches`). It lists the
+first-parent commits after the cursor, oldest first, and judges each one by C22. It raises one
+alert for each commit that fails, and moves the cursor past each commit once that commit's alert
+is written. A failed write stops the walk, and the next tick starts at the first commit it did not
+finish. When `pollPulls` failed, a commit with no merge record also stops the walk, and C31 times
+that stop. The step reads the mirror and the store, and it makes no GitHub request.
 
 ## Domain model
 
@@ -232,9 +287,12 @@ The end line        the literal "loop:end"
 
 internal/machine (changed)
 
-MergeRecord         Item, Kind, Verb, Fact, ReviewedHead, Seq
+MergeRecord         Item, Kind, Verb, Fact, ReviewedHead, Outran, Seq
   invariant: Fact is one of merged_sha, prd_merged, spec_merged, and the row named by Seq set that
              fact to the commit. ReviewedHead is "" when the item held no reviewed head then.
+             Outran is false for merged_sha. For prd_merged it is true when a doc_merged row from
+             prd_review or prd_amending precedes Seq; for spec_merged, one from spec_review or
+             spec_amending.
 ```
 
 ## Interfaces
@@ -301,6 +359,7 @@ type MergeRecord struct {
 	Verb         string // merged or doc_merged
 	Fact         string // merged_sha, prd_merged or spec_merged
 	ReviewedHead string // the item's reviewed_head at that transition, or ""
+	Outran       bool   // the document merged during its review or amendment
 	Seq          int64
 }
 
@@ -319,12 +378,17 @@ type Commit struct {
 
 // internal/github/reactor.go
 const (
-	StreamBaseAudit      = "base_audit"
-	AlertUnreviewedMerge = "unreviewed_merge" // subject "<project>@<sha>"
-	AlertBaseRewritten   = "base_rewritten"   // subject "<project>@<old cursor>"
+	StreamBaseAudit       = "base_audit"
+	StreamBaseAuditStall  = "base_audit_stall"   // cursor: the commit that stops the walk
+	AlertUnreviewedMerge  = "unreviewed_merge"   // subject "<project>@<sha>"
+	AlertBaseRewritten    = "base_rewritten"     // subject "<project>@<old cursor>"
+	AlertBaseAuditStalled = "base_audit_stalled" // subject "<project>@<sha>"
 )
 
-func (r *Reactor) auditBase(ctx context.Context, p config.Project, sha string) error
+const baseAuditStallAfter = 15 * time.Minute
+
+// polled is the error pollPulls returned on this tick, or nil.
+func (r *Reactor) auditBase(ctx context.Context, p config.Project, sha string, polled error) error
 ```
 
 ## Data
@@ -343,12 +407,14 @@ func (r *Reactor) auditBase(ctx context.Context, p config.Project, sha string) e
 
 github_cursors (no schema change)
   + rows with stream = "base_audit"; cursor holds the full sha of the last audited commit
+  + rows with stream = "base_audit_stall"; cursor holds the full sha of the commit that stops the
+    walk, and updated_at the time of the first stop there. Absent when the walk is not stopped.
 
 bead metadata (no schema change)
   + loop.spec_merged on an epic, set by doc_merged from spec_signoff
 
 alerts (no schema change)
-  + kinds unreviewed_merge and base_rewritten
+  + kinds unreviewed_merge, base_rewritten and base_audit_stalled
 ```
 
 **Existing records:** no project names a `baseline` today, and this repository holds no
@@ -388,7 +454,7 @@ sequenceDiagram
     participant S as Store
     participant H as Machine.MergeOf
     T->>M: SyncBase, head sha
-    T->>T: pollPulls; on error, skip the audit
+    T->>T: pollPulls, keep its error as polled
     T->>S: read cursor base_audit
     alt no cursor
         T->>S: write cursor = head, raise nothing
@@ -399,10 +465,16 @@ sequenceDiagram
         loop each commit, oldest first
             T->>M: Commit(sha): parents
             T->>H: MergeOf(project, sha)
-            alt no record, or reviewed head fails C22
+            alt no record and polled is an error
+                T->>S: write stall row = sha, unless it holds sha
+                opt stall row 15 minutes old or more
+                    T->>S: raise base_audit_stalled
+                end
+                T->>T: stop the walk, keep the cursor
+            else no record, outran, or reviewed head fails C22
                 T->>S: raise unreviewed_merge
             end
-            T->>S: write cursor = sha; on a failed write, stop the walk
+            T->>S: write cursor = sha, delete the stall row; on a failed write, stop the walk
         end
     end
 ```
@@ -422,8 +494,9 @@ sequenceDiagram
    - Files: `internal/gates/stack.go`, `internal/gates/stack_test.go`
    - Needs: 1
    - Proves: C3, C4, C5
-   - Done when: a fixture command that prints keys fails above and below its baseline, and a
-     command that prints nothing fails with `no_end_line`.
+   - Done when: a fixture command that prints keys fails above and below its baseline, a
+     command that prints nothing fails with `no_end_line`, and the `jq` form of the Decisions
+     fails on empty input and reads a two-document stream.
 3. **The audit baseline.** The `audit` gate with a `baseline` reads the accepted set, checks each
    reason and date, and ratchets advisory ids. The lock-file scope stays in front of it.
    - Files: `internal/gates/stack.go`, `internal/gates/baseline.go`, `internal/gates/stack_test.go`
@@ -445,15 +518,15 @@ sequenceDiagram
      key's old count, and `make pack-check` passes.
 5. **`--full` and the scheduled audit.** Add the flag, the scope bypass and its refusal. Add
    `.github/workflows/audit.yml` to this repository. Teach `pack/skills/loop-init/SKILL.md` to
-   scaffold the workflow beside `ci.yml`, and to run one `--update` for a project that adopts the
-   loop with lint debt.
+   scaffold the workflow beside `ci.yml`, to run one `--update` for a project that adopts the
+   loop with lint debt, and to write each ratcheted `jq` line in the one form of the Decisions.
    - Files: `internal/cli/surface.go`, `gen/**`, `cmd/loop/gates.go`, `internal/gates/gates.go`,
      `internal/gates/stack.go`, `internal/gates/*_test.go`, `.github/workflows/audit.yml`,
-     `pack/skills/loop-init/SKILL.md`
+     `pack/skills/loop-init/SKILL.md`, `internal/pack/loopinit_jq_test.go`
    - Needs: 4, because both change the flags of one verb and `gen/`
-   - Proves: C14, C15, C29
+   - Proves: C14, C15, C29, C30
    - Done when: `loop gates --only audit --full` runs the audit command in a checkout with no
-     changed lock file, and the workflow test passes.
+     changed lock file, and the workflow test and the `jq` line test pass.
 6. **Project commands in the `runbooks` gate.** Check each `make` target and each package script
    that a runbook names at command position.
    - Files: `internal/gates/runbooks_project.go`, `internal/gates/runbooks.go`,
@@ -468,15 +541,18 @@ sequenceDiagram
      `internal/machine/*_test.go`
    - Needs: nothing
    - Proves: C19, C20
-   - Done when: `MergeOf` returns a PRD's reviewed head after the epic's spec passed review.
-8. **The base audit.** Add `Mirror.FirstParents`, `Mirror.Commit`, the cursor stream, the two
-   alert kinds and `Reactor.auditBase`, and call it from `tickProject`.
+   - Done when: `MergeOf` returns a PRD's reviewed head after the epic's spec passed review, and
+     sets `Outran` on a spec squash-merged during its review after the PRD passed.
+8. **The base audit.** Add `Mirror.FirstParents`, `Mirror.Commit`, the two cursor streams, the
+   three alert kinds and `Reactor.auditBase`, and call it from `tickProject` on every tick, with
+   the error of `pollPulls`.
    - Files: `internal/github/git.go`, `internal/github/reactor.go`,
      `internal/github/baseaudit.go`, `internal/github/baseaudit_test.go`
    - Needs: 7
-   - Proves: C21, C22, C23, C24, C25, C26, C27
+   - Proves: C21, C22, C23, C24, C25, C26, C27, C31
    - Done when: a test repository with one direct push on the base raises one
-     `unreviewed_merge` alert, and the next tick raises none.
+     `unreviewed_merge` alert, the next tick raises none, and a pull list that fails on every
+     tick raises one `base_audit_stalled` alert once 15 minutes pass.
 
 ## Out of scope
 
@@ -516,8 +592,13 @@ exit 1.*
 **C4. Refusal: a silent command never reads as clean.** Proves ADR 0003 § Consequences, "What
 this makes hard". A ratcheted gate fails with `no_end_line` when stdout is empty, when it holds
 keys and no end line, or when a key follows the end line. This holds with exit 0 and with any other
-exit code. A command that prints only the end line passes on an empty baseline.
-*Example tests: `true`, `printf 'a::r\n'`, `printf 'loop:end\na::r\n'`, `printf 'loop:end\n'`.*
+exit code. A command that prints only the end line passes on an empty baseline. The `jq` form of
+the Decisions, run by the gate, fails with `no_end_line` on empty input and on a truncated
+document. It reads `x` and `y` from the two-document stream `{"a":["x"]}` `{"a":["y"]}`, and
+passes on a baseline that holds both.
+*Example tests: `true`, `printf 'a::r\n'`, `printf 'loop:end\na::r\n'`, `printf 'loop:end\n'`,
+and the `jq` form piped from `printf ''`, from a truncated document and from the two-document
+stream. The `jq` cases run the `jq` on the test's `PATH`, and fail when it is absent.*
 
 **C5. Behaviour: a gate with no baseline keeps the exit-code rule.** Proves ADR 0003 § Decision,
 G1. A gate with no `baseline` passes on exit 0 whatever it prints, fails with `command_failed`
@@ -615,7 +696,10 @@ G5. For a ticket, a PRD and a spec, `MergeOf(project, sha)` returns the item, th
 reviewed head that the item held at its merge transition. After a PRD merges and the spec then
 passes review, `MergeOf` of the PRD's commit still returns the PRD's reviewed head. A ticket
 merged from `in_review` returns an empty reviewed head. An unknown sha returns not found.
-*Example tests on a store with history rows.*
+`Outran` is true for a PRD merged from `prd_review` or `prd_amending`, and for a spec merged
+from `spec_review` or `spec_amending`. It is false for a document merged from sign-off, and for a
+spec merged from sign-off after its PRD outran its own review.
+*Example tests on a store with history rows, one for each of the six `Outran` cases.*
 
 **C21. Behaviour: a commit with no merge record raises one alert, once.** Proves A5. A
 first-parent commit on the base that no item records raises one `unreviewed_merge` alert, with
@@ -624,12 +708,18 @@ new commit, raises no alert and does not count up the open one.
 *An example test on a test mirror and store, over two ticks.*
 
 **C22. Behaviour: a recorded merge passes only at its reviewed head.** Proves ADR 0003 §
-Decision, G5. A merge commit passes when an item records it and its second parent equals the
-reviewed head that `MergeOf` returns. It raises `unreviewed_merge` when the second parent differs,
-or when the reviewed head is empty. A one-parent commit that an item records passes when the
-reviewed head is not empty. The body of each alert states which rule failed.
-*Example tests: a direct-mechanism ticket merge, a PRD merge at its pinned head, an outran spec
-merge, a ticket merged from `in_review`, and a recorded squash commit.*
+Decision, G5. A recorded merge whose `MergeOf` says `Outran` raises `unreviewed_merge`, whatever
+its parents and its reviewed head. Any other merge commit that an item records passes when its
+second parent equals the reviewed head that `MergeOf` returns. It raises `unreviewed_merge` when
+the second parent differs, or when the reviewed head is empty. Any other one-parent commit that an
+item records passes when the reviewed head is not empty. The body of each alert states which rule
+failed: `outran`, `head_mismatch` or `no_reviewed_head`.
+*Example tests: a direct-mechanism ticket merge (passes), a PRD merge at its pinned head
+(passes), a ticket merged from `in_review` (fails), a recorded squash ticket commit at a reviewed
+head (passes), a spec squash-merged during its review after its PRD passed at another head
+(fails `outran`), a PRD squash-merged during review after a pass, a comment and an amendment
+(fails `outran`), and an outran merge commit whose second parent equals the stale reviewed head
+(fails `outran`).*
 
 **C23. Boundary: the first tick audits nothing.** Proves ADR 0003 § Decision, G5, "The cursor
 starts at the base head on the first tick". With no `base_audit` cursor, the tick writes the base
@@ -642,10 +732,15 @@ alert that names the old cursor and the new head. It raises no `unreviewed_merge
 range, and it writes the new head as the cursor.
 *An example test that resets the test base to an unrelated commit.*
 
-**C25. Refusal: the audit never runs on a partial read, and never skips a commit.** Proves A5. On
-a tick whose `pollPulls` returns an error, the audit reads no commit and keeps the cursor. When the
-alert write for a commit fails, the cursor stays before that commit, and the next tick audits it.
-*Example tests with a failing pull list and a store that fails one write.*
+**C25. Refusal: the audit never judges a commit on a partial read, and never skips a commit.**
+Proves A5. On a tick whose `pollPulls` returns an error, the audit judges each commit that holds a
+merge record, and stops at the first commit that holds none. It raises no `unreviewed_merge` for
+that commit, and the cursor stays before it. On the next tick whose `pollPulls` returns no error,
+that commit is judged. When the alert write for a commit fails, the cursor stays before that
+commit, and the next tick audits it.
+*Example tests: a failing pull list over a base whose recorded merge comes before a direct push
+(the merge is judged and the cursor stops before the push), the same base on a later tick with a
+working pull list (the push raises one alert), and a store that fails one write.*
 
 **C26. Invariant: the base audit makes no GitHub request.** Proves ADR 0003 § Decision, G5, "We
 reject a port of `audit-main.ts`". `auditBase` sends no request to the GitHub API.
@@ -672,10 +767,31 @@ This is a command proof, because a runbook line has no test.*
 *`make pack-check`, and `grep -c 'loop gates --only audit --full' pack/skills/loop-init/SKILL.md`
 prints at least `1`. A command proof.*
 
+**C30. Invariant: every `jq` line that `loop-init` teaches reads silence as a failure.** Proves
+ADR 0003 § Consequences, "What this makes hard", and "The pack". `pack/skills/loop-init/SKILL.md`
+holds at least one `jq` line that prints `loop:end`. Each such line has the form of the
+Decisions: `jq -rn '[inputs] | select(length > 0) | (.[] | <keys>), "loop:end"'`, with only the
+key filter its own. With its key filter replaced by `.a[]`, each line prints nothing on empty
+input, and prints `x`, `y` and one `loop:end`, in that order, on the stream `{"a":["x"]}`
+`{"a":["y"]}`. No key filter holds `?` or `// empty`.
+*A Go test, `internal/pack/loopinit_jq_test.go`, that extracts each `jq` command holding
+`loop:end` from the skill, matches it against the form, and runs it as stated with the `jq` on its
+`PATH`. It fails when the skill holds no such line, and when `jq` is absent.*
+
+**C31. Behaviour: a walk stopped for 15 minutes raises one alert.** Proves ADR 0003 §
+Consequences, "What this makes easy": "A merge outside the loop reaches the inbox on the next
+tick". When `pollPulls` fails on every tick and the walk stops at one commit, ticks before 15
+minutes raise no alert. The first tick at 15 minutes or more after the first stop raises one `base_audit_stalled` alert, with
+subject `<project>@<sha>`, and a body that names the commit and the first line of the `pollPulls`
+error. Later ticks raise no second alert while it is open. A stop at a different commit starts the
+15 minutes again. Once the walk passes the commit, the stall row is gone.
+*An example test with a fake clock and a pull list that fails on every tick, over 16 ticks one
+minute apart, then one tick with a working pull list.*
+
 ## Observable behaviour
 
 None, because this epic draws no screen. Its outputs are gate findings in a log, two files under
-the project's control, one CI workflow and two alert kinds. The inbox already lists every alert.
+the project's control, one CI workflow and three alert kinds. The inbox already lists every alert.
 
 ## Open questions
 
@@ -684,6 +800,6 @@ the project's control, one CI workflow and two alert kinds. The inbox already li
   shares no type, file or contract with the ratchet gates (entries 1 to 6), and it lands and is
   proven alone. ADR 0003 decides both, and its sign-off is past, so `loop-sdlc-split` § 4 puts the
   split with the operator. The proposal: keep this spec as it is for entries 1 to 6, and move
-  entries 7 and 8 with C19 to C27 to a new epic, whose source is ADR 0003 § Decision, G5. The
+  entries 7 and 8 with C19 to C27 and C31 to a new epic, whose source is ADR 0003 § Decision, G5. The
   other answer is to keep one epic, as this spec is written. Either answer needs no change to the
   design. This blocks the decomposer's cut, not any entry's content.
