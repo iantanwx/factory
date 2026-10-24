@@ -36,7 +36,3 @@ When two routes then apply, the stricter one wins.
   ends an open loop fault, `loop rollback` when that upgrade breaks the loop, `loop doctor`, and
   `loop project list` and `loop project show`. A release needs no act: each push to `main` that
   passes CI becomes the next release. Never list a release or an upgrade under "Blocked on you".
-
-## Report additions
-
-- Each open loop fault, the bug it became, and the release that will end it.

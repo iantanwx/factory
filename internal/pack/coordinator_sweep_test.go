@@ -105,3 +105,46 @@ func TestC30GlossaryNamesTheSweepsWords(t *testing.T) {
 		}
 	}
 }
+
+// C33: section 6 acts on the decisions part's notes, and it offers
+// `loop decision defer` only for a decision in needs_human, as the decision
+// table allows.
+func TestC33CoordinatorSectionSixActsOnTheDecisionsPart(t *testing.T) {
+	s := coordinatorSection(t, "6")
+	if !strings.Contains(s, "`decisions` part") {
+		t.Error("section 6 does not name the `decisions` part")
+	}
+	if strings.Contains(s, "loop work list --kind decision") {
+		t.Error("section 6 still lists the decisions itself")
+	}
+	defers := 0
+	for i, l := range strings.Split(s, "\n") {
+		if !strings.Contains(l, "decision defer") {
+			continue
+		}
+		defers++
+		if !strings.Contains(l, "`needs_human`") {
+			t.Errorf("section 6, line %d names decision defer and not `needs_human`: %q", i+1, l)
+		}
+	}
+	if defers == 0 {
+		t.Error("section 6 names no `loop decision defer`")
+	}
+}
+
+// C33: section 9 step 3 files a bug for each fault that the bugs part
+// names, and for no other fault.
+func TestC33CoordinatorSectionNineFilesTheFaultsOfTheBugsPart(t *testing.T) {
+	s := flat(coordinatorSection(t, "9"))
+	i := strings.Index(s, " 3. ")
+	j := strings.Index(s, " 4. ")
+	if i < 0 || j < i {
+		t.Fatal("section 9 holds no step 3")
+	}
+	step := s[i:j]
+	for _, want := range []string{"`bugs` part", "for no other fault"} {
+		if !strings.Contains(step, want) {
+			t.Errorf("section 9 step 3 does not hold %q: %q", want, step)
+		}
+	}
+}
