@@ -132,7 +132,7 @@ var surface = []Verb{
 
 	write(server("review", "submit", "submit a review verdict", []string{"reviewer run"}, []Arg{itemArg},
 		Flag{Name: "verdict", Type: FlagString, Required: true, Enum: []string{"pass", "reject"}, Description: "pass or reject"},
-		Flag{Name: "head", Type: FlagString, Description: "the PR head sha the review read; a ticket's pass needs it"},
+		Flag{Name: "head", Type: FlagString, Description: "the PR head sha the review read; every pass needs it"},
 		Flag{Name: "body", Type: FlagString, Description: "the review comment; the server posts it on the item's pull request and records it with the verdict"})),
 	server("review", "threads", "list the pull request's comments, each review comment with its thread's resolved, outdated and awaiting-us state", []string{"reviewer run"}, []Arg{itemArg}),
 	server("review", "rounds", "list review rounds", []string{"reviewer run"}, []Arg{itemArg}),
