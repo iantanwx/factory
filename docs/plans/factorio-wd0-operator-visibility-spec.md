@@ -75,10 +75,11 @@ that the ADR does not give.
 - **An alert names a run or an item when the id is a token of its dedupe key or of its subject.**
   A token is a run of the characters `A-Z`, `a-z`, `0-9`, `.`, `_` and `-`, with a final `.`
   trimmed. An item also needs the alert's project. A run is also named by a token that ends in
-  `-<run id>`, because the scheduler names a run's checkout `loop-<project>-<stage>-<run id>`
-  (`internal/sched/dispatch.go`), and `host_verb_from_checkout` and `checkout_kept` name a run by
-  its checkout. We chose this rule over a new `item` column on
-  `alerts`, because that column would be empty on every alert raised before it, and every raiser
+  `-<run id>`, because the scheduler names a run's checkout
+  `loop-<project>-<stage>-<item>-<title slug>-<run id>`, and the run id always stays last
+  (`checkoutName` in `internal/sched/dispatch.go`). The item inside that name is no whole token,
+  so a checkout alone names no item. `host_verb_from_checkout` and `checkout_kept` name a run by
+  its checkout. We chose this rule over a new `item` column on `alerts`, because that column would be empty on every alert raised before it, and every raiser
   would change. We also rejected `overwatch.Tokens`, because it keeps `/` and `:` inside a token,
   so `retry_limit:factorio/factorio-5w6/implementer/<hash>` would be one token and name no item.
   The store held 51 alerts on 2026-10-25. Each one about a run or an item names it in one of the
@@ -268,7 +269,10 @@ does not read prints its native jobs, as `fireDue` fires them, and an `error` on
 ### Work show and work list
 
 `machine.Wait` is the wait of one item: the lease, the holds, the counted failures with the limit,
-and the open alerts that name it. `admission.WaitOf` builds it from the store. The server binds it
+and the open alerts that name it. `admission.WaitOf` builds it from the store. It selects the
+failures with the `counted` SQL list in `internal/admission/failures.go`, which the retry gate
+uses, and names no class itself. So a class that `Class.Counted()` adds later shows in the wait
+with no change here. Today the list holds `failed`, `crashed` and `stalled`. The server binds it
 with `Machine.SetWaitReader`. `workShow` sets `Item.Wait` when a reader is set. A failed wait read
 leaves the item as it is, and adds `wait_error`, so `work show` still answers the item.
 `workList` passes `--epic` as `ListFilter.Facts["epic"]`.
@@ -339,8 +343,8 @@ internal/machine (changed)
 
 Wait                lease, holds, counted failures, the failure limit, and the open alerts that
                     name the item
-  invariant: Failures holds only the classes that count (failed, crashed). Limit equals
-             admission.FailureLimit.
+  invariant: Failures holds a row only when admission.Class(row.class).Counted() is true,
+             and every such row of the item. Limit equals admission.FailureLimit.
 
 internal/github (changed)
 
@@ -512,7 +516,7 @@ func WaitOf(st *store.Store) machine.WaitReader
 type Wait struct {
 	Lease    *WaitLease    `json:"lease"`    // nil when no run holds the item
 	Holds    []WaitHold    `json:"holds"`    // [] when none
-	Failures []WaitFailure `json:"failures"` // counted classes only, oldest first
+	Failures []WaitFailure `json:"failures"` // Class.Counted() rows only, oldest first
 	Limit    int           `json:"failure_limit"`
 	Alerts   []WaitAlert   `json:"alerts"`   // open alerts that name the item
 }
@@ -829,8 +833,8 @@ sequenceDiagram
      tests.
    - Needs: 2, for `AlertNamesItem`.
    - Proves: C13.
-   - Done when: `work show` of an item with two counted failures prints both and a
-     `failure_limit` of 2.
+   - Done when: `work show` of an item with a `crashed` and a `stalled` failure prints both and
+     a `failure_limit` of 2.
 7. **`work list --epic`.** Add the flag, and pass it as a fact filter.
    - Files: `internal/cli/surface.go`, `internal/machine/verbs.go`, with tests.
    - Needs: nothing.
@@ -949,11 +953,12 @@ with `[]`. An unknown run refuses with `NOT_FOUND`, rule `no_run`.
 **C5. Boundary: an alert names an id only as a whole token.** Proves ADR D1 and D5 with this
 spec's decision on alert names. For a run, `AlertNamesRun` is true for `r-1` in
 `run_liveness_unknown:r-1`, in "implementer run r-1 on x finished blocked", in "stopped at r-1.",
-and in the checkout path `/w/loop-factorio-implementer-r-1`. It is false for `r-1` in
-`run_over_budget:r-12`, and in `/w/loop-factorio-implementer-r-12`. For an item,
+in the checkout path `/w/loop-factorio-implementer-r-1`, and in the checkout path
+`/w/loop-factorio-implementer-factorio-5w6-fix-the-gate-r-1`. It is false for `r-1` in
+`run_over_budget:r-12`, and in `/w/loop-factorio-implementer-factorio-5w6-fix-the-gate-r-12`. For an item,
 `AlertNamesItem` is true for `factorio-5w6` in `run_blocked:factorio/factorio-5w6/implementer/<hash>`.
 It is false for `factorio-5w` there, and false for `factorio-5w6` in the checkout path
-`/w/loop-factorio-5w6-r-1`, because an item takes no suffix rule.
+`/w/loop-factorio-implementer-factorio-5w6-fix-the-gate-r-1`, because an item takes no suffix rule.
 *A table test over these inputs.*
 
 **C6. Behaviour: a paused stage starts no run, and a live run continues.** Proves A2. With the
@@ -1016,11 +1021,12 @@ run stage that project config overrides, the `schedule` of the row equals the ex
 store.*
 
 **C13. Behaviour: `work show` explains why an item waits.** Proves ADR D5. For an item that a run
-holds, that a room holds, with two counted failures at the implementer and one open `retry_limit`
-alert that names it, `work show` answers `wait` with the lease's run and epoch, the room's hold,
-both failures with their stage and inputs, `failure_limit` 2, and the alert as `alert/<id>`. A
-failure of class `pending` or `blocked` is absent. An alert of another project that names the same
-id is absent. An item with none of these answers `wait` with a null lease and empty lists.
+holds, that a room holds, with three counted failures and one open `retry_limit` alert that names
+it, `work show` answers `wait` with the lease's run and epoch, the room's hold, all three failures
+with their stage, class and inputs, `failure_limit` 2, and the alert as `alert/<id>`. The three
+failures are one `crashed` and one `stalled` at the implementer, and one `failed` at the
+code-reviewer. A failure of class `pending` or `blocked` is absent. An alert of another project
+that names the same id is absent. An item with none of these answers `wait` with a null lease and empty lists.
 `work list` answers no `wait`. When the wait read fails, `work show` still answers the item, and
 `wait_error` holds the failure.
 *Example tests on the machine with a store fixture and a failing fake reader.*
