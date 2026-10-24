@@ -216,6 +216,16 @@ The server reads each Markdown file under `docs/adr/` on the base branch. The AD
 `../loop-sdlc-documents/adr.md`. Tell the operator to write the epic id on its `**Ticket:**` line.
 The `adr` gate refuses an ADR with no Ticket line. The spec author then takes the epic.
 
+When the operator asks the loop to write the ADR, file its ticket under the epic. Quote the
+operator's words, and cite no story, since the epic has no PRD:
+
+```bash
+loop work create --project <project> --epic <epic> --title "<title>" --body "<body>" --request "<the operator's words>"
+```
+
+The ticket carries the epic in its `epic` fact, so the run that holds it reads the epic with
+`loop work show <epic>`.
+
 Never file work at level 4 or 5 with no PRD on your own.
 
 ## 9. Loop faults
