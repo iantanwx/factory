@@ -216,7 +216,7 @@ func TestEachPolicyHasATemplate(t *testing.T) {
 		if rb.Policy == "" {
 			continue
 		}
-		if _, err := fs.Stat(pack.Source(), "skills/loop-init/policy/"+rb.Policy+".md"); err != nil {
+		if _, err := fs.Stat(pack.Source(), pack.PolicyTemplate(rb.Policy)); err != nil {
 			t.Errorf("runbook %s names policy %s, and loop-init holds no template: %v", stage, rb.Policy, err)
 		}
 	}

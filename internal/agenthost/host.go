@@ -292,6 +292,37 @@ func (inv Inventory) Readopted(s Session) (Session, bool) {
 	return s, false
 }
 
+// Rebound returns the session moved to the one row that carries its
+// incarnation and its checkout under another handle, with the epoch moved
+// to this inventory's. It needs a complete inventory that lists no row of
+// the exact identity, and exactly one such row. Any doubt rebinds nothing.
+// Only the coordinator reads it: the operator decided on 2026-10-24
+// (escalation 5, option A, loop fault F-17) that a live coordinator whose
+// handle went stale keeps its session under the new handle. A stage run's
+// trace still only keeps it Unknown.
+func (inv Inventory) Rebound(s Session) (Session, bool) {
+	if !inv.Complete || inv.Epoch == "" || s.Checkout == "" {
+		return s, false
+	}
+	var match []Row
+	for _, r := range inv.Rows {
+		if r.ID == s.ID {
+			return s, false
+		}
+		if r.ID.Incarnation == s.ID.Incarnation && r.Checkout == s.Checkout {
+			match = append(match, r)
+		}
+	}
+	if len(match) != 1 {
+		return s, false
+	}
+	s.ID, s.Epoch = match[0].ID, inv.Epoch
+	if match[0].Pty != "" {
+		s.Pty = match[0].Pty
+	}
+	return s, true
+}
+
 // Traces names each row, other than the exact identity, that carries the
 // session's incarnation or its PTY. Such a row may be the same process
 // under a new handle. That re-adoption is unmeasured, so a trace only keeps

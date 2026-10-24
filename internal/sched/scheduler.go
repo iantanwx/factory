@@ -32,9 +32,9 @@ const (
 	DefaultDrainTimeout     = 30 * time.Minute
 	DefaultQuotaPause       = time.Hour
 	DefaultCleanupInterval  = 5 * time.Minute
-	// DefaultBaseBranch is the base of every checkout. A registration names
-	// no base branch in v1.
-	DefaultBaseBranch = "main"
+	// DefaultBaseBranch is the base of a checkout whose project names no
+	// default branch: a registration made before the loop recorded it.
+	DefaultBaseBranch = config.DefaultBranch
 )
 
 // Alert kinds the scheduler raises. The inbox reads the alerts table.
@@ -151,6 +151,10 @@ type Scheduler struct {
 	// repository race for its config lock.
 	checkoutMu sync.Mutex
 	tickMu     sync.Mutex // one tick at a time
+
+	// redBuild reads the failed CI of a repair's pull request for its
+	// brief. Nil reads none.
+	redBuild RedBuildReader
 
 	wg     sync.WaitGroup // dispatches and jobs in flight
 	loops  sync.WaitGroup

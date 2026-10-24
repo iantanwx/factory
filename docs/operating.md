@@ -130,10 +130,20 @@ Run `loop doctor`. It exits 0 when every check passes. It exits 3 with code
 
 It checks the install, the harness settings above, and that the agent host
 knows each project's repository. The GitHub checks run on the server, so the
-App's private key never leaves it. They cover the App's installation and
-permissions, the default-branch rules, and project config on the default
-branch. `loop doctor` asks the server for them. When the server is down, it
-reports them as one failed `github` line marked unchecked.
+App's private key never leaves it. They cover the App's installation, which
+must not be suspended, its permissions, the default-branch rules, and
+project config on the default branch. `loop doctor` asks the server for
+them. When the server is down, it reports them as one failed `github` line
+marked unchecked.
+
+The `required_jobs` line fails when the ruleset requires a check that no
+job in `.github/workflows` on the default branch reports. Such a check never
+reports on a pull request, so no review can pass there. It happens when you
+rename a CI job and not the required check. A job reports its `name`, or its
+id when it has no name. A matrix job adds its values in parentheses, and a
+job that calls a reusable workflow reports `<name> / <called job>`. The line
+skips a check whose source is another App, a branch with no workflow, and a
+plan with no rulesets, which requires no check by name.
 
 Every settlement removes the checkout's `.env` files, and so does a room that
 goes idle or interrupted. These are the root `.env` and each `.env` of a
@@ -166,7 +176,11 @@ is already right, so you can run it again:
 - It writes the loop skills into the clone, under `.claude/skills` and
   `.agents/skills`, and lists them in `.git/info/exclude`.
 - It registers the project with the server, with the repository name as
-  its id. Give another id as `loop register <id>`.
+  its id. Give another id as `loop register <id>`. The registration
+  records the default branch. Every run of the project starts from it:
+  its checkout, its brief, and the base files that admission reads. A
+  registration made before the loop recorded the branch reads as `main`
+  until you run `loop register` again.
 - It finds the loop App of the repository's owner. When the owner has no
   App, it prints a link that opens the App form, as install does. Click
   **Create GitHub App**. For an organisation, you must be an owner of it.
@@ -277,14 +291,16 @@ a lock file. `secrets` runs gitleaks, in CI only.
 `loop gates --fast` skips `test` and `build`, `loop gates --docs` runs the
 document gates alone, and `loop gates --only <gate>` runs one.
 
-`loop project add alpha --repo owner/alpha --path /home/me/src/alpha` does
-the registration step alone.
+`loop project add alpha --repo owner/alpha --path /home/me/src/alpha --branch trunk` does
+the registration step alone. With no `--branch`, the project's base is `main`.
 
 When you transfer a repository to another owner on GitHub, update the
 clone's `origin`, install the App on the new owner, and run
 `loop register` again. It finds the project by the clone's path and moves
 it with `loop project move <id> --repo <new owner/name>`. The project keeps
-its id, secrets and history.
+its id, secrets and history. When you rename the default branch on GitHub,
+run `loop register` again. It records the new branch with
+`loop project move <id> --repo <owner/name> --branch <branch>`.
 
 ## Set the default-branch ruleset
 

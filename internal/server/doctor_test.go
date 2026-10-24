@@ -76,6 +76,13 @@ func TestDoctorChecksGitHubOnTheServer(t *testing.T) {
 			t.Errorf("detail = %q", l.Detail)
 		}
 	}
+
+	// The owner suspended the installation (parity 10.2).
+	w.api.SetInstallField("suspended_at", "2026-10-16T13:00:00Z")
+	got, _ = w.gh.Doctor(ctx, w.srv.Projects)
+	if f := failed(got[0].Lines); !slices.Contains(f, "installation_active") {
+		t.Errorf("a suspended installation passes: failed %q", f)
+	}
 }
 
 // staleEnvWorld is one checkout of each kind the loop makes, each with a

@@ -32,13 +32,16 @@ type Reason string
 // it to repair, and every other reason re-queues it once for each head
 // and then escalates it. Draft and WrongBase name a PR that only a person
 // can make mergeable: they mark it ready, or move its base back to the
-// project's default branch.
+// project's default branch. MergeConfig names a queue config that the
+// mechanism reports broken: no re-queue repairs it, so it escalates at
+// once.
 const (
-	Conflict  Reason = "conflict"
-	Red       Reason = "ci_red"
-	Other     Reason = "other"
-	Draft     Reason = "draft"
-	WrongBase Reason = "wrong_base"
+	Conflict    Reason = "conflict"
+	Red         Reason = "ci_red"
+	Other       Reason = "other"
+	Draft       Reason = "draft"
+	WrongBase   Reason = "wrong_base"
+	MergeConfig Reason = "merge_config"
 )
 
 // Result is one read of a handed-off PR.
@@ -105,9 +108,9 @@ func Terminal(cur github.PR) (res Result, ok bool) {
 // it again later", never a conflict. Only the read of one PR carries the
 // state: GitHub's PR list leaves it out.
 const (
-	MergeableDirty   = "dirty"   // the PR conflicts with its base
-	MergeableBehind  = "behind"  // the base moved on, with no conflict
-	MergeableUnknown = "unknown" // GitHub has not computed it yet
+	MergeableDirty   = github.MergeableDirty // the PR conflicts with its base
+	MergeableBehind  = "behind"              // the base moved on, with no conflict
+	MergeableUnknown = "unknown"             // GitHub has not computed it yet
 )
 
 // Conflicting is the result of an open PR that conflicts with its base.

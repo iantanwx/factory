@@ -55,6 +55,14 @@ type Runbook struct {
 // PolicyPath is where a project keeps the policy of one role (R37, R38).
 func PolicyPath(role string) string { return ".loop/policy/" + role + ".md" }
 
+// PolicyTemplates is the pack directory that holds one policy template
+// for each role a runbook names. loop-init copies each template to its
+// PolicyPath in the project.
+const PolicyTemplates = "skills/loop-init/policy"
+
+// PolicyTemplate is the template of one role's policy in the pack source.
+func PolicyTemplate(role string) string { return PolicyTemplates + "/" + role + ".md" }
+
 // ReadManifest reads and checks the manifest of a pack source.
 func ReadManifest(src fs.FS) (*Manifest, error) {
 	raw, err := fs.ReadFile(src, ManifestFile)

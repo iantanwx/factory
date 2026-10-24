@@ -80,6 +80,7 @@ What the implementation does with this:
 - When the run recorded the PTY, the same PTY under the new incarnation is a trace, so `Lookup` reads `unknown`. When the run recorded no PTY, a complete inventory of the same epoch reads `absent`.
 - If orca keeps the same incarnation on the fresh shell, the identity matches, and the run reads `present` although its process died. Only the transcript and quiet-period rule of KTD8 then ends the run. No measurement covers this case.
 - `TestDaemonDeathNewIncarnationIsNotTheRun` in `internal/agenthost/orca` and in `internal/agenthost/fake` proves the first two points. `fake.Host.DaemonDeath` replays the event.
+- The coordinator, and only the coordinator, rebinds by incarnation and checkout. When its stored handle reads stale and a complete inventory lists exactly one row with the same incarnation and the same checkout under another handle (`Inventory.Rebound`), the server stores that row's handle and the inventory's epoch, keeps the run id and token, and rings the new handle. Any doubt rebinds nothing. Stage runs keep the `unknown` rule above. The operator decided this on 2026-10-24 (escalation 5, option A, loop fault F-17).
 
 ## Still unmeasured
 

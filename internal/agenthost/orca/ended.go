@@ -1,7 +1,6 @@
 package orca
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -168,6 +167,8 @@ func (h *Host) claudeTranscripts(checkout string) ([]transcript, error) {
 
 // codexTranscripts reads the rollouts under CodexRoot/YYYY/MM/DD from the
 // day before the start to today whose session_meta names the checkout.
+// The head of a rollout that has not changed since an earlier tick comes
+// from the cache in rollouthead.go.
 func (h *Host) codexTranscripts(checkout string, started time.Time) ([]transcript, error) {
 	checkout = filepath.Clean(checkout)
 	var out []transcript
@@ -188,12 +189,12 @@ func (h *Host) codexTranscripts(checkout string, started time.Time) ([]transcrip
 			if err != nil {
 				return nil, err
 			}
+			h.heads.keep(dir, names, h.wall())
 			for _, n := range names {
-				path := filepath.Join(dir, n)
-				if !codexNames(path, checkout) {
+				if !h.codexNames(dir, n, checkout) {
 					continue
 				}
-				t, err := readTranscript(path)
+				t, err := readTranscript(filepath.Join(dir, n))
 				if err != nil {
 					return nil, err
 				}
@@ -202,27 +203,6 @@ func (h *Host) codexTranscripts(checkout string, started time.Time) ([]transcrip
 		}
 	}
 	return out, nil
-}
-
-// codexNames reads only the first record of a rollout, session_meta, and
-// says whether it names the checkout.
-func codexNames(path, checkout string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = f.Close() }()
-	line, err := bufio.NewReaderSize(f, 1<<20).ReadBytes('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return false
-	}
-	var r struct {
-		Type    string `json:"type"`
-		Payload struct {
-			Cwd string `json:"cwd"`
-		} `json:"payload"`
-	}
-	return json.Unmarshal(line, &r) == nil && r.Type == "session_meta" && filepath.Clean(r.Payload.Cwd) == checkout
 }
 
 // jsonl lists the .jsonl files of dir in name order. A missing directory

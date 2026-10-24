@@ -45,7 +45,8 @@ const maxPullPages = 10
 // webhook, so it polls with a cursor in SQLite. A merge into the base
 // moves any non-terminal item to done, a closed PR escalates its item, a
 // new head after a review pass returns the ticket to review, and red CI
-// on a ticket in review sends it to repair. CI cancelled by a newer push
+// on a ticket in review sends it to repair, as does a conflict with the
+// base. CI cancelled by a newer push
 // is superseded, not red. An ADR on the base whose Ticket line names an
 // architecture epic moves the epic to spec_needed. A person's unanswered
 // comment on a document in review or sign-off moves its epic to the amender.
@@ -396,6 +397,14 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 // change the PR's update time, so the PR cursor cannot see it. A check
 // that GitHub never started built nothing: the ticket stays in review,
 // and the project gets one alert for the cause, not one per ticket.
+//
+// A PR that conflicts with its base is red too, whatever its checks say
+// (F-11). GitHub starts no pull_request workflow on a conflicting PR, so
+// its CI never turns green and no review of it can pass; only a merge of
+// the base repairs it. The PR list carries no mergeable state, so this
+// reads the PR by number. An unknown state is no conflict: the read asks
+// GitHub to compute it, and the next tick reads it again. Ported from
+// health in scripts/sdlc/pr-health.ts (alpha).
 func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 	items, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindTicket, Status: machine.InReview})
 	if ref != nil {
@@ -414,7 +423,15 @@ func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 		if err != nil {
 			return err
 		}
-		if u := rep.Unstarted; u != nil && rep.State != CIRed {
+		red := rep.State == CIRed
+		if !red {
+			cur, err := r.s.GetPR(ctx, p, pr.Number)
+			if err != nil {
+				return err
+			}
+			red = cur.State == "open" && cur.MergeableState == MergeableDirty
+		}
+		if u := rep.Unstarted; u != nil && !red {
 			if err := r.alert(ctx, rpc.AuditAlert{Actor: "server:reactor", Project: p.ID, Item: it.ID, Kind: AlertCINotStarted,
 				Subject: p.ID + "/" + u.Cause,
 				Body: fmt.Sprintf("GitHub never started a CI job on %s, so tickets in review hold there and no repair starts. GitHub said: %q. Fix the cause, then rerun CI.",
@@ -424,8 +441,12 @@ func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 			}
 			continue
 		}
-		if rep.State != CIRed {
+		if !red {
 			continue
+		}
+		if rep.State != CIRed {
+			r.log.InfoContext(ctx, "a ticket in review goes to repair: its PR conflicts with its base",
+				"project", p.ID, "item", it.ID, "pr", pr.Number)
 		}
 		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: it.ID, Verb: machine.VerbCIRed, ExpectedStatus: machine.InReview,
 			Params: map[string]string{"head": pr.Head.SHA}, Actor: machine.Server("reactor")})

@@ -23,6 +23,7 @@ service WorkService {
   rpc Cancel(VerbRequest) returns (Envelope);
   rpc Create(VerbRequest) returns (Envelope);
   rpc Shape(VerbRequest) returns (Envelope);
+  rpc Ask(VerbRequest) returns (Envelope);
   rpc Duplicate(VerbRequest) returns (Envelope);
   rpc Supersede(VerbRequest) returns (Envelope);
 }
@@ -73,6 +74,10 @@ service DecisionService {
   rpc Defer(VerbRequest) returns (Envelope);
   rpc Settle(VerbRequest) returns (Envelope);
   rpc Moot(VerbRequest) returns (Envelope);
+}
+
+service OverwatchService {
+  rpc Sweep(VerbRequest) returns (Envelope);
 }
 
 service FaultService {

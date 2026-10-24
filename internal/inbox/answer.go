@@ -101,7 +101,8 @@ func (in *Inbox) waitVerb(ctx context.Context, call *rpc.Call) cli.Result {
 // answer is `loop inbox answer`: the operator's answer, as the coordinator
 // relays it. An escalated item resumes to its stored target, and an answer
 // with --amend enters the item's inputs, so a twice-failed item is
-// admitted again (R10). A fired decision settles as answered. A sign-off
+// admitted again (R10). An asked bug report returns to reported with its
+// reporter's answer. A fired decision settles as answered. A sign-off
 // merges the document at the head its entry named. A question records the
 // answer, and an alert closes.
 func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
@@ -145,6 +146,20 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 			}
 			return clearDefer(tx, id)
 		}); err != nil {
+			return cli.Internal(err)
+		}
+		in.Changed()
+		return res
+	case KindAsk:
+		if call.Inv.Flags["amend"] == "true" {
+			return cli.Reject(cli.CodeUsage, "amend_ask", "an ask's answer is a fact of the report, not a change of the task; --amend applies to an escalated item")
+		}
+		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: machine.VerbAnswer,
+			Params: map[string]string{"answer": body}, Actor: actor, ExpectedStatus: machine.Asked})
+		if res.Refusal != nil {
+			return res
+		}
+		if err := in.cfg.Store.Write(ctx, func(tx *store.Tx) error { return clearDefer(tx, id) }); err != nil {
 			return cli.Internal(err)
 		}
 		in.Changed()

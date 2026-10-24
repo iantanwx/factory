@@ -36,14 +36,18 @@ const (
 	SetupBranch = "loop-setup/mergify"
 	// ConfigPath is where the template PR puts the configuration.
 	ConfigPath = ".mergify.yml"
+	// ConfigCheck is the check run Mergify posts on a head whose change
+	// touches its configuration.
+	ConfigCheck = "Configuration changed"
 	// GatesCheck is the CI job that loop-init writes. The template requires
 	// it when the base requires no check of its own.
 	GatesCheck = "gates"
 )
 
 // configPaths are the places Mergify reads its configuration from. Any
-// one of them on the base branch counts.
-var configPaths = []string{".mergify.yml", ".mergify/config.yml", ".github/mergify.yml"}
+// one of them on the base branch counts. The push scan refuses each one
+// on an item branch.
+var configPaths = github.MergeConfigPaths
 
 // Mergify is the mechanism.
 type Mergify struct {

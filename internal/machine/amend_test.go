@@ -71,7 +71,7 @@ func TestDocumentMergedWhileAmendingIsTheSignoff(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	ep := w.create(KindEpic, "prd_submit", nil)
-	w.must(ep, "review_pass", nil)
+	w.must(ep, "review_pass", map[string]string{"head": "h1"})
 	w.must(ep, VerbPersonComment, map[string]string{"head": "h1"})
 	l := w.claim(ep, StageAmender, "r-amend")
 	ev := MergeEvent{Project: prj, Item: ep, Base: "main", Into: "main", SHA: "m1"}

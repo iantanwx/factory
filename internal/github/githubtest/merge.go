@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
 	"slices"
@@ -218,7 +219,19 @@ func (w *World) serveMerge(rw http.ResponseWriter, r *http.Request) bool {
 		p, ref := reContents.FindStringSubmatch(path)[1], r.URL.Query().Get("ref")
 		c, ok := w.merge.files[ref+"\x00"+p]
 		if !ok {
-			WriteJSON(rw, 404, map[string]string{"message": "Not Found"})
+			// A directory answers the list of the files directly in it.
+			var dir []map[string]string
+			for _, k := range slices.Sorted(maps.Keys(w.merge.files)) {
+				b, f, _ := strings.Cut(k, "\x00")
+				if name, ok := strings.CutPrefix(f, p+"/"); ok && b == ref && !strings.Contains(name, "/") {
+					dir = append(dir, map[string]string{"name": name, "path": f, "type": "file"})
+				}
+			}
+			if dir == nil {
+				WriteJSON(rw, 404, map[string]string{"message": "Not Found"})
+			} else {
+				WriteJSON(rw, 200, dir)
+			}
 			return true
 		}
 		WriteJSON(rw, 200, map[string]any{"path": p, "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(c))})

@@ -5,6 +5,9 @@ package scenarios
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
@@ -140,4 +143,80 @@ func TestMisjoinedEpicReturnsToArchitecture(t *testing.T) {
 	if got := w.Show(cited).Facts[machine.FactADR]; got != "" {
 		t.Fatalf("the cited epic still records ADR %q", got)
 	}
+}
+
+// factorio-dr8 (alpha bugs-report-ask.ts): the reproducer asks the
+// reporter for a fact only the reporter holds, and no escalation pages
+// the operator. The ask ends the run's claim, and the inbox relays the
+// question to the reporter. The coordinator answers it with the
+// reporter's words, and the report returns to the reproducer, whose next
+// brief holds every question and every answer so far, as the issue
+// thread does in alpha. A report asks at most twice: the third ask
+// refuses with ASK_LIMIT, and the run escalates with all four texts.
+func TestReproducerAsksTheReporterThroughTheInbox(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	bug := fileBug(w, "The list page shows no widgets", "The list is empty.")
+	entry := "ask/" + acceptance.Project + "/" + bug
+	questions := []string{"- Which page shows the empty list?\n- Which account did you use?", "- Which browser shows the empty list?"}
+	answers := []string{"The widgets page, at /widgets. Every account I tried.", "Firefox 131 on Linux."}
+	brief := func(run acceptance.Run) string {
+		b, err := os.ReadFile(filepath.Join(run.Checkout, ".loop", "brief.json"))
+		if err != nil {
+			t.Fatalf("read the brief: %v", err)
+		}
+		return string(b)
+	}
+	// briefHolds fails unless the brief holds each earlier round, with
+	// each question beside its answer.
+	briefHolds := func(b string, rounds int) {
+		t.Helper()
+		var facts struct {
+			Item struct {
+				Facts map[string]string `json:"facts"`
+			} `json:"item"`
+		}
+		if err := json.Unmarshal([]byte(b), &facts); err != nil {
+			t.Fatalf("parse the brief: %v", err)
+		}
+		for i := range rounds {
+			n := strconv.Itoa(i + 1)
+			if q, a := facts.Item.Facts["question_"+n], facts.Item.Facts["answer_"+n]; q != questions[i] || a != answers[i] {
+				t.Fatalf("the brief after %d answers holds question_%s %q and answer_%s %q, want %q and %q",
+					rounds, n, q, n, a, questions[i], answers[i])
+			}
+		}
+	}
+	for i, answer := range answers {
+		run := w.Dispatch(machine.StageReproducer)
+		if run.Item != bug {
+			t.Fatalf("ask %d: the reproducer took %s, want %s", i+1, run.Item, bug)
+		}
+		briefHolds(brief(run), i)
+		w.Must(w.In(run.Checkout, "work", "ask", bug, "--body", questions[i]))
+		w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
+		wantStatus(w, bug, "asked")
+		e := w.Entry(entry)
+		if e == nil || e["awaits"] != "person" || !contains(e["text"].(string), questions[i]) ||
+			!contains(e["next"].(string), "loop inbox answer "+entry) {
+			t.Fatalf("ask %d: the inbox entry = %v", i+1, e)
+		}
+		if r := w.Coordinator("inbox", "answer", entry, "--body", answer, "--amend"); r.Code != 2 || r.RefusalCode() != "USAGE" {
+			t.Fatalf("ask %d: an answer with --amend: %s", i+1, r)
+		}
+		w.Must(w.Coordinator("inbox", "answer", entry, "--body", answer))
+		wantStatus(w, bug, machine.Reported)
+		if got := w.Show(bug).Facts[machine.FactAnswer]; got != answer {
+			t.Fatalf("ask %d: the report holds answer %q", i+1, got)
+		}
+		if w.Entry(entry) != nil {
+			t.Fatalf("ask %d: the answered entry is still in the inbox", i+1)
+		}
+	}
+	run := w.Dispatch(machine.StageReproducer)
+	briefHolds(brief(run), 2)
+	r := w.In(run.Checkout, "work", "ask", bug, "--body", "- Which version did you run?")
+	if r.Code != 3 || r.RefusalCode() != "ASK_LIMIT" {
+		t.Fatalf("the third ask: %s", r)
+	}
+	wantStatus(w, bug, machine.Reproducing)
 }

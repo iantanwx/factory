@@ -74,14 +74,16 @@ func docPR(w *acceptance.World, epic string) *gt.PR {
 	return w.API.World.PR(n)
 }
 
-// docReview starts a doc-reviewer run on epic and submits verdict.
+// docReview starts a doc-reviewer run on epic and submits verdict at the
+// head it reads with `loop pr show`.
 func docReview(w *acceptance.World, epic, verdict string) {
 	w.T.Helper()
 	run := w.Dispatch(machine.StageDocReviewer)
 	if run.Item != epic {
 		w.T.Fatalf("the doc-reviewer took %s, want %s", run.Item, epic)
 	}
-	w.Must(w.In(run.Checkout, "review", "submit", epic, "--verdict", verdict, "--body", "Read the document: "+verdict+"."))
+	head := w.Must(w.In(run.Checkout, "pr", "show")).Str("head_sha")
+	w.Must(w.In(run.Checkout, "review", "submit", epic, "--verdict", verdict, "--head", head, "--body", "Read the document: "+verdict+"."))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 }
 

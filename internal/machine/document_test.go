@@ -25,7 +25,7 @@ func TestSpecAuthorNeedsAMergedPRDOrADR(t *testing.T) {
 	if got := w.show(ep).Fact(FactDocPR); got != "7" {
 		t.Fatalf("prd_submit stored doc_pr %q", got)
 	}
-	w.must(ep, "review_pass", nil)
+	w.must(ep, "review_pass", map[string]string{"head": "h1"})
 	w.must(ep, "doc_merged", map[string]string{"sha": "m1"})
 	if it := w.show(ep); it.Status != SpecNeeded || it.Fact(FactPRDMerged) != "m1" {
 		t.Fatalf("the operator's merge: %+v", it)
@@ -41,7 +41,7 @@ func TestSpecAuthorNeedsAMergedPRDOrADR(t *testing.T) {
 func TestSpecPROpenRecordsTheDocumentPR(t *testing.T) {
 	w := newWorld(t)
 	ep := w.create(KindEpic, "prd_submit", map[string]string{"pr": "7"})
-	w.must(ep, "review_pass", nil)
+	w.must(ep, "review_pass", map[string]string{"head": "h1"})
 	w.must(ep, "doc_merged", nil)
 	w.claim(ep, StageSpecAuthor, "r-spec")
 	w.must(ep, "pr_open", map[string]string{"pr": "9"})
@@ -55,7 +55,7 @@ func TestSpecPROpenRecordsTheDocumentPR(t *testing.T) {
 func TestEpicMergeWithNoDocumentRowIsNothing(t *testing.T) {
 	w := newWorld(t)
 	ep := w.create(KindEpic, "prd_submit", nil)
-	w.must(ep, "review_pass", nil)
+	w.must(ep, "review_pass", map[string]string{"head": "h1"})
 	ctx := context.Background()
 	mustOK(t, w.m.MergeObserved(ctx, MergeEvent{Project: prj, Item: ep, Base: "main", Into: "main", SHA: "m1"}))
 	res := w.m.MergeObserved(ctx, MergeEvent{Project: prj, Item: ep, Base: "main", Into: "main", SHA: "m1"})
@@ -146,4 +146,28 @@ func TestDocumentPassPinsTheSignoffHead(t *testing.T) {
 	w := newWorld(t)
 	ep := w.create(KindEpic, "prd_submit", nil)
 	wantCode(t, w.apply(ep, VerbSignoffHead, map[string]string{"head": "h1"}), cli.CodeTransitionNotAllowed)
+}
+
+// factorio-tf6 (parity 4.6): a document's pass names the head the
+// reviewer read, as a ticket's pass does. A pass with no head pins
+// nothing, so a push after it could reach sign-off with no one reading it.
+func TestDocumentPassNeedsAHead(t *testing.T) {
+	for _, c := range []struct{ review, signoff string }{{PRDReview, PRDSignoff}, {SpecReview, SpecSignoff}} {
+		t.Run(c.review, func(t *testing.T) {
+			w := newWorld(t)
+			ep := w.create(KindEpic, "prd_submit", map[string]string{"pr": "7"})
+			w.force(ep, c.review, nil)
+			r := wantCode(t, w.apply(ep, "review_pass", nil), cli.CodeUsage)
+			if r.Rule != "missing_head" {
+				t.Fatalf("rule %q", r.Rule)
+			}
+			if it := w.show(ep); it.Status != c.review || it.Fact(FactReviewedHead) != "" {
+				t.Fatalf("a pass with no head moved the epic: %s %v", it.Status, it.Facts)
+			}
+			w.must(ep, "review_pass", map[string]string{"head": "h1"})
+			if it := w.show(ep); it.Status != c.signoff || it.Fact(FactReviewedHead) != "h1" {
+				t.Fatalf("after the pass: %s %v", it.Status, it.Facts)
+			}
+		})
+	}
 }

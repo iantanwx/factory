@@ -28,6 +28,22 @@ type Project struct {
 	ID   string `yaml:"id"`
 	Repo string `yaml:"repo"` // owner/name on GitHub
 	Path string `yaml:"path"` // the project's local directory on this host
+	// Branch is the default branch that `loop register` read from GitHub:
+	// the base of every checkout, brief and base read. Empty in a
+	// registration made before the loop recorded it.
+	Branch string `yaml:"branch,omitempty"`
+}
+
+// DefaultBranch is the base branch of a registration that names none.
+const DefaultBranch = "main"
+
+// BaseBranch is the branch each run of the project starts from: the
+// recorded default branch, or main when the registration names none.
+func (p Project) BaseBranch() string {
+	if p.Branch == "" {
+		return DefaultBranch
+	}
+	return p.Branch
 }
 
 // ownerRe is a GitHub account name.
@@ -45,6 +61,9 @@ func (p Project) validate(ck *checker, field string) {
 	}
 	if !filepath.IsAbs(p.Path) || filepath.Clean(p.Path) != p.Path {
 		ck.fail(field+".path", "must be a clean absolute path")
+	}
+	if p.Branch != "" && checkBranchName(p.Branch) != nil {
+		ck.fail(field+".branch", "must be a plain branch name")
 	}
 }
 
@@ -126,10 +145,11 @@ func (ps *Projects) Add(ctx context.Context, p Project) error {
 }
 
 // Move points the registration with id at another repository, as after a
-// transfer on GitHub. It keeps the project's id, path, secrets and history.
-// It refuses a repository that another project holds, and it runs every
-// AddHook with the moved registration before it saves.
-func (ps *Projects) Move(ctx context.Context, id, repo string) (Project, error) {
+// transfer on GitHub, and at branch when it names one, as after a rename
+// of the default branch. It keeps the project's id, path, secrets and
+// history. It refuses a repository that another project holds, and it runs
+// every AddHook with the moved registration before it saves.
+func (ps *Projects) Move(ctx context.Context, id, repo, branch string) (Project, error) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	cfg, err := LoadHost(ps.HostPath)
@@ -147,6 +167,9 @@ func (ps *Projects) Move(ctx context.Context, id, repo string) (Project, error) 
 	}
 	p := cfg.Projects[idx]
 	p.Repo = repo
+	if branch != "" {
+		p.Branch = branch
+	}
 	ck := &checker{source: "project move"}
 	p.validate(ck, "project")
 	if err := ck.err(); err != nil {

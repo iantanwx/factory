@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/iantanwx/loop/internal/github"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
@@ -171,5 +172,64 @@ func TestMergifyProjectAddAcceptsEveryConfigLocation(t *testing.T) {
 		if n := len(e.world.PRs()); n != 0 {
 			t.Fatalf("%s: %d PRs opened", path, n)
 		}
+	}
+}
+
+// configCheck is Mergify's Configuration changed check run on head.
+func configCheck(head, app, status, conclusion, summary string) map[string]any {
+	run := gt.CheckRun(mergify.ConfigCheck, head, status, conclusion, time.Date(2026, 10, 21, 10, 0, 0, 0, time.UTC))
+	run["app"] = map[string]any{"slug": app}
+	run["output"] = map[string]any{"title": "Configuration changed", "summary": summary}
+	return run
+}
+
+// A broken queue config never dequeues a PR, so the PR would wait in
+// queued with no outcome. When Mergify's Configuration changed check at
+// the head failed, or says a rule will not be used, the ticket escalates
+// at once: a re-queue cannot repair a config (alpha mergify-client.ts
+// configurationRefusal, #2567).
+func TestMergifyEscalatesABrokenQueueConfig(t *testing.T) {
+	for name, run := range map[string]map[string]any{
+		"failed":        configCheck(sha('1'), "mergify", "completed", "failure", "Invalid configuration"),
+		"neutral":       configCheck(sha('1'), "mergify", "completed", "neutral", ""),
+		"not used":      configCheck(sha('1'), "mergify", "completed", "success", "The queue rule `default` will not be used"),
+		"not activated": configCheck(sha('1'), "mergify", "completed", "success", "Merge queue needs to be activated"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newMergify(t)
+			id, pr := e.reviewed(sha('1'), true)
+			e.tick()
+			e.wantStatus(id, machine.Queued)
+
+			e.world.SetRuns(sha('1'), run)
+			e.tick()
+			e.wantStatus(id, machine.Escalated)
+			e.wantTracked(pr, "escalated", merge.MergeConfig, 1)
+			if n := queueComments(e, pr.Number); n != 0 {
+				t.Fatalf("%d queue commands; a broken config escalates, it never re-queues", n)
+			}
+		})
+	}
+}
+
+// A clean Configuration changed check, one that still runs, one that
+// another App posted, and a head with no such check all leave the PR in
+// the queue.
+func TestMergifyKeepsAPRWhoseQueueConfigIsSound(t *testing.T) {
+	for name, runs := range map[string][]map[string]any{
+		"none":        nil,
+		"success":     {configCheck(sha('1'), "mergify", "completed", "success", "The new configuration is valid")},
+		"in progress": {configCheck(sha('1'), "mergify", "in_progress", "", "")},
+		"another app": {configCheck(sha('1'), "lookalike", "completed", "failure", "will not be used")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newMergify(t)
+			id, pr := e.reviewed(sha('1'), true)
+			e.tick()
+			e.world.SetRuns(sha('1'), runs...)
+			e.tick()
+			e.wantStatus(id, machine.Queued)
+			e.wantTracked(pr, "handed", "", 1)
+		})
 	}
 }
