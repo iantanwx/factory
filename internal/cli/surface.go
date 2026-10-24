@@ -113,7 +113,7 @@ var surface = []Verb{
 		Flag{Name: "kind", Type: FlagString, Enum: []string{"ticket", "bug"}, Description: "ticket when absent; bug files a raw report that the reproducer shapes into a ticket, the coordinator only, with --request"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the ticket title, or the bug's one-line summary"},
 		Flag{Name: "body", Type: FlagString, Description: "the ticket body, or the bug report: what the operator saw and how to see it again"},
-		Flag{Name: "epic", Type: FlagString, Description: "the epic whose merged PRD the ticket implements"},
+		Flag{Name: "epic", Type: FlagString, Description: "the epic whose merged PRD the ticket implements; or, for the coordinator with --request and no --story, the architecture epic whose ADR the ticket writes"},
 		Flag{Name: "story", Type: FlagString, Description: "the PRD story labels the ticket cites, comma-separated, for example US-01,US-02; needs --epic"},
 		Flag{Name: "request", Type: FlagString, Description: "the operator's own words that ask for PRD-less work; the coordinator only"},
 		projectFlag)),
