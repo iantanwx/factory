@@ -51,9 +51,9 @@ func TestLiveRunIsReadoptedAfterALongOutage(t *testing.T) {
 	}
 }
 
-// A host restart that changes handles leaves the run unknown. Past the age
-// bound of two run budgets it raises a coordinator-owned alert and
-// reclaims nothing.
+// A host restart that changes handles leaves the run unknown. Its process
+// is still traced under the new handle, so past the age bound of two run
+// budgets it raises a coordinator-owned alert and reclaims nothing.
 func TestUnknownLivenessPastTheAgeBoundAlertsOnly(t *testing.T) {
 	w := newWorld(t)
 	w.writeHost(nil, nil, func(c *config.HostConfig) { c.RunBudget = time.Hour })
@@ -78,6 +78,85 @@ func TestUnknownLivenessPastTheAgeBoundAlertsOnly(t *testing.T) {
 	}
 	if w.lease(id).Owner != st.RunID || w.status(id) != machine.InProgress || w.failures(id) != 0 {
 		t.Fatal("an unknown run was reclaimed")
+	}
+}
+
+// C-bug-1 (F-21): an orca restart moves the epoch, and a run whose terminal
+// died with it stays unknown forever. Past the age bound, a complete
+// inventory with no terminal and no PTY carrying the run's incarnation
+// reclaims the run as failed. A run still traceable under a new handle
+// stays unknown.
+func TestUnknownRunWithNoTraceIsReclaimedPastTheAgeBound(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) { c.RunBudget = time.Hour })
+	gone, traced := w.ticket(machine.Todo), w.ticket(machine.Todo)
+	g := w.dispatch(machine.StageImplementer)
+	tr := w.dispatch(machine.StageImplementer)
+	if w.lease(gone).Owner != g.RunID {
+		gone, traced = traced, gone
+	}
+	// The terminal of g vanishes. The host restarts, and tr's process
+	// reappears under a new handle with the same incarnation and PTY.
+	if err := w.host.Close(context.Background(), g.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.host.Restart(false)
+	w.restart()
+	w.tick()
+	for _, r := range []*Started{g, tr} {
+		if s, _ := w.runState(r.RunID); s != RunUnknown {
+			t.Fatalf("run %s state = %s, want unknown", r.RunID, s)
+		}
+	}
+	w.clock.Advance(90 * time.Minute)
+	w.tick()
+	if s, _ := w.runState(g.RunID); s != RunUnknown || w.lease(gone).Owner != g.RunID {
+		t.Fatalf("vanished run reclaimed before the age bound: state %s", s)
+	}
+	w.clock.Advance(31 * time.Minute)
+	w.tick()
+	w.tick()
+	if s, _ := w.runState(g.RunID); s != "settled" || w.failures(gone) != 1 || w.lease(gone).Owner == g.RunID {
+		t.Fatalf("vanished run: state %s, failures %d, lease %+v; want settled, 1 failure, lease freed",
+			s, w.failures(gone), w.lease(gone))
+	}
+	if w.status(gone) != machine.Todo || w.alerts(AlertRunCrashed) != 1 {
+		t.Fatalf("vanished run: status %s, crash alerts %d; want todo, 1", w.status(gone), w.alerts(AlertRunCrashed))
+	}
+	if _, err := os.Stat(g.Checkout); err != nil {
+		t.Fatalf("vanished run's checkout: %v", err)
+	}
+	if s, _ := w.runState(tr.RunID); s != RunUnknown || w.lease(traced).Owner != tr.RunID || w.failures(traced) != 0 {
+		t.Fatalf("traced run: state %s, lease %+v, failures %d; want unknown and held", s, w.lease(traced), w.failures(traced))
+	}
+	if w.alerts(AlertRunUnknown) != 1 {
+		t.Fatalf("unknown alerts = %d, want 1 for the traced run", w.alerts(AlertRunUnknown))
+	}
+}
+
+// C-bug-1: an incomplete inventory proves nothing absent. Past the age
+// bound, a run with no trace that only incomplete inventories have read
+// keeps its lease and raises only the unknown alert.
+func TestUnknownRunOnAnIncompleteInventoryIsNotReclaimed(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) { c.RunBudget = time.Hour })
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	if err := w.host.Close(context.Background(), st.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.host.Restart(false)
+	w.host.SetInventoryIncomplete(true)
+	w.restart()
+	w.tick()
+	w.clock.Advance(121 * time.Minute)
+	w.tick()
+	w.tick()
+	if s, _ := w.runState(st.RunID); s != RunUnknown || w.lease(id).Owner != st.RunID || w.failures(id) != 0 {
+		t.Fatalf("state %s, lease %+v, failures %d; want unknown and held", s, w.lease(id), w.failures(id))
+	}
+	if w.alerts(AlertRunUnknown) != 1 {
+		t.Fatalf("unknown alerts = %d, want 1", w.alerts(AlertRunUnknown))
 	}
 }
 

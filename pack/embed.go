@@ -8,5 +8,5 @@ import "embed"
 
 // Files is the pack source as the release embeds it.
 //
-//go:embed manifest.json runbooks skills agents
+//go:embed manifest.json third-party.json runbooks skills agents
 var Files embed.FS

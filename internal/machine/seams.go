@@ -42,6 +42,24 @@ func (m *Machine) Read(ctx context.Context, project, item string) (Item, *cli.Re
 	return it, nil
 }
 
+// Body reads the body that work edit replaces: the body an edit wrote, or
+// the bead's description. It leaves out the amendment an answer appended,
+// which TaskText adds.
+func (m *Machine) Body(ctx context.Context, project, item string) (string, *cli.Refusal) {
+	bc, err := m.cfg.Beads(project)
+	if err != nil {
+		return "", cli.InternalRefusal(err)
+	}
+	is, err := bc.Get(ctx, item)
+	if err != nil {
+		return "", beadsRefusal(item, err)
+	}
+	if b := is.Metadata[factPrefix+FactBody]; b != "" {
+		return b, nil
+	}
+	return is.Description, nil
+}
+
 // ListFilter selects items. Empty fields select everything.
 type ListFilter struct {
 	Kind   Kind

@@ -98,6 +98,7 @@ service InboxService {
   rpc Defer(VerbRequest) returns (Envelope);
   rpc Prepare(VerbRequest) returns (Envelope);
   rpc Wait(VerbRequest) returns (Envelope);
+  rpc Note(VerbRequest) returns (Envelope);
 }
 
 service RoomService {
