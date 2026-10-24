@@ -68,9 +68,11 @@ Never rebase a branch that has a pull request.
 
 **Repair: read the failure before the contracts.** Run `loop pr checks`, then `loop pr logs`. A
 check can fail for a cause outside your change, such as a merge batch that held other pull
-requests. Read the failing test before you change your own code. Run each failing test file again,
-with the tests of the directories you changed. When the failure is outside your change, run
-`loop pr rerun` to run the failed checks again.
+requests. A merge queue tests the pull request on a draft. When the head holds no failed job, run
+`loop pr logs --queue`. It reads the failed jobs of the newest draft that holds the head, and its
+title names each pull request of the batch. Read the failing test before you change your own code.
+Run each failing test file again, with the tests of the directories you changed. When the failure
+is outside your change, run `loop pr rerun` to run the failed checks again.
 
 **Rework: read the rejection before the contracts.** Read the latest round, and run
 `loop pr threads`. Repair every finding before you add any work.

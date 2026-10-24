@@ -177,6 +177,47 @@ func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 	return rep
 }
 
+// CIVerdict is a head's CI read against the checks a merge requires.
+type CIVerdict struct {
+	State   string   // CIGreen, CIRed or CIPending; never CINone
+	Red     []string // the checks that failed
+	Waiting []string // the checks that run, or that must report and have not
+}
+
+// Against reads the report against the checks a merge requires. Every
+// check on the head must be green, and each required check must have
+// reported there. A required check that has not reported waits, and a
+// head with no check at all is never green: absence is never evidence of
+// success (alpha premerge.ts:99-110).
+func (r CIReport) Against(required []string) CIVerdict {
+	var v CIVerdict
+	for _, c := range r.Checks {
+		switch c.State {
+		case CIRed:
+			v.Red = append(v.Red, c.Name)
+		case CIPending:
+			v.Waiting = append(v.Waiting, c.Name)
+		}
+	}
+	for _, name := range required {
+		if !slices.ContainsFunc(r.Checks, func(c CheckView) bool { return c.Name == name }) {
+			v.Waiting = append(v.Waiting, name+" (not reported)")
+		}
+	}
+	if len(r.Checks) == 0 && len(v.Waiting) == 0 {
+		v.Waiting = []string{"no check has reported"}
+	}
+	switch {
+	case len(v.Red) > 0:
+		v.State = CIRed
+	case len(v.Waiting) > 0:
+		v.State = CIPending
+	default:
+		v.State = CIGreen
+	}
+	return v
+}
+
 func newer(a, b CheckRun) bool {
 	at, bt := time.Time{}, time.Time{}
 	if a.StartedAt != nil {
@@ -303,11 +344,14 @@ func (s *Service) unstarted(ctx context.Context, p config.Project, r CheckRun) (
 
 // workflowRun is one Actions run of a head.
 type workflowRun struct {
-	ID         int64  `json:"id"`
-	Name       string `json:"name"`
-	HeadSHA    string `json:"head_sha"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	HeadSHA      string `json:"head_sha"`
+	HeadBranch   string `json:"head_branch"`
+	Status       string `json:"status"`
+	Conclusion   string `json:"conclusion"`
+	HTMLURL      string `json:"html_url"`
+	DisplayTitle string `json:"display_title"`
 }
 
 type job struct {
@@ -345,6 +389,19 @@ type LogExcerpt struct {
 	Lines       int    `json:"lines"`
 	Truncated   bool   `json:"truncated"`
 	Text        string `json:"text"`
+	// Queue names the merge-queue run the job ran in, for a read of the
+	// queue's draft. A draft can hold other pull requests of one batch.
+	Queue *QueueRun `json:"queue,omitempty"`
+}
+
+// QueueRun is the merge-queue run of a draft that holds a pull request's
+// head. Its title names the pull requests of the draft's batch.
+type QueueRun struct {
+	Run     int64  `json:"run"`
+	URL     string `json:"url"`
+	HeadSHA string `json:"head_sha"`
+	Branch  string `json:"branch"`
+	Title   string `json:"title"`
 }
 
 // logTail is how many lines of a failed job's log `pr logs` prints.
@@ -370,6 +427,13 @@ func (s *Service) Logs(ctx context.Context, p config.Project, head string, jobID
 			return nil, err
 		}
 	}
+	return s.excerpts(ctx, p, jobs, nil)
+}
+
+// excerpts reads the tail of each job's log. queue maps a run id to the
+// merge-queue run of that id, so each job names the run it ran in. It is
+// nil for the head's own jobs.
+func (s *Service) excerpts(ctx context.Context, p config.Project, jobs []job, queue map[int64]*QueueRun) ([]LogExcerpt, error) {
 	var out []LogExcerpt
 	for _, j := range jobs {
 		text, err := s.jobLog(ctx, p, j.ID)
@@ -377,7 +441,7 @@ func (s *Service) Logs(ctx context.Context, p config.Project, head string, jobID
 			return nil, err
 		}
 		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-		ex := LogExcerpt{Job: j.ID, Name: j.Name, URL: j.HTMLURL, AuthorClass: AuthorOther, Lines: len(lines)}
+		ex := LogExcerpt{Job: j.ID, Name: j.Name, URL: j.HTMLURL, AuthorClass: AuthorOther, Lines: len(lines), Queue: queue[j.RunID]}
 		if len(lines) > logTail {
 			lines, ex.Truncated = lines[len(lines)-logTail:], true
 		}
@@ -394,6 +458,11 @@ func (s *Service) failedJobs(ctx context.Context, p config.Project, head string)
 	if err != nil {
 		return nil, err
 	}
+	return s.runJobs(ctx, p, runs)
+}
+
+// runJobs lists the failed jobs of the latest attempt of each run.
+func (s *Service) runJobs(ctx context.Context, p config.Project, runs []workflowRun) ([]job, error) {
 	var jobs []job
 	for _, r := range runs {
 		var list struct {
@@ -409,6 +478,106 @@ func (s *Service) failedJobs(ctx context.Context, p config.Project, head string)
 		}
 	}
 	return jobs, nil
+}
+
+// The branch prefixes of a merge queue's drafts. Mergify tests a batch
+// on a draft pull request from mergify/merge-queue/<id>. GitHub's merge
+// queue tests a group on gh-readonly-queue/<base>/pr-<number>-<sha>.
+// Both mechanisms merge with merge commits, so a draft's head holds each
+// queued pull request's head.
+var draftPrefixes = []string{"mergify/merge-queue/", "gh-readonly-queue/"}
+
+// Ported from MOST_DRAFTS and LISTED_RUNS in
+// scripts/sdlc/implementer-ci-queue.ts (alpha). The run that tested a
+// pull request ran after its head was pushed, so it sits near the top of
+// the listing.
+const (
+	mostDrafts = 10  // the most drafts one read compares with the head
+	listedRuns = 100 // the completed runs one listing reads, newest first
+)
+
+// QueueLogs returns the tail of each failed job of the newest merge-queue
+// draft whose head holds head. The newest run of each workflow on that
+// draft decides, so a pass after a failure clears it. It returns nothing
+// when that draft passed or no draft in reach holds head. Ported from
+// queueFailure in scripts/sdlc/implementer-ci-queue.ts (alpha).
+func (s *Service) QueueLogs(ctx context.Context, p config.Project, head string) ([]LogExcerpt, error) {
+	var list struct {
+		Runs []workflowRun `json:"workflow_runs"`
+	}
+	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, fmt.Sprintf("/actions/runs?status=completed&per_page=%d", listedRuns)), &list); err != nil {
+		return nil, err
+	}
+	byDraft := map[string][]workflowRun{}
+	var drafts []string
+	for _, r := range list.Runs {
+		if !queueDraft(r) {
+			continue
+		}
+		if _, seen := byDraft[r.HeadSHA]; !seen {
+			drafts = append(drafts, r.HeadSHA)
+		}
+		byDraft[r.HeadSHA] = append(byDraft[r.HeadSHA], r)
+	}
+	for _, sha := range drafts[:min(len(drafts), mostDrafts)] {
+		ok, err := s.holds(ctx, p, head, sha)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		var failed []workflowRun
+		newest := map[string]bool{}
+		for _, r := range byDraft[sha] {
+			if newest[r.Name] {
+				continue
+			}
+			newest[r.Name] = true
+			if slices.Contains(redConclusions, r.Conclusion) {
+				failed = append(failed, r)
+			}
+		}
+		if len(failed) == 0 {
+			return nil, nil
+		}
+		jobs, err := s.runJobs(ctx, p, failed)
+		if err != nil {
+			return nil, err
+		}
+		queue := map[int64]*QueueRun{}
+		for _, r := range failed {
+			queue[r.ID] = &QueueRun{Run: r.ID, URL: r.HTMLURL, HeadSHA: sha, Branch: r.HeadBranch, Title: r.DisplayTitle}
+		}
+		return s.excerpts(ctx, p, jobs, queue)
+	}
+	return nil, nil
+}
+
+// queueDraft is true for a finished run of a merge-queue draft that
+// passed or failed.
+func queueDraft(r workflowRun) bool {
+	if r.Conclusion != "success" && !slices.Contains(redConclusions, r.Conclusion) {
+		return false
+	}
+	return slices.ContainsFunc(draftPrefixes, func(pre string) bool { return strings.HasPrefix(r.HeadBranch, pre) })
+}
+
+// holds is true when commit draft holds commit head. A draft whose
+// commit GitHub no longer holds tested nothing that can be read.
+func (s *Service) holds(ctx context.Context, p config.Project, head, draft string) (bool, error) {
+	var cmp struct {
+		Status string `json:"status"`
+	}
+	err := s.repoGet(ctx, p, ScopeRead, repoPath(p, fmt.Sprintf("/compare/%s...%s", head, draft)), &cmp)
+	var api *APIError
+	if errors.As(err, &api) && (api.Status == http.StatusNotFound || api.Status == http.StatusUnprocessableEntity) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return cmp.Status == "ahead" || cmp.Status == "identical", nil
 }
 
 // jobLog reads the whole log of one job as text.

@@ -93,3 +93,23 @@ func TestGitHubQueueProjectAddNeedsAMergeQueueRule(t *testing.T) {
 		t.Fatalf("add with the rule = %v", err)
 	}
 }
+
+// GitHub's merge queue merges once the ruleset's required checks pass,
+// and the loop cannot add a check to that list. So `project add` refuses
+// github-queue when the ruleset leaves out a check the loop requires: the
+// one project config names, or gates when nothing names one.
+func TestGitHubQueueProjectAddNeedsTheRulesetToRequireEachRequiredCheck(t *testing.T) {
+	queue := map[string]any{"type": "merge_queue", "parameters": map[string]any{"merge_method": "MERGE"}}
+	e := newQueue(t)
+	e.api.SetRules([]any{queue})
+	err := e.mech.Check(e.ctx, e.project)
+	if err == nil || !strings.Contains(err.Error(), "required_status_checks") || !strings.Contains(err.Error(), "gates") {
+		t.Fatalf("add with a ruleset that requires no check = %v; want a refusal that names gates", err)
+	}
+	e.api.SetRules(append(gt.GoodRules(), queue))
+	e.baseConfig("merge:\n  mechanism: github-queue\n  required_checks: [acceptance]\n")
+	err = e.mech.Check(e.ctx, e.project)
+	if err == nil || !strings.Contains(err.Error(), "acceptance") || strings.Contains(err.Error(), "ci,") {
+		t.Fatalf("add with a ruleset that leaves out acceptance = %v; want a refusal that names acceptance only", err)
+	}
+}

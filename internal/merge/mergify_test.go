@@ -161,6 +161,27 @@ func TestMergifyProjectAddOnAPlanWithNoRulesetsRequiresTheGatesJob(t *testing.T)
 	}
 }
 
+// The template requires each check that project config names, besides
+// the ruleset's, so Mergify merges no head whose required check has not
+// passed.
+func TestMergifyProjectAddRequiresTheChecksProjectConfigNames(t *testing.T) {
+	e := newMergify(t)
+	e.api.ServeApp("loop-fixture")
+	e.baseConfig("merge:\n  mechanism: mergify\n  required_checks: [acceptance]\n")
+	var setup *mergify.SetupError
+	if err := e.mech.Check(e.ctx, e.project); !errors.As(err, &setup) {
+		t.Fatalf("add = %v; want a refusal that names the template PR", err)
+	}
+	got, _ := e.world.File(mergify.SetupBranch, mergify.ConfigPath)
+	want, err := mergify.Render(mergify.Template{Bot: "loop-fixture[bot]", Base: "main", Checks: []string{"acceptance", "ci"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(want) {
+		t.Fatalf("the template PR holds %q; want the template that requires acceptance and ci", got)
+	}
+}
+
 // Any of Mergify's config locations counts.
 func TestMergifyProjectAddAcceptsEveryConfigLocation(t *testing.T) {
 	for _, path := range []string{".mergify.yml", ".mergify/config.yml", ".github/mergify.yml"} {
