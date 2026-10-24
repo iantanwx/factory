@@ -14,6 +14,7 @@ import (
 
 // ringAlert is one alerts row whose subject or body names a terminal.
 type ringAlert struct {
+	body  string
 	state string
 	count int
 }
@@ -31,12 +32,12 @@ func (w *humanWorld) ringAlerts(terminal string) []ringAlert {
 		}
 		defer func() { _ = rows.Close() }()
 		for rows.Next() {
-			var s, b string
+			var s string
 			var a ringAlert
-			if err := rows.Scan(&s, &b, &a.state, &a.count); err != nil {
+			if err := rows.Scan(&s, &a.body, &a.state, &a.count); err != nil {
 				return err
 			}
-			if strings.Contains(s+" "+b, terminal) {
+			if strings.Contains(s+" "+a.body, terminal) {
 				out = append(out, a)
 			}
 		}
@@ -76,6 +77,14 @@ func TestCBug1AnAcceptedRingResetsTheBackoffAndClearsTheAlert(t *testing.T) {
 	}
 	if a := w.ringAlerts(session.Terminal); len(a) != 1 || a[0].state != "open" || a[0].count != 1 {
 		t.Fatalf("alerts that name %s after three refusals = %+v, want one open row", session.Terminal, a)
+	}
+	// The alert quotes the host's own refusal, as the ring row stores it.
+	refused, _ := w.lastRing()
+	if !strings.Contains(refused.Detail, "host refused input to "+session.String()) {
+		t.Fatalf("the stored refusal = %q, want the fake host's refusal of %s", refused.Detail, session)
+	}
+	if a := w.ringAlerts(session.Terminal); !strings.Contains(a[0].body, refused.Detail) {
+		t.Fatalf("the alert body = %q, want it to quote the refusal %q", a[0].body, refused.Detail)
 	}
 	_ = j.Tick(ctx)
 	if got := counter.notifies.Load(); got != 3 {
