@@ -156,7 +156,8 @@ var surface = []Verb{
 		Flag{Name: "thread", Type: FlagInt, Description: "the review comment id to reply to; a conversation comment when absent"})),
 	server("pr", "checks", "list the pull request's checks", runOrRoom, nil),
 	server("pr", "logs", "print the tail of each failed CI job's log", runOrRoom, nil,
-		Flag{Name: "job", Type: FlagInt, Description: "one CI job id; every failed job of the head when absent"}),
+		Flag{Name: "job", Type: FlagInt, Description: "one CI job id; every failed job of the head when absent"},
+		Flag{Name: "queue", Type: FlagBool, Description: "read the failed jobs of the newest merge-queue draft that holds the head, not of the head"}),
 	write(server("pr", "rerun", "rerun the pull request's failed checks", runOrRoom, nil)),
 
 	server("merge", "status", "list each pull request a merge mechanism holds, longest wait first: its state, since when, its hand-offs and its last dequeue reason", coordinatorOrHost, nil,
