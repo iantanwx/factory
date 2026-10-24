@@ -441,7 +441,9 @@ func (r *Reactor) amendments(ctx context.Context, p config.Project) error {
 			if err != nil {
 				continue
 			}
-			cs, err := r.s.Threads(ctx, p, n)
+			// awaitsAnswer reads authors and order alone, so the poll
+			// reads REST and needs no thread state from GraphQL.
+			cs, err := r.s.allComments(ctx, p, n)
 			if err != nil {
 				return err
 			}
