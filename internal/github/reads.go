@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -31,6 +32,20 @@ type CheckRun struct {
 	Conclusion string     `json:"conclusion"`
 	StartedAt  *time.Time `json:"started_at"`
 	HTMLURL    string     `json:"html_url"`
+	App        CheckApp   `json:"app"`
+	Output     CheckOut   `json:"output"`
+}
+
+// CheckApp is the GitHub App that posted a check run.
+type CheckApp struct {
+	Slug string `json:"slug"`
+}
+
+// CheckOut is the text a check run reports.
+type CheckOut struct {
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	Text    string `json:"text"`
 }
 
 // CommitStatus is one commit status context.
@@ -170,6 +185,21 @@ func (s *Service) Checks(ctx context.Context, p config.Project, head string) (CI
 		return CIReport{}, err
 	}
 	return Classify(head, runs, combined.Statuses), nil
+}
+
+// CheckRunsNamed reads the latest check runs named name on head, from
+// every App.
+func (s *Service) CheckRunsNamed(ctx context.Context, p config.Project, head, name string) ([]CheckRun, error) {
+	var batch struct {
+		Runs []CheckRun `json:"check_runs"`
+	}
+	q := url.Values{"check_name": {name}, "filter": {"latest"}, "per_page": {"100"}}
+	// Encode writes a space as "+"; a literal "+" is already "%2B".
+	query := strings.ReplaceAll(q.Encode(), "+", "%20")
+	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/commits/"+head+"/check-runs?"+query), &batch); err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(batch.Runs, func(r CheckRun) bool { return r.Name != name }), nil
 }
 
 // workflowRun is one Actions run of a head.

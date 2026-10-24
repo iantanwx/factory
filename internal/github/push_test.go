@@ -235,6 +235,59 @@ func TestUnsafePathsAreRefused(t *testing.T) {
 	}
 }
 
+// A ticket branch never changes the merge queue's config: an edit can
+// weaken a queue condition, and a broken config leaves every PR queued.
+// A write, a delete and a rename away are each refused. Only the root
+// paths that Mergify reads count.
+func TestMergeConfigPathsAreRefused(t *testing.T) {
+	cases := map[string]func(t *testing.T, e *env) string{
+		"add .mergify.yml": func(t *testing.T, e *env) string {
+			return commit(t, e.checkout, "queue", map[string]string{".mergify.yml": "queue_rules: []\n"})
+		},
+		"add .mergify/config.yml": func(t *testing.T, e *env) string {
+			return commit(t, e.checkout, "queue", map[string]string{".mergify/config.yml": "queue_rules: []\n"})
+		},
+		"add .github/mergify.yml": func(t *testing.T, e *env) string {
+			return commit(t, e.checkout, "queue", map[string]string{".github/mergify.yml": "queue_rules: []\n"})
+		},
+		"delete": func(t *testing.T, e *env) string {
+			gitT(t, e.checkout, "rm", "-q", ".mergify.yml")
+			gitT(t, e.checkout, "commit", "-q", "-m", "drop the queue")
+			return gitT(t, e.checkout, "rev-parse", "HEAD")
+		},
+		"rename away": func(t *testing.T, e *env) string {
+			gitT(t, e.checkout, "mv", ".mergify.yml", "queue.yml")
+			gitT(t, e.checkout, "commit", "-q", "-m", "move the queue")
+			return gitT(t, e.checkout, "rev-parse", "HEAD")
+		},
+	}
+	for name, mk := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			if strings.HasPrefix(name, "delete") || strings.HasPrefix(name, "rename") {
+				e.onBase(t, map[string]string{".mergify.yml": "queue_rules: []\n"})
+			}
+			head := mk(t, e)
+			err := firstErr(e.push("tk-1", head))
+			if got := refusalCode(t, err); got != cli.CodeUnsafePath {
+				t.Fatalf("code %s, want %s", got, cli.CodeUnsafePath)
+			}
+			if r := Refusal(err); r.Rule != "merge_config" || !slices.Contains(r.AllowedNext, verbEscalationRaise) {
+				t.Fatalf("refusal %+v; want rule merge_config and escalation raise next", r)
+			}
+		})
+	}
+}
+
+// A file that only shares a name with a queue config is no config.
+func TestNestedMergifyFileIsNoMergeConfig(t *testing.T) {
+	e := newEnv(t)
+	head := commit(t, e.checkout, "fixture", map[string]string{"testdata/.mergify.yml": "queue_rules: []\n"})
+	if _, err := e.push("tk-1", head); err != nil {
+		t.Fatalf("push: %+v", Refusal(err))
+	}
+}
+
 // A plain .gitattributes line and a workflow change are allowed: the
 // operator grants the App the workflows permission.
 func TestSafeAttributesAndWorkflowsPush(t *testing.T) {
@@ -356,4 +409,15 @@ func TestRefusalsNameTheirRecoveryVerb(t *testing.T) {
 	if ref := Refusal(&APIError{Status: 500}); ref.Code != cli.CodeGitHubUnavailable {
 		t.Errorf("a 500 is %s, want %s", ref.Code, cli.CodeGitHubUnavailable)
 	}
+}
+
+// onBase adds one commit to the base branch on the remote, and moves the
+// checkout's work branch onto it.
+func (e *env) onBase(t *testing.T, files map[string]string) {
+	t.Helper()
+	gitT(t, e.checkout, "checkout", "-q", "main")
+	e.base = commit(t, e.checkout, "base change", files)
+	gitT(t, e.checkout, "push", "-q", e.git.RemoteDir(), "main")
+	gitT(t, e.checkout, "checkout", "-q", "work")
+	gitT(t, e.checkout, "merge", "-q", "--ff-only", "main")
 }

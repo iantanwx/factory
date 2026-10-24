@@ -21,6 +21,12 @@ const gitlinkMode = "160000"
 // zeroSHA is the object id git prints for a side that does not exist.
 const zeroSHA = "0000000000000000000000000000000000000000"
 
+// MergeConfigPaths are the places Mergify reads its configuration from,
+// relative to the repository root. The queue's conditions live there, so
+// an edit can weaken one, and a broken config leaves every PR queued with
+// no outcome. No item branch changes one: the operator does, by hand.
+var MergeConfigPaths = []string{".mergify.yml", ".mergify/config.yml", ".github/mergify.yml"}
+
 // injectedPrefixes are the pack skill directories the server injects into
 // a checkout (KTD17).
 var injectedPrefixes = []string{".claude/skills/loop-", ".agents/skills/loop-"}
@@ -55,8 +61,9 @@ type change struct {
 // diff, so a secret that one commit adds and a later commit removes is
 // still found. The first fault refuses the push:
 //
-//   - a change to .gitmodules, a gitlink, or a new filter or LFS line in a
-//     .gitattributes file is UNSAFE_PATH: the operator makes it by hand;
+//   - a change to .gitmodules, a gitlink, a new filter or LFS line in a
+//     .gitattributes file, or a write or a delete of a merge queue config
+//     (MergeConfigPaths) is UNSAFE_PATH: the operator makes it by hand;
 //   - a change to an injected path, or content that holds a stored secret
 //     value, is SECRET_IN_DIFF;
 //   - a commit message that holds a stored secret value is
@@ -143,6 +150,9 @@ func (m *Mirror) checkPath(ctx context.Context, commit string, ch change) error 
 		return unsafe("gitlink", fmt.Sprintf("%s is a submodule commit (a gitlink)", ch.path))
 	case base == ".gitmodules":
 		return unsafe("gitmodules", fmt.Sprintf("%s changes", ch.path))
+	case slices.Contains(MergeConfigPaths, ch.path):
+		// --no-renames shows a rename away as a delete, so it is refused too.
+		return unsafe("merge_config", fmt.Sprintf("%s is the merge queue's config", ch.path))
 	case base == ".gitattributes" && ch.status != "D":
 		added, err := m.newAttributeLines(ctx, ch)
 		if err != nil {
