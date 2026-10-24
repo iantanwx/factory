@@ -86,7 +86,7 @@ var PartNames = []string{"stalls", "questions", "decisions", "bugs", "backlog", 
 	"flaky", "audit", "timer-health", "inbox", "server"}
 
 // Parts returns the shipped part list. Each part entry adds its part.
-func Parts() []Part { return []Part{stallsPart, bugsPart()} }
+func Parts() []Part { return []Part{stallsPart, bugsPart(), inboxPart(), serverPart()} }
 
 // Intervals are the scheduler's own, from sched.Config.
 type Intervals struct {

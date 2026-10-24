@@ -59,7 +59,8 @@ func projectRepo(t *testing.T, cfg string) string {
 	return repo
 }
 
-// worktrees makes each fake checkout a git worktree of repo.
+// worktrees makes each fake checkout a git worktree of repo at the spec's
+// base, resolved in repo as `orca worktree create --base-branch` does.
 type worktrees struct {
 	t    *testing.T
 	host *agentfake.Host
@@ -69,9 +70,19 @@ type worktrees struct {
 func (w worktrees) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec) (agenthost.Checkout, error) {
 	co, err := w.host.CreateCheckout(ctx, spec)
 	if err == nil {
-		gitT(w.t, w.repo, "worktree", "add", "-q", "-b", spec.Name, co.Path, "origin/main")
+		base := spec.BaseBranch
+		if base == "" {
+			base = "origin/main"
+		}
+		gitT(w.t, w.repo, "worktree", "add", "-q", "-b", spec.Name, co.Path, base)
 	}
 	return co, err
+}
+
+// repoBaseHead reads alpha's base head from repo's origin. The coordinator
+// starts before a test registers alpha, so it cannot read the registration.
+func repoBaseHead(repo string) sched.BaseHeadSource {
+	return sched.OriginBaseHead(func() ([]config.Project, error) { return []config.Project{{ID: "alpha", Path: repo}}, nil })
 }
 
 func (w worktrees) RemoveCheckout(ctx context.Context, path string) error {

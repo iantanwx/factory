@@ -32,6 +32,10 @@ type SchedOptions struct {
 	Now           func() time.Time
 	TickInterval  time.Duration
 	NewRunID      func() string
+	// BaseHead reads the remote head that each new checkout starts from.
+	// sched.OriginBaseHead over the registered projects when nil. The
+	// GitHub mirror is the production source.
+	BaseHead sched.BaseHeadSource
 }
 
 // RefSource returns a reader of a project's committed files and its
@@ -53,7 +57,7 @@ func (s *Server) composeSched() error {
 		Store: s.Store, Host: &config.HostLoader{Path: s.HostPath, Alerts: config.StoreAlerter(s.Store)},
 		Projects: s.Projects.List, ProjectConfig: src,
 		Machine: s.Machine, Admission: s.Admission, Beads: s.opts.Beads, Pulls: s.opts.Pulls, Secrets: s.Secrets, Tokens: s.Tokens,
-		Agents: s.opts.Agents, Checkouts: o.Checkouts, Pack: o.Pack, Alerts: config.StoreAlerter(s.Store),
+		Agents: s.opts.Agents, Checkouts: o.Checkouts, BaseHead: s.baseHead(), Pack: o.Pack, Alerts: config.StoreAlerter(s.Store),
 		Release: cli.Version, Coordinator: o.Coordinator, Now: o.Now, TickInterval: o.TickInterval,
 		Logger: s.log, NewRunID: o.NewRunID,
 	})
@@ -65,6 +69,15 @@ func (s *Server) composeSched() error {
 	}
 	s.Sched = sc
 	return nil
+}
+
+// baseHead is the source of the remote head each new checkout starts
+// from: the option, or a fetch from each project clone's origin.
+func (s *Server) baseHead() sched.BaseHeadSource {
+	if s.opts.Sched.BaseHead != nil {
+		return s.opts.Sched.BaseHead
+	}
+	return sched.OriginBaseHead(s.Projects.List)
 }
 
 // projectConfigTTL bounds how long one read of a project's config serves.
