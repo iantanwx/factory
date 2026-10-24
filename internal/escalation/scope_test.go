@@ -65,6 +65,15 @@ func TestReleasePathRefusals(t *testing.T) {
 		{"a file entry covers itself alone", tic70, release("packages/db/x.go", "packages/db.go"), "not_covered"},
 		{"misspelled entry", tic70, release("packages/db/x.go", "packages/*"), "no_entry"},
 		{"no files section", "Do the work.\n", release("packages/db/x.go", "packages/**"), "no_lists"},
+		// A path is read as the loop reads it, so a spelling that climbs out
+		// of the forbidden glob reaches the path it lands on.
+		{"a climb into CI", "", release("lib/../.github/workflows/ci.yml", "lib/**"), RuleNeverReleased},
+		{"a climb into the loop's config", "", release("lib/../.loop/config.yaml", "lib/**"), RuleNeverReleased},
+		{"a ./ spelling of CI", "", release("./.github/workflows/ci.yml", "**"), RuleNeverReleased},
+		{"a climb out of the glob", tic70, release("packages/../apps/marketing/x.ts", "packages/**"), "not_covered"},
+		{"an absolute path", tic70, release("/packages/db/x.go", "packages/**"), "outside_checkout"},
+		{"a climb out of the checkout", tic70, release("packages/../../x.go", "packages/**"), "outside_checkout"},
+		{"the checkout itself", tic70, release("packages/..", "packages/**"), "outside_checkout"},
 	} {
 		if _, r := ReleasePath(tc.body, tc.rel); r == nil || r.Rule != tc.rule {
 			t.Errorf("%s: %+v, want %s", tc.name, r, tc.rule)
@@ -83,5 +92,49 @@ func TestReleasedBulletNamesOnlyTheReleasedPath(t *testing.T) {
 		if strings.Contains(line, "Released from") && strings.Contains(line, "`packages/**`") {
 			t.Fatalf("the released bullet names the forbidden glob: %q", line)
 		}
+	}
+}
+
+// The body holds the clean spelling of a path, the one the loop's reader
+// of "May change" reads, and a second spelling of a released path
+// releases nothing.
+func TestReleasePathWritesTheCleanPath(t *testing.T) {
+	want, r := ReleasePath(tic70, release("packages/db/src/**", "packages/**"))
+	if r != nil {
+		t.Fatal(r)
+	}
+	got, r := ReleasePath(tic70, release("./packages//db/./src/**", "packages/**"))
+	if r != nil || got != want {
+		t.Fatalf("ReleasePath = %+v\n%s\nwant\n%s", r, got, want)
+	}
+	if _, r := ReleasePath(got, release("./packages/db/src/**", "packages/**")); r == nil || r.Rule != "already_released" {
+		t.Fatalf("a second spelling = %+v", r)
+	}
+}
+
+// ReleasedBy finds this escalation's release of this path, and no other
+// escalation's, and no other path's.
+func TestReleasedByNamesOneEscalationAndOnePath(t *testing.T) {
+	body, r := ReleasePath(tic70, release("packages/db/src/**", "packages/**"))
+	if r != nil {
+		t.Fatal(r)
+	}
+	for _, tc := range []struct {
+		path string
+		id   int64
+		want bool
+	}{
+		{"packages/db/src/**", 7, true},
+		{"./packages/db/src/**", 7, true},
+		{"packages/db/src/**", 70, false},
+		{"packages/db/src/**", 8, false},
+		{"apps/web/src/**", 7, false},
+	} {
+		if got := ReleasedBy(body, tc.path, tc.id); got != tc.want {
+			t.Errorf("ReleasedBy(%q, %d) = %v", tc.path, tc.id, got)
+		}
+	}
+	if ReleasedBy(tic70, "packages/db/src/**", 7) {
+		t.Error("a body with no release holds one")
 	}
 }

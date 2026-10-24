@@ -2,6 +2,7 @@ package escalation
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -79,6 +80,27 @@ var (
 	markerRe = regexp.MustCompile(`^\s*[*-]\s`)
 )
 
+// CleanPath returns a path as the loop reads it: with no leading "./",
+// no empty or "." segment, and each ".." resolved, so `lib/../.github/x`
+// is `.github/x`. A trailing slash stays, because it makes a directory. A
+// path that is absolute, or that climbs out of the checkout, returns "".
+// The guards below compare clean paths, or a spelling that climbs out of
+// a forbidden glob passes them and lands on a path they refuse.
+func CleanPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || strings.HasPrefix(p, "/") {
+		return ""
+	}
+	c := path.Clean(p)
+	if c == "." || c == ".." || strings.HasPrefix(c, "../") {
+		return ""
+	}
+	if strings.HasSuffix(p, "/") {
+		c += "/"
+	}
+	return c
+}
+
 // prefixOf is the literal prefix of a glob: everything before its first
 // glob character.
 func prefixOf(glob string) string {
@@ -124,6 +146,36 @@ func backticked(line string) []string {
 	return out
 }
 
+// names reports whether a line names the clean path in backticks, in any
+// spelling.
+func names(line, clean string) bool {
+	return slices.ContainsFunc(backticked(line), func(tok string) bool { return CleanPath(tok) == clean })
+}
+
+// releasedSentence is the sentence the released bullet ends with. It ends
+// in a period, so escalation 7 is not escalation 70.
+func releasedSentence(escalation int64) string {
+	return fmt.Sprintf("Released from %q by the fixer for escalation %d.", admission.MustNotChange, escalation)
+}
+
+// ReleasedBy reports whether the body's "May change" list holds the
+// bullet that escalation's release of path wrote. A route that edited the
+// body, and crashed before it recorded the route, finds its own edit by
+// it. A release of the same path by another escalation is not this one.
+func ReleasedBy(body, path string, escalation int64) bool {
+	clean := CleanPath(path)
+	if clean == "" {
+		return false
+	}
+	lines := strings.Split(body, "\n")
+	allowed := admission.FileList(lines, admission.MayChange)
+	return slices.ContainsFunc(allowed, func(i int) bool {
+		bullet := strings.Join(lines[i:bulletEnd(lines, allowed, i)+1], " ")
+		return markerRe.MatchString(lines[i]) && names(lines[i], clean) &&
+			strings.Contains(bullet, releasedSentence(escalation))
+	})
+}
+
 // bulletEnd returns the last line of the bullet that starts at first, so
 // the sentence lands after a wrapped bullet.
 func bulletEnd(lines []string, within []int, first int) int {
@@ -152,11 +204,17 @@ func ReleasePath(body string, r Release) (string, *ReleaseRefusal) {
 		return "", &ReleaseRefusal{"no_condition", "--condition names what the implementer may do at the path; " +
 			"a released path with no condition is the whole entry"}
 	}
+	clean := CleanPath(path)
+	if clean == "" {
+		return "", &ReleaseRefusal{"outside_checkout", fmt.Sprintf("`%s` is absolute or climbs out of the checkout; "+
+			"name the path relative to the repository root", path)}
+	}
+	path = clean
 	if floor := neverReleased(path); floor != "" {
 		return "", &ReleaseRefusal{RuleNeverReleased, fmt.Sprintf("no fixer releases `%s`, because it reaches `%s`, "+
 			"which a person alone may widen", path, floor)}
 	}
-	if !covers(forbids, path) {
+	if !covers(CleanPath(forbids), path) {
 		return "", &ReleaseRefusal{"not_covered", fmt.Sprintf("`%s` does not cover `%s`; name the entry of %q that "+
 			"forbids the path, as the ticket spells it", forbids, path, admission.MustNotChange)}
 	}
@@ -167,7 +225,7 @@ func ReleasePath(body string, r Release) (string, *ReleaseRefusal) {
 		return "", &ReleaseRefusal{"no_lists", fmt.Sprintf("the body's \"## Files\" section needs both lists, and it holds "+
 			"%d %q lines and %d %q lines", len(allowed), admission.MayChange, len(forbidden), admission.MustNotChange)}
 	}
-	if slices.ContainsFunc(allowed, func(i int) bool { return slices.Contains(backticked(lines[i]), path) }) {
+	if slices.ContainsFunc(allowed, func(i int) bool { return names(lines[i], path) }) {
 		return "", &ReleaseRefusal{"already_released", fmt.Sprintf("`%s` is already in %q, so this release writes "+
 			"nothing; an earlier round made it, and the escalation has another cause", path, admission.MayChange)}
 	}
@@ -186,8 +244,7 @@ func ReleasePath(body string, r Release) (string, *ReleaseRefusal) {
 	out := slices.Clone(lines)
 	// The new bullet does not name the forbidden entry in backticks: the
 	// retry identity reads every backticked path of "May change".
-	out[last] = fmt.Sprintf("%s\n%s`%s`: %s Released from %q by the fixer for escalation %d.",
-		lines[last], marker, path, condition, admission.MustNotChange, r.Escalation)
+	out[last] = fmt.Sprintf("%s\n%s`%s`: %s %s", lines[last], marker, path, condition, releasedSentence(r.Escalation))
 	out[end] = fmt.Sprintf("%s The fixer released `%s` into %q for escalation %d, and nothing else here.",
 		lines[end], path, admission.MayChange, r.Escalation)
 	return strings.Join(out, "\n"), nil

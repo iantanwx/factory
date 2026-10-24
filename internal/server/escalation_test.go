@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -562,6 +563,55 @@ func TestFixerReleaseMovesOnePathIntoMayChangeAndReadmitsTheItem(t *testing.T) {
 	}
 }
 
+// A crash between the edit and the record of the route leaves the body
+// released and the escalation waiting. The same route again finishes it
+// and leaves the body as the edit wrote it. A body that holds the same
+// path released for another escalation still refuses: that edit is an
+// earlier round's, and this escalation has another cause.
+func TestFixerReleaseAfterACrashFinishesTheRoute(t *testing.T) {
+	const condition = "Add the second format's parser."
+	for name, tc := range map[string]struct {
+		other int64
+		code  int
+		rule  string
+	}{
+		"this escalation":    {0, 0, ""},
+		"another escalation": {1, 2, "already_released"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newHumanWorld(t, "")
+			ctx := context.Background()
+			item := scopedTicket(t, w.bx)
+			id := w.raise5(item, "the contract needs lib/parse.go, and the ticket forbids lib/**")
+			n, _ := strconv.ParseInt(id, 10, 64)
+			edited, r := escalation.ReleasePath(scopedBody, escalation.Release{Path: "lib/parse.go", Forbids: "lib/**",
+				Condition: condition, Escalation: n + tc.other})
+			if r != nil {
+				t.Fatal(r)
+			}
+			if res := w.srv.Machine.Apply(ctx, machine.Request{Project: "alpha", Item: item, Verb: "edit",
+				Params: map[string]string{"body": edited}, Actor: machine.Server("escalation")}); res.Refusal != nil {
+				t.Fatalf("edit = %+v", res.Refusal)
+			}
+			fixer := w.runToken("fix-1", "", "fixer")
+			panelFile(t, fixer, "derived", agreeing)
+			env, code := w.as(fixer, "escalation", "route", id, "--file", "panel.json",
+				"--release", "lib/parse.go", "--forbids", "lib/**", "--condition", condition)
+			data, _ := env["data"].(map[string]any)
+			if code != tc.code || env["rule"] != nil && env["rule"] != tc.rule ||
+				tc.code == 0 && (data["route"] != string(escalation.RouteLoop) || data["released"] != "lib/parse.go") {
+				t.Fatalf("route = %d %v", code, env)
+			}
+			if tc.rule != "" && env["rule"] != tc.rule {
+				t.Fatalf("route = %d %v, want %s", code, env, tc.rule)
+			}
+			if got := w.show(item).Fact(machine.FactBody); got != edited {
+				t.Fatalf("the body =\n%s\nwant\n%s", got, edited)
+			}
+		})
+	}
+}
+
 // A release the fixer misspelled writes nothing: the escalation still
 // waits for its panel, and the body is the one the ticket was cut with.
 func TestFixerReleaseThatNamesNoEntryWritesNothing(t *testing.T) {
@@ -601,8 +651,9 @@ func TestFixerReleaseOfANeverReleasedPathReachesAPerson(t *testing.T) {
 		release []string
 		because string
 	}{
-		"never released": {"derived", agreeing, []string{"--release", ".github/workflows/ci.yml", "--forbids", ".github/**"}, "never released"},
-		"person route":   {"preference", nil, []string{"--release", "lib/parse.go", "--forbids", "lib/**"}, "routes to a person"},
+		"never released":  {"derived", agreeing, []string{"--release", ".github/workflows/ci.yml", "--forbids", ".github/**"}, "never released"},
+		"a climb into CI": {"derived", agreeing, []string{"--release", "lib/../.github/workflows/ci.yml", "--forbids", "lib/**"}, "never released"},
+		"person route":    {"preference", nil, []string{"--release", "lib/parse.go", "--forbids", "lib/**"}, "routes to a person"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			w := newHumanWorld(t, "")

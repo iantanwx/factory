@@ -274,6 +274,11 @@ func releaseIn(flags map[string]string) (*Release, cli.Result) {
 		return nil, cli.Reject(cli.CodeUsage, "incomplete_release",
 			"a release names --release, --forbids and --condition together, and one of them is empty")
 	}
+	// The note and the answer name the path as the body holds it. A path
+	// with no clean spelling stays, and the release refuses it.
+	if clean := CleanPath(rel.Path); clean != "" {
+		rel.Path = clean
+	}
 	return &rel, cli.Result{}
 }
 
@@ -292,7 +297,7 @@ func (s *Service) release(ctx context.Context, rec Record, rel Release, d Decisi
 		return body, d, cli.Result{}
 	case refusal.Rule == RuleNeverReleased:
 		return "", Decision{Route: RoutePerson, Because: []string{"the release reaches a path that is never released: " + refusal.Hint}}, cli.Result{}
-	case refusal.Rule == "already_released" && strings.Contains(old, fmt.Sprintf("by the fixer for escalation %d.", rec.ID)):
+	case refusal.Rule == "already_released" && ReleasedBy(old, rel.Path, rec.ID):
 		// This route already edited the body, and a crash cut it off before
 		// it recorded the route. The edit stands, so finish the route.
 		return "", d, cli.Result{}

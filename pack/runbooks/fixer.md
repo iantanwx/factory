@@ -85,7 +85,9 @@ loop escalation route <escalation> --file <dir>/panels.json \
 ```
 
 - **Release only when the ticket's own list blocks work that one of its contracts needs.**
-- **Copy `--forbids` out of the ticket exactly.** The path must sit under that entry.
+- **Copy `--forbids` out of the ticket exactly.** The path must sit under that entry. The server
+  reads the path as it lands: `lib/../.github/ci.yml` is `.github/ci.yml`, and a path above the
+  checkout is refused.
 - **`--condition` is the new boundary.** State what the implementer may do there, and nothing
   wider.
 - **Release one path, and widen only.** No command adds an entry to `Must not change`.
