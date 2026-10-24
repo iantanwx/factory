@@ -116,7 +116,9 @@ func runVerb(t *testing.T, h *hostVerbs, args ...string) map[string]any {
 func testHostVerbs(t *testing.T, instance string, svc release.ServiceManager) *hostVerbs {
 	t.Helper()
 	r := cli.Surface()
-	c := &cli.Client{Instance: instance, Budget: 10 * time.Second}
+	// A cwd outside any checkout: the caller's .loop/token is no token of this server.
+	cwd := t.TempDir()
+	c := &cli.Client{Instance: instance, Budget: 10 * time.Second, Getwd: func() (string, error) { return cwd, nil }}
 	c.Attach(r)
 	h := newHostVerbs(r, c)
 	h.service = func(string) (release.ServiceManager, error) { return svc, nil }
