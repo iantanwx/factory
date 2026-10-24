@@ -182,7 +182,9 @@ that the ADR does not give.
   the fixer. The judge binaries line is a client line.** Only the server reads the secret store,
   and `secret check` is a run verb. So the key line joins the `doctor-github` answer, which is
   already "the checks of `loop doctor` that need the server". A project that runs no fixer needs
-  no key, so it gets no line. The binaries come from `escalation.Live()`, so a release that changes
+  no key, so it gets no line. This narrows ADR D12, which says "for each project". We rejected a
+  line for every project, because a project with no fixer would then fail `loop doctor` on a key
+  that nothing in it reads, and the operator would learn to ignore a red line. The binaries come from `escalation.Live()`, so a release that changes
   a judge changes the check. We rejected a fixed list of `claude` and `codex`, because it drifts
   from the panel.
 - **`loop version` reads the newest release in the client, with a deadline of 5 seconds.**
@@ -285,13 +287,14 @@ no `closed_at` on the epic. An epic with neither makes the entry
 lists the open pull requests, keeps those whose head branch maps to an item, reads each one's
 comments with `allComments`, and keeps those with at least one unanswered comment. It names the
 item, the pull request, the oldest unanswered comment's time, and the count. The handler in
-`internal/server/github.go` asks each project, or the one that `--project` names, and sorts the
-answer oldest first.
+`internal/server/github.go` asks each project, or only the one that `--project` names, and sorts
+the answer oldest first. A `--project` that names no registered project refuses with `NOT_FOUND`,
+rule `project_not_found`, as `stage pause` does, before any GitHub read.
 
 ### The doctor lines and the version
 
 `internal/github` gains `Service.RateLimit(project)`, one `GET /rate_limit` with the
-installation's token. `GitHub.Doctor` in `internal/server/doctor.go` adds a `github_quota` line,
+installation's token from `Service.Token(ctx, p, ScopeRead)`. It never calls `release.GHToken`. `GitHub.Doctor` in `internal/server/doctor.go` adds a `github_quota` line,
 then a `judge_key` line for a project that enables the fixer. `internal/release/doctor.go` adds one
 `judge_binaries` line when host config has a project. `cmd/loop` sets the `version` handler to one
 that calls the local version handler, then `LatestVersion` with a deadline.
@@ -611,6 +614,7 @@ The envelopes:
 - `stage list` answers a list of `StageRow`.
 - `pr pending` answers a list of `Pending`, oldest `since` first. A project whose GitHub read fails
   adds one row with `project`, `error` and no pull request, and the other projects still answer.
+  With `--project`, it reads and answers that project only.
 - `work show` answers the item with `wait`.
 - `loop version` adds `latest`, `behind` and, on a failed read, `latest_error`.
 - `loop doctor` adds the lines `github_quota` and `judge_key` for each project, and
@@ -1052,7 +1056,12 @@ request only, with its item, its status, `since` at that comment's time and `thr
 pull requests that owe replies come oldest `since` first. A project whose `OpenPulls` read fails
 adds one row with its `error`, and the other project still answers. `loop schema` lists
 `pr pending` and `stage list`.
-*Example tests on `githubtest`, and one test on the schema.*
+
+With two projects that each owe a reply, `pr pending --project p` answers only the row of `p`, and
+the fake GitHub of the other project records no read. `pr pending --project nope`, where `nope`
+names no registered project, refuses with `NOT_FOUND`, rule `project_not_found`, and makes no
+GitHub read.
+*Example tests on `githubtest` that read each fake's call log, and one test on the schema.*
 
 **C18. Equivalence: the reactor and `pr pending` read one rule.** Proves ADR D10. For every comment
 list in a generated set of authors, kinds, threads and times, `awaitsAnswer(cs)` equals
@@ -1064,7 +1073,14 @@ fake `/rate_limit` that answers core 4,720 with one reset time twice, then core 
 reset time four times, the line passes and prints core 2,654, the graphql value of the same rule,
 and `counters: 2`. It makes six reads. A failed read makes a failed line that quotes the error. A
 low value fails nothing. The line names no token.
-*Example tests on `githubtest` with a fake clock for the pause.*
+
+Each of the six reads carries a token that the fake minted for the project's installation with
+scope `read`, as `api.Minted()` lists it, and never the App's JWT. The test puts a decoy token in
+`GH_TOKEN` and on a fake `gh` on the path, so `release.GHToken` would print it. A read that carries
+the decoy, or any token the fake did not mint, fails the test. This refuses the read of the
+operator's own pool that ADR D8 rejected.
+*Example tests on `githubtest` with a fake clock for the pause, one of which records the
+`Authorization` header of each `/rate_limit` read.*
 
 **C20. Behaviour: the judge key line.** Proves ADR D12. For a project whose config enables the
 fixer, `judge_key` passes when `TYPESAFE_API_KEY` is stored for the project or globally. It fails
