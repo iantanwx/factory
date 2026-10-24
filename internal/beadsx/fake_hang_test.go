@@ -33,5 +33,7 @@ func TestFakeDoltHangKeepsRunning(t *testing.T) {
 	case <-time.After(time.Second):
 	}
 	_ = cmd.Process.Kill()
-	<-done
+	if err := <-done; err == nil {
+		t.Fatalf("the hanging fake exited 0, not by SIGKILL\n%s", out.String())
+	}
 }
