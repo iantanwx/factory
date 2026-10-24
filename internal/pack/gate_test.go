@@ -1,6 +1,7 @@
 package pack
 
 import (
+	"io/fs"
 	"slices"
 	"strings"
 	"testing"
@@ -402,5 +403,74 @@ func TestGatePassesAnOperatorVerbTheCoordinatorCannotCall(t *testing.T) {
 	src := coordinatorFixture("The operator runs `loop secret set <name>` for a missing secret.")
 	if got := check(t, src); len(got) != 0 {
 		t.Fatalf("want no findings, got %v", got)
+	}
+}
+
+// codexFile is the agents/openai.yaml a flagged skill holds, so that Codex
+// leaves the skill out of its list as Claude Code does.
+const codexFile = "policy:\n  allow_implicit_invocation: false\n"
+
+// flaggedFixture is the valid fixture plus loop-flagged: a skill that holds
+// the flag and the Codex file, and that the implementer runbook lists and
+// names by its path.
+func flaggedFixture() fstest.MapFS {
+	src := fixture()
+	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"attended": false,
+		"skills": ["loop-sdlc-turn", "loop-flagged"], "policy": "implementer"}}, "skills": ["loop-sdlc-turn", "loop-flagged"]}`)}
+	src["runbooks/implementer.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-implementer\ndescription: Build one ticket.\n---\n\n" +
+		"Read `../loop-sdlc-turn/SKILL.md` first. Read `.loop/policy/implementer.md` when it exists.\n" +
+		"Read `../loop-flagged/SKILL.md` before you commit.\n")}
+	src["skills/loop-flagged/SKILL.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-flagged\ndescription: One step.\n" +
+		"disable-model-invocation: true\n---\n\nDo the step.\n")}
+	src["skills/loop-flagged/agents/openai.yaml"] = &fstest.MapFile{Data: []byte(codexFile)}
+	return src
+}
+
+func TestFlaggedSkillNeedsAReader(t *testing.T) {
+	if got := check(t, flaggedFixture()); len(got) != 0 {
+		t.Fatalf("a flagged skill that a runbook lists: want no findings, got %v", got)
+	}
+
+	// No runbook lists it, so no run is ever told to read it.
+	src := flaggedFixture()
+	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"attended": false,
+		"skills": ["loop-sdlc-turn"], "policy": "implementer"}}, "skills": ["loop-sdlc-turn", "loop-flagged"]}`)}
+	wantOne(t, check(t, src), "manifest", "loop-flagged")
+
+	// Codex ignores the flag, so the flag alone lists the skill in each Codex run.
+	src = flaggedFixture()
+	delete(src, "skills/loop-flagged/agents/openai.yaml")
+	wantOne(t, check(t, src), "manifest", "loop-flagged")
+
+	src = flaggedFixture()
+	src["skills/loop-flagged/agents/openai.yaml"] = &fstest.MapFile{Data: []byte("policy:\n  allow_implicit_invocation: true\n")}
+	wantOne(t, check(t, src), "manifest", "loop-flagged")
+
+	// The Codex file alone hides from Codex a skill that Claude Code lists.
+	src = flaggedFixture()
+	src["skills/loop-flagged/SKILL.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-flagged\ndescription: One step.\n---\n\nDo the step.\n")}
+	wantOne(t, check(t, src), "manifest", "loop-flagged")
+}
+
+func TestEncodeLessonsIsFlaggedAndStillRead(t *testing.T) {
+	raw, err := fs.ReadFile(Source(), "skills/loop-encode-lessons/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fields, why := frontFields(string(raw)); why != "" || fields["disable-model-invocation"] != "true" {
+		t.Errorf("loop-encode-lessons front matter: want disable-model-invocation: true, got %v %s", fields, why)
+	}
+	codex, err := fs.ReadFile(Source(), "skills/loop-encode-lessons/agents/openai.yaml")
+	if err != nil || string(codex) != codexFile {
+		t.Errorf("loop-encode-lessons/agents/openai.yaml: want %q, got %q (%v)", codexFile, codex, err)
+	}
+	m, err := ReadManifest(Source())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stage := range []string{"amender", "coordinator"} {
+		if !slices.Contains(m.Runbooks[stage].Skills, "loop-encode-lessons") {
+			t.Errorf("the %s runbook does not list loop-encode-lessons", stage)
+		}
 	}
 }
