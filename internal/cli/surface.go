@@ -213,6 +213,8 @@ var surface = []Verb{
 		Flag{Name: "entry", Type: FlagString, Description: "the inbox entry the question is about"})),
 	server("inbox", "wait", "wait for a new inbox entry; exit 4 means call again", coordinator, nil,
 		Flag{Name: "since", Type: FlagString, Description: "the cursor of the last entry seen"}),
+	write(server("inbox", "note", "record the root cause of an open alert; it stays open, and a repeat of it rings no one", coordinator, []Arg{entryArg},
+		Flag{Name: "body", Type: FlagString, Required: true, Description: "the finding: the root cause, its evidence and the act that ends it"})),
 
 	write(server("room", "open", "open a room for a finding the triage rubric routes to a person, or reopen an idle or interrupted one", coordinator, nil,
 		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review"}, Description: "the kind of room"},
