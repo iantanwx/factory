@@ -212,13 +212,18 @@ again at the new head. Bring the operator the new head and its diff, and record 
 
 ## 6. Decisions that wait on an event
 
-On each wake, run `loop work list --kind decision --status pending`. Read the trigger of each one.
+On each wake, the `decisions` part of the sweep prints one note for each `pending` decision. Each
+note quotes the decision's trigger. Read the trigger of each one.
 
-- The event happened: `loop decision fire <decision>`.
+- The event happened: `loop decision fire <decision>`. The decision moves to `needs_human`.
+- The question no longer exists: `loop decision moot <decision>`.
+
+A decision in `needs_human` waits on the operator. Bring it to the operator by section 5.
+
 - The operator answered it: `loop decision settle <decision>`.
 - The operator dropped the question: `loop decision settle <decision> --dropped`.
 - The question no longer exists: `loop decision moot <decision>`.
-- The trigger did not really fire: `loop decision defer <decision>`.
+- The trigger did not really fire: `loop decision defer <decision>` moves it from `needs_human` back to `pending`.
 
 A date is the one trigger a machine reads alone. Nothing else tells the operator that a decision
 is due.
@@ -316,7 +321,8 @@ A run, a room or you report each loop fault. Triage each open one:
 
 1. Read it with `loop fault show <fault>`. Acknowledge it with `loop fault ack <fault>`.
 2. Find its cause. Read the run that reported it.
-3. When a project policy authorizes it, file the fault as a bug in that project with
+3. File a bug for each fault that the `bugs` part names, and for no other fault. When a project
+   policy authorizes it, file the fault as a bug in that project with
    `loop work create --kind bug --project <project>`. Put the fault id in the body, and quote the
    authorization's words with `--request`. File one bug for each fault.
 4. Resolve it with exactly one resolution:
