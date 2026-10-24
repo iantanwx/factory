@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -110,6 +111,7 @@ func TestC7TheVerbSweepsPrintsAndRingsNobody(t *testing.T) {
 		t.Fatalf("the schema's overwatch sweep = %+v %v", v, ok)
 	}
 	w := newHumanWorld(t, "")
+	w.srv.setOverwatchParts(nil)
 	if d := w.sweepData(); d["code"] != float64(0) || len(d["parts"].([]any)) != 0 {
 		t.Fatalf("a sweep of no part = %v", d)
 	}
@@ -315,3 +317,51 @@ type fixedWorld struct {
 func (f fixedWorld) Now() time.Time                                     { return f.at }
 func (f fixedWorld) Projects(context.Context) ([]config.Project, error) { return nil, nil }
 func (f fixedWorld) Store() *store.Store                                { return f.st }
+
+// Work 6: the production World's intervals are the scheduler's own, with
+// its defaults filled.
+func TestOverwatchWorldIntervalsAreTheSchedulers(t *testing.T) {
+	w := newHumanWorld(t, "")
+	want := overwatch.Intervals{Tick: time.Hour, Liveness: sched.DefaultLivenessInterval, Cleanup: sched.DefaultCleanupInterval}
+	if got := w.srv.overwatch.world.Intervals(); got != want {
+		t.Fatalf("Intervals() = %+v, want %+v", got, want)
+	}
+}
+
+// Work 6: the production World lists each loop-* directory one level
+// under a directory of agent_host.checkout_root, as absolute paths. An
+// operator's worktree is not listed, and a host config with no checkout
+// root lists nothing.
+func TestOverwatchWorldCheckoutDirsListsTheLoopsDirectories(t *testing.T) {
+	w := newHumanWorld(t, "")
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, d := range []string{"loop/loop-factorio-implementer-r-1", "loop/feature-x", "alpha/loop-room-2"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg, err := config.LoadHost(w.srv.HostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.AgentHost.CheckoutRoot = ""
+	if err := config.SaveHost(w.srv.HostPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if dirs, err := w.srv.overwatch.world.CheckoutDirs(ctx); err == nil || !strings.Contains(err.Error(), "checkout_root") {
+		t.Fatalf("CheckoutDirs with no root = %q %v, want an error that names checkout_root", dirs, err)
+	}
+	cfg.AgentHost.CheckoutRoot = root
+	if err := config.SaveHost(w.srv.HostPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	dirs, err := w.srv.overwatch.world.CheckoutDirs(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(root, "alpha/loop-room-2"), filepath.Join(root, "loop/loop-factorio-implementer-r-1")}
+	if !slices.Equal(dirs, want) {
+		t.Fatalf("CheckoutDirs = %q, want %q", dirs, want)
+	}
+}

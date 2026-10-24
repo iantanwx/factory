@@ -219,12 +219,12 @@ func TestKeyAndSlug(t *testing.T) {
 }
 
 // C7 and spec Work 3: a sweep of no part reads no record, so it holds code
-// 0 even when the records read would fail, and the job cannot ring before
-// a part lands.
+// 0 even when the records read would fail, and the job cannot ring with no
+// part.
 func TestASweepOfNoPartReadsNoRecord(t *testing.T) {
 	w := newFakeWorld(t)
 	w.itemsErr = errFake
-	r := Sweep(context.Background(), w, Parts())
+	r := Sweep(context.Background(), w, []Part{})
 	if r.Code != Quiet || r.Records != "" || r.Parts == nil || len(r.Parts) != 0 {
 		t.Fatalf("a sweep of no part = %+v", r)
 	}
