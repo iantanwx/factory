@@ -22,6 +22,7 @@ import (
 // Layout is the instance directory (R40, KTD26):
 //
 //	versions/<v>/loop       each installed release, with its release.json
+//	versions/<v>/skills/    the third-party skills that release pins
 //	current -> versions/<v> the release the service runs
 //	bin/bd, bin/dolt        the pinned binaries
 //	loop.db                 the state database
@@ -34,6 +35,7 @@ type Layout struct{ Dir string }
 // Names inside the instance directory.
 const (
 	VersionsDir   = "versions"
+	SkillsDir     = "skills"
 	CurrentLink   = "current"
 	BinDir        = "bin"
 	SnapshotsDir  = "snapshots"
@@ -50,6 +52,9 @@ func (l Layout) VersionDir(v string) string { return l.join(VersionsDir, v) }
 
 // Binary is versions/<v>/loop.
 func (l Layout) Binary(v string) string { return l.join(VersionsDir, v, BinaryName) }
+
+// Skills is versions/<v>/skills.
+func (l Layout) Skills(v string) string { return l.join(VersionsDir, v, SkillsDir) }
 
 // Bin is bin/<name>.
 func (l Layout) Bin(name string) string { return l.join(BinDir, name) }

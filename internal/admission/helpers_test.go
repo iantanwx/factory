@@ -177,7 +177,7 @@ func (w *world) count(query string, args ...any) int {
 }
 
 func (w *world) failures(item string) int {
-	return w.count(`SELECT count(*) FROM failures WHERE item = ? AND class IN ('failed', 'crashed')`, item)
+	return w.count(`SELECT count(*) FROM failures WHERE item = ? AND class IN ('failed', 'crashed', 'stalled')`, item)
 }
 
 // declaredBody declares one file and cites one document.

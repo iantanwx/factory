@@ -58,6 +58,16 @@ func (s *Service) RequestSignoff(ctx context.Context, p config.Project, number i
 // signoffReaders reads signoff.readers from the project config on the
 // base branch. A base with no config names no reader.
 func (s *Service) signoffReaders(ctx context.Context, p config.Project) ([]string, error) {
+	cfg, err := s.baseConfig(ctx, p)
+	if err != nil || cfg == nil {
+		return nil, err
+	}
+	return cfg.Signoff.Readers, nil
+}
+
+// baseConfig reads the project config on the base branch of the mirror.
+// A base with no config gives nil.
+func (s *Service) baseConfig(ctx context.Context, p config.Project) (*config.ProjectConfig, error) {
 	base, err := s.DefaultBranch(ctx, p)
 	if err != nil {
 		return nil, err
@@ -69,9 +79,5 @@ func (s *Service) signoffReaders(ctx context.Context, p config.Project) ([]strin
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.ParseProjectConfig(raw)
-	if err != nil {
-		return nil, err
-	}
-	return cfg.Signoff.Readers, nil
+	return config.ParseProjectConfig(raw)
 }

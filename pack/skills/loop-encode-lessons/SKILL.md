@@ -1,6 +1,7 @@
 ---
 name: loop-encode-lessons
 description: Turn a rule that must be remembered into something that fails. Read this when you write an instruction you wrote before, or correct something you corrected before.
+disable-model-invocation: true
 ---
 
 # loop-encode-lessons
