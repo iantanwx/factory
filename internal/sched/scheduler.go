@@ -58,6 +58,10 @@ const (
 	// AlertRunBlocked names an item a run left blocked. While it is open,
 	// it holds the item at that stage (admission.BlockedKey).
 	AlertRunBlocked = admission.AlertBlocked
+	// AlertCheckoutKept names a checkout the cleanup pass keeps because a
+	// content rule holds it. A person pushes or removes the work; the
+	// alert closes when the pass deletes the checkout.
+	AlertCheckoutKept = "checkout_kept"
 )
 
 // HostSource returns the current host config. *config.HostLoader is one.
@@ -94,7 +98,11 @@ type Config struct {
 	// Beads reads an item's body for the brief and the dependency edges of
 	// dependency-advance. Optional. With none, dependency-advance is not
 	// registered.
-	Beads   machine.BeadsResolver
+	Beads machine.BeadsResolver
+	// Pulls lists a project's open pull requests. dependency-advance reads
+	// it to learn whether a canceled blocker landed. Optional. With none, a
+	// canceled blocker holds its dependants.
+	Pulls   admission.PullReader
 	Secrets *secrets.Store
 	Tokens  *rpc.Tokens
 	// Agents is the agent host: start, inventory, liveness, close.
@@ -410,7 +418,7 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 		if s.instanceJob(name) == nil {
 			continue
 		}
-		if s.advance(ctx, rows, "", name, hc.Throughput[name].Schedule, now) {
+		if s.advance(ctx, rows, "", name, hc.ThroughputFor(name).Schedule, now) {
 			s.launch(ctx, "", name, kindInstanceJob, hc)
 		}
 	}
@@ -439,7 +447,7 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 			} else if snap == nil || !snap.Config.StageEnabled(stage) || stage == config.StageIntake {
 				continue
 			}
-			expr := hc.Throughput[stage].Schedule
+			expr := hc.ThroughputFor(stage).Schedule
 			if j, ok := hc.AgentJob(stage); ok {
 				expr = j.Schedule
 			}
@@ -516,13 +524,13 @@ const (
 )
 
 // launch starts one firing in its own goroutine. A stage starts at most one
-// dispatch at a time for each project, and a job at most its cap of
-// concurrent calls.
+// firing at a time for each project, and a job at most its cap of
+// concurrent calls. A run stage's firing fills its free cap.
 func (s *Scheduler) launch(ctx context.Context, project, stage string, kind launchKind, hc *config.HostConfig) {
 	key := stageKey(project, stage)
 	limit := 1
 	if kind != kindRun {
-		limit = max(1, hc.Throughput[stage].Cap)
+		limit = max(1, hc.ThroughputFor(stage).Cap)
 	}
 	s.mu.Lock()
 	if s.inflight[key] >= limit || kind == kindRun && s.draining {
@@ -541,13 +549,7 @@ func (s *Scheduler) launch(ctx context.Context, project, stage string, kind laun
 		}()
 		switch kind {
 		case kindRun:
-			st, ref := s.Dispatch(ctx, project, stage)
-			switch {
-			case ref != nil:
-				s.log.InfoContext(ctx, "dispatch refused", "project", project, "stage", stage, "code", ref.Code, "hint", ref.Hint)
-			case st != nil:
-				s.log.InfoContext(ctx, "run started", "project", project, "stage", stage, "run", st.RunID, "item", st.Item)
-			}
+			s.fill(ctx, project, stage, max(1, hc.Throughput[stage].Cap))
 		case kindJob:
 			if err := s.job(stage)(ctx, project); err != nil {
 				s.log.WarnContext(ctx, "native job", "project", project, "job", stage, "err", err)
@@ -558,6 +560,30 @@ func (s *Scheduler) launch(ctx context.Context, project, stage string, kind laun
 			}
 		}
 	}()
+}
+
+// fill starts runs of stage on project until admission refuses, no
+// candidate is left, or limit runs started. Admission holds the stage's
+// cap, so a firing fills the free cap. Tickertown runs four implementer
+// rows that each hold a window of runs, so 16 starts an hour reach its cap
+// of 8, shared by new and repair work (scripts/sdlc/timer-implementer-rows.ts,
+// alpha). A stage that claims no item starts one run a firing: its
+// candidate names no work that a second run would not repeat.
+func (s *Scheduler) fill(ctx context.Context, project, stage string, limit int) {
+	for range limit {
+		st, ref := s.Dispatch(ctx, project, stage)
+		if ref != nil {
+			s.log.InfoContext(ctx, "dispatch refused", "project", project, "stage", stage, "code", ref.Code, "hint", ref.Hint)
+			return
+		}
+		if st == nil {
+			return
+		}
+		s.log.InfoContext(ctx, "run started", "project", project, "stage", stage, "run", st.RunID, "item", st.Item)
+		if st.Item == "" {
+			return
+		}
+	}
 }
 
 // raise raises an alert, or counts up the open one with the same key.

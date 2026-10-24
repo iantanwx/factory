@@ -35,12 +35,12 @@ type upgradeStarter struct {
 	home     func() (string, error)
 	env      func(string) string
 	run      func(ctx context.Context, name string, args ...string) error
-	unitName func() string
+	unitName func(verb string) string
 }
 
 func newUpgradeStarter(instance string) upgradeStarter {
 	return upgradeStarter{instance: instance, goos: runtime.GOOS, self: os.Executable, home: os.UserHomeDir, env: os.Getenv,
-		run: release.ExecRunner, unitName: func() string { return "loop-upgrade-" + hexid.Random(4) }}
+		run: release.ExecRunner, unitName: func(verb string) string { return "loop-" + verb + "-" + hexid.Random(4) }}
 }
 
 // Start begins the upgrade to version, the latest when empty, and returns
@@ -49,6 +49,17 @@ func (u upgradeStarter) Start(ctx context.Context, version string) (server.Upgra
 	if version != "" && !release.ValidVersion(version) {
 		return server.UpgradeStart{}, fmt.Errorf("%w: %q", server.ErrBadVersion, version)
 	}
+	args := []string{"upgrade"}
+	if version != "" {
+		args = append(args, version)
+	}
+	return u.start(ctx, args)
+}
+
+// start runs `loop <args>` outside the service and outside every checkout,
+// and returns once its process started. The coordinator's own `loop
+// upgrade` and `loop rollback` start here too (factorio-obc).
+func (u upgradeStarter) start(ctx context.Context, args []string) (server.UpgradeStart, error) {
 	self, err := u.self()
 	if err != nil {
 		return server.UpgradeStart{}, err
@@ -57,11 +68,7 @@ func (u upgradeStarter) Start(ctx context.Context, version string) (server.Upgra
 	if err != nil {
 		return server.UpgradeStart{}, err
 	}
-	args := []string{"upgrade"}
-	if version != "" {
-		args = append(args, version)
-	}
-	unit := u.unitName()
+	unit := u.unitName(args[0])
 	if u.goos != "linux" {
 		return u.detach(self, home, unit, args)
 	}

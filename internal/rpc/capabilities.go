@@ -74,7 +74,10 @@ func (s *Server) authorize(ctx context.Context, inv cli.Invocation, p *Principal
 }
 
 // checkHostCaller refuses a host verb whose caller, or any ancestor of the
-// caller, works inside a registered checkout or agent session.
+// caller, works inside a registered checkout or agent session. The one
+// exception is the coordinator's token inside the coordinator's own
+// checkout (factorio-obc): checkTokenCaller pins the token there, and the
+// matrix admits the coordinator only on the verbs the surface opens to it.
 func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal) *cli.Result {
 	dirs, err := s.opts.Checkouts(ctx)
 	if err != nil {
@@ -90,7 +93,7 @@ func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal)
 	}
 	for i, cwd := range cwds {
 		for _, dir := range dirs {
-			if !within(cwd, dir) {
+			if !within(cwd, dir) || ownCheckout(p, cwd, dir) {
 				continue
 			}
 			who := "the caller"
@@ -107,6 +110,12 @@ func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal)
 		}
 	}
 	return nil
+}
+
+// ownCheckout reports whether cwd and the registered dir both lie inside
+// the coordinator's own checkout, where the coordinator calls host verbs.
+func ownCheckout(p *Principal, cwd, dir string) bool {
+	return p.Kind == cli.PrincipalCoordinator && p.Checkout != "" && within(cwd, p.Checkout) && within(dir, p.Checkout)
 }
 
 // checkTokenCaller refuses a run token used from outside its own checkout.

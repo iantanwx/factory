@@ -30,15 +30,23 @@ var callerKinds = map[string][]string{
 	"room":         {PrincipalRoom},
 	"intake room":  {PrincipalRoom},
 	"coordinator":  {PrincipalCoordinator},
-	"host":         {PrincipalHost},
-	"anyone":       PrincipalKinds,
+	// "host coordinator" admits the coordinator on a host verb. The verb
+	// stays a host verb: the server still refuses it from inside every
+	// checkout except the coordinator's own (factorio-obc).
+	"host coordinator": {PrincipalCoordinator},
+	"host":             {PrincipalHost},
+	"anyone":           PrincipalKinds,
 }
+
+// hostVerbLabels are the caller labels of a host verb.
+var hostVerbLabels = []string{"host", "host coordinator"}
 
 // CapabilityMatrix is the deny-by-default access table (KTD12). Verbs maps
 // each verb path to the principal kinds that may call it. A verb absent
 // from Verbs admits nobody. ItemScoped lists the verbs whose item argument
 // a run or a room must hold. HostVerbs lists the verbs that need the
-// host-admin credential and a caller outside every checkout.
+// host-admin credential and a caller outside every checkout, or the
+// coordinator's token inside the coordinator's own checkout.
 type CapabilityMatrix struct {
 	Principals []string            `json:"principals"`
 	Verbs      map[string][]string `json:"verbs"`
@@ -89,9 +97,12 @@ func DeriveMatrix(r *Registry) (CapabilityMatrix, error) {
 		})
 		m.Verbs[v.Path] = kinds
 		// A verb that an agent may call too, such as fault report, gains
-		// an agent nothing through the host credential, so only a
-		// host-only verb is a host verb.
-		if slices.Equal(kinds, []string{PrincipalHost}) {
+		// an agent nothing through the host credential, so only a verb
+		// for the host, and for the coordinator as a host caller, is a
+		// host verb.
+		if slices.Contains(v.Callers, "host") && !slices.ContainsFunc(v.Callers, func(c string) bool {
+			return !slices.Contains(hostVerbLabels, c)
+		}) {
 			m.HostVerbs = append(m.HostVerbs, v.Path)
 		}
 		for _, a := range v.Args {

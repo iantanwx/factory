@@ -18,7 +18,7 @@ word differently make two agents that act differently, and no gate compares them
   reads the inbox, brings each question to the operator, records each answer and opens rooms.
 - **A run**: one agent session that the server starts for one stage and one item.
 - **A room**: an agent session where the operator talks to an agent. Its kinds are intake,
-  decision and review. A room prepares a decision and applies it. A room never makes it.
+  decision, review and architect. A room prepares a decision and applies it. A room never makes it.
 - **The author**: in a review, the run or the person who wrote the work.
 
 ## Stages

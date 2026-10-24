@@ -260,6 +260,22 @@ func (inv Inventory) Lookup(s Session) Presence {
 	return Absent
 }
 
+// Untraced says whether a complete inventory, of any epoch, lists neither
+// the session's exact identity nor a trace of it. Unlike Lookup it ignores
+// the epoch, so it proves no absence on its own: the server reads it only
+// for a run whose liveness read unknown past its age bound (KTD9).
+func (inv Inventory) Untraced(s Session) bool {
+	if !inv.Complete {
+		return false
+	}
+	for _, r := range inv.Rows {
+		if r.ID == s.ID {
+			return false
+		}
+	}
+	return len(inv.Traces(s)) == 0
+}
+
 // Readopted returns the session with its epoch moved to this inventory's,
 // when a complete inventory lists the exact identity. The server persists
 // the result, so a later absence in the new epoch can read Absent.

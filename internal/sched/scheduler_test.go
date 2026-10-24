@@ -118,6 +118,62 @@ func TestMissedDeadlineFiresOnceAfterRestart(t *testing.T) {
 	}
 }
 
+// C2: a host config that v0.0.22 wrote holds no overwatch entry. The
+// scheduler ticks the overwatch row on the default schedule, and the file
+// stays as it was.
+func TestC2OldHostConfigTicksOverwatchOnTheDefault(t *testing.T) {
+	w := newWorld(t)
+	fixture, err := os.ReadFile(filepath.Join("..", "config", "testdata", "host-v0.0.22.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.hostPath, fixture, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	n := 0
+	if err := w.s.RegisterInstanceJob("overwatch", func(context.Context) error {
+		mu.Lock()
+		defer mu.Unlock()
+		n++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calls := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return n
+	}
+	for _, c := range []struct {
+		at   string
+		want int
+	}{
+		{"2026-10-21T10:00:30Z", 0}, // the first sight sets the deadline after now
+		{"2026-10-21T10:03:30Z", 1},
+		{"2026-10-21T10:10:30Z", 1},
+		{"2026-10-21T10:13:30Z", 2},
+		{"2026-10-21T10:53:30Z", 3},
+	} {
+		w.clock.Set(at(t, c.at))
+		w.tick()
+		if got := calls(); got != c.want {
+			t.Fatalf("at %s overwatch ran %d times, want %d", c.at, got, c.want)
+		}
+	}
+	if got := w.count(`SELECT count(*) FROM schedule WHERE kind = 'cron' AND project = '' AND stage = 'overwatch' AND cron_expr = ?`,
+		"3,13,23,33,43,53 * * * *"); got != 1 {
+		t.Fatalf("%d overwatch rows on the default schedule, want 1", got)
+	}
+	after, err := os.ReadFile(w.hostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(fixture) {
+		t.Fatalf("the scheduler changed host config:\n%s", after)
+	}
+}
+
 // leaseCheck wraps the fake host and records the item's lease owner when a
 // run starts.
 type leaseCheck struct {
@@ -440,10 +496,15 @@ func TestEndWithoutFinishSettlesCrashed(t *testing.T) {
 
 // An agent idle at its prompt with no finish settles as crashed after the
 // quiet period. Its session closes, its checkout stays and its slot frees.
+// The agent leaves uncommitted work, so the cleanup pass of the same tick
+// keeps the checkout too.
 func TestIdleAtPromptSettlesAfterTheQuietPeriod(t *testing.T) {
 	w := newWorld(t)
 	id := w.ticket(machine.Todo)
 	st := w.dispatch(machine.StageImplementer)
+	if err := os.WriteFile(filepath.Join(st.Checkout, "work.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	w.host.EndTurn(st.Session.ID)
 	w.clock.Advance(10 * time.Minute)
 	w.tick()
@@ -754,5 +815,39 @@ func TestRepairBriefCarriesTheRedBuild(t *testing.T) {
 	slices.Sort(want)
 	if !slices.Equal(read, want) {
 		t.Fatalf("CI reads = %v, want %v", read, want)
+	}
+}
+
+// One fire of a run stage admits runs until the stage's cap is full or no
+// candidate is left. Tickertown runs four implementer rows, each with its
+// own window of runs, so 16 starts an hour reach its cap of 8
+// (scripts/sdlc/timer-implementer-rows.ts, alpha). A fire that starts one
+// run holds the loop to one start a tick, shared by new and repair work.
+func TestOneFireFillsTheStagesFreeCap(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(map[string]int{"implementer": 8}, map[string]string{"implementer": "0 * * * *"})
+	w.rebuild()
+	var ids []string
+	for range 9 {
+		ids = append(ids, w.ticket(machine.Todo))
+	}
+	w.clock.Set(at(t, "2026-10-21T10:00:30Z"))
+	w.tick() // the first sight sets the deadline after now
+	w.clock.Set(at(t, "2026-10-21T11:00:30Z"))
+	w.tick()
+	if n := len(w.host.Launches()); n != 8 {
+		t.Fatalf("one fire with 9 todo tickets and cap 8 started %d runs, want 8", n)
+	}
+	todo := 0
+	for _, id := range ids {
+		if w.status(id) == machine.Todo {
+			todo++
+		}
+	}
+	if todo != 1 {
+		t.Fatalf("%d tickets still todo, want 1", todo)
+	}
+	if n := w.count(`SELECT count(*) FROM runs WHERE ended_at IS NULL`); n != 8 {
+		t.Fatalf("%d live runs, want 8", n)
 	}
 }

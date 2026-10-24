@@ -93,6 +93,10 @@ The server creates every ticket and every dependency, or none. It refuses a tick
 labels the merged PRD does not hold, with `STORY_UNKNOWN`. It also refuses a ticket of an
 architecture epic that cites a story label. Read the hint, repair the batch, and run it again.
 
+The server refuses a batch of more than 25 tickets with the rule `runaway_batch`. That is a runaway
+limit and no sizing rule. Never merge slices to fit under it. Escalate, and name how many slices
+the spec needs and the seam where the epic would split.
+
 Finish with `loop run finish --outcome done`. Report how many tickets you cut, which ones start at
 once, and which contracts each one proves.
 

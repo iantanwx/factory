@@ -38,7 +38,9 @@ type HostConfig struct {
 	Credentials Credentials     `yaml:"credentials,omitempty"`
 	Vaults      []string        `yaml:"vaults,omitempty"` // 1Password vaults that secret import may read (KTD28)
 	// Throughput holds a cap and a schedule for every stage, native job and
-	// pool (KTD30). Project config may override a schedule only.
+	// pool (KTD30). Project config may override a schedule only. Read an
+	// entry with ThroughputFor, which defaults an optional key the file
+	// does not hold.
 	Throughput map[string]Throughput `yaml:"throughput"`
 	// AgentJobs holds each agent job by name: a stage kind the operator
 	// defines, whose run claims no item and starts on its own cron.

@@ -19,7 +19,7 @@ When two routes then apply, the stricter one wins.
   project. It covers `loop work create --kind bug` in this project, with the operator's words as
   `--request`: `you should register yourself, so we can start to systematically poll faults/bugs and work on features.`
   It keeps one bug for each fault, and the fault id in the bug's
-  body. It never covers a release or a change to another project.
+  body. It never covers a change to another project.
 - 2026-10-24: the operator, `do everything you can do by yourself. make sure this is part of the loop skills/runbooks. do not ask me unless you absolutely have to.`
   It covers these acts:
   - Merging a PRD or spec pull request the operator approved in the coordinator's chat, at the
@@ -30,6 +30,12 @@ When two routes then apply, the stricter one wins.
 
   It never covers an act that cannot be undone, spends money or changes production data, and it
   never covers a decision only the operator can make.
+- 2026-10-23: the operator, on factorio-obc, `the server should not refuse the coordinator of loop itself.`
+  and, of a release, `that is definitely somethint you can do.` It covers running the host verbs
+  the server opens to the coordinator from its checkout: `loop upgrade` when a published release
+  ends an open loop fault, `loop rollback` when that upgrade breaks the loop, `loop doctor`, and
+  `loop project list` and `loop project show`. A release needs no act: each push to `main` that
+  passes CI becomes the next release. Never list a release or an upgrade under "Blocked on you".
 
 ## Report additions
 

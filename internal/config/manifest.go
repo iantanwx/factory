@@ -36,7 +36,7 @@ type ManifestEntry struct {
 // manifestStages are the stages an entry may name: each stage that runs an
 // agent, and each room. The room package's Kinds give the room names, and
 // its test proves each room's stage is one of these.
-var manifestStages = append(RunStages(), "intake-room", "decision-room", "review-room")
+var manifestStages = append(RunStages(), "intake-room", "decision-room", "review-room", "architect-room")
 
 // ForStage returns the entries a run of stage receives: each entry with no
 // stages, and each entry that names stage, in manifest order.

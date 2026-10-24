@@ -3,9 +3,11 @@ package github
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -31,6 +33,25 @@ type CheckRun struct {
 	Conclusion string     `json:"conclusion"`
 	StartedAt  *time.Time `json:"started_at"`
 	HTMLURL    string     `json:"html_url"`
+	Output     struct {
+		Annotations int `json:"annotations_count"`
+	} `json:"output"`
+	// Unstarted says why GitHub never started the run's job. Checks
+	// fills it in; GitHub's answer never holds it.
+	Unstarted *Unstarted `json:"-"`
+}
+
+// Causes of a check run that GitHub never started.
+const (
+	UnstartedBilling  = "billing"   // the account cannot pay for Actions
+	UnstartedNoRunner = "no_runner" // the job got no runner and ran no step
+)
+
+// Unstarted is why GitHub failed a check run whose job it never started.
+// Such a run built nothing, so it is neither red nor green (F-18).
+type Unstarted struct {
+	Cause   string `json:"cause"`
+	Message string `json:"message"`
 }
 
 // CommitStatus is one commit status context.
@@ -59,6 +80,9 @@ type CIReport struct {
 	// Superseded lists checks that ran on an earlier head. A newer push
 	// cancelled or replaced them, so they are never red (KTD16).
 	Superseded []CheckView `json:"superseded"`
+	// Unstarted is set when a check on the head failed because GitHub
+	// never started its job. The head is then pending, not red.
+	Unstarted *Unstarted `json:"unstarted,omitempty"`
 }
 
 var redConclusions = []string{"failure", "timed_out", "action_required", "startup_failure", "stale"}
@@ -66,8 +90,9 @@ var redConclusions = []string{"failure", "timed_out", "action_required", "startu
 // Classify reads the CI state of head. Only checks on head count. The
 // latest run of each check name decides that name. A cancelled latest
 // run waits for a rerun: it is pending, never red, and never green, so an
-// unknown result is never read as success. loop/eligible is the loop's
-// own status and never counts as CI.
+// unknown result is never read as success. A failed run whose job GitHub
+// never started is pending too: it has no result, so it is neither green
+// nor red. loop/eligible is the loop's own status and never counts as CI.
 func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 	rep := CIReport{Head: head, Checks: []CheckView{}, Superseded: []CheckView{}}
 	latest := map[string]CheckRun{}
@@ -93,6 +118,12 @@ func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 		switch {
 		case r.Status != "completed":
 			v.State, pending = CIPending, true
+		case r.Unstarted != nil:
+			v.State, pending = CIPending, true
+			v.Detail = "never started: " + r.Unstarted.Message
+			if rep.Unstarted == nil {
+				rep.Unstarted = r.Unstarted
+			}
 		case slices.Contains(redConclusions, r.Conclusion):
 			v.State, red = CIRed, true
 			v.Detail = r.Conclusion
@@ -147,10 +178,19 @@ func newer(a, b CheckRun) bool {
 	return cmp.Compare(a.ID, b.ID) > 0
 }
 
-// Checks reads the check runs and the commit statuses of head.
+// maxCheckPages bounds the read of a head's check runs: 1000 of them.
+const maxCheckPages = 10
+
+// Checks reads the check runs and the commit statuses of head. Ported from
+// MAX_PAGES in scripts/sdlc/graphql-pages.ts (alpha): a read that reaches
+// the page cap with a full page fails, and never classifies the runs it
+// did read, since a red run on a later page would leave the head green.
 func (s *Service) Checks(ctx context.Context, p config.Project, head string) (CIReport, error) {
 	var runs []CheckRun
-	for page := 1; page <= 10; page++ {
+	for page := 1; ; page++ {
+		if page > maxCheckPages {
+			return CIReport{}, fmt.Errorf("github: %s has more than %d check runs on %s", p.Repo, maxCheckPages*100, head)
+		}
 		var batch struct {
 			Total int        `json:"total_count"`
 			Runs  []CheckRun `json:"check_runs"`
@@ -163,6 +203,17 @@ func (s *Service) Checks(ctx context.Context, p config.Project, head string) (CI
 			break
 		}
 	}
+	for i := range runs {
+		r := &runs[i]
+		if r.HeadSHA != head || r.Status != "completed" || r.Conclusion != "failure" {
+			continue
+		}
+		u, err := s.unstarted(ctx, p, *r)
+		if err != nil {
+			return CIReport{}, err
+		}
+		r.Unstarted = u
+	}
 	var combined struct {
 		Statuses []CommitStatus `json:"statuses"`
 	}
@@ -170,6 +221,56 @@ func (s *Service) Checks(ctx context.Context, p config.Project, head string) (CI
 		return CIReport{}, err
 	}
 	return Classify(head, runs, combined.Statuses), nil
+}
+
+// notStarted matches the annotation GitHub writes on a job it never
+// started, such as "The job was not started because recent account
+// payments have failed or your spending limit needs to be increased".
+var (
+	notStarted = regexp.MustCompile(`(?i)\bjob was not started\b`)
+	billing    = regexp.MustCompile(`(?i)payments have failed|spending limit`)
+)
+
+type annotation struct {
+	Message string `json:"message"`
+}
+
+// unstarted reads why GitHub never started the job of a failed check run,
+// or returns nil for a run that ran. A billing or not-started annotation
+// names the cause. Otherwise an Actions job with no runner and no steps
+// never started. For an Actions check run, the check run id is the job
+// id; another App's check run has no job, and a failure there is red.
+func (s *Service) unstarted(ctx context.Context, p config.Project, r CheckRun) (*Unstarted, error) {
+	if r.Output.Annotations > 0 {
+		var as []annotation
+		if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, fmt.Sprintf("/check-runs/%d/annotations?per_page=100", r.ID)), &as); err != nil {
+			return nil, err
+		}
+		for _, a := range as {
+			switch {
+			case billing.MatchString(a.Message):
+				return &Unstarted{Cause: UnstartedBilling, Message: a.Message}, nil
+			case notStarted.MatchString(a.Message):
+				return &Unstarted{Cause: UnstartedNoRunner, Message: a.Message}, nil
+			}
+		}
+	}
+	var j struct {
+		RunnerID *int64 `json:"runner_id"`
+		Steps    []any  `json:"steps"`
+	}
+	err := s.repoGet(ctx, p, ScopeRead, repoPath(p, fmt.Sprintf("/actions/jobs/%d", r.ID)), &j)
+	var api *APIError
+	if errors.As(err, &api) && api.Status == http.StatusNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if j.RunnerID == nil && len(j.Steps) == 0 {
+		return &Unstarted{Cause: UnstartedNoRunner, Message: "GitHub gave the job no runner, and it ran no step"}, nil
+	}
+	return nil, nil
 }
 
 // workflowRun is one Actions run of a head.
@@ -286,7 +387,7 @@ func (s *Service) failedJobs(ctx context.Context, p config.Project, head string)
 func (s *Service) jobLog(ctx context.Context, p config.Project, id int64) (string, error) {
 	var text string
 	_, err := s.repoDo(ctx, p, ScopeRead, Call{Method: http.MethodGet,
-		Path: repoPath(p, fmt.Sprintf("/actions/jobs/%d/logs", id)), Accept: "text/plain", Raw: &text}, nil)
+		Path: repoPath(p, fmt.Sprintf("/actions/jobs/%d/logs", id)), Raw: &text}, nil)
 	return text, err
 }
 

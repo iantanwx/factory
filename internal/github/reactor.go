@@ -30,6 +30,9 @@ const (
 	AlertPRClosed = "pr_closed"
 	// AlertEffectFailed: GitHub kept refusing an outbox effect.
 	AlertEffectFailed = "github_effect_failed"
+	// AlertCINotStarted: GitHub failed a check whose job it never
+	// started, such as for billing (F-18). One alert per cause.
+	AlertCINotStarted = "ci_not_started"
 )
 
 // StreamPulls is the reactor's cursor stream of updated PRs.
@@ -390,7 +393,9 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 }
 
 // pollCI reads the CI of each ticket in review. A check run's end does not
-// change the PR's update time, so the PR cursor cannot see it.
+// change the PR's update time, so the PR cursor cannot see it. A check
+// that GitHub never started built nothing: the ticket stays in review,
+// and the project gets one alert for the cause, not one per ticket.
 func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 	items, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindTicket, Status: machine.InReview})
 	if ref != nil {
@@ -408,6 +413,16 @@ func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 		rep, err := r.s.Checks(ctx, p, pr.Head.SHA)
 		if err != nil {
 			return err
+		}
+		if u := rep.Unstarted; u != nil && rep.State != CIRed {
+			if err := r.alert(ctx, rpc.AuditAlert{Actor: "server:reactor", Project: p.ID, Item: it.ID, Kind: AlertCINotStarted,
+				Subject: p.ID + "/" + u.Cause,
+				Body: fmt.Sprintf("GitHub never started a CI job on %s, so tickets in review hold there and no repair starts. GitHub said: %q. Fix the cause, then rerun CI.",
+					p.ID, u.Message),
+				Detail: map[string]any{"cause": u.Cause, "head": pr.Head.SHA, "pr": pr.Number}}); err != nil {
+				errs = append(errs, err)
+			}
+			continue
 		}
 		if rep.State != CIRed {
 			continue

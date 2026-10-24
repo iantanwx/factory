@@ -135,7 +135,8 @@ func Agents(src fs.FS) (fs.FS, error) {
 func Injected(stage string) string { return brief.SkillPrefix + stage }
 
 // Layout returns the tree a run receives under its harness's skill root:
-// one loop-* directory for each runbook and each skill. Two sources that
+// one loop-* directory for each runbook and each skill, and a claim on the
+// loop-<name> directory of each third-party pin. Two sources that
 // land on one directory are refused.
 func Layout(src fs.FS) (fs.FS, error) {
 	m, err := ReadManifest(src)
@@ -184,6 +185,18 @@ func Layout(src fs.FS) (fs.FS, error) {
 		})
 		if err != nil {
 			return nil, fmt.Errorf("pack: skill %q: %w", skill, err)
+		}
+	}
+	// A pinned skill is fetched on the host, so the source holds none of
+	// its files. Its directory is claimed all the same, and a pin that
+	// lands on a runbook or a skill is refused here.
+	pins, err := ReadThirdParty(src)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range pins {
+		if err := claim(brief.SkillPrefix+p.Name, fmt.Sprintf("%s pin %q", ThirdPartyFile, p.Name)); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil

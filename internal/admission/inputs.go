@@ -107,29 +107,49 @@ func DeclaredPaths(body string) []string {
 	return out
 }
 
+// The labels of the two lists in a body's "## Files" section.
+const (
+	MayChange     = "May change"
+	MustNotChange = "Must not change"
+)
+
 // mayChange returns the bullet lines of the "May change" list inside the
 // "## Files" section. A label may hold its first entry on its own line.
 func mayChange(body string) []string {
 	lines := strings.Split(body, "\n")
+	var out []string
+	for _, i := range FileList(lines, MayChange) {
+		out = append(out, lines[i])
+	}
+	return out
+}
+
+// FileList returns the indexes of the lines of one list, MayChange or
+// MustNotChange, inside the "## Files" section of a body split into lines.
+// A label that holds its first entry on its own line is in the list. The
+// fixer's scope release reads both lists with it, so the release and the
+// retry identity read one list the same way.
+func FileList(lines []string, label string) []int {
 	start := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "## Files" })
 	if start < 0 {
 		return nil
 	}
-	var out []string
+	var out []int
 	in := false
-	for _, line := range lines[start+1:] {
+	for i := start + 1; i < len(lines); i++ {
+		line := lines[i]
 		if strings.HasPrefix(line, "## ") {
 			break
 		}
 		if m := labelRe.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
-			in = m[1] == "May change" || m[2] == "May change"
+			in = m[1] == label || m[2] == label
 			if in && m[3] != "" {
-				out = append(out, m[3])
+				out = append(out, i)
 			}
 			continue
 		}
 		if in && (bulletRe.MatchString(line) || strings.TrimSpace(line) != "" && len(out) > 0) {
-			out = append(out, line)
+			out = append(out, i)
 		} else if in && strings.TrimSpace(line) == "" && len(out) > 0 {
 			in = false
 		}

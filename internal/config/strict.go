@@ -156,6 +156,7 @@ var (
 	// into host config fails it.
 	credentialRefRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 	identRe         = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
+	effortRe        = regexp.MustCompile(`^[a-z]+$`) // agenthost's effort pattern
 )
 
 // ValidSecretName reports whether name can be a manifest entry and a .env
