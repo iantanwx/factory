@@ -22,9 +22,11 @@ Each contract below cites one of them, or the ADR decision it proves.
 "D<n>" below names decision n of the ADR's Decision section. The ADR's own five document checks
 passed when it merged. One of them, the `grep` for `intake-author`, must stay true, so C15 holds it.
 
-This run read the loop at `7acc56a`. The brief's handoff note names loop fault F-10, a wrong `adr`
-fact from ADR 0007. F-10 is fixed in v0.0.32. The epic's `adr` fact now names ADR 0001, and that
-ADR's Ticket line names this epic. So the note no longer applies, and this spec has one source.
+Round 1 read the loop at `7acc56a`. Round 2 read it at `70c9681`, after #76 added the spec-author
+and the reproducer to the stage mutex and #86 moved the split skill's rule on who creates an epic
+to its section 10. The brief's handoff note names loop fault F-10, a wrong `adr` fact from ADR
+0007. F-10 is fixed in v0.0.32. The epic's `adr` fact now names ADR 0001, and that ADR's Ticket
+line names this epic. So the note no longer applies, and this spec has one source.
 
 ## Scope check
 
@@ -112,14 +114,39 @@ ADR left to this spec, or one where the code shows that the ADR's stated mechani
   marks, so a byte match refuses a correct PRD, and each false refusal costs an attempt. The
   reviewer already reads each requirement against its source (`pack/runbooks/doc-reviewer.md`
   section 2).
-- **`prd-author` holds no stage mutex.** We chose the claim's lease over a mutex, because the
-  intake mutex stops two runs from creating one epic twice (`internal/admission/mutex.go:14`),
-  and a PRD author creates no epic. It claims one, and the lease admits one holder.
+- **`prd-author` holds the stage mutex, as the spec-author does.** We chose the mutex over "no
+  mutex, the lease only", because two runs of one author stage would each claim an epic and break
+  the stage's cadence. The lease stops two runs on the same epic only. The base holds this rule for
+  the spec-author and the reproducer (`internal/admission/mutex.go:14`, #76, parity 8.6), and its
+  tickertown source names `prd-author` among the stages that keep one run
+  (`scripts/sdlc/stage-claims.ts:11`, alpha): "Two runs of one author stage could each claim one
+  epic. Leases already stop two runs on the same epic, and this guard keeps the cadence the worker
+  guard gave." `mutexStages` gains `prd-author`, so one `prd-author` run works in each project at a
+  time, whatever cap host config holds.
 - **The `prd-author` throughput default is cap 2, schedule `5,35 * * * *`, effort `high`.** We
-  chose the spec-author's cap and effort over the intake cap of 8, because both stages write one
-  document from a source, and the effort table runs each author at `high`
-  (`internal/sched/quota.go:30`). The minutes fall 20 minutes before the doc-reviewer's `26,56`,
-  so a PRD that a run submits within 20 minutes is reviewed in the same half hour.
+  chose the spec-author's cap and effort over the intake cap of 8, because both are mutex author
+  stages that write one document from a source. The mutex holds each project to one run, so the
+  cap bounds the `prd-author` runs across the host's projects, as the spec-author's cap does
+  (`liveRuns`, `internal/admission/caps.go:26`, counts the whole instance). The effort table runs
+  each author at `high` (`internal/sched/quota.go:30`). The minutes fall 21 minutes before the
+  doc-reviewer's `26,56` (`internal/config/throughput.go:96`), so a PRD that a run submits within
+  21 minutes is reviewed in the same half hour.
+- **On `CAP_FULL`, the coordinator parks the request on a pending decision, and creates the epic
+  blocked by it.** The coordinator files one pending decision for the project, "The intake cap of
+  `<project>` is full", or reuses the pending one. It runs `epic create --request` again with the
+  same words and `--blocked-by <decision>`. The first call created nothing, so this is a new write.
+  The epic lands in `backlog`, which holds no slot, with the operator's words in its `request`
+  fact. The coordinator tells the operator which epics hold the cap. At each wake, by section 6 of
+  its runbook, it runs `loop decision moot <decision>` once the count drops below the cap or the
+  operator raises the cap. `dependency-advance` then moves each waiting epic as the cap admits it,
+  by the decision on the cap at unblock above. We rejected "tell the operator, and create the epic
+  again at a later wake", as section 7 does for an intake room. The request would then live only
+  in the coordinator's chat, and the coordinator runbook says "No rule lives in a wake prompt or
+  in your memory". A session that ends loses the request. We rejected an `epic create` that parks
+  the epic itself on a full cap, because ADR 0001's criterion A7 asks for the `CAP_FULL` refusal.
+  We rejected a blocker on a decision mooted at once, because the record would then say that a
+  question stopped when none had. The pending decision says why the epic waits, and its trigger
+  names the event that the coordinator watches.
 
 ## Assumptions
 
@@ -172,7 +199,13 @@ applies `prd_submit` from `prd_drafting`. That row drops the lease and records `
 `loop epic create --request`, and keeps the intake room for level 4 and 5, or the Choice
 `outside`. A PRD-less ticket stays for a bug, and for work the operator asks to do with no PRD.
 `room open`'s `ROUTED_TO_LOOP` hint names the new verb, so a coordinator that opens a room for
-level 1 to 3 work is told the step that works.
+level 1 to 3 work is told the step that works. When `epic create --request` refuses with
+`CAP_FULL`, the coordinator files or reuses the project's pending cap decision, and creates the
+epic blocked by it (Decisions). The request then waits in the record, and never in the chat.
+
+**The PRD author keeps one run in each project.** `mutexStages` gains `prd-author`, so admission
+refuses a second `prd-author` run in a project with `MUTEX_HELD` while the first holds the stage,
+as it does for the spec-author.
 
 ## Domain model
 
@@ -255,6 +288,9 @@ type Config struct {
 
 // internal/sched: Config.Admission already exists; dependency-advance
 // calls Admission.IntakeCap(ctx, project).
+
+// internal/admission
+var mutexStages = []string{config.StageIntake, config.StageSpecAuthor, config.StageReproducer, config.StagePRDAuthor}
 ```
 
 ```
@@ -285,7 +321,7 @@ Refusals that the new paths add. Each one changes no state:
 | `prd submit` | `TRANSITION_NOT_ALLOWED` | `not_drafting` | the held epic is not in `prd_drafting` |
 | `prd submit` | `LEASE_NOT_HELD` | `stale_epoch` | the run's epoch is not the epic's |
 
-`room open`'s `ROUTED_TO_LOOP` hint (`internal/room/room.go:321`) names
+`room open`'s `ROUTED_TO_LOOP` hint (`internal/room/room.go:327`) names
 `loop epic create --request` for new product work, beside `loop work create` for a bug or a chore.
 
 ## Data
@@ -412,9 +448,12 @@ sequenceDiagram
    - Files: `internal/pipeline/adhoc.go`, `internal/pipeline/pipeline.go`, `internal/cli/surface.go`,
      `internal/server/*.go` (the pipeline wiring), `internal/room/room.go`, their tests
    - Needs: 1
+   `--blocked-by` works on both branches: with `--architecture` and with `--request`, the pipeline
+   adds every blocks edge before it applies the create row.
    - Proves: C4, C5, C6, C12 (the `epic create` half), C16 (the hint)
-   - Done when: `loop epic create --help` lists `request` and `blocked-by`, and a pipeline test
-     reads each refusal of C4 with no item created.
+   - Done when: `loop epic create --help` lists `request` and `blocked-by`, a pipeline test
+     reads each refusal of C4 with no item created, and C5's kill-point test passes for both
+     branches.
 3. **`dependency-advance` unblocks epics.** List the project's epics in `backlog` beside its
    tickets, judge them with `blockersLanded`, ask the intake cap for a PRD entry, and apply
    `unblock`.
@@ -426,28 +465,31 @@ sequenceDiagram
 4. **The `prd-author` stage and its runbook.** Add `prd_drafting`, the claim row, the
    `release` and `reclaim` pairs and its resume target. Add `prd-author` to the run stages, the
    optional throughput keys, `DefaultThroughput` and `DefaultEfforts`. Add `prd_drafting` to
-   `intakeCounted`. Write `pack/runbooks/prd-author.md`, and name it in `pack/manifest.json` with
+   `intakeCounted`. Add `prd-author` to `mutexStages`, and name it in that variable's comment
+   with the cadence reason. Write `pack/runbooks/prd-author.md`, and name it in `pack/manifest.json` with
    the skills `loop-sdlc-turn`, `loop-sdlc-glossary`, `loop-sdlc-triage`, `loop-sdlc-split`,
    `loop-sdlc-documents` and `loop-brainstorm`, unattended. This entry changes the server and the
    pack in one diff, because `TestEveryClaimStageHasAThroughputEntry`
-   (`internal/admission/admission_test.go:615`) needs the stage in `RunStages` once the claim row
-   exists, and `TestEveryStageHasARunbook` needs a runbook once the stage is there. The runbook
-   holds, in order:
+   (`internal/admission/admission_test.go:653`) needs the stage in `RunStages` once the claim row
+   exists, and `TestEveryStageHasARunbook` (`internal/pack/pack_test.go:99`) needs a runbook once
+   the stage is there. The runbook holds, in order:
    1. Read the brief, then the epic's `request` fact, body and `amendment` fact.
    2. Run `loop pr show`. When the epic already has a PRD pull request, bring its head in and
       continue it. Never open a second PRD.
    3. Write `docs/prd/<slug>.md` from `../loop-brainstorm/prd.md`. Each story quotes the operator's
-      words from `request` or `amendment`. Each requirement cites a story or a repository file.
-      A requirement with no source goes under Open questions.
-   4. When no story can quote a source, raise an escalation at level 4 that names what the
-      request leaves open, and finish `blocked`.
+      words from the `request` fact or the `amendment` fact. These two facts are the only source
+      a story quotes. Each requirement cites a story, the epic body or a repository file. A
+      requirement with no source goes under Open questions.
+   4. When no story can quote a source, run `loop escalation raise --score 4` with a body that
+      names what the request leaves open, and finish `blocked`.
    5. When the work reaches more than one subsystem, name the seam under Open questions, by the
       split skill. Never split.
    6. Run `loop gates --docs`, commit, run `loop prd submit`, and finish `done`.
    - Files: `internal/machine/epic.go`, `internal/config/throughput.go`, `internal/sched/quota.go`,
-     `internal/admission/caps.go`, `pack/runbooks/prd-author.md`, `pack/manifest.json`, their tests
+     `internal/admission/caps.go`, `internal/admission/mutex.go`, `pack/runbooks/prd-author.md`,
+     `pack/manifest.json`, `internal/pack/prd_author_test.go`, their tests
    - Needs: 1
-   - Proves: C3, C7 (the `prd_drafting` half), C13, C14, C15
+   - Proves: C3, C7 (the `prd_drafting` half), C13, C14, C15, C17, C18
    - Done when: `go test ./internal/pack/... ./internal/admission/... ./internal/config/...`
      passes, and a scheduler test starts a `prd-author` run on an epic in `prd_needed`.
 5. **`prd submit` from a run.** Add the `prd_submit` row from `prd_drafting`, the run branch of
@@ -460,23 +502,28 @@ sequenceDiagram
      `prd-author` run and reads the epic in `prd_review` with one epic in the project.
 6. **The coordinator's route and the shared instructions.** Coordinator section 8 routes level 1
    to 3 product work to `loop epic create --request`, names `--blocked-by`, and names
-   `prd_author_disabled` with its fix. `.loop/policy/coordinator.md` changes its product route row
-   to match. The glossary adds the stage `prd-author`, the three epic states, and "a PRD author or
-   an intake room" in the PRD entry. The split skill adds "The PRD author never splits", and its
-   section 5 reads "Only an intake room or the coordinator creates one". The doc-reviewer's
-   section 2 checks that each story of a PRD on an epic with a `request` fact quotes that fact or
-   the `amendment` fact. The loop-init config template lists `prd-author: {}`. The plan's Key
-   Decision on intake, R44 and F4 gain the level 4 and 5 scope and the second entry path. ADR
-   0001's Consequences bullet "The verbs" drops the `make proto` sentence.
+   `prd_author_disabled` with its fix. It names the step on `CAP_FULL`, by Decisions: file or
+   reuse the project's pending cap decision with `loop decision file`, run the same
+   `loop epic create --request` again with `--blocked-by <decision>`, and tell the operator which
+   epics hold the cap. Section 6 names `loop decision moot` for that decision once the count drops
+   below the cap or the operator raises it. `.loop/policy/coordinator.md` changes its product route
+   row to match. The glossary adds the stage `prd-author`, the epic states `backlog`, `prd_needed`
+   and `prd_drafting`, and "a PRD author or an intake room" in the PRD entry. The split skill's
+   section 3 adds "The PRD author never splits", and its section 10 rule reads "Only an intake
+   room creates one, with `loop prd submit`, or the coordinator, with `loop epic create`". The
+   doc-reviewer's section 2 checks that each story of a PRD on an epic with a `request` fact
+   quotes that fact or the `amendment` fact. The loop-init config template lists
+   `prd-author: {}`. The plan's Key Decision on intake, R44 and F4 gain the level 4 and 5 scope
+   and the second entry path. ADR 0001's Consequences bullet "The verbs" drops the `make proto`
+   sentence.
    - Files: `pack/runbooks/coordinator.md`, `pack/runbooks/doc-reviewer.md`,
      `pack/skills/loop-sdlc-glossary/SKILL.md`, `pack/skills/loop-sdlc-split/SKILL.md`,
      `pack/skills/loop-init/SKILL.md`, `.loop/policy/coordinator.md`,
      `docs/plans/2026-10-21-1328-feat-standalone-sdlc-loop-plan.md`,
-     `docs/adr/0001-unattended-prd-author.md`
-   - Needs: 2, 5
-   - Proves: C16
-   - Done when: `make pack-check` and `loop gates --docs` pass, and the C16 greps print what it
-     names.
+     `docs/adr/0001-unattended-prd-author.md`, `internal/pack/prd_author_test.go`
+   - Needs: 2, 4, 5
+   - Proves: C16, C19
+   - Done when: `make pack-check` and `loop gates --docs` pass, and the C16 and C19 tests pass.
 
 ## Out of scope
 
@@ -487,9 +534,9 @@ sequenceDiagram
 - A server check that each story quotes the request. The doc-reviewer holds it, by Decisions.
 - The intake room's runbook and `loop-brainstorm`. They serve level 4 and 5 work as they do today.
   This epic only reads the PRD template.
-- The `intake` throughput entry and its unused schedule. It stays the epic cap (D6). Removing the
-  dead schedule belongs to no epic yet, and it would break a host config that an older release
-  wrote.
+- The `intake` throughput entry and its unused schedule. It stays the epic cap (D6). Nobody removes
+  the dead schedule while a host config that an older release wrote holds the key, because its
+  removal would break that config.
 - Turning `prd-author` on in another project. Each project's own `.loop/config.yaml` does it. The
   `prd_author_disabled` refusal tells the coordinator which line to add.
 
@@ -519,12 +566,17 @@ caller but the coordinator creates a PRD epic. Each refusal in the Interfaces ta
 room are refused with `CAPABILITY_DENIED`.
 *A pipeline example test for each refusal, which counts the project's items before and after.*
 
-**C5. Behaviour: `epic create --request` records the request and the edges.** Proves A2, A4. The
-new epic holds the `request` fact verbatim, the title and the body. With `--blocked-by`, it holds
-one blocks edge to each named item, and each edge exists before the epic leaves the initial state.
-A replay with the same idempotency key returns the same epic, with no second edge.
-*A pipeline test that reads the bead's facts and `Dependencies`, and a kill-point test that stops
-after the edges and before the create row, then replays.*
+**C5. Behaviour: `epic create --blocked-by` records the edges on both branches, and fires
+nothing.** Proves A2, A4, D7, D8. `epic create --request` gives the new epic the `request` fact
+verbatim, the title and the body. With `--blocked-by`, on either branch, the epic holds one blocks
+edge to each named item, and each edge exists before the epic leaves the initial state.
+`epic create --request --blocked-by X` lands on `backlog` with `epic_entry=prd_needed`.
+`epic create --architecture --blocked-by X` lands on `backlog` with `epic_entry=architecture`. A
+replay with the same idempotency key returns the same epic, with no second edge. After
+`epic create --blocked-by <a pending decision>`, that decision is still `pending`.
+*A pipeline test for each branch that reads the bead's facts, its state and `Dependencies`. A
+kill-point test for each branch that stops after the edges and before the create row, then
+replays. A pipeline test that reads the decision's state after the create.*
 
 **C6. Refusal: the intake cap refuses a new PRD epic.** Proves A7, D6. While the project's epics
 in counted states equal the cap, `epic create --request` with no blockers returns `CAP_FULL` and
@@ -593,12 +645,51 @@ holds `name: loop-prd-author`, and the pack gate passes on it.
 prints nothing.
 *`TestEveryStageHasARunbook`, the pack gate, and the grep as a test in `internal/pack`.*
 
-**C16. Behaviour: the coordinator's route names the new path.** Proves D2, D9.
-`grep -c 'loop epic create --request' pack/runbooks/coordinator.md` prints at least `1`.
-`.loop/policy/coordinator.md`'s product route row names `epic create --request` at level 1 to 3.
-`room open`'s `ROUTED_TO_LOOP` hint names `loop epic create --request`. `room open --kind intake`
-at level 1 to 3 is still refused with `ROUTED_TO_LOOP`.
-*The greps, run by the pack gate's runbook claims or a test, and a room test that reads the hint.*
+**C16. Behaviour: the coordinator's route names the new path, and parks a request the cap
+refuses.** Proves D2, D6, D9. Section 8 of `pack/runbooks/coordinator.md` names
+`loop epic create --request`, `--blocked-by`, `prd_author_disabled` and `CAP_FULL`. On
+`CAP_FULL`, it names `loop decision file` and `--blocked-by <decision>`, and section 6 names
+`loop decision moot` for the cap decision. `.loop/policy/coordinator.md`'s product route row names
+`epic create --request` at level 1 to 3. `room open`'s `ROUTED_TO_LOOP` hint names
+`loop epic create --request`. `room open --kind intake` at level 1 to 3 is still refused with
+`ROUTED_TO_LOOP`. The parked route works on the server by C6, C8 and C9: a blocked create asks no
+cap, a moot decision is landed, and the unblock waits for a slot.
+*A test in `internal/pack/prd_author_test.go` that reads each named section with the `section`
+helper of `internal/pack/split_test.go`, so a wrapped line still matches, and asserts each string.
+A room test that reads the hint.*
+
+**C17. Behaviour: one `prd-author` run works in a project at a time.** Proves D1. With the host
+cap of `prd-author` at 5 and two epics in `prd_needed`, a first admit succeeds. A second
+`prd-author` admit in the same project, on the other epic, is refused with `MUTEX_HELD`, and the
+peek offers nothing. Settling the first run frees the stage, and the second admit then succeeds.
+*A case for `prd-author` in `TestSpecAuthorAndReproducerRunOneAtATime`
+(`internal/admission/admission_test.go:101`), or a test of the same shape.*
+
+**C18. Behaviour: the PRD author's runbook holds ADR 0001's source rule.** Proves D3. In
+`pack/runbooks/prd-author.md`:
+- The step that writes the PRD names the `request` fact and the `amendment` fact as the only
+  sources a story quotes. It sends a requirement with no source to Open questions.
+- The step for a request that yields no story names `loop escalation raise --score 4`.
+- The runbook names "Never split".
+
+A runbook that drops any of these fails the test.
+*A test in `internal/pack/prd_author_test.go` that reads the runbook and asserts each string, with
+white space joined, as C16's test does.*
+
+**C19. Behaviour: the shared instructions name the PRD author and its check.** Proves D2, D3.
+- Section 2 of `pack/runbooks/doc-reviewer.md` names the check that each story quotes the
+  `request` fact or the `amendment` fact.
+- `pack/skills/loop-sdlc-glossary/SKILL.md` names `prd-author`, `prd_needed`, `prd_drafting` and
+  `backlog` in its epic states line.
+- Section 3 of `pack/skills/loop-sdlc-split/SKILL.md` names "The PRD author never splits", and its
+  section 10 names `` `loop epic create` `` as the coordinator's create, and no longer
+  `` `loop epic create --architecture` `` alone.
+- `pack/skills/loop-init/SKILL.md` lists `prd-author: {}` under `stages:`.
+- `docs/plans/2026-10-21-1328-feat-standalone-sdlc-loop-plan.md`'s R44 line names `prd-author`.
+- `grep -c 'make proto' docs/adr/0001-unattended-prd-author.md` prints `0`.
+
+*A test in `internal/pack/prd_author_test.go` that asserts each string. The test reads the plan and
+the ADR from the repository root.*
 
 ## Observable behaviour
 
