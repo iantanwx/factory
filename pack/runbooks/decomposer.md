@@ -77,6 +77,9 @@ Each ticket body holds these sections:
 
 ## 5. Create the batch
 
+Run the document form of `../loop-bro/SKILL.md` over each ticket body before you write the batch.
+Its second pass applies `../loop-unslop/SKILL.md`.
+
 Write the batch to a file in a directory from `mktemp -d`. It is one JSON object:
 
 ```json

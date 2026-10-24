@@ -82,3 +82,52 @@ func patchedPull(e *env, n int) bool {
 	}
 	return false
 }
+
+// parity 3.21: `pr open` runs the body gate before GitHub. A body over
+// the 700-word budget is refused with BODY_REFUSED, no pull request is
+// opened, and the item stays with its run.
+func TestPROpenRefusesABodyOverTheBudget(t *testing.T) {
+	e := newEnv(t)
+	e.withWorld()
+	id := e.ticket(machine.InProgress, shaA)
+
+	body := strings.TrimSpace(strings.Repeat("word ", 701))
+	res := e.runCall("pr open", id, machine.StageImplementer, map[string]string{"title": "t", "body": body}, nil)
+	if res.Refusal == nil || res.Refusal.Code != "BODY_REFUSED" {
+		t.Fatalf("pr open with 701 words: refusal %+v, want BODY_REFUSED", res.Refusal)
+	}
+	if !strings.Contains(res.Refusal.Hint, "budget 700 words, actual 701") {
+		t.Fatalf("hint %q does not name the budget and the count", res.Refusal.Hint)
+	}
+	for _, c := range e.api.Calls() {
+		if strings.HasPrefix(c, "POST ") || strings.HasPrefix(c, "PATCH ") {
+			t.Fatalf("pr open wrote to GitHub after the gate refused: %s", c)
+		}
+	}
+	if st := e.status(id).Status; st != machine.InProgress {
+		t.Fatalf("item %s is %s after the refusal, want %s", id, st, machine.InProgress)
+	}
+}
+
+// parity 3.21: the gate refuses the markup and the prose rules on an open
+// pull request too, and the PR keeps the body it holds.
+func TestPROpenRefusesABodyMarkupAndProseFaultOnAnOpenPR(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	id := e.ticket(machine.InProgress, shaA)
+	pr := w.Add(&gt.PR{Head: BranchFor(id), HeadSHA: shaA, Title: "t", Body: "the body a reviewer read"})
+
+	body := "**One** and **two** in a block.\n\nA dash — here.\n"
+	res := e.runCall("pr open", id, machine.StageImplementer, map[string]string{"title": "t", "body": body}, nil)
+	if res.Refusal == nil || res.Refusal.Code != "BODY_REFUSED" {
+		t.Fatalf("pr open with a markup and a prose fault: refusal %+v, want BODY_REFUSED", res.Refusal)
+	}
+	for _, want := range []string{"bold-texture", "em-dash"} {
+		if !strings.Contains(res.Refusal.Hint, want) {
+			t.Errorf("hint does not name %s:\n%s", want, res.Refusal.Hint)
+		}
+	}
+	if got := w.PR(pr.Number).Body; got != "the body a reviewer read" {
+		t.Fatalf("PR #%d holds body %q after the refusal", pr.Number, got)
+	}
+}

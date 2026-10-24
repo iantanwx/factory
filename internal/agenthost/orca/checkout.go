@@ -10,7 +10,7 @@ import (
 	"github.com/iantanwx/loop/internal/agenthost"
 )
 
-var checkoutName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+var checkoutName = regexp.MustCompile(fmt.Sprintf(`^[A-Za-z0-9][A-Za-z0-9._-]{0,%d}$`, agenthost.MaxCheckoutName-1))
 
 // CreateCheckout runs `orca worktree create` with no --agent and no
 // --prompt. Alpha's scripts/sdlc/agent-start.ts records why: orca joins

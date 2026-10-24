@@ -41,8 +41,8 @@ Read these first, in this order:
 
 Read the line of the document together with the finding. Then do exactly one of two things:
 
-- **Agree.** Change the document. Reply in one sentence that names what changed and where. A reply
-  of one word is no reply.
+- **Agree.** Change the document, and apply `../loop-unslop/SKILL.md` to each sentence you write.
+  Reply in one sentence that names what changed and where. A reply of one word is no reply.
 - **Disagree.** Change nothing. Reply with the argument: what the finding assumes, and why the
   document holds.
 
@@ -70,8 +70,8 @@ Never build the mechanism in this run. This run changes your document only.
 
 ## 4. Land the revision
 
-1. When you changed the document, commit, and run `loop gates --docs`. Push with
-   `loop branch push`.
+1. When you changed the document, commit, and run `loop gates --docs`. Write the message by
+   `../loop-commit/SKILL.md`. Push with `loop branch push`.
 2. Run `loop pr open --title "<the document title>"`. It shows the open pull request, and the
    server picks where the epic goes. A push returns the document to review. With no push, a
    document that a comment found in sign-off returns to sign-off. Run it after every reply.

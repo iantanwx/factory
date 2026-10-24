@@ -37,19 +37,37 @@ func New(gh *github.Service) *Queue { return &Queue{gh: gh, posted: map[string]m
 // Name implements merge.Mechanism.
 func (q *Queue) Name() config.MergeMechanism { return config.MergeGitHubQueue }
 
-// Check refuses a default branch with no merge-queue rule. It asserts the
-// rule, not a response layout.
+// Check refuses a default branch with no merge-queue rule, or one whose
+// ruleset leaves out a required check (github.RequiredChecks): GitHub's
+// queue merges once the ruleset's checks pass, and the loop cannot add
+// one. It asserts the rules, not a response layout.
 func (q *Queue) Check(ctx context.Context, p config.Project) error {
-	types, _, err := q.gh.BranchRules(ctx, p)
-	if err != nil || slices.Contains(types, RuleType) {
+	types, rules, err := q.gh.BranchRules(ctx, p)
+	if err != nil {
 		return err
+	}
+	required, err := q.gh.RequiredChecks(ctx, p)
+	if err != nil {
+		return err
+	}
+	missing := slices.DeleteFunc(required, func(c string) bool { return slices.Contains(rules, c) })
+	if slices.Contains(types, RuleType) && len(missing) == 0 {
+		return nil
 	}
 	base, err := q.gh.DefaultBranch(ctx, p)
 	if err != nil {
 		return err
 	}
-	return &github.RulesError{Lines: []string{fmt.Sprintf("- %s: the merge mechanism github-queue needs a %s rule on %s: "+
-		"turn on \"Require merge queue\" for %s, with the merge method set to merge commits", RuleType, RuleType, base, base)}}
+	var lines []string
+	if !slices.Contains(types, RuleType) {
+		lines = append(lines, fmt.Sprintf("- %s: the merge mechanism github-queue needs a %s rule on %s: "+
+			"turn on \"Require merge queue\" for %s, with the merge method set to merge commits", RuleType, RuleType, base, base))
+	}
+	if len(missing) > 0 {
+		lines = append(lines, fmt.Sprintf("- required_status_checks: the merge queue merges unverified code on %s unless the ruleset "+
+			"requires %s: add each to \"Require status checks to pass\" for %s", base, strings.Join(missing, ", "), base))
+	}
+	return &github.RulesError{Lines: lines}
 }
 
 const entryQuery = `query LoopQueueEntry($owner: String!, $name: String!, $number: Int!) {

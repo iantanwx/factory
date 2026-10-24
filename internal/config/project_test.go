@@ -90,6 +90,9 @@ func TestParseProjectConfigRefuses(t *testing.T) {
 		"unknown escalated field":     strings.Replace(validProjectConfig, "effort: xhigh", "effort: xhigh\n      modle: opus", 1),
 		"reader not a login":          strings.Replace(validProjectConfig, "mona-lisa", "slothware-labs/loop", 1),
 		"reader twice":                strings.Replace(validProjectConfig, "mona-lisa", "OctoCat", 1),
+		"empty check":                 strings.Replace(validProjectConfig, "mechanism: mergify", "mechanism: mergify\n  required_checks: [\"\"]", 1),
+		"check twice":                 strings.Replace(validProjectConfig, "mechanism: mergify", "mechanism: mergify\n  required_checks: [gates, gates]", 1),
+		"check control char":          strings.Replace(validProjectConfig, "mechanism: mergify", "mechanism: mergify\n  required_checks: [\"ga\\ttes\"]", 1),
 	}
 	for name, doc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -133,6 +136,28 @@ func TestProjectConfigHealthAuditWorkflow(t *testing.T) {
 	}
 	if _, err := ParseProjectConfig([]byte(validProjectConfig + "health:\n  audit_wrokflow: audit.yml\n")); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("an unknown health field: err = %v, want ErrInvalid", err)
+	}
+}
+
+// merge.required_checks names the CI checks a ticket's head must pass
+// before it is eligible and before any mechanism merges it. A config
+// that names none leaves the list empty, and the GitHub service then
+// requires the base's ruleset checks, or gates.
+func TestParseProjectConfigRequiredChecks(t *testing.T) {
+	doc := strings.Replace(validProjectConfig, "mechanism: mergify", "mechanism: direct\n  required_checks: [gates, acceptance]", 1)
+	cfg, err := ParseProjectConfig([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParseProjectConfig: %v", err)
+	}
+	if got := cfg.Merge.RequiredChecks; len(got) != 2 || got[0] != "gates" || got[1] != "acceptance" {
+		t.Fatalf("required_checks = %v; want [gates acceptance]", got)
+	}
+	cfg, err = ParseProjectConfig([]byte(validProjectConfig))
+	if err != nil {
+		t.Fatalf("ParseProjectConfig: %v", err)
+	}
+	if got := cfg.Merge.RequiredChecks; len(got) != 0 {
+		t.Fatalf("required_checks = %v; want none named", got)
 	}
 }
 
