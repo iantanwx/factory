@@ -57,10 +57,11 @@ server routes a panel with fewer than two judges to a person.
 ## 4. Route the escalation
 
 Send one file to the server. For one finding, send its panel file. For several, join the panel
-files into one JSON array, unchanged:
+files into one JSON array, unchanged. Each panel file holds an array of one panel, so `jq -s add`
+joins the arrays in order:
 
 ```bash
-jq -s . <dir>/f1.json <dir>/f2.json > <dir>/panels.json
+jq -s add <dir>/f1.json <dir>/f2.json > <dir>/panels.json
 loop escalation route <escalation> --file <dir>/panels.json
 ```
 
