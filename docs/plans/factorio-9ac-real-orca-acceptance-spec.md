@@ -136,6 +136,22 @@ this spec, or one where the code shows that the ADR's stated mechanism cannot ru
   with its own `TestMain`, because F1 needs the helpers of package `scenarios`
   (`helpers_test.go`). We rejected a hook that an environment value switches on, because
   `make acceptance` shares the binary, and a stray value would then fail a dev box's skip.
+- **The job runs each lane binary with a run pattern, and no lane binary holds a test that builds
+  a lane binary.** The job runs the contract binary with
+  `-test.run '^(TestOrcaContract|TestOrcaAgentRunsShellCommands)$'`, and the scenario binary with
+  `-test.run '^TestF1RealAgentsTakeATicketFromClaimToMerge$'`. The two tests that build a lane
+  binary carry a constraint that is false under the tag `orca`: `lane_main_test.go` has
+  `//go:build !orca`, and `lane_gate_test.go` has `//go:build acceptance && !orca`. We rejected an
+  unfiltered run of the compiled binary. Every untagged test of the package compiles into it, and
+  on the host it runs from a directory with no module, no toolchain and no `testdata/`. So
+  `lane_main_test.go`'s `go test -c`, `fixture` in `sim_test.go` and the read in `orca_test.go`
+  would fail there each day, and no code fault would cause it. We rejected moving the gate tests
+  into a package of their own, because each one runs its own package's `TestMain` path. The
+  constraint alone does not cover the unit tests, and the run pattern alone would leave a binary
+  that builds itself when someone runs it by hand. So we chose both.
+- **F1 reads no fixture file from a relative path.** F1 embeds its fixture files, such as `check.sh` and
+  the project config, with `//go:embed`, or writes them inline. We chose this over files under
+  `testdata/`, because the job runs the compiled scenario binary outside the package directory.
 - **`make orca-acceptance` runs each `go test` with `-count=1 -timeout 120m`.** We chose
   `-count=1` over the test cache, because a cached pass starts no session and proves nothing
   (`go help test`). We chose `120m`, the job's `LaneDeadline`, over the default of 10 minutes,
@@ -284,8 +300,8 @@ for `ready_to_merge`. It then reacts, hands off twice, reacts, and asserts `done
 merge at the reviewed head, two sessions started, and none of kind coordinator.
 
 **Checkout routing.** `cli.TokenFile` gains `Instance` and `Binary`. The token issuer writes both at
-each issue: the server's instance directory, and `server.Options.LoopBinary`. `server.New` builds
-`rpc.Tokens` with both. In production, `cmd/loop` sets `LoopBinary` to `<instance>/current/loop`
+each issue: the server's instance directory, and `server.Options.LoopBinary`. `compose`, which `server.Run` calls,
+builds `rpc.Tokens` with both. In production, `cmd/loop` sets `LoopBinary` to `<instance>/current/loop`
 when that path exists, and leaves it empty otherwise. The world names the copy under its instance.
 The CLI reads a checkout's token file before `LOOP_INSTANCE`. When the call sends that token:
 
@@ -316,7 +332,9 @@ it tests the host, not a project. One tick does these steps:
    `orca repo add --path <fixture>` only when it finds nothing.
 4. Sweep: for each worktree that `orca worktree list --repo path:<fixture>` names, close its
    terminals and remove it.
-5. Run the contract binary, then the scenario binary, under one 120-minute deadline. The job sets
+5. Run the contract binary with
+   `-test.run '^(TestOrcaContract|TestOrcaAgentRunsShellCommands)$'`, then the scenario binary with
+   `-test.run '^TestF1RealAgentsTakeATicketFromClaimToMerge$'`, under one 120-minute deadline. The job sets
    `LOOP_ORCA_ROOT` (host config `agent_host.checkout_root`), `LOOP_ORCA_REPO` (`path:<fixture>`),
    `LOOP_ORCA_MODEL` (`claude-opus-5-5`), `LOOP_ORCA_BIN` (host config `agent_host.binary`, when
    set), `LOOP_BD` and `LOOP_DOLT` (`bin/bd` and `bin/dolt`), and `LOOP_ACCEPTANCE_LOOP`
@@ -645,7 +663,7 @@ sequenceDiagram
     end
     J->>O: repo show, and repo add when unknown
     J->>O: sweep fixture worktrees
-    J->>L: orca-contract.test (deadline 120 min)
+    J->>L: orca-contract.test -test.run contract tests (deadline 120 min)
     alt exit 3
         L-->>J: quota line
     else exit 0
@@ -760,8 +778,8 @@ sequenceDiagram
    order: `go test -count=1 -timeout 120m -tags orca ./internal/agenthost/orca/`, then
    `go test -count=1 -timeout 120m -tags 'acceptance orca'
    -run '^TestF1RealAgentsTakeATicketFromClaimToMerge$' ./acceptance/scenarios/`. Add it to
-   `.PHONY`, and to nothing else. Add the untagged test `lane_main_test.go`, which builds the
-   contract binary and runs its `TestMain` path (C24).
+   `.PHONY`, and to nothing else. Add the test `lane_main_test.go`, first line `//go:build !orca`,
+   which builds the contract binary and runs its `TestMain` path (C24).
    - Files: `internal/agenthost/orca/contract_orca_test.go`,
      `internal/agenthost/orca/lane_main_test.go`, `Makefile`.
    - Needs: 1.
@@ -770,7 +788,8 @@ sequenceDiagram
      `env -u LOOP_ORCA_ROOT make orca-acceptance` exits non-zero and prints
      `LOOP_ORCA_ROOT is not set`, and `grep -n '^GATES :=' Makefile | grep orca` prints nothing.
 3. **Checkout routing.** Add `Instance` and `Binary` to `TokenFile`, and `LoopBinary` to
-   `server.Options`. `server.New` gives `rpc.Tokens` the instance and `LoopBinary`, and the token
+   `server.Options`. `compose`, which `server.Run` calls, gives `rpc.Tokens` the instance and
+   `LoopBinary`, and the token
    issuer writes both. `cmd/loop` sets `LoopBinary` to `<instance>/current/loop` when that path
    exists. The CLI reads the two fields by the rules under Approach, with the exec hop and the
    refusal.
@@ -787,8 +806,8 @@ sequenceDiagram
    set, and take `LOOP_ACCEPTANCE_LOOP` with its version check. Add `lane_orca_test.go`, first line
    `//go:build acceptance && orca`, which sets `laneGate` to a `LaneGate` over the orca host. Move
    `createTicket` onto `World.CreateTicket`. Prove the real-mode wiring with a scenario that passes
-   a `RealHost` over the fake host, so CI runs it. Add the test `lane_gate_test.go`, with the tag
-   `acceptance`, which builds the scenario binary under `acceptance orca` and runs its `TestMain`
+   a `RealHost` over the fake host, so CI runs it. Add the test `lane_gate_test.go`, first line
+   `//go:build acceptance && !orca`, which builds the scenario binary under `acceptance orca` and runs its `TestMain`
    path (C25).
    - Files: `acceptance/world.go`, `acceptance/binary.go`, `acceptance/scenarios/main_test.go`,
      `acceptance/scenarios/helpers_test.go`, `acceptance/scenarios/lane_orca_test.go`,
@@ -801,7 +820,8 @@ sequenceDiagram
      instance and binary.
 5. **F1 with real agents.** Add `acceptance/scenarios/f1_orca_test.go`, first line
    `//go:build acceptance && orca`, with `TestF1RealAgentsTakeATicketFromClaimToMerge` and its
-   fixture files. F1 builds its world with `OrcaHost(Declared(t, <its name>))`. Add the F1 entry,
+   fixture files, embedded with `//go:embed` or written inline, and never read from a relative
+   path. F1 builds its world with `OrcaHost(Declared(t, <its name>))`. Add the F1 entry,
    2 sessions, to `LanePlan`, which then totals 13.
    - Files: `acceptance/scenarios/f1_orca_test.go`, `internal/agenthost/agenthosttest/` (the plan
      entry), with tests.
@@ -937,11 +957,12 @@ asserts the refusal and that the test server saw no call.*
 Proves ADR decision 5. A call with the host-admin credential, from outside a checkout, reads
 neither field. A process with `LOOP_CHECKOUT_EXEC=1` never execs. The token issuer writes the
 `Instance` and `LoopBinary` of `rpc.Tokens` into every token file that `IssueToCheckout` writes.
-`server.New` passes its instance and `Options.LoopBinary` to `rpc.Tokens`. In production the
+`compose`, which `server.Run` calls, passes its instance and `Options.LoopBinary` to
+`rpc.Tokens`. In production the
 binary is `<instance>/current/loop` when that path exists, and empty when it does not.
 *Example tests: a host-admin call with a token file above the working directory, two binaries that
-name each other, a token issue that asserts both fields, a server built with `LoopBinary` whose
-token file names it, and `cmd/loop`'s option with and without a `current` link.*
+name each other, a token issue that asserts both fields, a server started through `Run` (or a test of
+`compose`) with `LoopBinary` whose token file names it, and `cmd/loop`'s option with and without a `current` link.*
 
 **C11. Behaviour: a real-host world runs with no coordinator, on the real clock, and counts its
 starts.** Proves ADR decision 1. A world with `Real` starts no session of kind coordinator, its
@@ -1014,7 +1035,9 @@ empty kind.
 `LOOP_ORCA_*` value itself"). The `Runner` receives `LOOP_ORCA_ROOT`, `LOOP_ORCA_REPO`,
 `LOOP_ORCA_MODEL`, `LOOP_BD`, `LOOP_DOLT` and `LOOP_ACCEPTANCE_LOOP`, each from host config, the
 layout or the job's constants. It receives `LOOP_ORCA_BIN` only when host config sets
-`agent_host.binary`. The scenario binary gets `-test.run '^TestF1RealAgentsTakeATicketFromClaimToMerge$'`.
+`agent_host.binary`. The contract binary gets
+`-test.run '^(TestOrcaContract|TestOrcaAgentRunsShellCommands)$'`, and the scenario binary gets
+`-test.run '^TestF1RealAgentsTakeATicketFromClaimToMerge$'`. Neither runs with no run pattern.
 *Example test that asserts the `Runner`'s environment and arguments for a fixture host config.*
 
 **C23. Behaviour: one green lane run is on record.** Proves A9.
@@ -1031,8 +1054,8 @@ decision 4. The binary from `go test -c -tags orca ./internal/agenthost/orca/` d
   `account list --json` and no other command.
 
 So it starts no session and makes no worktree in either case.
-*The untagged test `lane_main_test.go`. It builds the binary into a temporary directory, and runs
-it with `HOME` at a temporary directory, `CI` unset and a stub `orca` script that records each
+*The test `lane_main_test.go`, with `//go:build !orca`, so no lane binary holds it. It builds the
+binary into a temporary directory, and runs it with `HOME` at a temporary directory, `CI` unset and a stub `orca` script that records each
 command line.*
 
 **C25. Refusal: the scenario binary runs the gate first, and under the lane it never passes on a
@@ -1045,8 +1068,9 @@ missing tool.** Proves A2 and ADR decisions 2 and 4. The binary from
 
 A build with the tag `acceptance` alone still exits 0 on a missing bd or dolt with `CI` unset, as
 today.
-*The test `lane_gate_test.go`, with the tag `acceptance`, which builds the binary and runs it as
-C24 does. The suite's own run under `make acceptance` proves the last line.*
+*The test `lane_gate_test.go`, with `//go:build acceptance && !orca`, so no lane binary holds it.
+It builds the binary and runs it as C24 does. The suite's own run under `make acceptance` proves
+the last line.*
 
 **C26. Refusal: a real world never rewrites a repository that is not a lane fixture.** Proves ADR
 decisions 1 and 3. `NewWorld` with `Real.Clone` naming a repository with no
