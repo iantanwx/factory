@@ -30,6 +30,12 @@ usage limits, the implementer's cron and review proof. None of them changes a ta
 work query that this spec names. The implementer now runs every 5 minutes, so D10's overdue wait
 of 90 minutes is 18 implementer ticks, not tickertown's 9.
 
+Round 3 reads the base at `183d80b`. The changes since `22d8fc4` make an inbox answer on a
+sign-off entry merge the document, and add `loop coordinator upgrade`. They add the epic row
+`signoff_head`. None of them changes a ticket, bug or decision row, the work verbs, `inbox defer`,
+the escalation answer or the implementer's work query. The coordinator runbook's
+canceled-blocker bullet is still at lines 86 to 89.
+
 ## Scope check
 
 **Components:**
@@ -175,15 +181,23 @@ to the spec.
     Dependency-advance frees a `backlog` ticket that has at least one blocker and no open blocker.
     We chose the fact over a third write that clears it after the edge lands, because a third write
     adds a third crash point. Once the edge lands, the fact and the edge name the same item, so the
-    stale fact changes no answer. `work block` and `work unblock --by` refuse with `USAGE`, rule
-    `block_pending`, while `pending_block` names an item other than their own `--by` that has no
-    edge from the ticket. The hint says to run the earlier `work block` call again. We chose that
-    refusal over a later block that overwrites the fact, because the overwrite would lose the
-    blocker of the crashed call. Each `unblock` row that lands in `todo` clears `pending_block`.
-    The `unblock` row that keeps `backlog` clears it when it names the `--by` blocker.
+    stale fact changes no answer of dependency-advance. One verb reads the fact differently:
+    `work unblock --by X` never counts a `pending_block` that names X (Decision 23). That call ends
+    the block on X, so the fact holds nothing after it.
+    `work block` and `work unblock --by` refuse with `USAGE`, rule `block_pending`, while
+    `pending_block` names an item other than their own `--by` that has no edge from the ticket.
+    When the pending blocker is open, the hint says to run the earlier `work block` call again.
+    When it is terminal, the server refuses that replay (Decision 2), so the hint says to run
+    `work unblock <item> --by <pending blocker>`. We chose that refusal over a later block that
+    overwrites the fact, because the overwrite would lose the blocker of the crashed call. Each
+    `unblock` row that lands in `todo` clears `pending_block`. The `unblock` row that keeps
+    `backlog` clears it when it names the `--by` blocker.
 23. **`work unblock --by X` is safe to run again.** When the ticket holds no edge to X, the call
-    skips the delete. On a `backlog` ticket it still runs the move step: the ticket moves to `todo`
-    when it has no open blocker, and stays otherwise. On a `todo` ticket it writes nothing and
+    skips the delete. On a `backlog` ticket it still runs the move step. The move step counts the
+    ticket's open blockers with X left out: the remaining edges, and `pending_block` unless it names
+    X. The ticket moves to `todo` when the step counts none, and stays otherwise. So a ticket that
+    `work block T --by X` parked leaves `backlog` at `work unblock T --by X`, whether X is open or
+    canceled, and whether the edge to X landed or not. On a `todo` ticket it writes nothing and
     answers exit 0 with `"edge_removed": false`, because the state the call asks for already holds.
     Every other state refuses with `TRANSITION_NOT_ALLOWED`. We chose this over a refusal of an
     `--by` that names no edge, because a replay after a crash finds the edge already deleted, and a
@@ -244,8 +258,9 @@ tick until the replay adds the edge, or until the blocker reaches `done`.
 
 `work unblock <item> --by <blocker>` takes the item lock and checks the `block_pending` rule. It
 deletes the edge with the new `beadsx.Client.RemoveDependency`, and skips the delete when no edge
-exists (Decision 23). Then it reads the edges that remain and `pending_block`. When an open
-blocker remains, it applies `unblock` with `open=true` and `by`, which keeps `backlog`.
+exists (Decision 23). Then it reads the edges that remain, and `pending_block` unless it names the
+`--by` blocker. When an open blocker remains among those, it applies `unblock` with `open=true`
+and `by`, which keeps `backlog`.
 Otherwise it applies `unblock`, which lands in `todo`. `work unblock <item>` with no `--by` applies
 `unblock` only when the item has no open blocker, and deletes no edge. The dependency-advance job
 applies `unblock` through `Machine.Apply`, not through the CLI handler.
@@ -332,8 +347,10 @@ Ticket states       unchanged
              lands may still hold an edge to a canceled item, because the old `unblock` deleted
              no edge. No move after entry 3 makes such a ticket.
   invariant (new): a ticket in backlog whose pending_block names an item with no blocks edge
-             from it is held, and leaves backlog only when that item is done or a replay adds
-             the edge.
+             from it is held while that item is not done. It leaves this case only when that
+             item is done, when a replay of work block adds the edge, or when work unblock
+             <ticket> --by <that item> ends the block. The last is the only exit when that item
+             is canceled.
 
 Bug states          + awaiting_build (frozen)
   invariant: a bug in awaiting_build holds the fact built_by, and built_by names a ticket or
@@ -552,6 +569,7 @@ sequenceDiagram
         V->>B: RemoveDependency(T, X, blocks)
     end
     V->>B: Dependencies(T)
+    Note over V,B: count the open edges left, and pending_block unless it names X
     alt an open blocker remains
         V->>M: Apply unblock open=true by=X (backlog -> backlog)
     else
@@ -824,14 +842,19 @@ From `todo` the ticket moves to `backlog` with the new edge. From `backlog` it s
 
 **C6. Behaviour: `work unblock --by` deletes one edge, and frees the ticket only when no open
 blocker remains.** Proves D2. After `work unblock T --by X`, T holds no edge to X, and every other
-edge of T stays. T moves to `todo` when it has no open blocker left (Decision 22). Otherwise T
-stays in `backlog`. An `--by` that names no edge of a `backlog` T deletes nothing and runs the
-same move step. An `--by` that names no edge of a `todo` T writes nothing and exits 0 with
+edge of T stays. T moves to `todo` when no open blocker is left other than X (Decisions 22 and
+23). A `pending_block` that names X is not counted, and the move clears it. Otherwise T stays in
+`backlog`. An `--by` that names no edge of a `backlog` T deletes nothing and runs the same move
+step. An `--by` that names no edge of a `todo` T writes nothing and exits 0 with
 `"edge_removed": false`. From any other state the call refuses with `TRANSITION_NOT_ALLOWED`.
 `loop work unblock --help` lists `by`.
 *Example tests: one edge removed of two open edges, the last open edge removed, a remaining edge
 to a canceled item, an `--by` with no edge on a `backlog` ticket with and without an open
-blocker, and an `--by` with no edge on a `todo` ticket.*
+blocker, and an `--by` with no edge on a `todo` ticket. Two tests start from a ticket that
+`work block T --by X` parked, so that it holds `pending_block` X. In the first, X is open and the
+block ran with no crash: `work unblock T --by X` moves T to `todo` with no `pending_block`. In the
+second, `work block` crashed before its edge and X was then canceled: `work unblock T --by X`
+moves T to `todo` the same way.*
 
 **C7. Refusal: `work unblock` with no `--by` frees only a ticket with no open blocker.** Proves
 D2. On a `backlog` ticket with no blocks edge, or whose every edge leads to a `done` item, it
@@ -847,15 +870,21 @@ dependency-advance tick between the crash and the replay leaves it there too, al
 ticket already held edges to done items before `work block`. A replay of the same call then
 reaches the same status and the same edges as a call with no crash, and exits 0. While
 `pending_block` names an item with no edge from the ticket, `work block` and `work unblock --by`
-with another blocker refuse with `USAGE`, rule `block_pending`, and write nothing.
+with another blocker refuse with `USAGE`, rule `block_pending`, and write nothing. The hint names
+the replay of `work block` when the pending blocker is open, and
+`work unblock <ticket> --by <pending blocker>` when it is terminal.
 *A crash-injection test for each verb at the point between its two writes, as the `stop` hook of
 `epic decompose` does, then one dependency-advance tick, then a replay. The `work block` case
 starts from a `todo` ticket that holds one edge to a done ticket. A `work unblock --by` case
-replays after the delete and after the move. One test for each `block_pending` refusal.*
+replays after the delete and after the move. One test for each `block_pending` refusal, and one
+for each form of its hint. The test of the terminal form then runs the command the hint names,
+and finds the ticket in `todo`.*
 
 **C9. Equivalence: dependency-advance frees a ticket as before.** Proves D2. A `backlog` ticket
 whose every blocks edge leads to a `done` item moves to `todo` at the next tick, with or without
-the changes of entry 3. A ticket with no edge, or with an edge to a canceled item, stays.
+the changes of entry 3. A ticket with no blocker, or with an edge to a canceled item, stays. A
+ticket with no edge whose `pending_block` names a `done` item has a blocker and no open blocker,
+so it moves (Decision 22).
 *The existing `internal/sched` tests pass unchanged, and one new test frees a ticket that
 `work block` parked.*
 
