@@ -23,7 +23,7 @@ func TestUpgradeStarterRunsATransientUnitOutsideEveryCheckout(t *testing.T) {
 			got = append([]string{name}, args...)
 			return nil
 		},
-		unitName: func() string { return "loop-upgrade-abcd" }}
+		unitName: func(string) string { return "loop-upgrade-abcd" }}
 	st, err := u.Start(context.Background(), "v0.0.45")
 	if err != nil {
 		t.Fatal(err)

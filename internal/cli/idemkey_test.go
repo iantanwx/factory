@@ -222,7 +222,8 @@ func TestCapabilityMatrixDerivesFromCallers(t *testing.T) {
 		"inbox answer":  {PrincipalCoordinator},
 		"room apply":    {PrincipalRoom},
 		"secret set":    {PrincipalHost},
-		"upgrade":       {PrincipalHost},
+		"upgrade":       {PrincipalCoordinator, PrincipalHost},
+		"install":       {PrincipalHost},
 		"review submit": {PrincipalRun},
 	}
 	for path, want := range cases {
@@ -244,6 +245,12 @@ func TestCapabilityMatrixDerivesFromCallers(t *testing.T) {
 	}
 	if m.IsHostVerb("secret check") {
 		t.Error("secret check is a run verb")
+	}
+	// factorio-obc: a verb the coordinator calls as a host caller stays a
+	// host verb; a verb for the coordinator and the host that reads the
+	// instance's state is none.
+	if m.IsHostVerb("merge status") {
+		t.Error("merge status is a coordinator verb, not a host verb")
 	}
 	env, _ := runJSON(t, r, "schema")
 	if env["data"].(map[string]any)["capabilities"].(map[string]any)["verbs"] == nil {

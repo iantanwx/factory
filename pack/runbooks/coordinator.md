@@ -125,8 +125,7 @@ same turn:
 
 - A sign-off of a PRD or a spec: `loop inbox answer signoff/<project>/<epic> --body "<words>"`,
   with the operator's own words. The server merges the document. Section 5 states how.
-- An upgrade of the host: `loop coordinator upgrade [<version>] --body "<the operator's words>"`.
-  Section 9 states how.
+- An upgrade of the host: `loop upgrade [<version>]`, from your checkout. Section 9 states how.
 
 When a rule in the repository picks the answer, decide, and name the rule in the report. The
 operator can then overturn it. When a project policy routes a kind of decision to a named role,
@@ -275,16 +274,19 @@ A run, a room or you report each loop fault. Triage each open one:
    - `loop fault resolve <fault> --not-a-fault --reason "<why>"`, when the loop kept its contract.
 
 `loop version` names the release this host runs. A fault that a later release ends stays a
-reason to upgrade. Name it in the report, and ask the operator whether to upgrade. An upgrade
-drains the loop and restarts the server, so it waits for the operator's decision. When the
-operator decides, start it yourself:
+reason to upgrade. A release needs no step: each push to the loop's `main` that passes CI becomes
+the next release. When a published release ends an open fault, upgrade the host yourself, from
+your checkout:
 
 ```bash
-loop coordinator upgrade [<version>] --body "<the operator's words>"
+loop upgrade [<version>]
 ```
 
-The server starts the upgrade outside every checkout, then restarts. After the restart, run
-`loop version`, and report the release it names.
+The server admits the coordinator on the host verbs, such as `upgrade`, `doctor`, `project list`
+and `project show`, from its own checkout. It refuses a run and a room. The CLI starts the
+upgrade outside your session and outside every checkout, and answers once it started. The
+upgrade drains the loop and restarts the server. After the restart, run `loop version`, and
+report the release it names. Never list a release or an upgrade under "Blocked on you".
 
 ## 10. Report
 
