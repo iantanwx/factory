@@ -172,7 +172,10 @@ var surface = []Verb{
 		Flag{Name: "finding", Type: FlagString, Required: true, Description: "one finding, in one sentence"},
 		Flag{Name: "out", Type: FlagString, Description: "the panel file to write; a new temporary file when absent"},
 		Flag{Name: "rubric", Type: FlagString, Description: "the triage rubric; the pack's sdlc-triage skill in the checkout when absent"}),
-	write(server("escalation", "route", "submit the panel file and route the escalation", []string{"fixer"}, []Arg{escalationArg}, fileFlag)),
+	write(server("escalation", "route", "submit the panel file and route the escalation; a loop route may release one path out of the ticket's \"Must not change\" list", []string{"fixer"}, []Arg{escalationArg}, fileFlag,
+		Flag{Name: "release", Type: FlagString, Description: "the one path a loop route moves out of \"Must not change\" and into \"May change\" in the item's body; it enters the retry identity"},
+		Flag{Name: "forbids", Type: FlagString, Description: "with --release: the \"Must not change\" entry that covers the path, spelled as the body spells it"},
+		Flag{Name: "condition", Type: FlagString, Description: "with --release: what the implementer may do at the path, and nothing wider"})),
 
 	write(server("decision", "file", "file a decision that waits for its trigger", runOrCoordinator, nil, projectFlag,
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the question"},
