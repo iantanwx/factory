@@ -213,6 +213,28 @@ session up. It sends that session one message that names the new release
 and tells it to read its runbook again. When the session ends, the server
 starts the next one under the new release, in the same worktree.
 
+## Schedule an agent job
+
+An agent job is an agent run that claims no item and starts on a cron,
+such as a nightly QA pass. Define it in `host.yaml`:
+
+```yaml
+agent_jobs:
+  nightly-qa:
+    cap: 1
+    schedule: "55 2 * * *"
+    runbook: docs/runbooks/nightly-qa.md
+```
+
+`runbook` is a path in the project repository. The run's prompt names it
+in place of a loop runbook. `cap` is the most runs of the job that live at
+once. The name must not be a stage, a native job or a pool of the loop.
+
+A project runs the job only when its `.loop/config.yaml` lists it under
+`stages`, as `nightly-qa: {}`. That entry may set the job's harness, model,
+run budget and schedule, like the entry of any stage. Each run finishes
+with `loop run finish`, as every stage run does.
+
 ## The gates
 
 `loop gates` is the definition of done in a project. Agents run it before
