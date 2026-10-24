@@ -76,11 +76,14 @@ func isPool(key string) bool {
 // sets the caps of implementer, reviewers, code-reviewer and intake. The
 // current loop capped no other stage, so each other cap is a starting
 // value for the operator to tune. The schedules follow the current timer
-// table (scripts/sdlc/timer-table.ts MAIN_CRONS, alpha).
+// table (scripts/sdlc/timer-table.ts MAIN_CRONS, alpha). The implementer
+// holds the minutes of all three implementer rows there, because one tick
+// starts at most one run of a stage. internal/sched/cadence_test.go holds
+// why.
 func DefaultThroughput() map[string]Throughput {
 	every5 := "*/5 * * * *"
 	return map[string]Throughput{
-		StageImplementer:     {Cap: 8, Schedule: "3,18,33,48 * * * *"},
+		StageImplementer:     {Cap: 8, Schedule: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"},
 		StageCodeReviewer:    {Cap: 8, Schedule: every5},
 		StageDocReviewer:     {Cap: 10, Schedule: "26,56 * * * *"},
 		"reviewers":          {Cap: 10},
