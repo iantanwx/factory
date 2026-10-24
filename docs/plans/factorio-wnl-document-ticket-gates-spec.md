@@ -459,20 +459,22 @@ sequenceDiagram
 ## Work
 
 1. **The shape package and the refusal code.** Add `internal/shape` with every function and type
-   under Interfaces, and `CodeShapeRefused` in the refusal table. Add `SHAPE_REFUSED` to the code
+   under Interfaces except `SpecSections`, `TemplateLines`, `SpecFinding` and `CheckSpec`, which
+   entry 2 adds with the gate that uses them. Add `CodeShapeRefused` in the refusal table. Add `SHAPE_REFUSED` to the code
    list of `pack/skills/loop-sdlc-turn/SKILL.md`, section 2: change the text that the rule
    names, and send it again.
    - Files: `internal/shape/**`, `internal/cli/codes.go`, `pack/skills/loop-sdlc-turn/SKILL.md`
    - Needs: nothing
    - Proves: C1, C6, C7, C8, C9, C14
    - Done when: the package's table tests pass, and `loop schema` lists `SHAPE_REFUSED` with exit 3.
-2. **The `spec` gate.** Add `internal/gates/spec.go` and its entry in `gates.All`. Add the test
+2. **The `spec` gate.** Add `SpecSections`, `TemplateLines`, `SpecFinding` and `CheckSpec` to
+   `internal/shape`. Add `internal/gates/spec.go` and its entry in `gates.All`. Add the test
    that derives the headings and the template lines from `pack/skills/loop-sdlc-documents/spec.md`
    and compares them with `shape.SpecSections` and `shape.TemplateLines`. In the same template,
    show the answered and deferred forms under `## Open questions`. Name the `spec` gate in
    `pack/skills/loop-sdlc-documents/SKILL.md`, section 2.
    - Files: `internal/gates/spec.go`, `internal/gates/spec_test.go`, `internal/gates/gates.go`,
-     `internal/gates/testdata/**`, `internal/shape/**` (the two lists only),
+     `internal/gates/testdata/**`, `internal/shape/**` (the spec rules only),
      `pack/skills/loop-sdlc-documents/**`
    - Needs: 1
    - Proves: C10, C11
@@ -496,9 +498,10 @@ sequenceDiagram
    - Files: `internal/inbox/signoff.go`, `internal/inbox/inbox_test.go`, `internal/github/` (one
      new read and its test), `pack/runbooks/coordinator.md`
    - Needs: 1, 3
-   - Proves: C3, C4
+   - Proves: C3, C4, C16
    - Done when: a test with a fake `DocGitHub` shows that `MergePR` is never called for a spec
-     with an undecided entry, and that it is called for a PRD with the same section.
+     with an undecided entry, and that it is called for a PRD with the same section. A test of a
+     spec sign-off that merges reads the epic from the machine and finds `spec_path`.
 5. **Decompose refuses an unanswered spec and a misshaped ticket.** In
    `internal/pipeline/decompose.go`, read the spec, refuse `open_questions` and `no_spec`, and
    check each body. Set `shape=ticket` on each ticket. In `pack/runbooks/decomposer.md`, name each
@@ -557,10 +560,13 @@ that holds "None.", an empty section and a spec with no such section return none
 inside a fenced block is no entry. The plain words "answered" or "deferred" decide nothing.
 *A table test, with one row for each case.*
 
-**C2. Behaviour: the spec's path is recorded when the spec merges.** Proves K-4. When a spec PR
-that changes `docs/plans/<epic>-x-spec.md` merges, through a sign-off or on GitHub, the epic in
-`spec_approved` holds `spec_path` = that path. A PRD merge sets no `spec_path`. A spec PR with two
-matching files sets none, and the epic still moves to `spec_approved`.
+**C2. Behaviour: the spec's path is recorded when the spec merges on GitHub.** Proves K-4 (the
+GitHub half). The `doc_merged` row from `spec_signoff` copies its `spec_path` parameter to the
+epic's `spec_path` fact, and an empty parameter sets no fact. When the reactor reads the merge of a
+spec PR that changes `docs/plans/<epic>-x-spec.md`, the epic in `spec_approved` holds
+`spec_path` = that path. A PRD merge sets no `spec_path`. A spec PR with two matching files sets
+none, and the epic still moves to `spec_approved`. C16 covers a merge through a sign-off, which the
+reactor never sees as a move.
 *A machine test for the row, and a reactor test with a fake GitHub for a GitHub merge.*
 
 **C3. Refusal: a spec sign-off with an undecided entry merges nothing.** Proves E-1, K-1. The
@@ -657,11 +663,20 @@ not checked.
 assert this code, so each entry proves its own refusals.
 *A test over the refusal table.*
 
-**C15. Equivalence: the runbooks name the server's shapes.** Proves K-6. The section names that
+**C15. Equivalence: the runbooks name the server's shapes.** Proves K-6 (the decomposer and the
+reproducer). The section names that
 `pack/runbooks/decomposer.md` lists as ticket body sections equal the required and optional
 sections of `shape.Ticket`. The names that `pack/runbooks/reproducer.md` lists equal those of
 `shape.Bug`. Each limit in Go appears as a number in the runbook that names its shape.
 *A test that reads both runbooks. An edit of one side alone fails it.*
+
+**C16. Behaviour: a spec sign-off records the spec's path.** Proves K-4 (the sign-off half).
+When `inbox answer signoff/...` merges a spec PR, it passes the file that `shape.SpecFile` picked to
+`MergeObserved` as `SpecPath`. After the answer, the epic is in `spec_approved` and holds
+`spec_path` = that file. A PRD sign-off passes no `SpecPath`, and the epic holds no `spec_path`.
+The reactor's later read of the same merge changes neither the status nor the fact.
+*An example test with the fake `DocGitHub` of C3 and a real machine: answer the sign-off, then read
+the epic's facts. A sign-off that drops `SpecPath` fails it.*
 
 ## Observable behaviour
 
