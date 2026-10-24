@@ -315,3 +315,14 @@ func (w *world) workEdit(id, field, value string) {
 		w.t.Fatalf("work edit: %+v", *res.Refusal)
 	}
 }
+
+// signOff merges the PRD of an epic in prd_signoff, so a spec author may
+// claim it.
+func (w *world) signOff(id string) {
+	w.t.Helper()
+	res := w.m.Apply(context.Background(), machine.Request{Project: prj, Item: id, Verb: "doc_merged",
+		Params: map[string]string{"sha": "m1"}, Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		w.t.Fatalf("doc_merged %s: %+v", id, *res.Refusal)
+	}
+}
