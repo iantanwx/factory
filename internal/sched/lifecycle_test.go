@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -174,6 +175,9 @@ func TestQuotaHitPausesTheHarness(t *testing.T) {
 	if _, class := w.runState(st.RunID); class != "quota-hit" || w.failures(a) != 0 {
 		t.Fatalf("class %s, failures %d", class, w.failures(a))
 	}
+	if n := w.alerts(AlertUsageLimit); n != 1 {
+		t.Fatalf("usage-limit alerts = %d", n)
+	}
 	// The reading recovers, and the pause still holds until its reset.
 	w.host.SetQuota(agenthost.Quota{Harness: agenthost.Claude, OK: true})
 	next := w.dispatch(machine.StageImplementer)
@@ -186,6 +190,82 @@ func TestQuotaHitPausesTheHarness(t *testing.T) {
 	w.clock.Advance(DefaultQuotaPause + time.Minute)
 	if again := w.dispatch(machine.StageImplementer); again.Profile.Harness != agenthost.Claude {
 		t.Fatalf("after the reset = %+v", again.Profile)
+	}
+}
+
+// A session whose agent wrote only a usage limit settles quota-hit at once,
+// with no quota reading, as when Claude Code is proxied. The harness pauses
+// until the limit's reset, not for the fixed pause. One inbox line names
+// the window, however many runs hit it.
+func TestALimitedSessionSettlesQuotaHitAtOnce(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) {
+		c.Harnesses = []config.HarnessLogin{{Name: "claude"}, {Name: "codex"}}
+	})
+	a, b := w.ticket(machine.Todo), w.ticket(machine.Todo)
+	w.ticket(machine.Todo)
+	first, second := w.dispatch(machine.StageImplementer), w.dispatch(machine.StageImplementer)
+	if first.Profile.Harness != agenthost.Claude || second.Profile.Harness != agenthost.Claude {
+		t.Fatalf("profiles = %+v, %+v", first.Profile, second.Profile)
+	}
+	reset := w.clock.Now().Add(3 * time.Hour)
+	for _, st := range []*Started{first, second} {
+		w.host.HitLimit(st.Session.ID, agenthost.Limit{Message: "You've hit your weekly limit · resets 3am (Asia/Singapore)", At: w.clock.Now(), ResetAt: reset})
+	}
+	w.tick()
+	for _, st := range []*Started{first, second} {
+		if state, class := w.runState(st.RunID); state != "settled" || class != "quota-hit" {
+			t.Fatalf("run %s: state %s, class %s", st.RunID, state, class)
+		}
+	}
+	if w.failures(a)+w.failures(b) != 0 {
+		t.Fatal("a usage limit counted as a failure")
+	}
+	if n := w.alerts(AlertUsageLimit); n != 1 {
+		t.Fatalf("usage-limit alerts = %d, want one for the window", n)
+	}
+	subject := w.str(`SELECT subject FROM alerts WHERE kind = ?`, AlertUsageLimit)
+	body := w.str(`SELECT body FROM alerts WHERE kind = ?`, AlertUsageLimit)
+	if !strings.Contains(subject, reset.UTC().Format(time.RFC3339)) || !strings.Contains(body, "weekly limit") || !strings.Contains(body, "change the account") {
+		t.Fatalf("alert = %q / %q", subject, body)
+	}
+	// Past the fixed pause, the reset still holds Claude.
+	w.clock.Advance(DefaultQuotaPause + time.Minute)
+	next := w.dispatch(machine.StageImplementer)
+	if next.Profile.Harness != agenthost.Codex {
+		t.Fatalf("before the reset = %+v", next.Profile)
+	}
+	if _, ref := w.s.Finish(context.Background(), next.RunID, "failed"); ref != nil {
+		t.Fatal(ref)
+	}
+	w.clock.Advance(reset.Sub(w.clock.Now()) + time.Minute)
+	if again := w.dispatch(machine.StageImplementer); again.Profile.Harness != agenthost.Claude {
+		t.Fatalf("after the reset = %+v", again.Profile)
+	}
+}
+
+// The chooser skips a harness whose window reads 90 % or more. A run that
+// ends with no finish while its window reads under 100 % hit no limit.
+func TestTheChooserSkipsAWindowAt90Percent(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) {
+		c.Harnesses = []config.HarnessLogin{{Name: "claude"}, {Name: "codex"}}
+	})
+	a := w.ticket(machine.Todo)
+	w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	if st.Profile.Harness != agenthost.Claude {
+		t.Fatalf("first profile = %+v", st.Profile)
+	}
+	w.host.SetQuota(agenthost.Quota{Harness: agenthost.Claude, OK: true, Windows: []agenthost.QuotaWindow{{Name: "5h", UsedPercent: 95}}})
+	w.host.Exit(st.Session.ID, 1)
+	w.tick()
+	if _, class := w.runState(st.RunID); class != "crashed" || w.failures(a) != 1 {
+		t.Fatalf("class %s, failures %d", class, w.failures(a))
+	}
+	w.host.SetQuota(agenthost.Quota{Harness: agenthost.Claude, OK: true, Windows: []agenthost.QuotaWindow{{Name: "5h", UsedPercent: 90}}})
+	if next := w.dispatch(machine.StageImplementer); next.Profile.Harness != agenthost.Codex {
+		t.Fatalf("at 90%% = %+v", next.Profile)
 	}
 }
 

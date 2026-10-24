@@ -48,7 +48,10 @@ const (
 	AlertRunRepeated    = "run_uncounted_repeat"
 	AlertRunOverBudget  = "run_over_budget"      // coordinator-owned
 	AlertRunUnknown     = "run_liveness_unknown" // coordinator-owned
-	AlertCoordinator    = "coordinator_start_failed"
+	// AlertUsageLimit names one usage-limit window of one harness. A person
+	// decides whether to wait for the reset or to change the account.
+	AlertUsageLimit  = "usage_limit"
+	AlertCoordinator = "coordinator_start_failed"
 	// AlertRetryLimit names an item that a stage stopped taking after
 	// admission.FailureLimit counted failures with unchanged inputs.
 	AlertRetryLimit = "retry_limit"
