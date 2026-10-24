@@ -1,4 +1,4 @@
-# ADR 0008: Prove the agent host and one real-agent flow against real orca in a daily host lane
+# ADR 0008: Prove the agent host and one real-agent flow against real orca in a daily native job
 
 **Status:** Proposed
 **Date:** 2026-10-24
@@ -50,8 +50,8 @@ the epic body from the `loop epic create` script in the coordinator's scratch di
 - `5d938f3` fixed a quota read that described the wrong account when Claude Code sends its
   requests through a proxy.
 - The host updates orca each night. `/etc/cron.d/agentbox-orca-nightly` runs at 00:01 +08
-  (`docs/evidence/orca-restart.md`). This host runs orca 1.4.237 today. The sim fixtures record
-  1.4.232 and 1.4.237 (`internal/agenthost/orca/sim_test.go`).
+  (`docs/evidence/orca-restart.md`), which is 16:01 UTC. This host runs orca 1.4.237 today. The
+  sim fixtures record 1.4.232 and 1.4.237 (`internal/agenthost/orca/sim_test.go`).
 
 **Gap 4: no quota reading bounds spend on this host.** Measured in source and host config:
 
@@ -71,6 +71,23 @@ the epic body from the `loop epic create` script in the coordinator's scratch di
   production server with the installed release binary. The production server refuses its token,
   and the agent cannot run the binary under test.
 
+**Gap 6: the loop already has one place for a timed host routine.** Measured in source:
+
+- Plan KTD30 gives every stage a throughput entry in host config, and "Native server jobs have an
+  entry too". `internal/config/throughput.go:43` lists four native jobs. Config load refuses a
+  missing entry and a cap below 1 (`validateThroughput`). ADR 0009 schedules `overwatch` the same
+  way, and `loop upgrade` writes its default entry.
+- The scheduler parses each schedule as a UTC cron (`internal/sched/clock.go:20`).
+- Every push to main that passes the gates and acceptance jobs becomes a release
+  (`.github/workflows/ci.yml:72-78`). `make release-dist` builds only `loop` for each platform
+  (`Makefile:105-110`).
+- `fault.Service.Report` takes a principal and the report text (`internal/fault/report.go:41`), so
+  server code can add a fault with no CLI call.
+- ADR 0006 decision 3 rejected a job that a run hands to the server, because no lease, run budget
+  or transcript would cover that job.
+- `orca repo add` registers a repository by its path. `orca repo` has no command that removes one
+  (`orca repo --help`, orca 1.4.237).
+
 **Tickertown has no real-orca acceptance.** Measured in source:
 
 - Tickertown's tests stub orca. Each test writes a shell script named `orca` onto `PATH`
@@ -83,7 +100,8 @@ the epic body from the `loop epic create` script in the coordinator's scratch di
 **What I assumed, and did not measure:**
 
 - A real implementer and a real code-reviewer can finish a one-line fixture ticket in 30 minutes.
-- Orca can make worktrees of a fixture repository that the operator registers with orca once.
+- The lane can register its own fixture repository with `orca repo add`, and reuse it on each
+  later run. I read `orca repo --help`, and ran no `orca repo add`.
 - A real session in the contract spends a small share of the daily quota. I read no usage figure,
   because the proxy hides it.
 - The darwin host behaves as the Linux host does. Nobody ran orca on the Mac for the loop.
@@ -98,32 +116,55 @@ the epic body from the `loop epic create` script in the coordinator's scratch di
    I rejected the contract alone. The contract proves the host calls, but `60a94ea` shows that a
    real agent can fail where the contract passes.
 
-2. **Keep the 6 fault-injection scenarios on the fake, and fail the lane on any other skip.** The
-   lane prints each fake-only scenario by name. A missing `LOOP_ORCA_*` value fails the lane
-   instead of skipping it. I rejected fault injection into real orca. An orca-serve restart killed
-   every native chat session on the host (`docs/evidence/orca-restart.md`), and each restart needs
-   the operator's approval.
+2. **Keep the 6 fault-injection scenarios on the fake, and allow one skip only: a spent quota
+   window (decision 4).** The lane prints each fake-only scenario by name. Any other skip fails the
+   lane. A missing `LOOP_ORCA_*` value fails it, and the output names each missing value in the
+   line `LOOP_ORCA_<NAME> is not set`. I rejected fault injection into real orca. An orca-serve
+   restart killed every native chat session on the host (`docs/evidence/orca-restart.md`), and
+   each restart needs the operator's approval.
 
-3. **Run the lane on the loop host as a daily job after the orca update, and on demand with `make
-   orca-acceptance`.** The job runs at the head of `main`. On a failure it runs `loop fault report`,
-   which the `host` principal may call, so the fault reaches the coordinator's inbox. I rejected
-   GitHub-hosted CI, because a vendor runner would need the operator's harness login. I rejected a
-   self-hosted runner on the loop host. It would run each pull request head, which an unattended
-   agent wrote, outside any lease, with access to the host's orca and harness login. I rejected
-   `loop coordinator send` for the report, because it types the text as the operator's own words.
+3. **Run the lane as a native server job, `orca-acceptance`, from its own KTD30 throughput entry,
+   and on demand with `make orca-acceptance`.** The default entry is cap 1 and schedule
+   `30 17 * * *`, which is 01:30 +08, after the host's nightly orca update. The job runs the lane
+   binaries that the installed release ships. So it runs only code that review, CI and the merge
+   mechanism passed, which is the code the server itself runs. The job makes its own fixture
+   repository, registers it with `orca repo add` when `orca repo show` does not find it, and sets
+   each `LOOP_ORCA_*` value itself. It stops the lane after 120 minutes, and it writes the lane's
+   output to a log under the state directory. For each failure and each skip, it adds a fault with
+   `fault.Service.Report` as the `host` principal, so the fault reaches the coordinator's inbox.
+   The operator takes no step: `loop upgrade` writes the default entry, as ADR 0009 decides for
+   `overwatch`.
+   - I rejected a host timer, such as a systemd user timer or a cron line. KTD30 puts every
+     schedule in host config, and the operator would enable the timer by hand on each host.
+   - ADR 0006 decision 3 does not reach this job. It rejected a job that a run hands the server: a
+     command that an agent picks, from a branch that no review passed. This job runs a fixed binary
+     of the installed release, and no run chooses it. Its cap, the session cap of decision 4, the
+     120-minute stop and its log cover it.
+   - I rejected GitHub-hosted CI, because a vendor runner would need the operator's harness login.
+   - I rejected a self-hosted runner on the loop host. It would run each pull request head, which
+     an unattended agent wrote, outside any lease, with access to the host's orca and harness login.
+   - I rejected `loop coordinator send` for the report, because it types the text as the
+     operator's own words.
 
 4. **Bound spend by a session count, not by a quota reading.** Each real-orca scenario declares the
    number of sessions it starts. The lane fails a scenario that starts more sessions than it
    declares, and it starts no session when the declared total passes 20. When the host has a quota
-   reading and a window is spent, the lane reports a skip and starts nothing. I rejected a bound on
-   the quota reading alone, because this host has no Claude reading (Gap 4).
+   reading and a window is spent, the lane starts nothing and exits 3. Its output names the
+   provider and the time the window resets, and the job adds a fault that says the lane skipped. I
+   rejected a skip that exits 0. A lane that skipped every day would then read as green, as an
+   empty environment does today (Gap 2). I rejected a bound on the quota reading alone, because
+   this host has no Claude reading (Gap 4).
 
 5. **Let a run's CLI take its instance and its binary from the checkout the server made.** The
    server writes both into the checkout, and the installed `loop` defers to them. So a lane agent
-   reaches only the lane's server, and it runs the binary under test. I rejected the agent's
-   environment, because `orca agent launch` cannot set it (Gap 5). I rejected a second OS user,
-   because it needs a second orca install and a second harness login on each host. I rejected an
-   absolute binary path in the prompt, because every runbook names the command `loop`.
+   reaches only the lane's server, and it runs the binary under test. Three bounds hold. The server
+   writes the file again at each run start. The CLI reads the two values only for a call that
+   sends the run token of that checkout, and a call with the host-admin credential ignores them.
+   The CLI runs the named binary only from a directory under the instance's state directory, and it
+   refuses any other path. I rejected the agent's environment, because `orca agent launch` cannot
+   set it (Gap 5). I rejected a second OS user, because it needs a second orca install and a second
+   harness login on each host. I rejected an absolute binary path in the prompt, because every
+   runbook names the command `loop`.
 
 6. **Write each parity epic's criteria for the fake first, and for real orca only at the host
    boundary.** A criterion about a server rule runs in `make acceptance` on the fake host. A
@@ -138,30 +179,39 @@ the epic body from the `loop epic create` script in the coordinator's scratch di
 Files, commands and stages that change, for the spec of epic factorio-9ac:
 
 - `Makefile`: a new target `orca-acceptance` runs every test with the build tag `orca`, then the
-  scenarios with the build tags `acceptance orca`. `GATES`, the CI jobs and `make orca-contract`
-  stay as they are.
+  scenarios with the build tags `acceptance orca`. `release-dist` also builds the lane's test
+  binaries for each platform, next to `loop`. `GATES`, the CI jobs and `make orca-contract` stay as
+  they are.
 - `internal/agenthost/orca/contract_orca_test.go`: under the lane, a missing `LOOP_ORCA_*` value
-  fails. The lane counts each session that it starts.
+  fails with `LOOP_ORCA_<NAME> is not set`. The lane counts each session that it starts.
 - `internal/agenthost/agenthosttest/contract.go`: each scenario declares its session count, and it
   names the capability that makes it fake-only.
 - `acceptance/world.go`: an option picks the agent host. A real host runs on the real clock and
   starts no coordinator.
-- `acceptance/scenarios/`: one file with the build tags `acceptance orca` holds the real-agent F1.
+- `acceptance/scenarios/`: one file with the build tags `acceptance orca` holds
+  `TestF1RealAgentsTakeATicketFromClaimToMerge`.
 - `internal/cli/instance.go`, `internal/cli/client.go` and `internal/brief/`: the server writes the
-  instance and the binary into each checkout, and the CLI reads them before `LOOP_INSTANCE`.
-- `tools/orca-acceptance/`: the daily job, its user timer and its fault report. The operator
-  enables the timer once on the loop host.
+  instance and the binary into each checkout, and the CLI reads them before `LOOP_INSTANCE`, within
+  the three bounds of decision 5.
+- `internal/config/throughput.go`: `orca-acceptance` joins `nativeJobs` and `DefaultThroughput`,
+  with cap 1 and schedule `30 17 * * *`. `loop upgrade` writes the entry into a host config that has
+  none.
+- A new package under `internal/server/` holds the job. It makes and registers the fixture
+  repository, runs the release's lane binaries with the 120-minute stop, writes the log, and adds
+  one fault for each failure and each skip.
 - `docs/evidence/orca-acceptance.md`: the record of the first green lane run.
-- `docs/operating.md`: how to register the fixture repository with orca, and how to enable the
-  timer.
-- Stages: none change. The lane is a host job, not a loop stage.
+- `docs/operating.md`: the job, its throughput entry, and where its log lives. It names no
+  operator step.
+- Stages: no run stage changes. The server gains one native job.
 
-What this makes easy: an orca update or a loop change that breaks a real agent reaches the
-coordinator as a fault within one day.
+What this makes easy: an orca update or a loop release that breaks a real agent reaches the
+coordinator as a fault within one day, and the operator takes no step to set it up.
 
 What this makes hard:
 
-- A pull request can still merge an orca fault, because the lane reads `main` after the merge.
+- A pull request can still merge an orca fault, because the lane runs after the release.
+- The job tests the installed release. A host that has not upgraded tests an older loop.
+- Each release ships the lane's test binaries, so each download grows.
 - A flaky model answer can fail the lane. The coordinator then triages a fault that the code did
   not cause.
 - A new real-orca scenario costs sessions from one shared cap.
@@ -179,7 +229,9 @@ A later reader must not:
 
 - Add the lane to `GATES`, or to a CI job.
 - Register a self-hosted CI runner on the loop host.
-- Make a missing `LOOP_ORCA_*` value a pass.
+- Schedule the lane outside its throughput entry, or add an operator step to start it.
+- Make the job run a binary that the installed release did not ship.
+- Make a missing `LOOP_ORCA_*` value a pass, or make a quota skip exit 0.
 - Start a real coordinator in the lane.
 - Raise the session cap without a spec that names the new scenarios.
 
@@ -197,12 +249,20 @@ These criteria wait on later work, and epic factorio-9ac owns each one:
 
 - `make -n orca-acceptance` prints the contract run and a `go test` run with the tags
   `acceptance orca`.
-- `env -u LOOP_ORCA_ROOT make orca-acceptance` exits non-zero.
-- `go test -tags 'acceptance orca' -list . ./acceptance/scenarios/` lists the real-agent F1.
+- `out=$(mktemp); env -u LOOP_ORCA_ROOT make orca-acceptance >"$out" 2>&1; echo $?` prints a
+  non-zero exit, and `grep -F 'LOOP_ORCA_ROOT is not set' "$out"` then prints a line.
+- `grep -ln '^func TestF1RealAgentsTakeATicketFromClaimToMerge(' acceptance/scenarios/*.go` prints
+  one file, and `head -1` of that file prints `//go:build acceptance && orca`.
+- `grep -c '"orca-acceptance"' internal/config/throughput.go` prints 2 or more, and
+  `grep -n '30 17 \* \* \*' internal/config/throughput.go` prints a line.
+- `make -n release-dist VERSION=v9.9.9` prints a `go test -c` command with the tags
+  `acceptance orca`.
 - `go test ./internal/agenthost/...` proves that a scenario that starts more sessions than it
   declares fails, and that a declared total above 20 starts nothing.
+- `go test ./internal/server/...` proves that the job adds one fault for a failed lane, one fault
+  for a lane that exits 3, and no fault for a green lane.
 - `go test ./internal/cli/...` proves that a call from a checkout reaches the instance that the
-  checkout names, with `LOOP_INSTANCE` unset.
+  checkout names, with `LOOP_INSTANCE` unset, and that the CLI refuses a binary path outside the
+  state directory.
 - `docs/evidence/orca-acceptance.md` records one green lane run: its date, the orca version, the
   loop head and the session count.
-- A failed lane run adds one fault, and `loop fault list` shows it.
