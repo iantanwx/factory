@@ -274,6 +274,8 @@ type PR struct {
 	// Labels and MergeableState serve the merge fakes (merge.go).
 	Labels         []string
 	MergeableState string
+	// Reviewers lists each login requested for review, in order.
+	Reviewers []string
 }
 
 func (p *PR) json() map[string]any {
@@ -464,6 +466,7 @@ func CheckRun(name, sha, status, conclusion string, started time.Time) map[strin
 
 var (
 	rePull     = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)$`)
+	reRequest  = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)/requested_reviewers$`)
 	rePullSub  = regexp.MustCompile(`^/repos/` + Repo + `/(pulls|issues)/(\d+)/(files|comments|reviews)$`)
 	reReplies  = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)/comments/(\d+)/replies$`)
 	reChecks   = regexp.MustCompile(`^/repos/` + Repo + `/commits/([0-9a-f]+)/check-runs$`)
@@ -563,6 +566,17 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			}
 			WriteJSON(rw, 200, out)
 		}
+	case r.Method == http.MethodPost && reRequest.MatchString(path):
+		p := w.pr(reRequest.FindStringSubmatch(path)[1])
+		if p == nil {
+			return false
+		}
+		var body struct {
+			Reviewers []string `json:"reviewers"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		p.Reviewers = append(p.Reviewers, body.Reviewers...)
+		WriteJSON(rw, 201, p.json())
 	case r.Method == http.MethodPost && (rePullSub.MatchString(path) || reReplies.MatchString(path)):
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)
