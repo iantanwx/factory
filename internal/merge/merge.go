@@ -29,12 +29,16 @@ type Reason string
 
 // The dequeue reasons. Conflict sends the ticket to todo with entry
 // rework, so the implementer merges the base into the branch. Red sends
-// it to repair, and Other re-queues it once for each head and then
-// escalates it.
+// it to repair, and every other reason re-queues it once for each head
+// and then escalates it. Draft and WrongBase name a PR that only a person
+// can make mergeable: they mark it ready, or move its base back to the
+// project's default branch.
 const (
-	Conflict Reason = "conflict"
-	Red      Reason = "ci_red"
-	Other    Reason = "other"
+	Conflict  Reason = "conflict"
+	Red       Reason = "ci_red"
+	Other     Reason = "other"
+	Draft     Reason = "draft"
+	WrongBase Reason = "wrong_base"
 )
 
 // Result is one read of a handed-off PR.

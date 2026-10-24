@@ -218,10 +218,11 @@ func TestSpecEpicOf(t *testing.T) {
 	}
 }
 
-// An architecture epic waits until an ADR that names it lands on the base
-// branch. The reactor reads the ADR's text in the mirror: a file outside
-// the ADR directory, a file that is not Markdown, and an ADR that names
-// another id that starts with this one move nothing.
+// An architecture epic waits until an ADR whose Ticket line names it lands
+// on the base branch. The reactor reads the ADR's text in the mirror: a
+// file outside the ADR directory, a file that is not Markdown, and an ADR
+// whose Ticket line names another id that starts with this one move
+// nothing. A full stop after the id on the Ticket line still names it.
 func TestADRNamingTheEpicLandsIt(t *testing.T) {
 	e := newEnv(t)
 	e.withWorld()
@@ -236,14 +237,14 @@ func TestADRNamingTheEpicLandsIt(t *testing.T) {
 		e.tick(r)
 	}
 	land(map[string]string{
-		"docs/notes.md":       "Epic " + id + " moves the store.\n",
-		"docs/adr/README.txt": "Epic " + id + " moves the store.\n",
-		"docs/adr/0001-x.md":  "# 1. Other\n\nEpic: " + id + "0\n",
+		"docs/notes.md":       "**Ticket:** " + id + "\n",
+		"docs/adr/README.txt": "**Ticket:** " + id + "\n",
+		"docs/adr/0001-x.md":  "# ADR 0001: Other\n\n**Ticket:** " + id + "0\n",
 	})
 	if it := e.status(id); it.Status != machine.Architecture {
 		t.Fatalf("no ADR names %s, and it moved to %s", id, it.Status)
 	}
-	land(map[string]string{"docs/adr/0002-postgres.md": "# 2. Postgres\n\nEpic: " + id + ".\n"})
+	land(map[string]string{"docs/adr/0002-postgres.md": "# ADR 0002: Postgres\n\n**Ticket:** " + id + ".\n"})
 	it := e.status(id)
 	if it.Status != machine.SpecNeeded || it.Fact(machine.FactADR) != "docs/adr/0002-postgres.md" {
 		t.Fatalf("after the ADR landed: %s %v", it.Status, it.Facts)

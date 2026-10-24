@@ -75,6 +75,145 @@ func TestReviewSubmitPostsItsBodyOnThePR(t *testing.T) {
 	}
 }
 
+// A code pass needs green CI at the head it names (alpha pr-comment.ts
+// 74-91). A pass at red or pending CI is refused: it posts no comment,
+// records no reviewed head, and so loop/eligible is never posted. A pass
+// at green CI lands.
+func TestReviewPassNeedsGreenCIAtItsHead(t *testing.T) {
+	w := newGHWorld(t)
+	ctx := context.Background()
+	prj := config.Project{ID: "alpha", Repo: gt.Repo, Path: w.checkout}
+	if err := w.srv.Projects.Add(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	id := w.claim()
+	gt.Commit(t, w.checkout, "work", map[string]string{"a.txt": "a\n"})
+	if env := w.run("branch", "push"); env["ok"] != true {
+		t.Fatalf("branch push = %v", env)
+	}
+	if env := w.run("pr", "open", "--title", "Add a"); env["ok"] != true {
+		t.Fatalf("pr open = %v", env)
+	}
+	head := w.api.World.PR(1).HeadSHA
+	w.issue(id, machine.StageCodeReviewer, "run-2")
+	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	refused := func(rule string) {
+		t.Helper()
+		env := w.run("review", "submit", id, "--verdict", "pass", "--head", head, "--body", "Looks right.")
+		if env["code"] != cli.CodeCINotGreen || env["rule"] != rule {
+			t.Fatalf("a pass at %s CI = %v", rule, env)
+		}
+		it, _ := w.srv.Machine.Show(ctx, "alpha", id)
+		if it.Status != machine.InReview || it.Fact(machine.FactReviewedHead) != "" {
+			t.Fatalf("a refused pass wrote: %s %v", it.Status, it.Facts)
+		}
+		if n := len(w.api.World.Comments(1)); n != 0 {
+			t.Fatalf("a refused pass posted %d comments", n)
+		}
+		if n, err := w.gh.Service.EnqueueEligibility(ctx, prj); err != nil || n != 0 {
+			t.Fatalf("a refused pass enqueued %d loop/eligible posts: %v", n, err)
+		}
+	}
+
+	// Each refusal is not stored under the call's idempotency key, so the
+	// same call gets a fresh answer once CI changes.
+	refused("ci_pending") // no check has reported yet
+	w.api.World.SetRuns(head, gt.CheckRun("ci", head, "completed", "failure", at))
+	refused("ci_failed")
+	w.api.World.SetRuns(head, gt.CheckRun("ci", head, "in_progress", "", at))
+	refused("ci_pending")
+	// The branch rules require "ci": another green check does not stand in.
+	w.api.World.SetRuns(head, gt.CheckRun("lint", head, "completed", "success", at))
+	refused("ci_pending")
+
+	w.api.World.SetRuns(head, gt.CheckRun("ci", head, "completed", "success", at))
+	if env := w.run("review", "submit", id, "--verdict", "pass", "--head", head, "--body", "Looks right."); env["ok"] != true {
+		t.Fatalf("a pass at green CI = %v", env)
+	}
+	it, _ := w.srv.Machine.Show(ctx, "alpha", id)
+	if it.Status != machine.ReadyToMerge || it.Fact(machine.FactReviewedHead) != head {
+		t.Fatalf("after the pass: %s %v", it.Status, it.Facts)
+	}
+}
+
+// review submit --head reads the PR's live head at the write. A head that
+// moved since the reviewer read it refuses the verdict, posts no comment
+// and leaves the ticket in review; the live head records the verdict.
+func TestReviewSubmitRefusesAHeadThePRNoLongerHolds(t *testing.T) {
+	w := newGHWorld(t)
+	ctx := context.Background()
+	if err := w.srv.Projects.Add(ctx, config.Project{ID: "alpha", Repo: gt.Repo, Path: w.checkout}); err != nil {
+		t.Fatal(err)
+	}
+	id := w.claim()
+	gt.Commit(t, w.checkout, "work", map[string]string{"a.txt": "a\n"})
+	if env := w.run("branch", "push"); env["ok"] != true {
+		t.Fatalf("branch push = %v", env)
+	}
+	if env := w.run("pr", "open", "--title", "Add a"); env["ok"] != true {
+		t.Fatalf("pr open = %v", env)
+	}
+	read := gt.Git(t, w.checkout, "rev-parse", "HEAD")
+	w.issue(id, machine.StageCodeReviewer, "run-2")
+	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	w.api.World.SetRuns(read, gt.CheckRun("ci", read, "completed", "success", at))
+	moved := "cccccccccccccccccccccccccccccccccccccccc"
+	w.api.World.Update(w.api.World.PR(1), func(p *gt.PR) { p.HeadSHA = moved })
+
+	env := w.run("review", "submit", id, "--verdict", "pass", "--head", read, "--body", "Looks right.")
+	if env["code"] != cli.CodeStatusChanged || env["rule"] != "head_changed" || !strings.Contains(env["hint"].(string), moved) {
+		t.Fatalf("review submit at a moved head = %v", env)
+	}
+	if n := len(w.api.World.Comments(1)); n != 0 {
+		t.Fatalf("%d comments reached GitHub", n)
+	}
+	if it, _ := w.srv.Machine.Show(ctx, "alpha", id); it.Status != machine.InReview || it.Fact(machine.FactReviewedHead) != "" {
+		t.Fatalf("after the refused verdict: %s %v", it.Status, it.Facts)
+	}
+
+	w.api.World.SetRuns(moved, gt.CheckRun("ci", moved, "completed", "success", at))
+	if env := w.run("review", "submit", id, "--verdict", "pass", "--head", moved); env["ok"] != true {
+		t.Fatalf("review submit at the live head = %v", env)
+	}
+	if it, _ := w.srv.Machine.Show(ctx, "alpha", id); it.Status != machine.ReadyToMerge || it.Fact(machine.FactReviewedHead) != moved {
+		t.Fatalf("after the verdict at the live head: %s %v", it.Status, it.Facts)
+	}
+}
+
+// review submit --head on an item whose pull request closed is refused
+// NOT_FOUND: no open PR holds the head, as candidateFeedback refused a PR
+// whose state was not OPEN. Nothing is posted, and the ticket stays in
+// review.
+func TestReviewSubmitRefusesAHeadWithNoOpenPR(t *testing.T) {
+	w := newGHWorld(t)
+	ctx := context.Background()
+	if err := w.srv.Projects.Add(ctx, config.Project{ID: "alpha", Repo: gt.Repo, Path: w.checkout}); err != nil {
+		t.Fatal(err)
+	}
+	id := w.claim()
+	gt.Commit(t, w.checkout, "work", map[string]string{"a.txt": "a\n"})
+	if env := w.run("branch", "push"); env["ok"] != true {
+		t.Fatalf("branch push = %v", env)
+	}
+	if env := w.run("pr", "open", "--title", "Add a"); env["ok"] != true {
+		t.Fatalf("pr open = %v", env)
+	}
+	head := w.api.World.PR(1).HeadSHA
+	w.issue(id, machine.StageCodeReviewer, "run-2")
+	w.api.World.Update(w.api.World.PR(1), func(p *gt.PR) { p.State = "closed" })
+
+	env := w.run("review", "submit", id, "--verdict", "reject", "--head", head, "--body", "Fix the test.")
+	if env["code"] != cli.CodeNotFound || env["rule"] != "no_open_pr" {
+		t.Fatalf("review submit with no open PR = %v", env)
+	}
+	if n := len(w.api.World.Comments(1)); n != 0 {
+		t.Fatalf("%d comments reached GitHub", n)
+	}
+	if it, _ := w.srv.Machine.Show(ctx, "alpha", id); it.Status != machine.InReview || it.Fact(machine.FactReviewedHead) != "" {
+		t.Fatalf("after the refused verdict: %s %v", it.Status, it.Facts)
+	}
+}
+
 // The fixer reads and notes the item of the escalation it routes, though
 // its token holds no item. Any other item stays refused, and so does any
 // other write on the escalated item.

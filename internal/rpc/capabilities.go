@@ -13,6 +13,11 @@ import (
 // the machine checks the lease of each write.
 type HoldsItem func(ctx context.Context, p Principal, item string) (bool, error)
 
+// ReadsItem reports whether p may read an item it does not hold. A write
+// verb never asks it (KTD12: a run moves only the item it holds). The
+// server opens the epic of the held ticket.
+type ReadsItem func(ctx context.Context, p Principal, item string) (bool, error)
+
 // TokenItem is the default HoldsItem.
 func TokenItem(_ context.Context, p Principal, item string) (bool, error) {
 	return p.Item != "" && p.Item == item, nil
@@ -55,6 +60,11 @@ func (s *Server) authorize(ctx context.Context, inv cli.Invocation, p *Principal
 		holds, err := s.opts.HoldsItem(ctx, *p, item)
 		if err != nil {
 			return new(cli.Internal(fmt.Errorf("check whether %s holds %s: %w", p.Actor(), item, err)))
+		}
+		if !holds && !inv.Verb.Write && s.opts.ReadsItem != nil {
+			if holds, err = s.opts.ReadsItem(ctx, *p, item); err != nil {
+				return new(cli.Internal(fmt.Errorf("check whether %s reads %s: %w", p.Actor(), item, err)))
+			}
 		}
 		if !holds {
 			return denied("item_not_held", item, fmt.Sprintf("%s does not hold %s; a run moves only the item it holds", p.Actor(), item))
