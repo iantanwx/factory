@@ -268,6 +268,13 @@ agent_jobs:
     runbook: docs/runbooks/nightly-qa.md
 ```
 
+A schedule is a five-field cron, read in UTC. To read it in another
+timezone, start it with `TZ=` and an IANA zone name, such as
+`schedule: "TZ=Asia/Singapore 55 2 * * *"`. That runs at 02:55 in
+Singapore. A wall time that daylight saving skips does not run that day,
+and one that it repeats runs once. Every schedule takes the prefix: a
+throughput entry, an agent job and a project's stage override.
+
 `runbook` is a path in the project repository. The run's prompt names it
 in place of a loop runbook. `cap` is the most runs of the job that live at
 once. The name must not be a stage, a native job or a pool of the loop.
