@@ -77,9 +77,10 @@ func isPool(key string) bool {
 // current loop capped no other stage, so each other cap is a starting
 // value for the operator to tune. The schedules follow the current timer
 // table (scripts/sdlc/timer-table.ts MAIN_CRONS, alpha). The implementer
-// holds the minutes of all three implementer rows there, because one tick
-// starts at most one run of a stage. internal/sched/cadence_test.go holds
-// why.
+// holds the minutes of all three implementer rows there, so a reject waits
+// at most one reviewer cycle for it. internal/sched/cadence_test.go holds
+// why. Each firing fills the stage's free cap, so the schedule bounds the
+// wait and not how many runs start.
 func DefaultThroughput() map[string]Throughput {
 	every5 := "*/5 * * * *"
 	return map[string]Throughput{

@@ -709,3 +709,37 @@ func TestBriefCapsTheDirtyFilesOfAKeptCheckout(t *testing.T) {
 		t.Fatalf("dirty = %d files, more = %d, want %d and 3", len(k.Dirty), k.More, brief.MaxDirty)
 	}
 }
+
+// One fire of a run stage admits runs until the stage's cap is full or no
+// candidate is left. Tickertown runs four implementer rows, each with its
+// own window of runs, so 16 starts an hour reach its cap of 8
+// (scripts/sdlc/timer-implementer-rows.ts, alpha). A fire that starts one
+// run holds the loop to one start a tick, shared by new and repair work.
+func TestOneFireFillsTheStagesFreeCap(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(map[string]int{"implementer": 8}, map[string]string{"implementer": "0 * * * *"})
+	w.rebuild()
+	var ids []string
+	for range 9 {
+		ids = append(ids, w.ticket(machine.Todo))
+	}
+	w.clock.Set(at(t, "2026-10-21T10:00:30Z"))
+	w.tick() // the first sight sets the deadline after now
+	w.clock.Set(at(t, "2026-10-21T11:00:30Z"))
+	w.tick()
+	if n := len(w.host.Launches()); n != 8 {
+		t.Fatalf("one fire with 9 todo tickets and cap 8 started %d runs, want 8", n)
+	}
+	todo := 0
+	for _, id := range ids {
+		if w.status(id) == machine.Todo {
+			todo++
+		}
+	}
+	if todo != 1 {
+		t.Fatalf("%d tickets still todo, want 1", todo)
+	}
+	if n := w.count(`SELECT count(*) FROM runs WHERE ended_at IS NULL`); n != 8 {
+		t.Fatalf("%d live runs, want 8", n)
+	}
+}
