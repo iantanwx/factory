@@ -11,10 +11,15 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// mutexStages have one holder for each project at a time. Two intake runs
-// that overlap could create one epic twice (scripts/sdlc/intake-cap.ts,
-// alpha). The stage_mutexes row replaces the mutex issue.
-var mutexStages = []string{config.StageIntake}
+// mutexStages have one holder for each project at a time, whatever cap
+// host config holds. Two intake runs that overlap could create one epic
+// twice (scripts/sdlc/intake-cap.ts, alpha). The stage_mutexes row
+// replaces the mutex issue. The spec author and the reproducer keep the
+// one-run guard of scripts/sdlc/stage-claims.ts (alpha): two spec authors
+// would each take an epic and break the stage's cadence, and a second
+// reproducer would take the next report from a stale queue read while the
+// first still reads it (timer-reproducer-row.ts, alpha).
+var mutexStages = []string{config.StageIntake, config.StageSpecAuthor, config.StageReproducer}
 
 func isMutexStage(stage string) bool { return slices.Contains(mutexStages, stage) }
 

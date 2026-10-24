@@ -104,7 +104,18 @@ The server made your checkout from the base branch that the brief names. The loo
   `git push`, and never force a push.
 - **Write each message and body file outside the checkout.** Make a directory with `mktemp -d`, and
   write there. A file in the checkout lands in the diff. A shared path lets two runs write one
-  file.
+  file. Pass a commit message as a file, with `git commit -F <file>`.
+- **Name another checkout by its path.** Start each command that runs git in another checkout with
+  `test -d "$W" || exit 1`. Then name that checkout in each git step with `git -C "$W"`.
+  Never write `cd "$W" &&` followed by more git steps. Cleanup can delete the checkout of a
+  finished run, so a missing checkout is a normal state. After a failed `cd`, the next steps run in your
+  own checkout. They can commit and push a change that is not yours.
+- **Stop at the first failed step of a command that writes.** A shell that runs one command line
+  can continue after a failed step, even with `set -e`. So follow each step with `|| exit 1` when
+  the command ends in a commit, a merge, `loop branch push`, `loop pr open` or another loop write.
+  A push after a failed commit pushes the wrong head. Check the effect before you publish it. For
+  example, read the diff before you commit it. Read a value from the field of the envelope that
+  names it, and never from the first match in the output.
 
 Run each command in the foreground, inside one tool call. A background command dies with your
 session. A session that ends without `loop run finish` counts as a crashed attempt.

@@ -55,8 +55,10 @@ const (
 )
 
 // Kinds are the room kinds. Each maps to its runbook: the pack's
-// loop-<kind>-room skill.
-var Kinds = []string{"intake", "decision", "review"}
+// loop-<kind>-room skill. An architect room serves one architecture epic:
+// the operator and the agent write its ADR, and the ADR's merge moves the
+// epic (parity 1.32).
+var Kinds = []string{"intake", "decision", "review", "architect"}
 
 // Stage is the brief's stage of a room kind, so its runbook is
 // .claude/skills/loop-<kind>-room/SKILL.md.
@@ -230,7 +232,9 @@ func (s *Service) Rooms(ctx context.Context, all bool) ([]Room, error) {
 }
 
 // open is `loop room open`: a new room, or the reopen of an idle or
-// interrupted one of the same kind on the same item.
+// interrupted one of the same kind on the same item. An intake room with
+// no item reopens only an idle or interrupted one: a live or opening
+// itemless intake room is never matched, so each such open is a new room.
 func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
 	if p.Kind != cli.PrincipalCoordinator {
@@ -257,7 +261,11 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Reject(cli.CodeNotFound, "no_project", fmt.Sprintf("project %s: %v", project, err))
 	}
 	if item != "" {
-		if _, ref := s.cfg.Machine.Show(ctx, project, item); ref != nil {
+		it, ref := s.cfg.Machine.Show(ctx, project, item)
+		if ref != nil {
+			return ref.Result()
+		}
+		if ref := architectItem(kind, it); ref != nil {
 			return ref.Result()
 		}
 	}
@@ -269,7 +277,8 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	err = s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		var err error
 		r, err = scanRoom(tx.QueryRow(roomCols+` WHERE r.project = ? AND r.item = ? AND r.kind = ? AND r.closed_at IS NULL
-			ORDER BY r.opened_at DESC LIMIT 1`, project, item, kind))
+			AND (r.item != '' OR r.state IN (?, ?))
+			ORDER BY r.opened_at DESC LIMIT 1`, project, item, kind, Idle, Interrupted))
 		if err == nil {
 			reopen = true
 			_, err = tx.Exec(`UPDATE rooms SET reason = ?, updated_at = ? WHERE id = ?`, reason, tx.Now().UnixMilli(), r.ID)
@@ -322,22 +331,36 @@ func routedHint(t escalation.Triage) string {
 		l.Ordinal, l.Name, strings.ToLower(l.Answers))
 }
 
+// architectItem refuses an architect room on any item but an epic in
+// architecture: the room writes the ADR that epic waits for, and nothing
+// else waits for an ADR.
+func architectItem(kind string, it machine.Item) *cli.Refusal {
+	if kind != "architect" || it.Kind == machine.KindEpic && it.Status == machine.Architecture {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "not_architecture_epic", Item: it.ID, CurrentStatus: it.Status,
+		Hint: fmt.Sprintf("an architect room writes the ADR of an epic in %s, and %s is a %s in %s; "+
+			"create the epic with `loop epic create --architecture` first", machine.Architecture, it.ID, it.Kind, it.Status)}
+}
+
 // intakeCap applies the intake cap to a new intake room that names no
-// item: such a room submits a new epic. The reopen of an open room, and
-// an intake room on an existing epic, add no epic, so the cap passes them.
+// item: such a room submits a new epic. A live or opening intake room
+// names no item to match, so a second itemless open is a new room and
+// meets the cap. The reopen of an idle or interrupted one, and an intake
+// room on an existing epic, add no epic, so the cap passes them.
 func (s *Service) intakeCap(ctx context.Context, kind, project, item string) *cli.Refusal {
 	if kind != "intake" || item != "" || s.cfg.IntakeCap == nil {
 		return nil
 	}
-	var open int
+	var reopenable int
 	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT count(*) FROM rooms WHERE project = ? AND item = '' AND kind = ? AND closed_at IS NULL`,
-			project, kind).Scan(&open)
+		return tx.QueryRowContext(ctx, `SELECT count(*) FROM rooms WHERE project = ? AND item = '' AND kind = ? AND closed_at IS NULL
+			AND state IN (?, ?)`, project, kind, Idle, Interrupted).Scan(&reopenable)
 	})
 	if err != nil {
 		return cli.InternalRefusal(err)
 	}
-	if open > 0 {
+	if reopenable > 0 {
 		return nil
 	}
 	return s.cfg.IntakeCap(ctx, project)
@@ -648,7 +671,7 @@ func (s *Service) interrupt(ctx context.Context, r *Room) {
 
 // close is `loop room close`. Only the coordinator's token reaches it. The
 // session closes, the token goes, .env goes and the hold drops. The
-// checkout is kept for a person.
+// checkout is kept until the scheduler's next cleanup pass judges it.
 func (s *Service) close(ctx context.Context, call *rpc.Call) cli.Result {
 	if call.Principal.Kind != cli.PrincipalCoordinator {
 		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator closes a room")

@@ -496,10 +496,15 @@ func TestEndWithoutFinishSettlesCrashed(t *testing.T) {
 
 // An agent idle at its prompt with no finish settles as crashed after the
 // quiet period. Its session closes, its checkout stays and its slot frees.
+// The agent leaves uncommitted work, so the cleanup pass of the same tick
+// keeps the checkout too.
 func TestIdleAtPromptSettlesAfterTheQuietPeriod(t *testing.T) {
 	w := newWorld(t)
 	id := w.ticket(machine.Todo)
 	st := w.dispatch(machine.StageImplementer)
+	if err := os.WriteFile(filepath.Join(st.Checkout, "work.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	w.host.EndTurn(st.Session.ID)
 	w.clock.Advance(10 * time.Minute)
 	w.tick()

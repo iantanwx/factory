@@ -189,6 +189,8 @@ var surface = []Verb{
 		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
 	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 
+	server("overwatch", "sweep", "run every overwatch part once and print the report; it rings nobody", coordinatorOrHost, nil),
+
 	write(server("fault", "report", "report a fault in the loop itself, not in the project; the answer names its fault id", faultCallers, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report file, at any path, read by the CLI: the command, its envelope and what you expected; 64 KiB at most"})),
 	server("fault", "show", "show one loop fault: its status, its resolution and the release this host runs", faultCallers, []Arg{faultArg}),
@@ -225,9 +227,9 @@ var surface = []Verb{
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the finding: the root cause, its evidence and the act that ends it"})),
 
 	write(server("room", "open", "open a room for a finding the triage rubric routes to a person, or reopen an idle or interrupted one", coordinator, nil,
-		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review"}, Description: "the kind of room"},
+		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review", "architect"}, Description: "the kind of room; an architect room serves one architecture epic"},
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
-		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none"},
+		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none, and an architect room names an epic in architecture"},
 		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"},
 		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},
 		Flag{Name: "choice", Type: FlagString, Enum: []string{"inside", "outside"}, Description: "outside when one answer acts outside the repository; inside when absent"})),

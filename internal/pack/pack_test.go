@@ -58,6 +58,40 @@ func TestTurnSkillRunsTheSameCommandAgainOnExit4(t *testing.T) {
 	}
 }
 
+// turnSection returns section n of the turn skill, from its heading to the
+// next one.
+func turnSection(t *testing.T, n string) string {
+	t.Helper()
+	turn := read(t, "skills/loop-sdlc-turn/SKILL.md")
+	_, rest, ok := strings.Cut(turn, "\n## "+n+". ")
+	if !ok {
+		t.Fatalf("the turn skill has no section %s", n)
+	}
+	section, _, _ := strings.Cut(rest, "\n## ")
+	return section
+}
+
+// The shell discipline of alpha's docs/rules/shell.md (parity 13.5): a run
+// names another checkout by its path, and stops at the first failed step of
+// a command that publishes.
+func TestTurnSkillAddressesEachCheckoutByItsPath(t *testing.T) {
+	work := turnSection(t, "4")
+	for _, want := range []string{"`test -d \"$W\" || exit 1`", "`git -C \"$W\"`", "Never write `cd \"$W\" &&`"} {
+		if !strings.Contains(work, want) {
+			t.Errorf("section 4 of the turn skill does not hold %s", want)
+		}
+	}
+}
+
+func TestTurnSkillChecksEachStepBeforeAPublish(t *testing.T) {
+	work := turnSection(t, "4")
+	for _, want := range []string{"`|| exit 1`", "`git commit -F <file>`"} {
+		if !strings.Contains(work, want) {
+			t.Errorf("section 4 of the turn skill does not hold %s", want)
+		}
+	}
+}
+
 // TestEveryStageHasARunbook holds the manifest to the stages the server
 // starts: each run stage, the coordinator and each room kind. The intake
 // stage only counts epics against its cap (KTD30). An intake room serves

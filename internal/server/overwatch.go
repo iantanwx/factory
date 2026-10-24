@@ -1,0 +1,198 @@
+package server
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/beadsx"
+	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/github"
+	"github.com/iantanwx/loop/internal/inbox"
+	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/overwatch"
+	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/sched"
+	"github.com/iantanwx/loop/internal/store"
+)
+
+// overwatchState is the sweep's world and part list. The list is
+// overwatch.Parts() outside tests, and a test replaces it.
+type overwatchState struct {
+	world overwatch.World
+	mu    sync.Mutex
+	parts []overwatch.Part
+}
+
+// composeOverwatch builds the production World, serves `overwatch sweep`,
+// and registers the job overwatch on a server with the scheduler (ADR
+// 0009).
+func (s *Server) composeOverwatch() error {
+	s.overwatch.world = &serverWorld{s: s, now: s.humanClock()}
+	s.setOverwatchParts(overwatch.Parts())
+	if err := s.RPC.Handle("overwatch sweep", s.overwatchSweep); err != nil {
+		return err
+	}
+	if s.Sched == nil {
+		return nil
+	}
+	return s.Sched.RegisterInstanceJob(overwatch.JobName, func(ctx context.Context) error {
+		return s.overwatchJob().Tick(ctx)
+	})
+}
+
+func (s *Server) setOverwatchParts(parts []overwatch.Part) {
+	s.overwatch.mu.Lock()
+	defer s.overwatch.mu.Unlock()
+	s.overwatch.parts = parts
+}
+
+func (s *Server) overwatchPartList() []overwatch.Part {
+	s.overwatch.mu.Lock()
+	defer s.overwatch.mu.Unlock()
+	return s.overwatch.parts
+}
+
+// overwatchJob is the job over the server's world and part list. It rings
+// through recordedRing("overwatch").
+func (s *Server) overwatchJob() *overwatch.Job {
+	return &overwatch.Job{World: s.overwatch.world, Parts: s.overwatchPartList(), Ring: s.recordedRing(overwatch.SourceOverwatch)}
+}
+
+// overwatchSweep is `loop overwatch sweep`: a fresh sweep of the job's world
+// and parts. It exits 0 with the report as data, the sweep's code in
+// data.code, and it never rings.
+func (s *Server) overwatchSweep(ctx context.Context, _ *rpc.Call) cli.Result {
+	return cli.Found(overwatch.Sweep(ctx, s.overwatch.world, s.overwatchPartList()))
+}
+
+// humanClock is the clock of the inbox, the decision timers and the ring
+// record: HumanOptions.Now, then Sched.Now, then time.Now.
+func (s *Server) humanClock() func() time.Time {
+	if now := s.opts.Human.Now; now != nil {
+		return now
+	}
+	if now := s.opts.Sched.Now; now != nil {
+		return now
+	}
+	return time.Now
+}
+
+// recordedRing is the doorbell of one source. It rings through
+// ringCoordinator and writes the outcome with overwatch.RecordRing. A
+// failed row write is logged, and the ring's own result stands.
+func (s *Server) recordedRing(source string) inbox.Doorbell {
+	now := s.humanClock()
+	return func(ctx context.Context, text string) error {
+		err := s.ringCoordinator(ctx, text)
+		o := overwatch.RingOutcome{At: now(), Source: source, Result: overwatch.RingAccepted}
+		switch {
+		case errors.Is(err, inbox.ErrNobodyToRing):
+			o.Result = overwatch.RingNobody
+		case err != nil:
+			o.Result, o.Detail = overwatch.RingRefused, err.Error()
+			if s.Redactor != nil {
+				o.Detail = s.Redactor.Redact(o.Detail)
+			}
+		}
+		if werr := overwatch.RecordRing(context.WithoutCancel(ctx), s.Store, o); werr != nil {
+			s.log.WarnContext(ctx, "record the coordinator ring", "source", source, "result", o.Result, "err", werr)
+		}
+		return err
+	}
+}
+
+// errNoPartReads is the answer of a World read that no landed part makes
+// yet. The part entry that first reads it builds it (spec, Work 5 to 10).
+var errNoPartReads = errors.New("overwatch: no part reads this yet")
+
+// serverWorld is the production World: the reads the server already holds.
+type serverWorld struct {
+	s   *Server
+	now func() time.Time
+}
+
+var _ overwatch.World = (*serverWorld)(nil)
+
+func (w *serverWorld) Now() time.Time { return w.now() }
+
+func (w *serverWorld) Host(context.Context) (*config.HostConfig, error) {
+	return config.LoadHost(w.s.HostPath)
+}
+
+func (w *serverWorld) Projects(context.Context) ([]config.Project, error) { return w.s.Projects.List() }
+
+func (w *serverWorld) ProjectConfig(ctx context.Context, project string) (*config.ProjectSnapshot, error) {
+	return w.s.projectSource()(ctx, project)
+}
+
+func (w *serverWorld) Items(ctx context.Context, project string, f machine.ListFilter) ([]machine.Item, error) {
+	if w.s.Machine == nil {
+		return nil, errors.New("overwatch: the server holds no state machine")
+	}
+	items, ref := w.s.Machine.List(ctx, project, f)
+	if ref != nil {
+		return nil, fmt.Errorf("list the items of %s: %s: %s", project, ref.Code, ref.Hint)
+	}
+	return items, nil
+}
+
+func (w *serverWorld) Body(ctx context.Context, project, item string) (string, error) {
+	if w.s.Machine == nil {
+		return "", errors.New("overwatch: the server holds no state machine")
+	}
+	it, ref := w.s.Machine.Read(ctx, project, item)
+	if ref != nil {
+		return "", fmt.Errorf("read %s: %s: %s", item, ref.Code, ref.Hint)
+	}
+	return it.Body, nil
+}
+
+// Dependencies belongs to the backlog part (spec, Work 5).
+func (w *serverWorld) Dependencies(context.Context, string, string) ([]beadsx.Dependency, error) {
+	return nil, errNoPartReads
+}
+
+func (w *serverWorld) Store() *store.Store { return w.s.Store }
+
+// Intervals belongs to the scheduler parts (spec, Work 6). Until then it is
+// zero.
+func (w *serverWorld) Intervals() overwatch.Intervals { return overwatch.Intervals{} }
+
+// CheckoutDirs belongs to the worktrees part (spec, Work 6).
+func (w *serverWorld) CheckoutDirs(context.Context) ([]string, error) { return nil, errNoPartReads }
+
+func (w *serverWorld) Inventory(ctx context.Context) (agenthost.Inventory, error) {
+	if w.s.opts.Agents == nil {
+		return agenthost.Inventory{}, errors.New("overwatch: the server holds no agent host")
+	}
+	return w.s.opts.Agents.Inventory(ctx)
+}
+
+func (w *serverWorld) Coordinator() sched.CoordinatorState {
+	if w.s.Sched == nil {
+		return sched.CoordinatorState{}
+	}
+	return w.s.Sched.Coordinator()
+}
+
+// GitHub belongs to the GitHub parts (spec, Work 9 and 10).
+func (w *serverWorld) GitHub() overwatch.GitHubReads { return noGitHubReads{} }
+
+// Doctor belongs to the server part (spec, Work 7).
+func (w *serverWorld) Doctor(context.Context) ([]github.CheckLine, error) { return nil, errNoPartReads }
+
+func (w *serverWorld) LastRing(ctx context.Context) (overwatch.RingOutcome, bool, error) {
+	return overwatch.LastRing(ctx, w.s.Store)
+}
+
+// noGitHubReads answers every GitHub read with errNoPartReads.
+type noGitHubReads struct{}
+
+func (noGitHubReads) OpenPulls(context.Context, config.Project) ([]github.PR, error) {
+	return nil, errNoPartReads
+}

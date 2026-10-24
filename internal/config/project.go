@@ -62,6 +62,7 @@ type StageConfig struct {
 	Enabled   *bool         `yaml:"enabled,omitempty"`
 	Model     string        `yaml:"model,omitempty"`
 	Harness   string        `yaml:"harness,omitempty"`
+	Effort    string        `yaml:"effort,omitempty"`     // overrides the stage's default effort
 	RunBudget time.Duration `yaml:"run_budget,omitempty"` // overrides the host default (KTD9)
 	Schedule  string        `yaml:"schedule,omitempty"`   // overrides the host default schedule
 }
@@ -108,6 +109,9 @@ func (c *ProjectConfig) validate() error {
 		}
 		if s.Harness != "" && !validIdent(s.Harness) {
 			ck.fail(f+".harness", "must be a lower-case identifier")
+		}
+		if s.Effort != "" && !effortRe.MatchString(s.Effort) {
+			ck.fail(f+".effort", "must be one lower-case word, such as high")
 		}
 		if HasControl(s.Model) || HasControl(s.Schedule) {
 			ck.fail(f, "must not hold a control character")
