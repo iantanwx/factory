@@ -79,6 +79,10 @@ func TestNextDueReadsTheScheduleTimezone(t *testing.T) {
 		// Day fields read the local date: Monday in Singapore starts on
 		// Sunday 16:00 UTC.
 		{"TZ=Asia/Singapore 0 0 * * 1", "2026-10-24T00:00:00Z", "2026-10-25T16:00:00Z"},
+		// West of UTC the local date trails the UTC date in the evening:
+		// 02:00 UTC on 07-01 is 22:00 on 06-30 in New York, so that
+		// evening's 23:00 is still ahead.
+		{"TZ=America/New_York 0 23 * * *", "2026-07-01T02:00:00Z", "2026-07-01T03:00:00Z"},
 		// The offset follows daylight saving: 03:00 in New York is 07:00
 		// UTC in summer and 08:00 UTC in winter.
 		{"TZ=America/New_York 0 3 * * *", "2026-07-01T00:00:00Z", "2026-07-01T07:00:00Z"},
@@ -91,6 +95,9 @@ func TestNextDueReadsTheScheduleTimezone(t *testing.T) {
 		// Its first instant: 02:30 CEST on 2026-10-25 in Berlin, not the
 		// 02:30 CET an hour later.
 		{"TZ=Europe/Berlin 30 2 * * *", "2026-10-25T00:00:00Z", "2026-10-25T00:30:00Z"},
+		// A date the zone skipped never fires: Apia went from 12-29 to
+		// 12-31 in 2011, so the next 12-30 noon is in 2012 (+14).
+		{"TZ=Pacific/Apia 0 12 30 12 *", "2011-12-29T00:00:00Z", "2012-12-29T22:00:00Z"},
 		// UTC names the default.
 		{"TZ=UTC 0 0 * * *", "2026-12-31T23:59:59Z", "2027-01-01T00:00:00Z"},
 	}
