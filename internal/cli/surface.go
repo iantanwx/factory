@@ -189,6 +189,8 @@ var surface = []Verb{
 		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
 	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 
+	server("overwatch", "sweep", "run every overwatch part once and print the report; it rings nobody", coordinatorOrHost, nil),
+
 	write(server("fault", "report", "report a fault in the loop itself, not in the project; the answer names its fault id", faultCallers, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report file, at any path, read by the CLI: the command, its envelope and what you expected; 64 KiB at most"})),
 	server("fault", "show", "show one loop fault: its status, its resolution and the release this host runs", faultCallers, []Arg{faultArg}),
