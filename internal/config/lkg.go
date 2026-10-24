@@ -100,6 +100,7 @@ func (l *Loader) Load(ctx context.Context, project string, read RefReader, defau
 		// changed. Report both problems.
 		return nil, fmt.Errorf("config: project %s last known good config no longer loads: %w", project, errors.Join(problem, err))
 	}
+	lkg.Branch = defaultBranch
 	return &Loaded{ProjectSnapshot: *lkg, Stale: true, Problem: problem}, nil
 }
 

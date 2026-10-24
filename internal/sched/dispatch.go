@@ -122,7 +122,7 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		return nil, ref
 	}
 	s.checkoutMu.Lock()
-	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: checkoutName(ad), BaseBranch: DefaultBaseBranch})
+	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: checkoutName(ad), BaseBranch: snap.BaseBranch()})
 	s.checkoutMu.Unlock()
 	if err != nil {
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: create the checkout: %w", err)), false, AlertStartFailed, err)
@@ -225,7 +225,7 @@ func (s *Scheduler) runSetup(ctx context.Context, dir, setup string) error {
 func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, hc *config.HostConfig, prof Profile) brief.Brief {
 	b := brief.Brief{
 		RunID: ad.RunID, Project: ad.Project, Stage: ad.Stage, Role: ad.Stage, Harness: string(prof.Harness), Model: prof.Model,
-		BaseBranch: DefaultBaseBranch, Attempt: ad.Attempt,
+		BaseBranch: snap.BaseBranch(), Attempt: ad.Attempt,
 		Secrets: brief.Secrets{Present: snap.Manifest.ForStage(ad.Stage).Names(), Missing: []string{}},
 	}
 	if j, ok := hc.AgentJob(ad.Stage); ok {

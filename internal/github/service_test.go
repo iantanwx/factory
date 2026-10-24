@@ -321,3 +321,19 @@ func TestEachOwnerHasItsOwnApp(t *testing.T) {
 		t.Fatalf("no App for the owner: %v", err)
 	}
 }
+
+// The default branch that `loop register` recorded is the project's base,
+// even over the one the mirror cached from GitHub. A registration that
+// names none reads GitHub's.
+func TestDefaultBranchIsTheRecordedOne(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	if got, err := e.svc.DefaultBranch(ctx, e.project); err != nil || got != "main" {
+		t.Fatalf("unrecorded default branch = %q, %v; want GitHub's main", got, err)
+	}
+	trunk := e.project
+	trunk.Branch = "trunk"
+	if got, err := e.svc.DefaultBranch(ctx, trunk); err != nil || got != "trunk" {
+		t.Fatalf("recorded default branch = %q, %v; want trunk", got, err)
+	}
+}

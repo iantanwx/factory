@@ -32,9 +32,9 @@ const (
 	DefaultDrainTimeout     = 30 * time.Minute
 	DefaultQuotaPause       = time.Hour
 	DefaultCleanupInterval  = 5 * time.Minute
-	// DefaultBaseBranch is the base of every checkout. A registration names
-	// no base branch in v1.
-	DefaultBaseBranch = "main"
+	// DefaultBaseBranch is the base of a checkout whose project names no
+	// default branch: a registration made before the loop recorded it.
+	DefaultBaseBranch = config.DefaultBranch
 )
 
 // Alert kinds the scheduler raises. The inbox reads the alerts table.
