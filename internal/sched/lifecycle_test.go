@@ -268,6 +268,67 @@ func TestCleanupDeletesALivenessKeptCheckout(t *testing.T) {
 	}
 }
 
+// keptClean returns a clean, pushed checkout whose run liveness kept, and
+// that the next pass would delete but for what the caller adds.
+func (w *world) keptClean() *Started {
+	w.t.Helper()
+	w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.host.Exit(st.Session.ID, 1)
+	w.tick()
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutKept {
+		w.t.Fatalf("checkout state = %s", s)
+	}
+	return st
+}
+
+func (w *world) exec(query string, args ...any) {
+	w.t.Helper()
+	if err := w.st.Write(context.Background(), func(tx *store.Tx) error {
+		_, err := tx.Exec(query, args...)
+		return err
+	}); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// A clean, pushed checkout whose run still owns a lease stays: the run may
+// come back to it (F-9).
+func TestCleanupKeepsACheckoutWhoseRunHoldsALease(t *testing.T) {
+	w := newWorld(t)
+	st := w.keptClean()
+	w.exec(`UPDATE leases SET owner_run_id = ? WHERE project = ? AND item = ?`, st.RunID, prj, st.Item)
+	if n := w.count(`SELECT count(*) FROM leases WHERE owner_run_id = ?`, st.RunID); n != 1 {
+		t.Fatalf("leases owned by the run = %d", n)
+	}
+	rep := w.s.CleanCheckouts(context.Background())
+	if slices.Contains(rep.Deleted, st.Checkout) || !exists(st.Checkout) {
+		t.Fatalf("cleanup deleted a checkout whose run holds a lease: %+v", rep)
+	}
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutKept {
+		t.Fatalf("checkout state = %s", s)
+	}
+}
+
+// A clean, pushed checkout that an open room uses stays, though its run
+// ended and an earlier room on it closed (F-9).
+func TestCleanupKeepsACheckoutAnOpenRoomUses(t *testing.T) {
+	w := newWorld(t)
+	st := w.keptClean()
+	id := w.str(`SELECT id FROM checkouts WHERE run_id = ?`, st.RunID)
+	now := w.clock.Now().UnixMilli()
+	w.exec(`INSERT INTO rooms (id, project, item, checkout_id, state, opened_at, closed_at) VALUES
+		('room-closed', ?, ?, ?, 'closed', ?, ?), ('room-open', ?, ?, ?, 'open', ?, NULL)`,
+		prj, st.Item, id, now, now, prj, st.Item, id, now)
+	rep := w.s.CleanCheckouts(context.Background())
+	if slices.Contains(rep.Deleted, st.Checkout) || !exists(st.Checkout) {
+		t.Fatalf("cleanup deleted a checkout an open room uses: %+v", rep)
+	}
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutKept {
+		t.Fatalf("checkout state = %s", s)
+	}
+}
+
 // A run that hits a usage limit pauses that harness until the reset, and
 // the chooser picks the next profile.
 func TestQuotaHitPausesTheHarness(t *testing.T) {
