@@ -63,4 +63,4 @@ only what a person decided.
 - Never decide scope, a conflict or a priority. Recommend, and wait.
 - Never submit a PRD that the operator did not call ready.
 - Never close the room. The coordinator closes it.
-- Never merge the PRD. The operator's merge is the sign-off.
+- Never merge the PRD. The operator's approval is the sign-off, and the server merges.

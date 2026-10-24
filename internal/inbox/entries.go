@@ -202,8 +202,14 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 		e.Next = "loop inbox answer " + e.ID + " --body <the operator's answer>"
 		text = append(text, "The decision's trigger fired. The trigger, as filed:", AgentText(it.Fact(FactFiledBy), it.Fact(FactTrigger)))
 	case KindSignoff:
-		e.Next = "the operator merges the document's pull request; the merge is the sign-off"
-		text = append(text, fmt.Sprintf("The %s passed review and waits for the operator's sign-off.", docOf(it.Status)))
+		e.Head = it.Fact(machine.FactReviewedHead)
+		e.Next = "loop inbox answer " + e.ID + ` --body "<the operator's approval, in the operator's own words>"; the server merges the document at head ` + orDefault(e.Head, "<none pinned>")
+		at := ""
+		if e.Head != "" {
+			at = " at head " + e.Head
+		}
+		text = append(text, fmt.Sprintf("The %s passed review%s and waits for the operator's approval. On the approval the server merges that head.",
+			docOf(it.Status), at))
 	}
 	if n := it.Fact(machine.FactNote); n != "" && kind != KindSignoff {
 		text = append(text, "The item's last note:", AgentText(it.Fact(machine.FactOwner), n))

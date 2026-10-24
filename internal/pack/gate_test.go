@@ -307,3 +307,71 @@ func TestGateChecksTheVocabularyOfAnAgent(t *testing.T) {
 	src["agents/loop-helper.md"] = agent("loop-helper", "Read", "Run `pnpm board`.\n")
 	wantOne(t, check(t, src), "vocabulary", "pnpm")
 }
+
+// coordinatorFixture is the valid fixture plus a coordinator runbook
+// whose section 12 holds rule.
+func coordinatorFixture(rule string) fstest.MapFS {
+	src := fixture()
+	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {
+		"implementer": {"attended": false, "skills": ["loop-sdlc-turn"], "policy": "implementer"},
+		"coordinator": {"attended": true, "skills": ["loop-sdlc-turn"], "policy": "coordinator"}},
+		"skills": ["loop-sdlc-turn"]}`)}
+	src["runbooks/coordinator.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-coordinator\ndescription: The coordinator.\n---\n\n" +
+		"Read `../loop-sdlc-turn/SKILL.md` first. Read `.loop/policy/coordinator.md` when it exists.\n\n" +
+		"## 12. Never\n\n- Never decide what the operator must decide.\n" + rule + "\n")}
+	return src
+}
+
+// The coordinator runbook as it stood before factorio-8qm: section 12
+// sent the operator to merge each PRD and spec, and the coordinator handed
+// the merge back.
+func TestGateRefusesACoordinatorRuleThatHandsAMergeToTheOperator(t *testing.T) {
+	wantOne(t, check(t, coordinatorFixture("- Never merge a PRD or a spec. The operator's merge is the sign-off.")),
+		"hand-back", "operator's merge")
+}
+
+func TestGatePassesACoordinatorRuleThatRecordsTheApproval(t *testing.T) {
+	src := coordinatorFixture("- Never sign off a PRD or a spec without the operator's approval. Record that approval with\n" +
+		"  `loop inbox answer <entry> --body \"<the operator's words>\"`, and the server merges.")
+	if got := check(t, src); len(got) != 0 {
+		t.Fatalf("want no findings, got %v", got)
+	}
+}
+
+func TestGateRefusesEachHandBackInTheCoordinatorsFiles(t *testing.T) {
+	for _, tc := range []struct{ file, text, want string }{
+		{"runbooks/coordinator.md", "A fault that a release ends is a reason to upgrade. The operator upgrades the host.", "operator upgrades"},
+		{"runbooks/coordinator.md", "When both pass, tell the operator to run `gh pr merge 12`.", "gh pr merge"},
+		{"runbooks/coordinator.md", "Ask the operator to run `loop inbox answer <entry> --body <text>`.", "loop inbox answer"},
+		{"runbooks/coordinator.md", "```bash\ngh pr merge --merge 12\n```", "gh pr merge"},
+		// A sentence that wraps across lines is one sentence.
+		{"skills/loop-sdlc-turn/SKILL.md", "- **Never merge.** A\n  person merges a PRD or a spec, and that merge is the sign-off.", "person merges"},
+	} {
+		src := coordinatorFixture("")
+		f := src[tc.file]
+		f.Data = append(append([]byte{}, f.Data...), []byte("\n"+tc.text+"\n")...)
+		got := check(t, src)
+		if len(got) != 1 || got[0].Kind != "hand-back" || !strings.Contains(got[0].Detail, tc.want) || got[0].File != tc.file {
+			t.Errorf("%q: want one hand-back finding in %s naming %q, got %v", tc.text, tc.file, tc.want, got)
+		}
+	}
+}
+
+// Only the coordinator's own files are held to it: a stage run cannot run
+// a host verb, and a room may tell the operator what the operator runs.
+func TestGateHoldsOnlyTheCoordinatorsFilesToTheHandBackRule(t *testing.T) {
+	src := coordinatorFixture("")
+	f := src["runbooks/implementer.md"]
+	f.Data = append(append([]byte{}, f.Data...), []byte("\nThe operator upgrades the host.\n")...)
+	if got := check(t, src); len(got) != 0 {
+		t.Fatalf("want no findings, got %v", got)
+	}
+}
+
+// A loop verb the coordinator cannot call is the operator's to run.
+func TestGatePassesAnOperatorVerbTheCoordinatorCannotCall(t *testing.T) {
+	src := coordinatorFixture("The operator runs `loop secret set <name>` for a missing secret.")
+	if got := check(t, src); len(got) != 0 {
+		t.Fatalf("want no findings, got %v", got)
+	}
+}

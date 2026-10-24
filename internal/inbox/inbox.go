@@ -35,7 +35,7 @@ const (
 	KindEscalation = "escalation" // an item in escalated
 	KindPanel      = "panel"      // an escalation that waits for the fixer's panel
 	KindDecision   = "decision"   // a fired decision
-	KindSignoff    = "signoff"    // a document that waits for the operator's merge
+	KindSignoff    = "signoff"    // a document that waits for the operator's approval
 	KindQuestion   = "question"   // a question the coordinator prepared
 	KindRoom       = "room"       // a room that is not closed
 	KindAlert      = "alert"      // an open alert
@@ -64,6 +64,9 @@ type Entry struct {
 	// Text is the entry's body. Agent text in it sits in agent tags.
 	Text string `json:"text"`
 	Link string `json:"link"`
+	// Head is the document PR head a sign-off approves; the server merges
+	// only that head.
+	Head string `json:"head,omitempty"`
 	// Next names the verb that settles the entry.
 	Next string `json:"next"`
 	// At is when the entry entered the inbox, in Unix milliseconds. The
@@ -85,6 +88,9 @@ type Config struct {
 	// ItemLink returns the link of an item the inbox already listed, so
 	// the inbox reads the item once. Link of the item's ids when nil.
 	ItemLink func(it machine.Item) string
+	// GitHub merges a document on a sign-off answer. SetGitHub sets it
+	// after the GitHub setup. A sign-off answer refuses while it is nil.
+	GitHub DocGitHub
 	// Now is the inbox clock. time.Now when nil.
 	Now          func() time.Time
 	PollInterval time.Duration

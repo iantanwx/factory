@@ -359,6 +359,12 @@ loop upgrade v1.2.3
 loop upgrade          # the newest published release
 ```
 
+You need not run it yourself. Tell the coordinator to upgrade, and it runs
+`loop coordinator upgrade` with your words. The server then starts
+`loop upgrade` as a transient systemd user unit, outside its own service and
+outside every checkout (ADR 0010). The unit's journal holds the report, and
+the coordinator reads the new version back after the restart.
+
 The loop repository is private, so `loop upgrade` reads its releases through
 the GitHub API with the host's `gh` login, the token `gh auth token` prints.
 With no login it exits 4, and its hint names the missing login.

@@ -101,8 +101,9 @@ func (in *Inbox) waitVerb(ctx context.Context, call *rpc.Call) cli.Result {
 // answer is `loop inbox answer`: the operator's answer, as the coordinator
 // relays it. An escalated item resumes to its stored target, and an answer
 // with --amend enters the item's inputs, so a twice-failed item is
-// admitted again (R10). A fired decision settles as answered. A question
-// records the answer, and an alert closes.
+// admitted again (R10). A fired decision settles as answered. A sign-off
+// merges the document at the head its entry named. A question records the
+// answer, and an alert closes.
 func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	id, body := call.Inv.Arg("entry"), strings.TrimSpace(call.Inv.Flags["body"])
 	if body == "" {
@@ -189,8 +190,7 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		in.Changed()
 		return cli.Found(map[string]any{"entry": id, "closed": true})
 	case KindSignoff:
-		return cli.Reject(cli.CodeTransitionNotAllowed, "signoff_by_merge",
-			"a sign-off is the operator's merge of the document's pull request; no inbox answer replaces it")
+		return in.signoff(ctx, call, id, project, item, body)
 	case KindPanel:
 		return cli.Reject(cli.CodeTransitionNotAllowed, "panel_pending",
 			"the fixer's panel routes this escalation; a person answers it only after the panel sends it to a person")
