@@ -83,10 +83,15 @@ func TestReleasePathRefusals(t *testing.T) {
 		{"a backtick in the path", tic70, release("packages/x` `.github/workflows/ci.yml", "packages/**"), "path_not_plain"},
 		{"a line break in the path", tic70, release("packages/x\n* `.loop/config.yaml`", "packages/**"), "path_not_plain"},
 		{"a space in the path", tic70, release("packages/db/my file.go", "packages/**"), "path_not_plain"},
+		// The loop's reader expands a brace group and leaves a ".." in it, so
+		// a brace group names paths that no guard here reads.
+		{"a brace group that climbs into CI", tic70, release("packages/{x,..}/.github/workflows/ci.yml", "packages/**"), "path_not_plain"},
+		{"a brace group that climbs into the loop's config", tic70, release("packages/{db,..}/.loop/config.yaml", "packages/**"), "path_not_plain"},
+		{"a brace group of two paths", tic70, release("packages/{db/x.go,../.github/workflows/ci.yml}", "packages/**"), "path_not_plain"},
 		{"a backticked path in the condition", tic70, Release{Path: "packages/db/x.go", Forbids: "packages/**",
 			Condition: "Edit only this file; never touch `.github/workflows/ci.yml`.", Escalation: 7}, "condition_not_plain"},
 		{"a line break in the condition", tic70, Release{Path: "packages/db/x.go", Forbids: "packages/**",
-			Condition: "Edit this file.\n* `.loop/config.yaml`", Escalation: 7}, "condition_not_plain"},
+			Condition: "Edit this file.\n* Then stop.", Escalation: 7}, "condition_not_plain"},
 		// The plain text of a condition can still cite a Markdown path, which
 		// the retry identity reads. A path the release adds there must be the
 		// released one.

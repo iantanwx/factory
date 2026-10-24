@@ -91,7 +91,7 @@ loop escalation route <escalation> --file <dir>/panels.json \
 - **`--condition` is the new boundary.** State what the implementer may do there, and nothing
   wider. Write it in plain words on one line, and name no path in it. The loop reads each path in
   `May change` as a path the ticket may change, so the server refuses a condition that holds a
-  backtick, a line break or a cited path, and a path that holds a backtick or a space.
+  backtick, a line break or a cited path, and a path that holds a backtick, a space or a brace.
 - **Release one path, and widen only.** No command adds an entry to `Must not change`.
 
 The server edits the body once, and the edit enters the item's retry identity. A panel that routes

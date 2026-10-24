@@ -213,9 +213,12 @@ func ReleasePath(body string, r Release) (string, *ReleaseRefusal) {
 		return "", &ReleaseRefusal{"no_condition", "--condition names what the implementer may do at the path; " +
 			"a released path with no condition is the whole entry"}
 	}
-	if !plain(path) || strings.ContainsFunc(path, unicode.IsSpace) {
-		return "", &ReleaseRefusal{"path_not_plain", fmt.Sprintf("%q holds a backtick, a space or a line break; "+
-			"name one path, and nothing else", path)}
+	// The loop's reader expands a brace group, and it resolves no ".." in
+	// one, so `lib/{x,..}/.github/ci.yml` names `.github/ci.yml` to it and
+	// `lib/` to the guards below. A brace group names more than one path.
+	if !plain(path) || strings.ContainsFunc(path, unicode.IsSpace) || strings.ContainsAny(path, "{}") {
+		return "", &ReleaseRefusal{"path_not_plain", fmt.Sprintf("%q holds a backtick, a space, a line break or a "+
+			"brace; name one path, and nothing else", path)}
 	}
 	if !plain(condition) {
 		return "", &ReleaseRefusal{"condition_not_plain", "--condition holds a backtick or a line break, and the loop " +
@@ -273,14 +276,20 @@ func ReleasePath(body string, r Release) (string, *ReleaseRefusal) {
 }
 
 // widens returns a path that the loop reads in the released body and not
-// in the old one, other than the released path, or "". It checks the edit
-// with the loop's own reader, so the guards above and that reader agree on
-// what the release widened.
+// in the old one, other than the released path as the guards above read
+// it, or "". It checks the edit with the loop's own reader, so the guards
+// and that reader agree on what the release widened. The released path is
+// the guards' reading, the clean path cut at its first glob character, and
+// never the reader's: a spelling the reader reads apart from the guards
+// then reads wider.
 func widens(old, released, path string) string {
 	before := admission.DeclaredPaths(old)
-	want := admission.DeclaredPaths("## Files\n\n" + admission.MayChange + ":\n- `" + path + "`\n")
+	want := path
+	if i := strings.IndexAny(path, "*?["); i >= 0 {
+		want = path[:i]
+	}
 	for _, p := range admission.DeclaredPaths(released) {
-		if !slices.Contains(before, p) && !slices.Contains(want, p) {
+		if !slices.Contains(before, p) && p != want {
 			return p
 		}
 	}
