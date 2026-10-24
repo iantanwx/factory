@@ -44,8 +44,14 @@ func TestCoordinatorRebindsAStaleHandleByIncarnation(t *testing.T) {
 	if got.Session == nil || got.RunID != first.RunID {
 		t.Fatalf("the coordinator after the handle change = %+v; first %+v", got, first)
 	}
+	if !w.liveToken(first.RunID) {
+		t.Fatalf("the rebind revoked the token of run %s: the live coordinator's loop commands would fail", first.RunID)
+	}
 	if got.Session.ID != live {
 		t.Fatalf("stored handle = %+v, want the live handle %+v", got.Session.ID, live)
+	}
+	if got.Session.Epoch != w.host.Epoch() {
+		t.Fatalf("stored epoch = %q, want the inventory's epoch %q", got.Session.Epoch, w.host.Epoch())
 	}
 	if err := w.host.Notify(ctx, got.Session.ID, "loop inbox: 1 new"); err != nil {
 		t.Fatalf("a ring through the stored session: %v", err)
@@ -154,6 +160,9 @@ func TestCoordinatorRebindKeepsTheStoredHandleOnADoubt(t *testing.T) {
 			if got.Session.Epoch != first.Session.Epoch {
 				t.Fatalf("stored epoch = %q, want %q", got.Session.Epoch, first.Session.Epoch)
 			}
+			if !w.liveToken(first.RunID) {
+				t.Fatalf("a doubt revoked the token of run %s", first.RunID)
+			}
 			if n := len(w.host.Launches()); n != 1 {
 				t.Fatalf("launches = %d, want 1: the server started a second coordinator", n)
 			}
@@ -188,6 +197,9 @@ func TestCoordinatorNeverRebindsToAnotherIncarnation(t *testing.T) {
 	got := w.s.Coordinator()
 	if got.Session == nil || got.RunID != first.RunID || got.Session.ID != first.Session.ID {
 		t.Fatalf("the coordinator after a daemon death = %+v; want the stored %+v", got.Session, first.Session)
+	}
+	if !w.liveToken(first.RunID) {
+		t.Fatalf("a daemon death revoked the token of run %s", first.RunID)
 	}
 	if n := len(w.host.Launches()); n != 1 {
 		t.Fatalf("launches = %d, want 1", n)
