@@ -39,3 +39,28 @@ func TestRecordRingKeepsOneRow(t *testing.T) {
 		t.Fatal("RecordRing took text on an accepted ring")
 	}
 }
+
+// C-bug-1: the backoff starts at the RefusalLimit-th refusal in a row to
+// one handle, doubles with each refusal after it, and stops at HoldMax. A
+// ring to another handle is never held.
+func TestCBug1TheRingHoldDoublesToItsCap(t *testing.T) {
+	at := time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		refusals int
+		want     time.Duration
+	}{{1, 0}, {2, 0}, {3, time.Minute}, {4, 2 * time.Minute}, {5, 4 * time.Minute}, {8, 30 * time.Minute}, {40, 30 * time.Minute}} {
+		o := RingOutcome{At: at, Source: SourceInbox, Result: RingRefused, Handle: "h/t/i", Refusals: c.refusals}
+		if got := o.Hold(); got != c.want {
+			t.Errorf("the hold after %d refusals = %s, want %s", c.refusals, got, c.want)
+		}
+		if held := o.Held("h/t/i", at.Add(c.want-time.Second)); held != (c.want > 0) {
+			t.Errorf("a ring to the same handle %s after %d refusals: held = %v", c.want-time.Second, c.refusals, held)
+		}
+		if o.Held("h/t/i", at.Add(c.want)) || o.Held("h/t2/i", at) {
+			t.Errorf("after %d refusals, a passed hold or another handle is held", c.refusals)
+		}
+	}
+	if (RingOutcome{At: at, Result: RingAccepted, Handle: "h/t/i"}).Held("h/t/i", at) {
+		t.Error("an accepted ring holds the next one")
+	}
+}
