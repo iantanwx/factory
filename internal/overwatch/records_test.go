@@ -224,7 +224,7 @@ func TestKeyAndSlug(t *testing.T) {
 func TestASweepOfNoPartReadsNoRecord(t *testing.T) {
 	w := newFakeWorld(t)
 	w.itemsErr = errFake
-	r := Sweep(context.Background(), w, Parts())
+	r := Sweep(context.Background(), w, nil)
 	if r.Code != Quiet || r.Records != "" || r.Parts == nil || len(r.Parts) != 0 {
 		t.Fatalf("a sweep of no part = %+v", r)
 	}
