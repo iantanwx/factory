@@ -67,7 +67,7 @@ func judgeWorld(t *testing.T, jev *fakeJev, judges ...Judge) (string, cli.Handle
 func inv(flags map[string]string) cli.Invocation {
 	r := cli.Surface()
 	v, _ := r.Verb("escalation judge")
-	return cli.Invocation{Verb: v, Flags: flags, Args: []string{}}
+	return cli.Invocation{Verb: v, Flags: flags, Args: []string{"4"}}
 }
 
 // `loop escalation judge` with fake judges and a fake Jev writes a panel

@@ -52,7 +52,8 @@ type Record struct {
 // HolderOf names the holds row of escalation id.
 func HolderOf(id int64) string { return "escalation:" + strconv.FormatInt(id, 10) }
 
-// Service serves `escalation raise` and `escalation route`.
+// Service serves `escalation raise`, `escalation route` and
+// `escalation decisions`.
 type Service struct {
 	Store    *store.Store
 	Machine  *machine.Machine
@@ -63,9 +64,12 @@ type Service struct {
 	Logger  *slog.Logger
 }
 
-// Register sets the handlers of raise and route.
+// Register sets the handlers of raise, route and decisions.
 func (s *Service) Register(srv *rpc.Server) error {
 	if err := srv.Handle("escalation raise", s.raise); err != nil {
+		return err
+	}
+	if err := srv.Handle("escalation decisions", s.decisions); err != nil {
 		return err
 	}
 	return srv.Handle("escalation route", s.route)

@@ -35,6 +35,15 @@ type ProjectConfig struct {
 	Stages      map[string]StageConfig `yaml:"stages,omitempty"`
 	Gates       []Command              `yaml:"gates,omitempty"`
 	PolicyHooks []Command              `yaml:"policy_hooks,omitempty"`
+	Signoff     SignoffConfig          `yaml:"signoff,omitempty"`
+}
+
+// SignoffConfig names who signs the project's documents off. GitHub
+// notifies each reader when the server opens a PRD or a spec PR, the two
+// documents a person merges. Empty means GitHub notifies nobody, and the
+// operator learns of a sign-off from the inbox only.
+type SignoffConfig struct {
+	Readers []string `yaml:"readers,omitempty"` // GitHub logins, never an organisation
 }
 
 // TrackerConfig names the project's tracker adapter. Empty means none.
@@ -109,6 +118,17 @@ func (c *ProjectConfig) validate() error {
 	}
 	checkCommands(ck, "gates", c.Gates)
 	checkCommands(ck, "policy_hooks", c.PolicyHooks)
+	seen := map[string]bool{}
+	for i, r := range c.Signoff.Readers {
+		f := fmt.Sprintf("signoff.readers[%d]", i)
+		switch {
+		case !ownerRe.MatchString(r):
+			ck.fail(f, "must be a GitHub login")
+		case seen[strings.ToLower(r)]:
+			ck.fail(f, "names a reader twice")
+		}
+		seen[strings.ToLower(r)] = true
+	}
 	return ck.err()
 }
 
