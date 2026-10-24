@@ -147,10 +147,19 @@ func newer(a, b CheckRun) bool {
 	return cmp.Compare(a.ID, b.ID) > 0
 }
 
-// Checks reads the check runs and the commit statuses of head.
+// maxCheckPages bounds the read of a head's check runs: 1000 of them.
+const maxCheckPages = 10
+
+// Checks reads the check runs and the commit statuses of head. Ported from
+// MAX_PAGES in scripts/sdlc/graphql-pages.ts (alpha): a read that reaches
+// the page cap with a full page fails, and never classifies the runs it
+// did read, since a red run on a later page would leave the head green.
 func (s *Service) Checks(ctx context.Context, p config.Project, head string) (CIReport, error) {
 	var runs []CheckRun
-	for page := 1; page <= 10; page++ {
+	for page := 1; ; page++ {
+		if page > maxCheckPages {
+			return CIReport{}, fmt.Errorf("github: %s has more than %d check runs on %s", p.Repo, maxCheckPages*100, head)
+		}
 		var batch struct {
 			Total int        `json:"total_count"`
 			Runs  []CheckRun `json:"check_runs"`
