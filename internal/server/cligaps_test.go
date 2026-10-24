@@ -136,6 +136,84 @@ func TestReviewPassNeedsGreenCIAtItsHead(t *testing.T) {
 	}
 }
 
+// review submit --head reads the PR's live head at the write. A head that
+// moved since the reviewer read it refuses the verdict, posts no comment
+// and leaves the ticket in review; the live head records the verdict.
+func TestReviewSubmitRefusesAHeadThePRNoLongerHolds(t *testing.T) {
+	w := newGHWorld(t)
+	ctx := context.Background()
+	if err := w.srv.Projects.Add(ctx, config.Project{ID: "alpha", Repo: gt.Repo, Path: w.checkout}); err != nil {
+		t.Fatal(err)
+	}
+	id := w.claim()
+	gt.Commit(t, w.checkout, "work", map[string]string{"a.txt": "a\n"})
+	if env := w.run("branch", "push"); env["ok"] != true {
+		t.Fatalf("branch push = %v", env)
+	}
+	if env := w.run("pr", "open", "--title", "Add a"); env["ok"] != true {
+		t.Fatalf("pr open = %v", env)
+	}
+	read := gt.Git(t, w.checkout, "rev-parse", "HEAD")
+	w.issue(id, machine.StageCodeReviewer, "run-2")
+	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	w.api.World.SetRuns(read, gt.CheckRun("ci", read, "completed", "success", at))
+	moved := "cccccccccccccccccccccccccccccccccccccccc"
+	w.api.World.Update(w.api.World.PR(1), func(p *gt.PR) { p.HeadSHA = moved })
+
+	env := w.run("review", "submit", id, "--verdict", "pass", "--head", read, "--body", "Looks right.")
+	if env["code"] != cli.CodeStatusChanged || env["rule"] != "head_changed" || !strings.Contains(env["hint"].(string), moved) {
+		t.Fatalf("review submit at a moved head = %v", env)
+	}
+	if n := len(w.api.World.Comments(1)); n != 0 {
+		t.Fatalf("%d comments reached GitHub", n)
+	}
+	if it, _ := w.srv.Machine.Show(ctx, "alpha", id); it.Status != machine.InReview || it.Fact(machine.FactReviewedHead) != "" {
+		t.Fatalf("after the refused verdict: %s %v", it.Status, it.Facts)
+	}
+
+	w.api.World.SetRuns(moved, gt.CheckRun("ci", moved, "completed", "success", at))
+	if env := w.run("review", "submit", id, "--verdict", "pass", "--head", moved); env["ok"] != true {
+		t.Fatalf("review submit at the live head = %v", env)
+	}
+	if it, _ := w.srv.Machine.Show(ctx, "alpha", id); it.Status != machine.ReadyToMerge || it.Fact(machine.FactReviewedHead) != moved {
+		t.Fatalf("after the verdict at the live head: %s %v", it.Status, it.Facts)
+	}
+}
+
+// review submit --head on an item whose pull request closed is refused
+// NOT_FOUND: no open PR holds the head, as candidateFeedback refused a PR
+// whose state was not OPEN. Nothing is posted, and the ticket stays in
+// review.
+func TestReviewSubmitRefusesAHeadWithNoOpenPR(t *testing.T) {
+	w := newGHWorld(t)
+	ctx := context.Background()
+	if err := w.srv.Projects.Add(ctx, config.Project{ID: "alpha", Repo: gt.Repo, Path: w.checkout}); err != nil {
+		t.Fatal(err)
+	}
+	id := w.claim()
+	gt.Commit(t, w.checkout, "work", map[string]string{"a.txt": "a\n"})
+	if env := w.run("branch", "push"); env["ok"] != true {
+		t.Fatalf("branch push = %v", env)
+	}
+	if env := w.run("pr", "open", "--title", "Add a"); env["ok"] != true {
+		t.Fatalf("pr open = %v", env)
+	}
+	head := w.api.World.PR(1).HeadSHA
+	w.issue(id, machine.StageCodeReviewer, "run-2")
+	w.api.World.Update(w.api.World.PR(1), func(p *gt.PR) { p.State = "closed" })
+
+	env := w.run("review", "submit", id, "--verdict", "reject", "--head", head, "--body", "Fix the test.")
+	if env["code"] != cli.CodeNotFound || env["rule"] != "no_open_pr" {
+		t.Fatalf("review submit with no open PR = %v", env)
+	}
+	if n := len(w.api.World.Comments(1)); n != 0 {
+		t.Fatalf("%d comments reached GitHub", n)
+	}
+	if it, _ := w.srv.Machine.Show(ctx, "alpha", id); it.Status != machine.InReview || it.Fact(machine.FactReviewedHead) != "" {
+		t.Fatalf("after the refused verdict: %s %v", it.Status, it.Facts)
+	}
+}
+
 // The fixer reads and notes the item of the escalation it routes, though
 // its token holds no item. Any other item stays refused, and so does any
 // other write on the escalated item.
