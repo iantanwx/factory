@@ -10,6 +10,8 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing/fstest"
 
@@ -149,4 +151,116 @@ func namesSkill(f *fstest.MapFile, name string) bool {
 		}
 	}
 	return false
+}
+
+// PlaceSkills replaces dir with the trees. trees is the whole set: dir then
+// holds exactly these trees, and nothing it held before. The set is written
+// beside dir first, so a crash leaves the old set, the new set or no set,
+// and never part of one; CheckSkills reports a missing set. A file is 0755
+// when its mode holds an executable bit and 0644 otherwise, and each
+// directory is 0700.
+func PlaceSkills(trees map[string]fs.FS, dir string) (err error) {
+	parent := filepath.Dir(dir)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.MkdirTemp(parent, "."+filepath.Base(dir)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(tmp)
+		}
+	}()
+	for name, tree := range trees {
+		if err := writeTree(tree, filepath.Join(tmp, name)); err != nil {
+			return fmt.Errorf("release: place the skill %s: %w", name, err)
+		}
+	}
+	old := ""
+	if _, err := os.Lstat(dir); err == nil {
+		old = filepath.Join(parent, "."+filepath.Base(dir)+".old-"+randomSuffix())
+		if err := os.Rename(dir, old); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := os.Rename(tmp, dir); err != nil {
+		if old != "" {
+			_ = os.Rename(old, dir)
+		}
+		return err
+	}
+	if old != "" {
+		_ = os.RemoveAll(old)
+	}
+	return syncDir(parent)
+}
+
+// writeTree writes each regular file of tree under dst.
+func writeTree(tree fs.FS, dst string) error {
+	return fs.WalkDir(tree, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		path := filepath.Join(dst, filepath.FromSlash(name))
+		if d.IsDir() {
+			return os.MkdirAll(path, 0o700)
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", name)
+		}
+		data, err := fs.ReadFile(tree, name)
+		if err != nil {
+			return err
+		}
+		mode := fs.FileMode(0o644)
+		if info.Mode()&0o111 != 0 {
+			mode = 0o755
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, data, mode); err != nil {
+			return err
+		}
+		// WriteFile leaves an existing file's mode, and the umask trims a
+		// new one's.
+		return os.Chmod(path, mode)
+	})
+}
+
+// CheckSkills reports each pin whose directory under dir is missing or
+// fails its hash.
+func CheckSkills(pins []pack.ThirdParty, dir string) []string {
+	var drift []string
+	for _, pin := range pins {
+		sub := filepath.Join(dir, pin.Name)
+		info, err := os.Stat(sub)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			drift = append(drift, fmt.Sprintf("the skill %s is missing from %s", pin.Name, dir))
+			continue
+		case err != nil:
+			drift = append(drift, fmt.Sprintf("the skill %s cannot be read: %v", pin.Name, err))
+			continue
+		case !info.IsDir():
+			drift = append(drift, fmt.Sprintf("the skill %s at %s is not a directory", pin.Name, sub))
+			continue
+		}
+		got, err := pack.TreeHash(os.DirFS(sub))
+		switch {
+		case err != nil:
+			drift = append(drift, fmt.Sprintf("the skill %s at %s cannot be hashed: %v", pin.Name, sub, err))
+		case got != pin.SHA256:
+			drift = append(drift, fmt.Sprintf("the skill %s at %s has tree hash %s, and the pin %s holds %s", pin.Name, sub, got, pin.Commit, pin.SHA256))
+		}
+	}
+	return drift
 }

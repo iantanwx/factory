@@ -20,6 +20,7 @@ const (
 	ClassDone     Class = "done"      // the run finished with done
 	ClassFailed   Class = "failed"    // the run finished with failed
 	ClassBlocked  Class = "blocked"   // the run finished with blocked
+	ClassStalled  Class = "stalled"   // the run finished with done and moved nothing
 	ClassCrashed  Class = "crashed"   // the session ended with no finish
 	ClassNotReady Class = "not-ready" // the agent never became ready
 	ClassQuotaHit Class = "quota-hit" // the run hit a usage limit
@@ -31,8 +32,11 @@ const (
 
 // Counted reports whether the class adds one failure for the run's inputs.
 // A run that reports blocked asks for a person or a dependency, and its
-// attempt is no failure of the task.
-func (c Class) Counted() bool { return c == ClassFailed || c == ClassCrashed }
+// attempt is no failure of the task. A run that reports done and moved
+// nothing did no part of the task, so it counts, or the next fire takes
+// the item again with the same inputs, forever (tickertown admission.ts
+// RELEASED, parity 2.12).
+func (c Class) Counted() bool { return c == ClassFailed || c == ClassCrashed || c == ClassStalled }
 
 // Outage is one span the server was down: from the last liveness tick to
 // the next start (KTD8).
@@ -47,6 +51,10 @@ type Settlement struct {
 	// Finish is the outcome of `loop run finish`: done, failed or blocked.
 	// Empty means the run never finished.
 	Finish string
+	// Held means the run still held its item's lease at its finish. Every
+	// move that does the stage's work ends the claim, so a done finish
+	// that still holds it moved nothing.
+	Held bool
 	// NotReady means the agent never became ready.
 	NotReady bool
 	// QuotaHit means the run hit a usage limit.
@@ -66,7 +74,8 @@ type Settlement struct {
 	Note string
 }
 
-// Classify returns the run's class. A finish decides alone. A session that
+// Classify returns the run's class. A finish decides, and a done finish
+// whose run still held its item is stalled. A session that
 // ended with no finish is infra when an outage began after the run's last
 // observed activity and before the session ended: the run then made no CLI
 // call after the outage. Every other such session is crashed, whether or
@@ -74,6 +83,9 @@ type Settlement struct {
 func Classify(s Settlement) Class {
 	switch s.Finish {
 	case cli.OutcomeDone:
+		if s.Held {
+			return ClassStalled
+		}
 		return ClassDone
 	case cli.OutcomeFailed:
 		return ClassFailed

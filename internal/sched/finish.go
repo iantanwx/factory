@@ -36,7 +36,9 @@ type FinishResult struct {
 // Finish settles a run by its own report (KTD7): done, failed or blocked.
 // It releases the lease the run still holds, which restores the
 // stage-correct state, settles the checkout, removes .env and revokes the
-// token. The next tick closes the session and keeps the checkout.
+// token. The next tick closes the session and keeps the checkout. A done
+// finish whose run still held the lease moved nothing, and it counts as
+// a stalled failure.
 func (s *Scheduler) Finish(ctx context.Context, runID, outcome string) (FinishResult, *cli.Refusal) {
 	return s.FinishFault(ctx, runID, outcome, "")
 }
@@ -65,8 +67,22 @@ func (s *Scheduler) FinishFault(ctx context.Context, runID, outcome, faultID str
 	if ref != nil {
 		return FinishResult{}, ref
 	}
+	settle := admission.Settlement{RunID: runID, Finish: outcome}
+	if outcome == cli.OutcomeDone && r.Item != "" {
+		// Every move that does the stage's work ends the claim. A done
+		// run that still holds its item moved nothing (parity 2.12). A
+		// lease that cannot be read counts nothing: the run still settles.
+		l, err := s.cfg.Machine.Lease(ctx, r.Project, r.Item)
+		if err != nil {
+			s.log.WarnContext(ctx, "read the lease of a done run", "run", runID, "item", r.Item, "err", err)
+		}
+		if settle.Held = err == nil && l.Owner == runID; settle.Held {
+			settle.Note = "finished done, and the item kept its status"
+		}
+	}
 	now := s.now()
-	out, err := s.cfg.Admission.RecordOutcome(ctx, admission.Settlement{RunID: runID, Finish: outcome, Ended: now, LastCLICall: now})
+	settle.Ended, settle.LastCLICall = now, now
+	out, err := s.cfg.Admission.RecordOutcome(ctx, settle)
 	if err != nil {
 		return FinishResult{}, cli.InternalRefusal(err)
 	}
