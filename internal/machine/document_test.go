@@ -100,3 +100,50 @@ func TestListSelectsByFact(t *testing.T) {
 		t.Fatalf("read = %+v %+v", it, r)
 	}
 }
+
+// F-10: adr_misjoined returns an epic to architecture and clears its adr
+// fact, only while the fact still names the ADR the caller read.
+func TestADRMisjoinedNeedsTheADRItRead(t *testing.T) {
+	w := newWorld(t)
+	ep := w.create(KindEpic, "create_architecture", nil)
+	w.must(ep, "adr_landed", map[string]string{"path": "docs/adr/0007-x.md"})
+	r := wantCode(t, w.apply(ep, VerbADRMisjoined, map[string]string{"path": "docs/adr/0001-y.md"}), cli.CodeStatusChanged)
+	if r.Rule != "adr_changed" {
+		t.Fatalf("rule %q", r.Rule)
+	}
+	if it := w.show(ep); it.Status != SpecNeeded || it.Fact(FactADR) != "docs/adr/0007-x.md" {
+		t.Fatalf("a refused return changed the epic: %s %v", it.Status, it.Facts)
+	}
+	w.must(ep, VerbADRMisjoined, map[string]string{"path": "docs/adr/0007-x.md"})
+	if it := w.show(ep); it.Status != Architecture || it.Fact(FactADR) != "" {
+		t.Fatalf("after the return: %s %v", it.Status, it.Facts)
+	}
+}
+
+// factorio-8qm: a document's review pass pins the head the reviewer read,
+// so the sign-off names the head the operator approves. A moved head is
+// pinned again by the server, and the document stays in sign-off.
+func TestDocumentPassPinsTheSignoffHead(t *testing.T) {
+	for _, c := range []struct{ review, signoff string }{{PRDReview, PRDSignoff}, {SpecReview, SpecSignoff}} {
+		t.Run(c.signoff, func(t *testing.T) {
+			w := newWorld(t)
+			ep := w.create(KindEpic, "prd_submit", map[string]string{"pr": "7"})
+			w.force(ep, c.review, nil)
+			w.must(ep, "review_pass", map[string]string{"head": "h1"})
+			if it := w.show(ep); it.Status != c.signoff || it.Fact(FactReviewedHead) != "h1" {
+				t.Fatalf("after the pass: %s %v", it.Status, it.Facts)
+			}
+			w.must(ep, VerbSignoffHead, map[string]string{"head": "h2"})
+			if it := w.show(ep); it.Status != c.signoff || it.Fact(FactReviewedHead) != "h2" {
+				t.Fatalf("after the new head: %s %v", it.Status, it.Facts)
+			}
+			wantCode(t, w.apply(ep, VerbSignoffHead, nil), cli.CodeUsage)
+			if got := w.show(ep).Fact(FactReviewedHead); got != "h2" {
+				t.Fatalf("a refused pin wrote reviewed_head %q", got)
+			}
+		})
+	}
+	w := newWorld(t)
+	ep := w.create(KindEpic, "prd_submit", nil)
+	wantCode(t, w.apply(ep, VerbSignoffHead, map[string]string{"head": "h1"}), cli.CodeTransitionNotAllowed)
+}

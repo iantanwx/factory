@@ -14,7 +14,7 @@ jobs:
   # request. The commits gate reads the branch, and the secrets gate reads
   # every commit.
   gates:
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04-4
     steps:
       - uses: actions/checkout@v5
         with:
@@ -35,7 +35,7 @@ jobs:
   # URL, so the hashes decide. Keep the values here in step with the pin
   # table.
   acceptance:
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 30
     env:
       BD_URL: https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz
@@ -75,7 +75,7 @@ jobs:
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [gates, acceptance]
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-24.04
     permissions:
       contents: write
     concurrency: release

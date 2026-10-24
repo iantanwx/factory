@@ -202,8 +202,14 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 		e.Next = "loop inbox answer " + e.ID + " --body <the operator's answer>"
 		text = append(text, "The decision's trigger fired. The trigger, as filed:", AgentText(it.Fact(FactFiledBy), it.Fact(FactTrigger)))
 	case KindSignoff:
-		e.Next = "the operator merges the document's pull request; the merge is the sign-off"
-		text = append(text, fmt.Sprintf("The %s passed review and waits for the operator's sign-off.", docOf(it.Status)))
+		e.Head = it.Fact(machine.FactReviewedHead)
+		e.Next = "loop inbox answer " + e.ID + ` --body "<the operator's approval, in the operator's own words>"; the server merges the document at head ` + orDefault(e.Head, "<none pinned>")
+		at := ""
+		if e.Head != "" {
+			at = " at head " + e.Head
+		}
+		text = append(text, fmt.Sprintf("The %s passed review%s and waits for the operator's approval. On the approval the server merges that head.",
+			docOf(it.Status), at))
 	}
 	if n := it.Fact(machine.FactNote); n != "" && kind != KindSignoff {
 		text = append(text, "The item's last note:", AgentText(it.Fact(machine.FactOwner), n))
@@ -319,22 +325,32 @@ func (in *Inbox) rooms(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 }
 
 func (in *Inbox) alerts(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
-	rs, err := tx.QueryContext(ctx, `SELECT id, project, kind, subject, body, count, last_at FROM alerts WHERE state = 'open' ORDER BY id`)
+	rs, err := tx.QueryContext(ctx, `SELECT id, project, kind, subject, body, count, last_at, finding, finding_run,
+		coalesce(finding_count, 0), coalesce(finding_last_at, 0) FROM alerts WHERE state = 'open' ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rs.Close() }()
 	var out []Entry
 	for rs.Next() {
-		var id, at int64
-		var count int
-		var project, kind, subject, body string
-		if err := rs.Scan(&id, &project, &kind, &subject, &body, &count, &at); err != nil {
+		var id, at, foundAt int64
+		var count, foundCount int
+		var project, kind, subject, body, finding, findingRun string
+		if err := rs.Scan(&id, &project, &kind, &subject, &body, &count, &at, &finding, &findingRun, &foundCount, &foundAt); err != nil {
 			return nil, err
 		}
 		e := Entry{ID: rowEntry(KindAlert, id), Kind: KindAlert, Awaits: AwaitsCoordinator, Project: project, Status: kind,
 			Title: subject, Text: body, Next: "loop inbox answer " + rowEntry(KindAlert, id) + " --body <what was done> closes it", At: at}
-		if count > 1 {
+		switch {
+		case finding != "":
+			// The entry keeps the time it had at the note, so a repeat
+			// after the finding rings no one. The count still shows it.
+			e.Found, e.At = true, foundAt
+			if count > 1 {
+				e.Text = fmt.Sprintf("%s\n\nRaised %d times, %d of them after the finding.", body, count, count-foundCount)
+			}
+			e.Text += "\n\nThe finding:\n\n" + AgentText(findingRun, finding)
+		case count > 1:
 			e.Text = fmt.Sprintf("%s\n\nRaised %d times.", body, count)
 		}
 		if personAlerts[kind] {

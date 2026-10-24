@@ -92,6 +92,55 @@ func TestDecisionTimersFireTheByDateOnce(t *testing.T) {
 	}
 }
 
+// A code-reviewer's spec defect pages a person now, as a code pass with
+// `epic` escalates the epic (code-reviewer.md:1098-1130, alpha). A run may
+// not fire a decision it does not hold, so `decision file --now` files and
+// fires it in one write: the decision waits on a person in the inbox, and
+// the coordinator hears of it. --now with --by names two triggers.
+func TestDecisionFiledNowWaitsOnAPersonAtOnce(t *testing.T) {
+	w := newHumanWorld(t, "")
+	item := todoTicket(t, w.bx)
+	rev := w.runToken("rev-1", item, machine.StageCodeReviewer)
+	waits := w.fileDecisionAs(rev, "the spec names no retry limit")
+	if env, _ := w.as(rev, "decision", "fire", waits); env["code"] != cli.CodeCapabilityDenied {
+		t.Fatalf("a run fired a decision it does not hold: %v", env)
+	}
+	env, code := w.as(rev, "decision", "file", "--title", "the spec names no backoff", "--trigger", "the code-reviewer passed a ticket on a spec defect",
+		"--body", "spec section 4.2 names no backoff", "--now")
+	if code != 0 {
+		t.Fatalf("decision file --now = %d %v", code, env)
+	}
+	data := env["data"].(map[string]any)
+	d := data["decision"].(string)
+	if data["status"] != machine.NeedsHuman || w.show(d).Status != machine.NeedsHuman {
+		t.Fatalf("filed now = %v, stored %s", data, w.show(d).Status)
+	}
+	e := entryByID(w.entries("person"), "decision/alpha/"+d)
+	if e == nil || !strings.Contains(e["text"].(string), "<!--sdlc:agent run=rev-1-->\nthe code-reviewer passed a ticket on a spec defect\n<!--/sdlc:agent-->") {
+		t.Fatalf("the decision filed now = %v", e)
+	}
+	w.waitNotified("decision/alpha/" + d)
+	if env, _ := w.as(rev, "decision", "file", "--title", "the spec names no jitter", "--trigger", "launch", "--now",
+		"--by", w.clock.Now().UTC().Format("2006-01-02")); env["code"] != cli.CodeUsage {
+		t.Fatalf("--now with --by = %v", env)
+	}
+}
+
+// fileDecisionAs files a decision from checkout with no --now, and checks
+// that it waits in pending with no inbox entry.
+func (w *humanWorld) fileDecisionAs(checkout, title string) string {
+	w.t.Helper()
+	env, code := w.as(checkout, "decision", "file", "--title", title, "--trigger", "the first paying user")
+	if code != 0 {
+		w.t.Fatalf("decision file = %d %v", code, env)
+	}
+	d := env["data"].(map[string]any)["decision"].(string)
+	if w.show(d).Status != machine.DecisionPending || entryByID(w.entries(""), "decision/alpha/"+d) != nil {
+		w.t.Fatalf("a decision filed with no --now = %s", w.show(d).Status)
+	}
+	return d
+}
+
 // `inbox defer --until` hides the entry until that time. A deferred
 // decision goes back to pending, and decision-timers fires it at that
 // time, also across a server restart. The time is in SQLite, and beads
@@ -194,8 +243,13 @@ func TestInboxSaysWhoEachEntryWaitsOn(t *testing.T) {
 	if sign == nil || sign["awaits"] != "person" || !strings.Contains(sign["text"].(string), "PRD passed review") {
 		t.Fatalf("sign-off = %v", sign)
 	}
-	if env, _ := w.coordinator("inbox", "answer", "signoff/alpha/"+ep.ID, "--body", "ok"); env["code"] != cli.CodeTransitionNotAllowed {
-		t.Fatalf("an inbox answer signed off: %v", env)
+	// A server with no GitHub cannot merge the document, so the answer
+	// moves nothing. The acceptance suite merges one (factorio-8qm).
+	if env, _ := w.coordinator("inbox", "answer", "signoff/alpha/"+ep.ID, "--body", "ok"); env["code"] != cli.CodeNotImplemented {
+		t.Fatalf("an inbox answer with no GitHub: %v", env)
+	}
+	if got := w.show(ep.ID).Status; got != machine.PRDSignoff {
+		t.Fatalf("a refused sign-off moved the epic to %s", got)
 	}
 	byKind := map[string]string{}
 	for _, e := range es {
@@ -227,5 +281,96 @@ func TestCoordinatorSendRingsTheCoordinator(t *testing.T) {
 	w.waitNotified("file three tickets for the review gaps")
 	if env, _ := w.coordinator("coordinator", "send", "--body", "hello"); env["code"] != cli.CodeCapabilityDenied {
 		t.Fatalf("the coordinator's own send = %v", env)
+	}
+}
+
+// `inbox note` records the root cause of an open alert, and the alert stays
+// open. A repeat of that alert after the finding rings no one: its entry
+// keeps the time it had at the note. An alert with no finding still rings
+// on each repeat, and a later note replaces the finding.
+func TestInboxNoteHoldsAFindingAndARepeatDoesNotRing(t *testing.T) {
+	w := newHumanWorld(t, "")
+	ctx := context.Background()
+	alerts := config.StoreAlerter(w.srv.Store)
+	crash := config.Alert{Project: "alpha", Kind: sched.AlertStartFailed, DedupeKey: "start", Subject: "implementer run r-1 did not start",
+		Body: "disk full"}
+	quiet := config.Alert{Project: "alpha", Kind: sched.AlertRunUnknown, DedupeKey: "unknown", Subject: "a run's liveness is unknown"}
+	for _, a := range []config.Alert{crash, quiet} {
+		if err := alerts.Raise(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var noted, plain string
+	for _, e := range w.entries("") {
+		switch e["status"] {
+		case sched.AlertStartFailed:
+			noted = e["entry"].(string)
+		case sched.AlertRunUnknown:
+			plain = e["entry"].(string)
+		}
+		if e["found"] != nil {
+			t.Fatalf("an alert with no note holds a finding: %v", e)
+		}
+	}
+	env, _ := w.coordinator("inbox", "wait")
+	cursor := env["data"].(map[string]any)["cursor"].(string)
+
+	w.clock.Advance(time.Minute)
+	env, code := w.coordinator("inbox", "note", noted, "--body", "the checkout disk is full; the operator frees /var")
+	if code != 0 || env["data"].(map[string]any)["entry"] != noted || env["data"].(map[string]any)["found"] != true {
+		t.Fatalf("inbox note = %d %v", code, env)
+	}
+	if env, code := w.coordinator("inbox", "wait", "--since", cursor); code != 4 {
+		t.Fatalf("the note rang the coordinator: %d %v", code, env)
+	}
+	e := entryByID(w.entries(""), noted)
+	if e == nil || e["found"] != true ||
+		!strings.Contains(e["text"].(string), "<!--sdlc:agent run=coord-1-->\nthe checkout disk is full; the operator frees /var\n<!--/sdlc:agent-->") {
+		t.Fatalf("the noted alert = %v", e)
+	}
+
+	w.clock.Advance(time.Minute)
+	for _, a := range []config.Alert{crash, crash} {
+		if err := alerts.Raise(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if env, code := w.coordinator("inbox", "wait", "--since", cursor); code != 4 {
+		t.Fatalf("a repeat after the finding rang: %d %v", code, env)
+	}
+	e = entryByID(w.entries(""), noted)
+	if e == nil || e["found"] != true || !strings.Contains(e["text"].(string), "Raised 3 times, 2 of them after the finding.") {
+		t.Fatalf("the repeated alert = %v", e)
+	}
+
+	if err := alerts.Raise(ctx, quiet); err != nil {
+		t.Fatal(err)
+	}
+	env, code = w.coordinator("inbox", "wait", "--since", cursor)
+	es, _ := env["data"].(map[string]any)["entries"].([]any)
+	if code != 0 || len(es) != 1 || es[0].(map[string]any)["entry"] != plain {
+		t.Fatalf("a repeat with no finding did not ring: %d %v", code, env)
+	}
+
+	if _, code := w.coordinator("inbox", "note", noted, "--body", "a guess: the disk fills from old checkouts"); code != 0 {
+		t.Fatal("a second note was refused")
+	}
+	text := entryByID(w.entries(""), noted)["text"].(string)
+	if strings.Contains(text, "frees /var") || !strings.Contains(text, "old checkouts") || !strings.Contains(text, "Raised 3 times, 0 of them after the finding.") {
+		t.Fatalf("the second note = %q", text)
+	}
+
+	for _, bad := range []struct{ entry, code string }{
+		{"question/1", cli.CodeUsage}, {"alert/x", cli.CodeUsage}, {"alert/99", cli.CodeNotFound},
+	} {
+		if env, _ := w.coordinator("inbox", "note", bad.entry, "--body", "x"); env["code"] != bad.code {
+			t.Fatalf("note %s = %v", bad.entry, env)
+		}
+	}
+	if _, code := w.coordinator("inbox", "answer", noted, "--body", "freed the disk"); code != 0 {
+		t.Fatal("the noted alert does not close")
+	}
+	if env, _ := w.coordinator("inbox", "note", noted, "--body", "late"); env["code"] != cli.CodeNotFound {
+		t.Fatalf("a note on a closed alert = %v", env)
 	}
 }

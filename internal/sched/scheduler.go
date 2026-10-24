@@ -48,7 +48,10 @@ const (
 	AlertRunRepeated    = "run_uncounted_repeat"
 	AlertRunOverBudget  = "run_over_budget"      // coordinator-owned
 	AlertRunUnknown     = "run_liveness_unknown" // coordinator-owned
-	AlertCoordinator    = "coordinator_start_failed"
+	// AlertUsageLimit names one usage-limit window of one harness. A person
+	// decides whether to wait for the reset or to change the account.
+	AlertUsageLimit  = "usage_limit"
+	AlertCoordinator = "coordinator_start_failed"
 	// AlertRetryLimit names an item that a stage stopped taking after
 	// admission.FailureLimit counted failures with unchanged inputs.
 	AlertRetryLimit = "retry_limit"
@@ -91,7 +94,11 @@ type Config struct {
 	// Beads reads an item's body for the brief and the dependency edges of
 	// dependency-advance. Optional. With none, dependency-advance is not
 	// registered.
-	Beads   machine.BeadsResolver
+	Beads machine.BeadsResolver
+	// Pulls lists a project's open pull requests. dependency-advance reads
+	// it to learn whether a canceled blocker landed. Optional. With none, a
+	// canceled blocker holds its dependants.
+	Pulls   admission.PullReader
 	Secrets *secrets.Store
 	Tokens  *rpc.Tokens
 	// Agents is the agent host: start, inventory, liveness, close.
@@ -403,7 +410,7 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 		if s.instanceJob(name) == nil {
 			continue
 		}
-		if s.advance(ctx, rows, "", name, hc.Throughput[name].Schedule, now) {
+		if s.advance(ctx, rows, "", name, hc.ThroughputFor(name).Schedule, now) {
 			s.launch(ctx, "", name, kindInstanceJob, hc)
 		}
 	}
@@ -419,7 +426,10 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 			}
 			snap = nil
 		}
-		for _, stage := range append(config.RunStages(), config.NativeJobs()...) {
+		// An agent job is a run stage that host config defines, so it fires
+		// as one: only where the project lists it.
+		stages := append(append(config.RunStages(), hc.AgentJobNames()...), config.NativeJobs()...)
+		for _, stage := range stages {
 			kind := kindRun
 			if slices.Contains(config.NativeJobs(), stage) {
 				kind = kindJob
@@ -429,7 +439,10 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 			} else if snap == nil || !snap.Config.StageEnabled(stage) || stage == config.StageIntake {
 				continue
 			}
-			expr := hc.Throughput[stage].Schedule
+			expr := hc.ThroughputFor(stage).Schedule
+			if j, ok := hc.AgentJob(stage); ok {
+				expr = j.Schedule
+			}
 			if snap != nil {
 				if sc, ok := snap.Config.Stages[stage]; ok && sc.Schedule != "" {
 					expr = sc.Schedule
@@ -509,7 +522,7 @@ func (s *Scheduler) launch(ctx context.Context, project, stage string, kind laun
 	key := stageKey(project, stage)
 	limit := 1
 	if kind != kindRun {
-		limit = max(1, hc.Throughput[stage].Cap)
+		limit = max(1, hc.ThroughputFor(stage).Cap)
 	}
 	s.mu.Lock()
 	if s.inflight[key] >= limit || kind == kindRun && s.draining {

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,17 +20,18 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 )
 
-// Injected file paths, relative to the checkout root.
+// Injected file paths, relative to the checkout root. cli.InjectedFiles
+// lists them all.
 const (
-	BriefJSON  = cli.LoopDir + "/brief.json"
-	BriefMD    = cli.LoopDir + "/brief.md"
-	PromptFile = cli.LoopDir + "/prompt.md"
-	EnvFile    = ".env"
+	BriefJSON  = cli.BriefJSONFile
+	BriefMD    = cli.BriefMDFile
+	PromptFile = cli.PromptFile
+	EnvFile    = cli.EnvFile
 	// The CLI and the token writer create these later. They are excluded
 	// in advance.
-	TokenFile   = cli.LoopDir + "/" + cli.TokenFileName
-	PendingFile = cli.LoopDir + "/" + cli.PendingFileName
-	PendingLock = cli.LoopDir + "/pending.lock"
+	TokenFile   = cli.TokenPath
+	PendingFile = cli.PendingFile
+	PendingLock = cli.PendingLockFile
 )
 
 // MaxAttempts is the failure limit an attempt counts against (R10).
@@ -54,8 +56,11 @@ type Brief struct {
 	MaxAttempts   int      `json:"max_attempts,omitempty"`
 	PriorFailures []string `json:"prior_failures,omitempty"`
 	Handoff       []string `json:"handoff,omitempty"`
-	AllowedNext   []string `json:"allowed_next"`
-	Secrets       Secrets  `json:"secrets"`
+	// KeptCheckouts names the checkouts of the item's earlier attempts
+	// that ended with no finish and still hold uncommitted work.
+	KeptCheckouts []KeptCheckout `json:"kept_checkouts,omitempty"`
+	AllowedNext   []string       `json:"allowed_next"`
+	Secrets       Secrets        `json:"secrets"`
 	// Faults lists the loop faults filed from this project and stage that
 	// are open, acknowledged, or fixed in the last FaultWindow (KTD31).
 	Faults []Fault `json:"faults,omitempty"`
@@ -82,6 +87,21 @@ type Item struct {
 	Labels    []string          `json:"labels,omitempty"`
 	Documents []string          `json:"documents,omitempty"`
 	Facts     map[string]string `json:"facts,omitempty"`
+}
+
+// MaxDirty is how many dirty files a brief names for one kept checkout.
+const MaxDirty = 50
+
+// KeptCheckout is the checkout of an earlier attempt that ended with no
+// finish. The server keeps it, and its uncommitted work, for the next run.
+type KeptCheckout struct {
+	RunID  string `json:"run_id"`
+	Path   string `json:"path"`
+	Branch string `json:"branch,omitempty"`
+	// Dirty lists at most MaxDirty modified, added, deleted or untracked
+	// paths. More counts the paths left out.
+	Dirty []string `json:"dirty"`
+	More  int      `json:"more,omitempty"`
 }
 
 // Secrets names the manifest secrets in .env and the ones with no value.
@@ -129,6 +149,27 @@ func (b Brief) Markdown() string {
 	}
 	for _, h := range b.Handoff {
 		line("- Handoff note: %s", h)
+	}
+	if len(b.KeptCheckouts) > 0 {
+		line("")
+		line("## Uncommitted work of earlier attempts")
+		line("")
+		line("Each earlier attempt below ended with no finish. Its checkout is kept with the work it never committed.")
+		line("Read each file there, and carry over what serves the item. Change nothing in that checkout.")
+		for _, k := range b.KeptCheckouts {
+			line("")
+			if k.Branch != "" {
+				line("- Run %s: `%s` (branch %s)", k.RunID, k.Path, k.Branch)
+			} else {
+				line("- Run %s: `%s`", k.RunID, k.Path)
+			}
+			for _, d := range k.Dirty {
+				line("  - `%s`", d)
+			}
+			if k.More > 0 {
+				line("  - and %d more: run `git -C %s status` to list them", k.More, k.Path)
+			}
+		}
 	}
 	if len(b.Faults) > 0 {
 		line("")
@@ -178,9 +219,10 @@ type Injection struct {
 	Harness  agenthost.Harness
 	Pack     Pack
 	Brief    Brief
-	// Env is every manifest secret. An empty map writes no .env and
+	// Env is each manifest secret the run's stage receives, by the
+	// directory whose .env holds it. An empty map writes no .env and
 	// removes an old one.
-	Env map[string]string
+	Env EnvFiles
 }
 
 // Result is what Inject wrote.
@@ -195,11 +237,7 @@ type Result struct {
 // and .env. A tracked injected path returns a *ConflictError and writes
 // nothing. The token file is the caller's to write.
 func Inject(ctx context.Context, in Injection) (Result, error) {
-	root := SkillRoot(in.Harness)
-	if root == "" {
-		return Result{}, fmt.Errorf("brief: no skill directory for harness %q", in.Harness)
-	}
-	skills, err := in.Pack.Skills()
+	agents, dirs, err := packPaths(in.Harness, in.Pack)
 	if err != nil {
 		return Result{}, err
 	}
@@ -207,11 +245,13 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	files := []string{BriefJSON, BriefMD, PromptFile, EnvFile, TokenFile, PendingFile, PendingLock}
-	dirs := make([]string, 0, len(skills))
-	for _, s := range skills {
-		dirs = append(dirs, root+"/"+s)
+	files := cli.InjectedFiles()
+	for _, p := range in.Env.Paths() {
+		if !slices.Contains(files, p) {
+			files = append(files, p)
+		}
 	}
+	files = append(files, agents...)
 	if err := CheckTracked(ctx, in.Checkout, files, dirs); err != nil {
 		return Result{}, err
 	}
@@ -222,7 +262,10 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 		return Result{}, err
 	}
 	b := in.Brief
-	b.PackVersion, b.PackHash, b.Runbook = in.Pack.Version, hash, Runbook(in.Harness, b.Stage)
+	b.PackVersion, b.PackHash = in.Pack.Version, hash
+	if b.Runbook == "" {
+		b.Runbook = Runbook(in.Harness, b.Stage)
+	}
 	if b.Attempt > 0 && b.MaxAttempts == 0 {
 		b.MaxAttempts = MaxAttempts
 	}
@@ -240,10 +283,48 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 		if err := RemoveEnv(in.Checkout); err != nil {
 			return Result{}, err
 		}
-	} else if err := WriteEnv(in.Checkout, in.Env); err != nil {
+	} else if err := WriteEnv(ctx, in.Checkout, in.Env); err != nil {
 		return Result{}, err
 	}
 	return Result{PackHash: hash, Prompt: prompt}, nil
+}
+
+// RefreshPack writes the pack into the checkout of a session that already
+// runs, with the checks Inject makes, and leaves the brief alone.
+func RefreshPack(ctx context.Context, checkout string, h agenthost.Harness, p Pack) error {
+	agents, dirs, err := packPaths(h, p)
+	if err != nil {
+		return err
+	}
+	if err := CheckTracked(ctx, checkout, agents, dirs); err != nil {
+		return err
+	}
+	if err := Exclude(ctx, checkout, agents, dirs); err != nil {
+		return err
+	}
+	return p.Write(checkout, h)
+}
+
+// packPaths lists the pack's agent files and skill directories as the
+// harness reads them.
+func packPaths(h agenthost.Harness, p Pack) (agents, dirs []string, err error) {
+	root := SkillRoot(h)
+	if root == "" {
+		return nil, nil, fmt.Errorf("brief: no skill directory for harness %q", h)
+	}
+	skills, err := p.Skills()
+	if err != nil {
+		return nil, nil, err
+	}
+	dirs = make([]string, 0, len(skills))
+	for _, s := range skills {
+		dirs = append(dirs, root+"/"+s)
+	}
+	agents, err = p.AgentFiles(h)
+	if err != nil {
+		return nil, nil, err
+	}
+	return agents, dirs, nil
 }
 
 func writeBrief(checkout string, b Brief) error {

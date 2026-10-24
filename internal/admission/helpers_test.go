@@ -36,6 +36,8 @@ type world struct {
 	hostPath string
 	base     *fakeBase
 	deps     *fakeDeps
+	pulls    *fakePulls
+	heads    *fakeHeads
 	m        *machine.Machine
 	a        *Admission
 	runs     atomic.Int64
@@ -58,7 +60,8 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w := &world{t: t, st: st, bx: bx, beads: &editable{Client: bx, body: map[string]string{}},
-		hostPath: filepath.Join(dir, config.HostConfigFile), base: newFakeBase(st), deps: &fakeDeps{open: map[string][]string{}}}
+		hostPath: filepath.Join(dir, config.HostConfigFile), base: newFakeBase(st), deps: &fakeDeps{open: map[string][]string{}},
+		pulls: &fakePulls{}, heads: &fakeHeads{st: st, head: map[string]string{}}}
 	w.setCaps(nil)
 	w.build("v1")
 	return w
@@ -69,7 +72,7 @@ func (w *world) build(release string) {
 	w.t.Helper()
 	resolver := func(string) (beadsx.Client, error) { return w.beads, nil }
 	a, err := New(Config{Store: w.st, Host: &config.HostLoader{Path: w.hostPath}, Beads: resolver,
-		Base: w.base, Deps: w.deps, Release: release})
+		Base: w.base, Deps: w.deps, Pulls: w.pulls, Release: release})
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -79,6 +82,7 @@ func (w *world) build(release string) {
 		w.t.Fatal(err)
 	}
 	a.Attach(m)
+	a.SetPRHeadReader(w.heads.read)
 	w.m, w.a = m, a
 }
 
@@ -255,6 +259,40 @@ func lockFree(ctx context.Context, st *store.Store, mu *sync.Mutex, blocked *int
 		*blocked++
 		mu.Unlock()
 	}
+}
+
+// fakeHeads is the live head of each item's open pull request. An item
+// with no head has no open pull request. Each read proves no store write
+// is in flight on this goroutine's path, as fakeBase does.
+type fakeHeads struct {
+	st      *store.Store
+	mu      sync.Mutex
+	head    map[string]string
+	err     *cli.Refusal
+	calls   int
+	blocked int
+}
+
+// push moves the head of item's pull request, as a push does.
+func (h *fakeHeads) push(item, sha string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.head[item] = sha
+}
+
+func (h *fakeHeads) read(ctx context.Context, _, item string) (string, *cli.Refusal) {
+	lockFree(ctx, h.st, &h.mu, &h.blocked)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.calls++
+	if h.err != nil {
+		return "", h.err
+	}
+	sha, ok := h.head[item]
+	if !ok {
+		return "", &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_open_pr", Item: item, Hint: item + " has no open pull request"}
+	}
+	return sha, nil
 }
 
 type fakeDeps struct {

@@ -146,7 +146,7 @@ func TestDoubleDashEndsFlags(t *testing.T) {
 }
 
 func TestUnimplementedVerbsRefuseWithNotImplemented(t *testing.T) {
-	for _, args := range [][]string{{"work", "list"}, {"status"}, {"doctor"}, {"escalation", "judge", "--finding", "f"}} {
+	for _, args := range [][]string{{"work", "list"}, {"status"}, {"doctor"}, {"escalation", "judge", "4", "--finding", "f"}} {
 		env, code := runJSON(t, New(), args...)
 		if code != 2 || env["code"] != CodeNotImplemented || env["retryable"] != false {
 			t.Errorf("%v: want exit 2 NOT_IMPLEMENTED, got %v", args, env)

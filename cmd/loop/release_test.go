@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -116,7 +117,9 @@ func runVerb(t *testing.T, h *hostVerbs, args ...string) map[string]any {
 func testHostVerbs(t *testing.T, instance string, svc release.ServiceManager) *hostVerbs {
 	t.Helper()
 	r := cli.Surface()
-	c := &cli.Client{Instance: instance, Budget: 10 * time.Second}
+	// A cwd outside any checkout: the caller's .loop/token is no token of this server.
+	cwd := t.TempDir()
+	c := &cli.Client{Instance: instance, Budget: 10 * time.Second, Getwd: func() (string, error) { return cwd, nil }}
 	c.Attach(r)
 	h := newHostVerbs(r, c)
 	h.service = func(string) (release.ServiceManager, error) { return svc, nil }
@@ -393,13 +396,14 @@ func TestRestoreNamesItsSnapshot(t *testing.T) {
 
 // startDoctorServer runs an in-process server on instance. With answer
 // set, doctor-github answers it; without, the server runs no GitHub actor.
-func startDoctorServer(t *testing.T, instance string, answer []map[string]any) {
+// Each setup step runs once the server is composed.
+func startDoctorServer(t *testing.T, instance string, answer []map[string]any, setup ...func(*server.Server) error) {
 	t.Helper()
-	opts := server.Options{Instance: instance, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	opts := server.Options{Instance: instance, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Setup: setup}
 	if answer != nil {
-		opts.Setup = []func(*server.Server) error{func(s *server.Server) error {
+		opts.Setup = append(opts.Setup, func(s *server.Server) error {
 			return s.RPC.Handle("doctor-github", func(context.Context, *rpc.Call) cli.Result { return cli.List(answer) })
-		}}
+		})
 	}
 	ready := make(chan struct{})
 	opts.Ready = ready
@@ -452,6 +456,53 @@ func TestDoctorAsksTheServerForTheGitHubChecks(t *testing.T) {
 	}
 }
 
+// loop doctor lists the .env of a checkout with no live run, which only
+// the server can tell, and loop doctor --fix removes it (KTD17). With the
+// server down, the stale_env line reads unchecked and fails.
+func TestDoctorFixRemovesAStaleEnv(t *testing.T) {
+	instance := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rpc.EnsureAdminCredential(instance); err != nil {
+		t.Fatal(err)
+	}
+	h := testHostVerbs(t, instance, &procService{t: t, instance: instance})
+	checkout := t.TempDir()
+	envFile := filepath.Join(checkout, ".env")
+	if err := os.WriteFile(envFile, []byte("API_KEY=v\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	env := runVerb(t, h, "doctor")
+	if hint, _ := env["hint"].(string); !strings.Contains(hint, "stale_env: unchecked") {
+		t.Fatalf("with the server down: %v", env)
+	}
+
+	// A crashed run's checkout: its run ended, and the checkout is kept.
+	startDoctorServer(t, instance, nil, func(s *server.Server) error {
+		return s.Store.Write(context.Background(), func(tx *store.Tx) error {
+			_, err := tx.Exec(`INSERT INTO checkouts (id, project, path, run_id, state, created_at, updated_at)
+				VALUES ('r-kept', 'alpha', ?, 'r-kept', 'kept', 1, 1)`, checkout)
+			return err
+		})
+	})
+	env = runVerb(t, h, "doctor")
+	if hint, _ := env["hint"].(string); !strings.Contains(hint, "stale_env: "+envFile+": no live run") {
+		t.Fatalf("doctor does not list the stale .env: %v", env)
+	}
+	if _, err := os.Stat(envFile); err != nil {
+		t.Fatalf("doctor with no --fix removed the .env: %v", err)
+	}
+	env = runVerb(t, h, "doctor", "--fix")
+	if hint, _ := env["hint"].(string); strings.Contains(hint, "stale_env") {
+		t.Fatalf("doctor --fix still fails the stale_env line: %v", env)
+	}
+	if _, err := os.Stat(envFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("doctor --fix left the .env: %v", err)
+	}
+}
+
 // A server with no GitHub actor answers NOT_IMPLEMENTED, and the github
 // line says so.
 func TestDoctorWithNoGitHubActor(t *testing.T) {
@@ -467,5 +518,58 @@ func TestDoctorWithNoGitHubActor(t *testing.T) {
 	lines := h.githubLines(context.Background(), &serverControl{h: h, instance: instance})
 	if len(lines) != 1 || lines[0].Check != "github" || lines[0].OK || !strings.Contains(lines[0].Detail, "GitHub actor") {
 		t.Fatalf("with no GitHub actor: %+v", lines)
+	}
+}
+
+// factorio-obc: the coordinator's `loop upgrade` and `loop rollback` run
+// outside its session. The new release restarts the coordinator session
+// and revokes its token, so the CLI hands the verb to a detached process
+// that outlives both and runs as the host, and never runs it in place.
+func TestCoordinatorUpgradeHandsOffToADetachedProcess(t *testing.T) {
+	instance := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	svc := &procService{t: t, instance: instance}
+	h := testHostVerbs(t, instance, svc)
+	checkout := t.TempDir()
+	if err := cli.WriteTokenFile(checkout, cli.TokenFile{Token: "tok", RunID: "coordinator-r-1", Kind: cli.PrincipalCoordinator}); err != nil {
+		t.Fatal(err)
+	}
+	h.client.Getwd = func() (string, error) { return filepath.Join(checkout, "sub"), nil }
+	var got [][]string
+	h.detach = func(_ context.Context, dir string, args []string) (server.UpgradeStart, error) {
+		if dir != instance {
+			t.Fatalf("detached into instance %q, want %q", dir, instance)
+		}
+		got = append(got, args)
+		return server.UpgradeStart{Unit: "loop-upgrade-abcd", Command: append([]string{"loop"}, args...)}, nil
+	}
+
+	env := runVerb(t, h, "upgrade", "v1.2.3")
+	data, _ := env["data"].(map[string]any)
+	if env["exit"] != float64(0) || data["unit"] != "loop-upgrade-abcd" || data["started"] != true {
+		t.Fatalf("upgrade from the coordinator = %v", env)
+	}
+	env = runVerb(t, h, "rollback")
+	if env["exit"] != float64(0) {
+		t.Fatalf("rollback from the coordinator = %v", env)
+	}
+	if want := [][]string{{"upgrade", "v1.2.3"}, {"rollback"}}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Fatalf("detached %q, want %q", got, want)
+	}
+	if len(svc.events) != 0 {
+		t.Fatalf("the coordinator's process touched the service: %v", svc.events)
+	}
+
+	// A run's token never hands off: the verb runs, and fails, in place.
+	run := t.TempDir()
+	if err := cli.WriteTokenFile(run, cli.TokenFile{Token: "tok", RunID: "run-a", Kind: cli.PrincipalRun}); err != nil {
+		t.Fatal(err)
+	}
+	h.client.Getwd = func() (string, error) { return run, nil }
+	env = runVerb(t, h, "rollback")
+	if env["code"] != cli.CodeNotFound || len(got) != 2 {
+		t.Fatalf("rollback from a run = %v, detached %q", env, got)
 	}
 }

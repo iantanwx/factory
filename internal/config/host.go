@@ -38,11 +38,16 @@ type HostConfig struct {
 	Credentials Credentials     `yaml:"credentials,omitempty"`
 	Vaults      []string        `yaml:"vaults,omitempty"` // 1Password vaults that secret import may read (KTD28)
 	// Throughput holds a cap and a schedule for every stage, native job and
-	// pool (KTD30). Project config may override a schedule only.
-	Throughput  map[string]Throughput `yaml:"throughput"`
-	RunBudget   time.Duration         `yaml:"run_budget,omitempty"`   // default run budget (KTD9)
-	QuietPeriod time.Duration         `yaml:"quiet_period,omitempty"` // quiet period before the server acts
-	Projects    []Project             `yaml:"projects,omitempty"`
+	// pool (KTD30). Project config may override a schedule only. Read an
+	// entry with ThroughputFor, which defaults an optional key the file
+	// does not hold.
+	Throughput map[string]Throughput `yaml:"throughput"`
+	// AgentJobs holds each agent job by name: a stage kind the operator
+	// defines, whose run claims no item and starts on its own cron.
+	AgentJobs   map[string]AgentJob `yaml:"agent_jobs,omitempty"`
+	RunBudget   time.Duration       `yaml:"run_budget,omitempty"`   // default run budget (KTD9)
+	QuietPeriod time.Duration       `yaml:"quiet_period,omitempty"` // quiet period before the server acts
+	Projects    []Project           `yaml:"projects,omitempty"`
 }
 
 // StoreConfig names the database and the identity of the instance.
@@ -231,6 +236,7 @@ func (c *HostConfig) Validate() error {
 		vaults[v] = true
 	}
 	c.validateThroughput(ck)
+	c.validateAgentJobs(ck)
 	if c.RunBudget < 0 {
 		ck.fail("run_budget", "must not be negative")
 	}

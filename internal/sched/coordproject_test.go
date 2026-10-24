@@ -63,38 +63,3 @@ func TestCoordinatorMovesWhenItsProjectIsRemoved(t *testing.T) {
 		t.Fatalf("tokens: old live %v, new live %v", w.liveToken(first.RunID), w.liveToken(got.RunID))
 	}
 }
-
-// A new release restarts the coordinator in its checkout, so it reads the
-// new runbooks and runs as the new release starts agents.
-func TestCoordinatorRestartsOnANewRelease(t *testing.T) {
-	w := newWorld(t)
-	w.cfg.Projects = func() ([]config.Project, error) {
-		return []config.Project{{ID: prj, Repo: "iantanwx/alpha", Path: w.repo}}, nil
-	}
-	w.cfg.Coordinator = &CoordinatorConfig{Harness: agenthost.Claude, Model: "opus"}
-	w.cfg.Release = "v0.0.1"
-	w.rebuild()
-	if err := w.s.Reconcile(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	w.tick()
-	first := w.s.Coordinator()
-	if first.Session == nil || first.Release != "v0.0.1" {
-		t.Fatalf("first coordinator = %+v", first)
-	}
-	w.tick()
-	if got := w.s.Coordinator(); got.RunID != first.RunID {
-		t.Fatalf("the same release restarted the coordinator: %+v", got)
-	}
-
-	w.cfg.Release = "v0.0.2"
-	w.rebuild()
-	w.tick()
-	got := w.s.Coordinator()
-	if got.Session == nil || got.RunID == first.RunID || got.Release != "v0.0.2" || got.Checkout != first.Checkout {
-		t.Fatalf("after the new release = %+v; first %+v", got, first)
-	}
-	if w.liveToken(first.RunID) || !w.liveToken(got.RunID) {
-		t.Fatalf("tokens: old live %v, new live %v", w.liveToken(first.RunID), w.liveToken(got.RunID))
-	}
-}

@@ -37,7 +37,7 @@ type HumanOptions struct {
 	// NewRoomID names a room. A random id when nil.
 	NewRoomID func() string
 	// Link returns the inbox link of a project's item. When nil, an epic
-	// links to its current document PR, whose merge is the sign-off,
+	// links to its current document PR, which the operator approves,
 	// and every other item to its `loop work show` line.
 	Link func(project, item string) string
 }

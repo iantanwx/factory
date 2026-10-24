@@ -11,8 +11,10 @@
 package admission
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -50,6 +52,9 @@ type Config struct {
 	Base BaseReader
 	// Deps reports open dependencies. Optional.
 	Deps DepReader
+	// Pulls lists open pull requests for the `## Depends on` hold.
+	// Optional.
+	Pulls PullReader
 	// Release is the loop release version. It enters the retry identity.
 	Release string
 }
@@ -58,6 +63,7 @@ type Config struct {
 type Admission struct {
 	cfg   Config
 	items Items
+	heads machine.PRHeadReader
 
 	mu      sync.Mutex
 	pending map[string]snapshot // by run id, between reservation and claim
@@ -82,6 +88,10 @@ func New(cfg Config) (*Admission, error) {
 
 // Attach sets the machine that admission claims through.
 func (a *Admission) Attach(items Items) { a.items = items }
+
+// SetPRHeadReader sets the reader of live pull request heads. The GitHub
+// setup sets it before the socket binds.
+func (a *Admission) SetPRHeadReader(f machine.PRHeadReader) { a.heads = f }
 
 var _ machine.ClaimGuard = (*Admission)(nil)
 
@@ -126,8 +136,15 @@ func asRefusal(err error) *cli.Refusal {
 	return cli.InternalRefusal(err)
 }
 
-// claimStates returns each kind and state a stage claims from, in table
-// order.
+// claimFirst names the states a stage's work query walks before its other
+// claim states. A ticket in repair holds work in flight: its pull request
+// ages against the base while it waits, so the implementer takes it before
+// any ticket in todo (F-19). The order lives here and not in the machine's
+// row order, so a later edit of the table cannot undo it in silence.
+var claimFirst = []stateOf{{machine.KindTicket, machine.Repair}}
+
+// claimStates returns each kind and state a stage claims from, in claim
+// order: the states of claimFirst, then the rest in table order.
 func claimStates(stage string) []stateOf {
 	var out []stateOf
 	for _, t := range machine.Tables() {
@@ -140,7 +157,19 @@ func claimStates(stage string) []stateOf {
 			}
 		}
 	}
+	slices.SortStableFunc(out, func(a, b stateOf) int {
+		return cmp.Compare(claimRank(a), claimRank(b))
+	})
 	return out
+}
+
+// claimRank ranks a state of claimFirst by its place there, and every other
+// state after them all.
+func claimRank(s stateOf) int {
+	if i := slices.Index(claimFirst, s); i >= 0 {
+		return i
+	}
+	return len(claimFirst)
 }
 
 type stateOf struct {
@@ -178,10 +207,23 @@ func (a *Admission) task(ctx context.Context, project, item string) (Task, error
 	return Task{Title: title, Body: body}, nil
 }
 
-func (a *Admission) inputsOf(ctx context.Context, project, item string) (string, error) {
+// inputsOf returns the item's retry identity at stage. A code review reads
+// the live head of the item's pull request, so it makes an outside read,
+// and no caller holds a lock. A head that does not read refuses, as a base
+// that does not read does.
+func (a *Admission) inputsOf(ctx context.Context, project, item, stage string) (string, error) {
 	t, err := a.task(ctx, project, item)
 	if err != nil {
 		return "", fmt.Errorf("admission: read %s: %w", item, err)
+	}
+	if stage == config.StageCodeReviewer && a.heads != nil {
+		head, ref := a.heads(ctx, project, item)
+		switch {
+		case ref == nil:
+			t.Head = head
+		case ref.Code != cli.CodeNotFound:
+			return "", refusalErr{ref}
+		}
 	}
 	return computeInputs(ctx, a.cfg.Base, project, t, a.cfg.Release)
 }
@@ -222,7 +264,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		if ref != nil {
 			return Admitted{}, ref
 		}
-		if ref, err := dependencyRefusal(ctx, a.cfg.Deps, it); err != nil || ref != nil {
+		if ref, err := a.dependencyRefusal(ctx, it); err != nil || ref != nil {
 			if err != nil {
 				return Admitted{}, cli.InternalRefusal(err)
 			}
@@ -240,8 +282,8 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		}
 		status = it.Status
 		var err error
-		if snap.inputs, err = a.inputsOf(ctx, r.Project, r.Item); err != nil {
-			return Admitted{}, cli.InternalRefusal(err)
+		if snap.inputs, err = a.inputsOf(ctx, r.Project, r.Item, r.Stage); err != nil {
+			return Admitted{}, asRefusal(err)
 		}
 	} else if r.Stage == config.StageIntake {
 		if epics, ref = a.intakeEpics(ctx, r.Project); ref != nil {
@@ -276,7 +318,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 			if ref := intakeFull(epics, limits[0]); ref != nil {
 				return refusalErr{ref}
 			}
-		} else if ref, err := capRefusal(tx, r.Stage, limits, 0); err != nil || ref != nil {
+		} else if ref, err := capRefusal(tx, r.Stage, limits, ""); err != nil || ref != nil {
 			if err != nil {
 				return err
 			}
@@ -338,7 +380,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 
 func retryLimit(item, status string, n int) *cli.Refusal {
 	return &cli.Refusal{Code: cli.CodeRetryLimit, Rule: "retry_limit", Item: item, CurrentStatus: status,
-		Hint: fmt.Sprintf("%s: %d failed attempts for current inputs; edit the item, change a declared file or cited document on the base, or install a new release", item, n)}
+		Hint: fmt.Sprintf("%s: %d failed attempts for current inputs; edit the item, change a declared file or cited document on the base, push to the pull request of a code review, or install a new release", item, n)}
 }
 
 // unreserve drops a reservation whose claim the machine refused. A claim
@@ -431,6 +473,22 @@ type Candidate struct {
 // nothing now. A stage that claims no item returns a candidate with no
 // item when it may start.
 func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate, *cli.Refusal) {
+	return a.PeekAs(ctx, project, stage, "")
+}
+
+// PeekAs is Peek asked from inside a run. The caps leave that run out of
+// their count, so a run that fills its stage's cap still finds the work
+// it was started for, such as the fixer's waiting escalations. Every other
+// live run still counts.
+//
+// The query walks the stage's claim states in claim order, and returns the
+// first admissible item. Work in flight comes first: the implementer takes
+// an admissible ticket in repair before any ticket in todo, and a repair
+// ticket that admission would refuse never stops it from taking a todo
+// ticket. Within one state, it takes the item that entered the state first,
+// never the item whose bead id sorts first (F-20). waitOrder states the
+// order, and how it breaks a tie.
+func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Candidate, *cli.Refusal) {
 	if a.items == nil {
 		return nil, cli.InternalRefusal(errors.New("admission: no machine attached"))
 	}
@@ -463,7 +521,7 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 		if stage == config.StageIntake {
 			return nil
 		}
-		ref, err := capRefusal(q, stage, limits, 0)
+		ref, err := capRefusal(q, stage, limits, run)
 		full = ref != nil
 		if err != nil || full || stage != stageFixer {
 			return err
@@ -489,10 +547,15 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 		if ref != nil {
 			return nil, ref
 		}
+		entered, err := a.enteredAt(ctx, project, items)
+		if err != nil {
+			return nil, cli.InternalRefusal(err)
+		}
+		waitOrder(items, entered)
 		for _, it := range items {
 			ok, err := a.admissible(ctx, stage, it)
 			if err != nil {
-				return nil, cli.InternalRefusal(err)
+				return nil, asRefusal(err)
 			}
 			if ok {
 				return &Candidate{Project: project, Stage: stage, Item: it.ID, Kind: it.Kind, Status: it.Status}, nil
@@ -502,13 +565,77 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 	return nil, nil
 }
 
+// enteredAt returns, for each item whose history records its entry into
+// its current status, the time of that entry in Unix milliseconds. The entry
+// is the item's last transition that changed its status. When that
+// transition led elsewhere, something outside the machine moved the item,
+// and the history does not date its status.
+func (a *Admission) enteredAt(ctx context.Context, project string, items []machine.Item) (map[string]int64, error) {
+	out := map[string]int64{}
+	if len(items) < 2 {
+		return out, nil
+	}
+	status := make(map[string]string, len(items))
+	ids := make([]string, 0, len(items))
+	for _, it := range items {
+		status[it.ID] = it.Status
+		ids = append(ids, it.ID)
+	}
+	raw, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	err = a.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT t.item, t.to_status, t.at FROM transitions t
+			JOIN json_each(?) j ON j.value = t.item
+			WHERE t.project = ? AND t.from_status <> t.to_status
+			AND t.seq = (SELECT max(u.seq) FROM transitions u WHERE u.project = t.project AND u.item = t.item
+				AND u.from_status <> u.to_status)`, string(raw), project)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var (
+				item, to string
+				at       int64
+			)
+			if err := rows.Scan(&item, &to, &at); err != nil {
+				return err
+			}
+			if status[item] == to {
+				out[item] = at
+			}
+		}
+		return rows.Err()
+	})
+	return out, err
+}
+
+// waitOrder sorts the items of one state so the item that has waited there
+// longest comes first. An item entered its state at the time entered holds
+// for it, or else at its last bead write. Two items that entered in the same
+// millisecond keep the order of their last bead writes, and then of their
+// bead ids, so the order is stable.
+func waitOrder(items []machine.Item, entered map[string]int64) {
+	since := func(it machine.Item) int64 {
+		if at, ok := entered[it.ID]; ok {
+			return at
+		}
+		return it.Updated.UnixMilli()
+	}
+	slices.SortStableFunc(items, func(x, y machine.Item) int {
+		return cmp.Or(cmp.Compare(since(x), since(y)), x.Updated.Compare(y.Updated), cmp.Compare(x.ID, y.ID))
+	})
+}
+
 // admissible reports whether Admit would take the item now, apart from the
 // caps that Peek checked once.
 func (a *Admission) admissible(ctx context.Context, stage string, it machine.Item) (bool, error) {
 	if it.Fact(machine.FactOwner) != "" {
 		return false, nil
 	}
-	if ref, err := dependencyRefusal(ctx, a.cfg.Deps, it); err != nil || ref != nil {
+	if ref, err := a.dependencyRefusal(ctx, it); err != nil || ref != nil {
 		return false, err
 	}
 	var held, blocked, holds bool
@@ -526,7 +653,7 @@ func (a *Admission) admissible(ctx context.Context, stage string, it machine.Ite
 	}); err != nil || holds || !held && !blocked {
 		return err == nil && !holds, err
 	}
-	inputs, err := a.inputsOf(ctx, it.Project, it.ID)
+	inputs, err := a.inputsOf(ctx, it.Project, it.ID, stage)
 	if err != nil {
 		return false, err
 	}

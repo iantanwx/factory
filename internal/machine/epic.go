@@ -16,6 +16,7 @@ import (
 const (
 	PRDReview    = "prd_review"
 	PRDAmending  = "prd_amending"
+	SpecAmending = "spec_amending"
 	PRDSignoff   = "prd_signoff"
 	Architecture = "architecture"
 	SpecNeeded   = "spec_needed"
@@ -42,12 +43,75 @@ var epicResume = map[string]string{
 	SpecDrafting: SpecNeeded,
 	SpecReview:   SpecNeeded,
 	SpecSignoff:  SpecSignoff,
+	SpecAmending: SpecAmending,
 	SpecApproved: SpecApproved,
 	Decomposing:  SpecApproved,
 	Execution:    Execution,
 }
 
 func epicResumeFor(status string) (string, string) { return epicResume[status], "" }
+
+// amendingFor is where a person's unanswered comment sends a document in
+// review or in sign-off: the amender answers it, and no stage writes the
+// document meanwhile. A reviewer writes nothing, and a sign-off waits on
+// a person, so the amender is the one writer in each. Drafting states are
+// left out: their author is the writer, and answers the comment in the
+// draft. Ported from AMENDABLE_STATES in scripts/sdlc/amend-states.ts
+// (alpha).
+var amendingFor = map[string]string{
+	PRDReview:   PRDAmending,
+	PRDSignoff:  PRDAmending,
+	SpecReview:  SpecAmending,
+	SpecSignoff: SpecAmending,
+}
+
+// AmendableStates lists the states amendingFor reads, in state order. The
+// GitHub reactor reads a person's comments on the document PR of each
+// epic in one of them.
+func AmendableStates() []string {
+	var out []string
+	for _, s := range epicStateOrder() {
+		if _, ok := amendingFor[s]; ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// unheld refuses to move a document a run holds, as claimGuard refuses
+// a claim: the run's next write must find the state it claimed. The
+// comment waits, and the first tick after the run ends reads it again.
+func unheld(c *change) *cli.Refusal {
+	if c.item.Owner != "" {
+		return &cli.Refusal{Code: cli.CodeLeaseHeld, Rule: "lease_held", Item: c.item.ID, CurrentStatus: c.item.Status,
+			Hint: fmt.Sprintf("%s belongs to run %s until that run settles", c.item.ID, c.item.Owner)}
+	}
+	return nil
+}
+
+// personComment records where the comment found the document and the
+// head it found it at, so the amended row can send it back.
+func personComment(c *change) *cli.Refusal {
+	if r := c.needParam("head"); r != nil {
+		return r
+	}
+	c.setFact(FactAmendFrom, c.item.Status)
+	c.setFact(FactAmendHead, c.param("head"))
+	return nil
+}
+
+// amendedUnchanged holds when the amender answered a comment on a signed
+// off document and pushed nothing: the document returns to sign-off, and
+// costs no review round. A revision, or a reply to a reject, returns to
+// review. Workbench in scripts/sdlc/amend-states.ts (alpha) says why the
+// queue, not the agent, names the state.
+func amendedUnchanged(signoff string) func(c *change) bool {
+	return func(c *change) bool {
+		return c.fact(FactAmendFrom) == signoff && c.param("head") != "" && c.param("head") == c.fact(FactAmendHead)
+	}
+}
+
+var clearAmend = clearFacts(FactAmendFrom, FactAmendHead)
 
 // prdReject is the first reject (the amender revises once) or the second
 // (a person decides, and no unattended stage revises again: AE7).
@@ -90,6 +154,20 @@ func specClaim(r Row) Row {
 		return next(c)
 	}
 	return r
+}
+
+// adrIs refuses adr_misjoined unless the epic's adr fact is still the
+// path the caller read: an epic that a later write joined to another ADR
+// keeps it.
+func adrIs(c *change) *cli.Refusal {
+	if r := c.needParam("path"); r != nil {
+		return r
+	}
+	if got := c.fact(FactADR); got != c.param("path") {
+		return &cli.Refusal{Code: cli.CodeStatusChanged, Rule: "adr_changed", Item: c.item.ID, CurrentStatus: c.item.Status,
+			Hint: fmt.Sprintf("%s records adr=%q, not %q", c.item.ID, got, c.param("path"))}
+	}
+	return nil
 }
 
 // childrenTerminal refuses to close an epic while a child is open. A
@@ -173,6 +251,7 @@ func epicTable() *Table {
 		{Name: PRDReview, Category: beadsx.CategoryActive},
 		{Name: PRDAmending, Category: beadsx.CategoryActive},
 		{Name: PRDSignoff, Category: beadsx.CategoryActive},
+		{Name: SpecAmending, Category: beadsx.CategoryActive},
 		{Name: Architecture, Category: beadsx.CategoryActive},
 		{Name: SpecNeeded, Category: beadsx.CategoryActive},
 		{Name: SpecDrafting, Category: beadsx.CategoryWIP},
@@ -185,7 +264,7 @@ func epicTable() *Table {
 		{Name: Done, Category: beadsx.CategoryDone, Terminal: true},
 	}
 	live := []string{PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
-		SpecSignoff, SpecApproved, Decomposing, Execution, Escalated}
+		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 	claim := func(from, to, stage string) Row {
 		return Row{Verb: "claim", From: []string{from}, To: to, Stage: stage, when: stageIs(stage),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}}
@@ -199,20 +278,36 @@ func epicTable() *Table {
 		claim(PRDAmending, ToSame, StageAmender),
 		specClaim(claim(SpecNeeded, SpecDrafting, StageSpecAuthor)),
 		claim(SpecReview, ToSame, StageDocReviewer),
+		claim(SpecAmending, ToSame, StageAmender),
 		claim(SpecApproved, Decomposing, StageDecomposer),
 
-		{Verb: "review_pass", From: []string{PRDReview}, To: PRDSignoff, Command: "review submit", Lease: LeaseDrop},
+		// A pass pins the head the reviewer read: the sign-off entry names
+		// it, and the server merges only that head (factorio-8qm).
+		{Verb: "review_pass", From: []string{PRDReview}, To: PRDSignoff, Command: "review submit", Lease: LeaseDrop,
+			set: copyParam("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: PRDAmending, Command: "review submit", Lease: LeaseDrop,
 			When: "first_reject", when: firstPRDReject, set: bumpPRDRejects, Facts: []string{FactPRDRejects}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: Escalated, Command: "review submit",
 			When: "second_reject", when: secondPRDReject, Lease: LeaseDrop, Says: secondRejectSays,
 			set: all(bumpPRDRejects, escalateTo(epicResumeFor)), Facts: []string{FactPRDRejects, FactResume, FactEscalation}},
-		{Verb: "prd_amended", From: []string{PRDAmending}, To: PRDReview, Lease: LeaseDrop},
+		{Verb: "prd_amended", From: []string{PRDAmending}, To: PRDSignoff, Lease: LeaseDrop,
+			When: "unchanged", when: amendedUnchanged(PRDSignoff), set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
+		{Verb: "prd_amended", From: []string{PRDAmending}, To: PRDReview, Lease: LeaseDrop,
+			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
+		{Verb: "spec_amended", From: []string{SpecAmending}, To: SpecSignoff, Lease: LeaseDrop,
+			When: "unchanged", when: amendedUnchanged(SpecSignoff), set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
+		{Verb: "spec_amended", From: []string{SpecAmending}, To: SpecReview, Lease: LeaseDrop,
+			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
 		{Verb: "doc_merged", From: []string{PRDSignoff}, To: SpecNeeded, set: mark(FactPRDMerged, "sha"), Facts: []string{FactPRDMerged}},
 		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded, set: mark(FactADR, "path"), Facts: []string{FactADR}},
+		// An epic that an ADR named only in prose returns to wait for its
+		// own ADR (F-10). The server alone performs it.
+		{Verb: VerbADRMisjoined, From: []string{SpecNeeded}, To: Architecture, guard: adrIs, set: clearFacts(FactADR),
+			Facts: []string{FactADR}},
 		{Verb: "pr_open", From: []string{SpecDrafting}, To: SpecReview, Lease: LeaseDrop,
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
-		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop},
+		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop,
+			set: copyParam("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_reject", From: []string{SpecReview}, To: SpecNeeded, Command: "review submit", Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{SpecSignoff}, To: SpecApproved},
 		{Verb: VerbDecomposed, From: []string{Decomposing}, To: Execution, Lease: LeaseDrop},
@@ -226,9 +321,25 @@ func epicTable() *Table {
 		// sign-off and never past it.
 		{Verb: "doc_merged", From: []string{PRDReview}, To: PRDSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{SpecReview}, To: SpecSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop},
+		{Verb: "doc_merged", From: []string{PRDAmending}, To: PRDSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop,
+			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
+		{Verb: "doc_merged", From: []string{SpecAmending}, To: SpecSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop,
+			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
+
+		// The document PR moved after the entry was raised. The server pins
+		// the new head, and the sign-off entry is raised again at it, so
+		// the operator approves only a head the entry named.
+		{Verb: VerbSignoffHead, From: []string{PRDSignoff, SpecSignoff}, To: ToSame,
+			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
+
+		// A person's unanswered comment on the document PR (1.12).
+		{Verb: VerbPersonComment, From: []string{PRDReview, PRDSignoff}, To: PRDAmending,
+			guard: unheld, set: personComment, Facts: []string{FactAmendFrom, FactAmendHead}},
+		{Verb: VerbPersonComment, From: []string{SpecReview, SpecSignoff}, To: SpecAmending,
+			guard: unheld, set: personComment, Facts: []string{FactAmendFrom, FactAmendHead}},
 
 		// A closed document PR escalates the epic and never cancels it.
-		{Verb: VerbPRClosed, From: []string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff}, To: Escalated,
+		{Verb: VerbPRClosed, From: []string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending}, To: Escalated,
 			Lease: LeaseDrop, set: escalateTo(epicResumeFor), Facts: []string{FactResume, FactEscalation}},
 		{Verb: VerbEscalate, From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
 			set: escalateTo(epicResumeFor), Facts: []string{FactResume, FactEscalation}},
@@ -237,7 +348,7 @@ func epicTable() *Table {
 	}
 	rows = withReviews(rows)
 	pairs := [][2]string{{SpecDrafting, SpecNeeded}, {Decomposing, SpecApproved},
-		{PRDReview, PRDReview}, {PRDAmending, PRDAmending}, {SpecReview, SpecReview}}
+		{PRDReview, PRDReview}, {PRDAmending, PRDAmending}, {SpecReview, SpecReview}, {SpecAmending, SpecAmending}}
 	rows = append(rows, releaseRows("release", false, pairs, nil)...)
 	rows = append(rows, releaseRows("reclaim", true, pairs, nil)...)
 	return &Table{Kind: KindEpic, BeadType: "epic", States: states, Rows: rows}
@@ -257,5 +368,5 @@ func uniqueValues(m map[string]string) []string {
 
 func epicStateOrder() []string {
 	return []string{PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
-		SpecSignoff, SpecApproved, Decomposing, Execution}
+		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution}
 }

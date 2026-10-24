@@ -303,6 +303,31 @@ func (w *World) serveGraphQL(rw http.ResponseWriter, r *http.Request) {
 		}
 		WriteJSON(rw, 200, map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{
 			"id": nodeID(p.Number), "headRefOid": p.HeadSHA, "mergeQueueEntry": entry}}}})
+	case strings.Contains(body.Query, "LoopReviewThreads"):
+		num, _ := body.Variables["number"].(float64)
+		// A thread is its root comment and each reply to it. GitHub keeps
+		// a thread whose root comment is gone, and names the comments left.
+		var roots []int64
+		ids := map[int64][]any{}
+		for _, c := range w.reviews[int(num)] {
+			root, _ := c["in_reply_to_id"].(int64)
+			if root == 0 {
+				root = c["id"].(int64)
+			}
+			if _, ok := ids[root]; !ok {
+				roots = append(roots, root)
+			}
+			ids[root] = append(ids[root], map[string]any{"databaseId": c["id"]})
+		}
+		nodes := []any{}
+		for _, root := range roots {
+			if t := w.threads[root]; !t.hidden {
+				nodes = append(nodes, map[string]any{"isResolved": t.resolved, "isOutdated": t.outdated,
+					"comments": map[string]any{"nodes": ids[root]}})
+			}
+		}
+		WriteJSON(rw, 200, map[string]any{"data": map[string]any{"repository": map[string]any{"pullRequest": map[string]any{
+			"reviewThreads": map[string]any{"pageInfo": map[string]any{"hasNextPage": false}, "nodes": nodes}}}}})
 	case strings.Contains(body.Query, "LoopEnqueue"):
 		p := byNode()
 		head, _ := body.Variables["head"].(string)

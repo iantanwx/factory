@@ -45,8 +45,12 @@ The escalating run's own score is evidence, not a judge. Never pass it off as a 
 Make one directory with `mktemp -d`. Ask the panel once for each finding, each into its own file:
 
 ```bash
-loop escalation judge --finding "<F1, in one sentence>" --out <dir>/f1.json
+loop escalation judge <escalation> --finding "<F1, in one sentence>" --out <dir>/f1.json
 ```
+
+The command reads the decisions that the operator recorded on the escalation's item, and gives
+them to both judges. These are the inbox answers on the item, the coordinator's notes on it, and
+each answered question about it. `loop escalation decisions <escalation>` prints the same list.
 
 Never type a judge's level or reason yourself. Never reword a finding and ask again. A panel that
 sent a finding to a person did send it.
@@ -57,10 +61,11 @@ server routes a panel with fewer than two judges to a person.
 ## 4. Route the escalation
 
 Send one file to the server. For one finding, send its panel file. For several, join the panel
-files into one JSON array, unchanged:
+files into one JSON array, unchanged. Each panel file holds an array of one panel, so `jq -s add`
+joins the arrays in order:
 
 ```bash
-jq -s . <dir>/f1.json <dir>/f2.json > <dir>/panels.json
+jq -s add <dir>/f1.json <dir>/f2.json > <dir>/panels.json
 loop escalation route <escalation> --file <dir>/panels.json
 ```
 

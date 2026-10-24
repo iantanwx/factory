@@ -92,6 +92,7 @@ type session struct {
 	refuse      bool
 	notes       []string
 	observed    string
+	limit       *agenthost.Limit
 }
 
 // Host is the fake agent host. The zero value is not usable; call New.
@@ -185,6 +186,15 @@ func (h *Host) EndTurn(id agenthost.RunID) { h.setTurn(id, TurnEnded) }
 // StartTool makes the transcript show a tool call still running. It serves
 // agenthosttest.TurnDriver.
 func (h *Host) StartTool(id agenthost.RunID) { h.setTurn(id, ToolRunning) }
+
+// HitLimit makes the transcript show that the agent wrote only a usage
+// limit, and no work.
+func (h *Host) HitLimit(id agenthost.RunID, l agenthost.Limit) {
+	h.with(id, func(s *session) {
+		s.limit = &l
+		s.lastWrite = h.clock.Now()
+	})
+}
 
 // Work makes the transcript show a turn in progress.
 func (h *Host) Work(id agenthost.RunID) { h.setTurn(id, Working) }
@@ -510,6 +520,10 @@ func (h *Host) endedLocked(sess agenthost.Session, st agenthost.Settlement) agen
 	s, _ := h.resolve(sess.ID)
 	if st.Liveness == agenthost.Exited {
 		return agenthost.EndReport{Ended: true, Cause: agenthost.EndExited, Since: s.lastWrite, Reason: "harness process exited"}
+	}
+	if s.limit != nil {
+		l := *s.limit
+		return agenthost.EndReport{Ended: true, Cause: agenthost.EndLimit, Since: s.lastWrite, Limit: &l, Reason: "its agent wrote only a usage limit"}
 	}
 	switch s.turn {
 	case ToolRunning:

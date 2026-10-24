@@ -71,7 +71,9 @@ Each ticket body holds these sections:
 - At least one ticket has no blocker.
 - No cycle exists.
 - Every ticket is reachable from a ticket with no blocker.
-- Every ticket cites at least one story label of the epic's PRD.
+- Every ticket cites at least one story label of the epic's PRD. An architecture epic has an ADR
+  and no PRD. Each of its tickets cites no story label, and its body names the spec contracts
+  (C-n) that it builds.
 
 ## 5. Create the batch
 
@@ -88,8 +90,12 @@ loop epic decompose --file <batch file>
 ```
 
 The server creates every ticket and every dependency, or none. It refuses a ticket whose story
-labels the merged PRD does not hold, with `STORY_UNKNOWN`. Read the hint, repair the batch, and run
-it again.
+labels the merged PRD does not hold, with `STORY_UNKNOWN`. It also refuses a ticket of an
+architecture epic that cites a story label. Read the hint, repair the batch, and run it again.
+
+The server refuses a batch of more than 25 tickets with the rule `runaway_batch`. That is a runaway
+limit and no sizing rule. Never merge slices to fit under it. Escalate, and name how many slices
+the spec needs and the seam where the epic would split.
 
 Finish with `loop run finish --outcome done`. Report how many tickets you cut, which ones start at
 once, and which contracts each one proves.

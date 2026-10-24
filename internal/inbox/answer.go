@@ -101,8 +101,9 @@ func (in *Inbox) waitVerb(ctx context.Context, call *rpc.Call) cli.Result {
 // answer is `loop inbox answer`: the operator's answer, as the coordinator
 // relays it. An escalated item resumes to its stored target, and an answer
 // with --amend enters the item's inputs, so a twice-failed item is
-// admitted again (R10). A fired decision settles as answered. A question
-// records the answer, and an alert closes.
+// admitted again (R10). A fired decision settles as answered. A sign-off
+// merges the document at the head its entry named. A question records the
+// answer, and an alert closes.
 func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	id, body := call.Inv.Arg("entry"), strings.TrimSpace(call.Inv.Flags["body"])
 	if body == "" {
@@ -189,8 +190,7 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		in.Changed()
 		return cli.Found(map[string]any{"entry": id, "closed": true})
 	case KindSignoff:
-		return cli.Reject(cli.CodeTransitionNotAllowed, "signoff_by_merge",
-			"a sign-off is the operator's merge of the document's pull request; no inbox answer replaces it")
+		return in.signoff(ctx, call, id, project, item, body)
 	case KindPanel:
 		return cli.Reject(cli.CodeTransitionNotAllowed, "panel_pending",
 			"the fixer's panel routes this escalation; a person answers it only after the panel sends it to a person")
@@ -289,6 +289,47 @@ func (in *Inbox) prepare(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	in.Changed()
 	return cli.Found(map[string]any{"entry": rowEntry(KindQuestion, id), "awaits": AwaitsPerson})
+}
+
+// note is `loop inbox note`: the root cause of an open alert, as the
+// coordinator recorded it from its root-cause subagent. The alert stays
+// open until an answer closes it. A later note replaces the finding. The
+// row keeps its count and last_at at the note, and the entry keeps that
+// time, so a repeat of the same fault rings no one.
+func (in *Inbox) note(ctx context.Context, call *rpc.Call) cli.Result {
+	id, body := call.Inv.Arg("entry"), strings.TrimSpace(call.Inv.Flags["body"])
+	if body == "" {
+		return cli.Reject(cli.CodeUsage, "no_body", "--body holds the finding: the root cause, its evidence and the act that ends it")
+	}
+	if r := in.cfg.Redactor.Refusal("secret_in_finding", "finding", body); r != nil {
+		return r.Result()
+	}
+	kind, _, _, row, ok := parseEntry(id)
+	if !ok || kind != KindAlert {
+		return cli.Reject(cli.CodeUsage, "not_alert", fmt.Sprintf("%q is no alert entry; only an alert holds a finding", id))
+	}
+	var n int64
+	if err := in.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		now := in.cfg.Now().UnixMilli()
+		r, err := tx.Exec(`UPDATE alerts SET finding = ?, finding_run = ?, finding_at = ?, finding_count = count, finding_last_at = last_at
+			WHERE id = ? AND state = 'open'`, body, call.Principal.RunID, now, row)
+		if err != nil {
+			return err
+		}
+		if n, _ = r.RowsAffected(); n == 0 {
+			return nil
+		}
+		_, err = tx.Exec(`INSERT INTO audit (at, actor, action, detail) VALUES (?, ?, 'alert_noted', json_object('alert', ?, 'finding', ?))`,
+			now, call.Principal.Actor(), row, body)
+		return err
+	}); err != nil {
+		return cli.Internal(err)
+	}
+	if n == 0 {
+		return cli.Reject(cli.CodeNotFound, "no_alert", fmt.Sprintf("no open alert %d", row))
+	}
+	in.Changed()
+	return cli.Found(map[string]any{"entry": id, "found": true})
 }
 
 // Question reads one prepared question and its answer.

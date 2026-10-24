@@ -2,7 +2,9 @@
 // (R36-R39, KTD19). The source tree holds runbooks/<stage>.md and
 // skills/loop-*/. A run's checkout receives one loop-* directory for each:
 // a runbook becomes loop-<stage>/SKILL.md, which is the path
-// brief.Runbook names, and a skill keeps its directory.
+// brief.Runbook names, and a skill keeps its directory. The source also
+// holds agents/loop-*.md, the read-only subagents a runbook dispatches.
+// They land in the harness's agent directory, beside the skill root.
 package pack
 
 import (
@@ -30,6 +32,8 @@ type Manifest struct {
 	Runbooks map[string]Runbook `json:"runbooks"`
 	// Skills lists the shared skills, each a directory skills/loop-*.
 	Skills []string `json:"skills"`
+	// Agents lists the subagents, each a file agents/loop-*.md.
+	Agents []string `json:"agents,omitempty"`
 }
 
 // Runbook is one runbook's manifest entry.
@@ -40,6 +44,9 @@ type Runbook struct {
 	// Skills lists each skill the runbook reads. The runbook names each
 	// one by its path.
 	Skills []string `json:"skills"`
+	// Agents lists each subagent the runbook dispatches. The runbook
+	// names each one.
+	Agents []string `json:"agents,omitempty"`
 	// Policy is the role whose project policy file the runbook names,
 	// .loop/policy/<role>.md in the project repository. Empty names none.
 	Policy string `json:"policy,omitempty"`
@@ -65,6 +72,11 @@ func ReadManifest(src fs.FS) (*Manifest, error) {
 			return nil, fmt.Errorf("pack: %s: skill %q is not in the %s* namespace", ManifestFile, s, brief.SkillPrefix)
 		}
 	}
+	for _, a := range m.Agents {
+		if !strings.HasPrefix(a, brief.SkillPrefix) || !validName(a) {
+			return nil, fmt.Errorf("pack: %s: agent %q is not a lower-case name in the %s* namespace", ManifestFile, a, brief.SkillPrefix)
+		}
+	}
 	for stage, rb := range m.Runbooks {
 		if !validName(stage) {
 			return nil, fmt.Errorf("pack: %s: runbook %q is not a lower-case stage name", ManifestFile, stage)
@@ -72,6 +84,11 @@ func ReadManifest(src fs.FS) (*Manifest, error) {
 		for _, s := range rb.Skills {
 			if !slices.Contains(m.Skills, s) {
 				return nil, fmt.Errorf("pack: %s: runbook %q reads skill %q, which the manifest does not list", ManifestFile, stage, s)
+			}
+		}
+		for _, a := range rb.Agents {
+			if !slices.Contains(m.Agents, a) {
+				return nil, fmt.Errorf("pack: %s: runbook %q dispatches agent %q, which the manifest does not list", ManifestFile, stage, a)
 			}
 		}
 	}
@@ -93,11 +110,33 @@ func validName(s string) bool {
 // RunbookSource is a runbook's path in the pack source.
 func RunbookSource(stage string) string { return "runbooks/" + stage + ".md" }
 
+// AgentSource is an agent's path in the pack source.
+func AgentSource(name string) string { return "agents/" + name + ".md" }
+
+// Agents returns the tree of the pack's agents: one loop-*.md file at
+// its root for each agent the manifest lists.
+func Agents(src fs.FS) (fs.FS, error) {
+	m, err := ReadManifest(src)
+	if err != nil {
+		return nil, err
+	}
+	out := fstest.MapFS{}
+	for _, a := range m.Agents {
+		data, err := fs.ReadFile(src, AgentSource(a))
+		if err != nil {
+			return nil, fmt.Errorf("pack: agent %q: %w", a, err)
+		}
+		out[a+".md"] = &fstest.MapFile{Data: data, Mode: 0o644}
+	}
+	return out, nil
+}
+
 // Injected is a runbook's directory in a run's skill root.
 func Injected(stage string) string { return brief.SkillPrefix + stage }
 
 // Layout returns the tree a run receives under its harness's skill root:
-// one loop-* directory for each runbook and each skill. Two sources that
+// one loop-* directory for each runbook and each skill, and a claim on the
+// loop-<name> directory of each third-party pin. Two sources that
 // land on one directory are refused.
 func Layout(src fs.FS) (fs.FS, error) {
 	m, err := ReadManifest(src)
@@ -146,6 +185,18 @@ func Layout(src fs.FS) (fs.FS, error) {
 		})
 		if err != nil {
 			return nil, fmt.Errorf("pack: skill %q: %w", skill, err)
+		}
+	}
+	// A pinned skill is fetched on the host, so the source holds none of
+	// its files. Its directory is claimed all the same, and a pin that
+	// lands on a runbook or a skill is refused here.
+	pins, err := ReadThirdParty(src)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range pins {
+		if err := claim(brief.SkillPrefix+p.Name, fmt.Sprintf("%s pin %q", ThirdPartyFile, p.Name)); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil

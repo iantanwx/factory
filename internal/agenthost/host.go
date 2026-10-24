@@ -260,6 +260,22 @@ func (inv Inventory) Lookup(s Session) Presence {
 	return Absent
 }
 
+// Untraced says whether a complete inventory, of any epoch, lists neither
+// the session's exact identity nor a trace of it. Unlike Lookup it ignores
+// the epoch, so it proves no absence on its own: the server reads it only
+// for a run whose liveness read unknown past its age bound (KTD9).
+func (inv Inventory) Untraced(s Session) bool {
+	if !inv.Complete {
+		return false
+	}
+	for _, r := range inv.Rows {
+		if r.ID == s.ID {
+			return false
+		}
+	}
+	return len(inv.Traces(s)) == 0
+}
+
 // Readopted returns the session with its epoch moved to this inventory's,
 // when a complete inventory lists the exact identity. The server persists
 // the result, so a later absence in the new epoch can read Absent.
@@ -310,7 +326,20 @@ const (
 	// EndQuiet: the transcript shows the last turn ended, and the checkout
 	// stayed quiet for the quiet period.
 	EndQuiet EndCause = "quiet"
+	// EndLimit: the agent wrote only a usage limit and no work of its own.
+	// The session ends at once, with no quiet period.
+	EndLimit EndCause = "limit"
 )
+
+// Limit is the usage limit a session's agent wrote when it did no work.
+type Limit struct {
+	// Message is the text the agent wrote, as the harness wrote it.
+	Message string `json:"message"`
+	// At is when the agent wrote it.
+	At time.Time `json:"at,omitzero"`
+	// ResetAt is when the limit resets. Zero means the record names none.
+	ResetAt time.Time `json:"reset_at,omitzero"`
+}
 
 // EndReport answers whether a session ended (KTD8).
 type EndReport struct {
@@ -320,6 +349,8 @@ type EndReport struct {
 	Since time.Time `json:"since,omitzero"`
 	// Reason says what keeps the session, or the evidence that ended it.
 	Reason string `json:"reason"`
+	// Limit is set when the cause is EndLimit.
+	Limit *Limit `json:"limit,omitempty"`
 	// Settlement is the liveness read the answer rests on, when the host
 	// made one, so the caller need not read it again. A failed read is
 	// Unknown.

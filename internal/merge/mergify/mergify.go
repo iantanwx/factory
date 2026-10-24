@@ -36,6 +36,9 @@ const (
 	SetupBranch = "loop-setup/mergify"
 	// ConfigPath is where the template PR puts the configuration.
 	ConfigPath = ".mergify.yml"
+	// GatesCheck is the CI job that loop-init writes. The template requires
+	// it when the base requires no check of its own.
+	GatesCheck = "gates"
 )
 
 // configPaths are the places Mergify reads its configuration from. Any
@@ -151,7 +154,7 @@ func (m *Mergify) appSlug(ctx context.Context, p config.Project) (string, error)
 type Template struct {
 	Bot    string   // the loop App's bot user, "<slug>[bot]"
 	Base   string   // the default branch
-	Checks []string // the required CI contexts of the base, without loop/eligible
+	Checks []string // the required CI contexts of the base, without loop/eligible; GatesCheck when empty
 }
 
 var (
@@ -180,10 +183,16 @@ func Render(t Template) ([]byte, error) {
 			return nil, fmt.Errorf("%w: check %q holds a control character", errBad, c)
 		}
 	}
+	// A plan with no rulesets requires no check, and then only the queue
+	// stands between the base and a merge with no CI.
+	checks := t.Checks
+	if len(checks) == 0 {
+		checks = []string{GatesCheck}
+	}
 	var out bytes.Buffer
 	err := tmpl.Execute(&out, map[string]any{
 		"Bot": t.Bot, "Base": t.Base, "Label": QueueLabel, "Eligible": github.EligibleContext,
-		"Dequeued": DequeuedLabel, "Checks": t.Checks,
+		"Dequeued": DequeuedLabel, "Checks": checks,
 	})
 	return out.Bytes(), err
 }

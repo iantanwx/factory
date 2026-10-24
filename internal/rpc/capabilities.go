@@ -13,6 +13,11 @@ import (
 // the machine checks the lease of each write.
 type HoldsItem func(ctx context.Context, p Principal, item string) (bool, error)
 
+// ReadsItem reports whether p may read an item it does not hold. A write
+// verb never asks it (KTD12: a run moves only the item it holds). The
+// server opens the epic of the held ticket.
+type ReadsItem func(ctx context.Context, p Principal, item string) (bool, error)
+
 // TokenItem is the default HoldsItem.
 func TokenItem(_ context.Context, p Principal, item string) (bool, error) {
 	return p.Item != "" && p.Item == item, nil
@@ -56,6 +61,11 @@ func (s *Server) authorize(ctx context.Context, inv cli.Invocation, p *Principal
 		if err != nil {
 			return new(cli.Internal(fmt.Errorf("check whether %s holds %s: %w", p.Actor(), item, err)))
 		}
+		if !holds && !inv.Verb.Write && s.opts.ReadsItem != nil {
+			if holds, err = s.opts.ReadsItem(ctx, *p, item); err != nil {
+				return new(cli.Internal(fmt.Errorf("check whether %s reads %s: %w", p.Actor(), item, err)))
+			}
+		}
 		if !holds {
 			return denied("item_not_held", item, fmt.Sprintf("%s does not hold %s; a run moves only the item it holds", p.Actor(), item))
 		}
@@ -64,7 +74,10 @@ func (s *Server) authorize(ctx context.Context, inv cli.Invocation, p *Principal
 }
 
 // checkHostCaller refuses a host verb whose caller, or any ancestor of the
-// caller, works inside a registered checkout or agent session.
+// caller, works inside a registered checkout or agent session. The one
+// exception is the coordinator's token inside the coordinator's own
+// checkout (factorio-obc): checkTokenCaller pins the token there, and the
+// matrix admits the coordinator only on the verbs the surface opens to it.
 func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal) *cli.Result {
 	dirs, err := s.opts.Checkouts(ctx)
 	if err != nil {
@@ -80,7 +93,7 @@ func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal)
 	}
 	for i, cwd := range cwds {
 		for _, dir := range dirs {
-			if !within(cwd, dir) {
+			if !within(cwd, dir) || ownCheckout(p, cwd, dir) {
 				continue
 			}
 			who := "the caller"
@@ -97,6 +110,12 @@ func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal)
 		}
 	}
 	return nil
+}
+
+// ownCheckout reports whether cwd and the registered dir both lie inside
+// the coordinator's own checkout, where the coordinator calls host verbs.
+func ownCheckout(p *Principal, cwd, dir string) bool {
+	return p.Kind == cli.PrincipalCoordinator && p.Checkout != "" && within(cwd, p.Checkout) && within(dir, p.Checkout)
 }
 
 // checkTokenCaller refuses a run token used from outside its own checkout.

@@ -118,7 +118,7 @@ func (s *Scheduler) check(ctx context.Context, hc *config.HostConfig, r runRow, 
 		if end.IsZero() {
 			end = s.now()
 		}
-		s.settleEnded(ctx, r, end, rep.Reason)
+		s.settleEnded(ctx, r, end, rep.Reason, rep.Limit)
 		return
 	}
 	var st agenthost.Settlement
@@ -131,13 +131,13 @@ func (s *Scheduler) check(ctx context.Context, hc *config.HostConfig, r runRow, 
 	}
 	switch {
 	case err == nil && st.Liveness == agenthost.Exited:
-		s.settleEnded(ctx, r, s.now(), st.Reason)
+		s.settleEnded(ctx, r, s.now(), st.Reason, nil)
 	case err == nil && st.Liveness == agenthost.Live:
 		s.markLive(ctx, hc, r, inv)
 	case inv.Lookup(sess) == agenthost.Absent:
-		s.settleEnded(ctx, r, s.now(), "a complete inventory of the session's epoch no longer lists it")
+		s.settleEnded(ctx, r, s.now(), "a complete inventory of the session's epoch no longer lists it", nil)
 	default:
-		s.markUnknown(ctx, hc, r)
+		s.markUnknown(ctx, hc, r, inv)
 	}
 }
 
@@ -170,8 +170,11 @@ func (s *Scheduler) markLive(ctx context.Context, hc *config.HostConfig, r runRo
 }
 
 // markUnknown keeps the lease of a run whose liveness reads unknown. Past
-// two run budgets it raises one alert and still reclaims nothing (KTD9).
-func (s *Scheduler) markUnknown(ctx context.Context, hc *config.HostConfig, r runRow) {
+// two run budgets, a complete inventory of any epoch with no row of the
+// run's identity and no trace of it settles the run as ended (KTD9, F-21).
+// A traced run, or one only an incomplete inventory read, raises one alert
+// and is reclaimed by nothing.
+func (s *Scheduler) markUnknown(ctx context.Context, hc *config.HostConfig, r runRow, inv agenthost.Inventory) {
 	rec := r.Rec
 	if rec.UnknownSince == 0 {
 		rec.UnknownSince = s.now64()
@@ -182,6 +185,10 @@ func (s *Scheduler) markUnknown(ctx context.Context, hc *config.HostConfig, r ru
 	}
 	bound := 2 * s.budget(ctx, hc, r)
 	if s.now().Sub(time.UnixMilli(rec.UnknownSince)) > bound {
+		if inv.Untraced(*rec.Session) {
+			s.settleEnded(ctx, r, s.now(), fmt.Sprintf("Liveness read unknown for more than %s, and a complete inventory lists no terminal and no PTY of the run.", bound), nil)
+			return
+		}
 		s.raiseOnce(ctx, config.Alert{Project: r.Project, Kind: AlertRunUnknown, DedupeKey: AlertRunUnknown + ":" + r.ID,
 			Subject: fmt.Sprintf("the agent host cannot say whether %s run %s on %s lives", r.Stage, r.ID, r.Item),
 			Body:    fmt.Sprintf("Liveness has read unknown for more than %s. The server keeps the lease and reclaims nothing.", bound)})
@@ -205,8 +212,10 @@ func (s *Scheduler) budget(ctx context.Context, hc *config.HostConfig, r runRow)
 // settleEnded settles a run whose session ended with no finish (KTD8): it
 // classes the run, reclaims its lease to the stage-correct state, keeps
 // its checkout without .env, revokes its token, closes its session and
-// raises an inbox alert.
-func (s *Scheduler) settleEnded(ctx context.Context, r runRow, ended time.Time, reason string) {
+// raises an inbox alert. lim is the usage limit the host read in the
+// session's transcript, or nil. A limit, or a spent window in the quota
+// reading, classes the run quota-hit.
+func (s *Scheduler) settleEnded(ctx context.Context, r runRow, ended time.Time, reason string, lim *agenthost.Limit) {
 	ctx = context.WithoutCancel(ctx)
 	s.settleMu.Lock()
 	defer s.settleMu.Unlock()
@@ -215,7 +224,11 @@ func (s *Scheduler) settleEnded(ctx context.Context, r runRow, ended time.Time, 
 		s.log.ErrorContext(ctx, "read outages", "err", err)
 		return
 	}
-	quota := s.quotaFull(ctx, agenthost.Harness(r.Harness))
+	h := agenthost.Harness(r.Harness)
+	quota := "its agent wrote only a usage limit"
+	if lim == nil {
+		quota = s.quotaFull(ctx, h, QuotaSpent)
+	}
 	out, err := s.cfg.Admission.RecordOutcome(ctx, admission.Settlement{RunID: r.ID, Ended: ended, LastCLICall: r.LastCall,
 		Outages: outages, QuotaHit: quota != "", Note: reason})
 	if err != nil {
@@ -224,7 +237,12 @@ func (s *Scheduler) settleEnded(ctx context.Context, r runRow, ended time.Time, 
 	}
 	if !out.Replayed {
 		if out.Class == admission.ClassQuotaHit {
-			s.pauseHarness(ctx, agenthost.Harness(r.Harness), quota)
+			var reset time.Time
+			if lim != nil {
+				reset = lim.ResetAt
+			}
+			window, until := s.pauseHarness(ctx, h, quota, reset)
+			s.alertLimit(ctx, r, quota, lim, window, until)
 		}
 		s.afterSettle(ctx, r, "reclaim", CheckoutKept)
 		s.alertEnded(ctx, r, out.Class, reason)

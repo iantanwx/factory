@@ -1,12 +1,16 @@
 package release
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,45 +26,159 @@ const ReleaseRepo = "slothware-labs/factorio"
 const Homepage = "https://github.com/" + ReleaseRepo
 
 // DefaultReleaseBase is where `loop upgrade` reads releases: the GitHub
-// release download path of the loop repository. The release's signature,
-// not this location, decides whether a release is trusted.
+// releases of the loop repository. The repository is private, so a
+// Source with this base reads them through the GitHub REST API with the
+// host's gh login. The release's signature, not this location, decides
+// whether a release is trusted.
 const DefaultReleaseBase = Homepage + "/releases/download"
 
 // ReleaseBaseEnv overrides DefaultReleaseBase with another URL or an
 // absolute directory that holds <version>/<asset>. It names a location
-// only: a release from anywhere must still verify.
+// only: a release from anywhere must still verify. A Source never sends
+// the gh login to it.
 const ReleaseBaseEnv = "LOOP_RELEASE_BASE"
 
-// Source reads release assets from Base/<version>/<asset>.
+// githubAPIHost is the one host that receives the gh login.
+const githubAPIHost = "api.github.com"
+
+// ErrNoGHLogin is a read of the GitHub releases on a host with no gh
+// login. It is never fs.ErrNotExist: the release may well exist.
+var ErrNoGHLogin = errors.New("release: no gh login to read the private loop repository " + ReleaseRepo)
+
+// GHToken is the host's GitHub login: the token `gh auth token` prints.
+// gh honours GH_TOKEN itself.
+func GHToken(ctx context.Context) (string, error) {
+	out, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+	token := strings.TrimSpace(string(out))
+	if err == nil && token != "" {
+		return token, nil
+	}
+	detail := "it printed no token"
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(bytes.TrimSpace(ee.Stderr)) > 0 {
+		detail = string(bytes.TrimSpace(ee.Stderr))
+	} else if err != nil {
+		detail = err.Error()
+	}
+	return "", fmt.Errorf("%w: `gh auth token` failed (%s); run `gh auth login`, or set GH_TOKEN", ErrNoGHLogin, detail)
+}
+
+// Source reads release assets from Base/<version>/<asset>, or from the
+// GitHub releases of ReleaseRepo when Base is DefaultReleaseBase.
 type Source struct {
-	// Base is a URL, or an absolute directory.
+	// Base is a URL, or an absolute directory. Empty is DefaultReleaseBase.
 	Base string
 	// HTTP is the client. http.DefaultClient when nil.
 	HTTP *http.Client
+	// Token reads the gh login for the GitHub releases. GHToken when nil.
+	Token func(context.Context) (string, error)
+}
+
+func (s Source) base() string {
+	if s.Base == "" {
+		return DefaultReleaseBase
+	}
+	return s.Base
+}
+
+// github reports whether s reads the GitHub releases of ReleaseRepo.
+func (s Source) github() bool {
+	return strings.TrimSuffix(s.base(), "/") == DefaultReleaseBase
+}
+
+// assets returns a reader of the assets of version.
+func (s Source) assets(ctx context.Context, version string) (func(asset string) ([]byte, error), error) {
+	if !s.github() {
+		return func(asset string) ([]byte, error) { return s.get(ctx, version, asset) }, nil
+	}
+	rel, token, err := s.githubRelease(ctx, "tags/"+url.PathEscape(version))
+	if err != nil {
+		return nil, err
+	}
+	urls := map[string]string{}
+	for _, a := range rel.Assets {
+		urls[a.Name] = a.URL
+	}
+	return func(asset string) ([]byte, error) {
+		u, ok := urls[asset]
+		if !ok {
+			return nil, fmt.Errorf("%w: the GitHub release %s lists no %s", fs.ErrNotExist, version, asset)
+		}
+		return s.githubGet(ctx, token, u, "application/octet-stream")
+	}, nil
 }
 
 func (s Source) get(ctx context.Context, version, asset string) ([]byte, error) {
-	base := s.Base
-	if base == "" {
-		base = DefaultReleaseBase
-	}
+	base := s.base()
 	if filepath.IsAbs(base) {
 		return httpGet(ctx, nil, filepath.Join(base, version, asset), maxArchive)
 	}
 	return httpGet(ctx, s.HTTP, strings.TrimSuffix(base, "/")+"/"+version+"/"+asset, maxArchive)
 }
 
-// LatestVersion reads the version of the newest published release from
-// its release.json. The version only names what to fetch: Run verifies
-// the release as it would any named version.
-func (s Source) LatestVersion(ctx context.Context) (string, error) {
-	base := s.Base
-	if base == "" {
-		base = DefaultReleaseBase
+// githubRelease is a GitHub release as the REST API serves it.
+type githubRelease struct {
+	TagName string `json:"tag_name"`
+	Assets  []struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	} `json:"assets"`
+}
+
+// githubRelease reads /repos/<ReleaseRepo>/releases/<path> with the gh
+// login, and returns the release and the login.
+func (s Source) githubRelease(ctx context.Context, path string) (githubRelease, string, error) {
+	var rel githubRelease
+	read := GHToken
+	if s.Token != nil {
+		read = s.Token
 	}
+	token, err := read(ctx)
+	if err != nil {
+		return rel, "", err
+	}
+	u := "https://" + githubAPIHost + "/repos/" + ReleaseRepo + "/releases/" + path
+	data, err := s.githubGet(ctx, token, u, "application/vnd.github+json")
+	if err != nil {
+		return rel, "", err
+	}
+	if err := json.Unmarshal(data, &rel); err != nil {
+		return rel, "", fmt.Errorf("release: %s: %w", u, err)
+	}
+	return rel, token, nil
+}
+
+// githubGet reads u, a GitHub API URL, with the gh login. Go's client
+// drops the login on the redirect of an asset read to its storage host.
+func (s Source) githubGet(ctx context.Context, token, u, accept string) ([]byte, error) {
+	if p, err := url.Parse(u); err != nil || p.Scheme != "https" || p.Host != githubAPIHost {
+		return nil, fmt.Errorf("release: %q is not a GitHub API URL, so it gets no gh login", u)
+	}
+	h := http.Header{}
+	h.Set("Authorization", "Bearer "+token)
+	h.Set("Accept", accept)
+	h.Set("X-GitHub-Api-Version", "2022-11-28")
+	return httpGetHeader(ctx, s.HTTP, u, h, maxArchive)
+}
+
+// LatestVersion reads the version of the newest published release: the
+// tag of the latest GitHub release, or the version its release.json
+// names. The version only names what to fetch: Run verifies the release
+// as it would any named version.
+func (s Source) LatestVersion(ctx context.Context) (string, error) {
+	base := s.base()
 	var data []byte
 	var err error
 	switch {
+	case s.github():
+		rel, _, err := s.githubRelease(ctx, "latest")
+		if err != nil {
+			return "", err
+		}
+		if !ValidVersion(rel.TagName) {
+			return "", fmt.Errorf("release: the latest release names %q", rel.TagName)
+		}
+		return rel.TagName, nil
 	case filepath.IsAbs(base):
 		data, err = httpGet(ctx, nil, filepath.Join(base, "latest", MetadataFile), maxArchive)
 	case strings.HasSuffix(strings.TrimSuffix(base, "/"), "/releases/download"):
@@ -207,17 +325,26 @@ func (u *Upgrader) Run(ctx context.Context, version string) (UpgradeReport, erro
 // comment, every checksum and its metadata.
 func (u *Upgrader) fetch(ctx context.Context, version string) (verified, error) {
 	var rel verified
-	get := func(asset string) ([]byte, error) {
-		data, err := u.Source.get(ctx, version, asset)
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, refuse(cli.CodeNotFound, "no_release", "release %s has no %s: %v", version, asset, err)
+	refuseFetch := func(asset string, err error) error {
+		switch {
+		case errors.Is(err, ErrNoGHLogin):
+			return refuse(CodeReleaseUnavailable, "no_gh_login", "fetch %s: %v", version, err)
+		case errors.Is(err, fs.ErrNotExist):
+			return refuse(cli.CodeNotFound, "no_release", "release %s has no %s: %v", version, asset, err)
 		}
+		return refuse(CodeReleaseUnavailable, "fetch_failed", "fetch %s of %s: %v", asset, version, err)
+	}
+	read, err := u.Source.assets(ctx, version)
+	if err != nil {
+		return rel, refuseFetch("release", err)
+	}
+	get := func(asset string) ([]byte, error) {
+		data, err := read(asset)
 		if err != nil {
-			return nil, refuse(CodeReleaseUnavailable, "fetch_failed", "fetch %s of %s: %v", asset, version, err)
+			return nil, refuseFetch(asset, err)
 		}
 		return data, nil
 	}
-	var err error
 	if rel.sums, err = get(ChecksumsFile); err != nil {
 		return rel, err
 	}

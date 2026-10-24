@@ -158,8 +158,10 @@ func TestSecretInAnEncodedFormIsRefused(t *testing.T) {
 
 func firstErr(_ PushResult, err error) error { return err }
 
+// The scan refuses every file the server writes into a checkout (C-bug-1).
 func TestInjectedPathIsRefused(t *testing.T) {
-	for _, p := range []string{".loop/brief.json", ".env", ".claude/skills/loop-turn/SKILL.md", ".agents/skills/loop-x/a.md"} {
+	for _, p := range []string{".loop/brief.json", ".loop/brief.md", ".loop/prompt.md", ".loop/token",
+		".loop/pending.jsonl", ".loop/pending.lock", ".loop/env-files", ".env", ".claude/skills/loop-turn/SKILL.md", ".agents/skills/loop-x/a.md"} {
 		t.Run(p, func(t *testing.T) {
 			e := newEnv(t)
 			head := commit(t, e.checkout, "inject", map[string]string{p: "x\n"})
@@ -168,6 +170,32 @@ func TestInjectedPathIsRefused(t *testing.T) {
 				t.Fatalf("refusal %+v", Refusal(err))
 			}
 		})
+	}
+}
+
+// C-bug-1: a run may change a .loop/ file the project's repository tracks,
+// such as .loop/policy/<role>.md or .loop/config.yaml, and may add
+// .loop/secrets.yaml. The scan refuses only the paths the server writes.
+func TestTrackedLoopPolicyChangePushes(t *testing.T) {
+	e := newEnv(t)
+	tracked := commit(t, e.checkout, "policy", map[string]string{
+		".loop/policy/coordinator.md": "# Coordinator\n\nold rule\n",
+		".loop/config.yaml":           "gates: []\n",
+	})
+	gitT(t, e.checkout, "push", "-q", e.git.RemoteDir(), "work:main")
+	if e.remoteSHA("main") != tracked {
+		t.Fatal("the base does not track the policy")
+	}
+	head := commit(t, e.checkout, "edit policy", map[string]string{
+		".loop/policy/coordinator.md": "# Coordinator\n\nnew rule\n",
+		".loop/config.yaml":           "gates:\n  - name: lint\n    run: make lint\n",
+		".loop/secrets.yaml":          "- name: STRIPE_KEY\n",
+	})
+	if _, err := e.push("tk-1", head); err != nil {
+		t.Fatalf("push of a tracked policy change: %+v", Refusal(err))
+	}
+	if got := e.remoteSHA("loop/tk-1"); got != head {
+		t.Fatalf("remote loop/tk-1 = %q, want %s", got, head)
 	}
 }
 

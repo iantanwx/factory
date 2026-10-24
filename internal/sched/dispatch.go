@@ -55,7 +55,7 @@ func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Start
 	if err != nil {
 		return nil, cli.InternalRefusal(fmt.Errorf("sched: project config of %s: %w", project, err))
 	}
-	if ref := s.secretsReady(ctx, project, snap.Manifest); ref != nil {
+	if ref := s.secretsReady(ctx, project, snap.Manifest.ForStage(stage)); ref != nil {
 		return nil, ref
 	}
 	hc, err := s.cfg.Host.Load(ctx)
@@ -76,11 +76,11 @@ func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Start
 	if ref != nil {
 		return nil, ref
 	}
-	return s.start(ctx, ad, snap, *prof)
+	return s.start(ctx, ad, snap, hc, *prof)
 }
 
-// secretsReady refuses a run whose manifest names a secret with no stored
-// value, before any claim (R53, AE8). It puts one inbox item that names
+// secretsReady refuses a run whose stage's manifest entries name a secret
+// with no stored value, before any claim (R53, AE8). It puts one inbox item that names
 // each missing secret, and it counts no failure.
 func (s *Scheduler) secretsReady(ctx context.Context, project string, m *config.Manifest) *cli.Refusal {
 	missing, err := s.cfg.Secrets.Missing(ctx, project, m)
@@ -111,7 +111,7 @@ func reasons(why map[string]string) string {
 
 // start runs one admitted run up to its session. Each failure settles the
 // run uncounted, releases its claim and restores the frontier state.
-func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, prof Profile) (*Started, *cli.Refusal) {
+func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, hc *config.HostConfig, prof Profile) (*Started, *cli.Refusal) {
 	st := &Started{RunID: ad.RunID, Project: ad.Project, Stage: ad.Stage, Item: ad.Item, Attempt: ad.Attempt, Profile: prof}
 	fail := func(ref *cli.Refusal, refused bool, kind string, cause error) (*Started, *cli.Refusal) {
 		s.abandon(ctx, runRow{ID: ad.RunID, Project: ad.Project, Stage: ad.Stage, Item: ad.Item, Checkout: st.Checkout}, refused, cause)
@@ -136,7 +136,8 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 			return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 		}
 	}
-	env, err := s.cfg.Secrets.Values(ctx, ad.Project, snap.Manifest)
+	manifest := snap.Manifest.ForStage(ad.Stage)
+	env, err := s.cfg.Secrets.Values(ctx, ad.Project, manifest)
 	var miss *secrets.MissingSecretsError
 	if errors.As(err, &miss) {
 		ref := &cli.Refusal{Code: cli.CodeMissingSecret, Rule: "missing_secret",
@@ -146,8 +147,8 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	if err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
-	b := s.brief(ctx, ad, snap, prof)
-	res, err := brief.Inject(ctx, brief.Injection{Checkout: co.Path, Harness: prof.Harness, Pack: s.cfg.Pack, Brief: b, Env: env})
+	b := s.brief(ctx, ad, snap, hc, prof)
+	res, err := brief.Inject(ctx, brief.Injection{Checkout: co.Path, Harness: prof.Harness, Pack: s.cfg.Pack, Brief: b, Env: brief.GroupEnv(manifest, env)})
 	var conflict *brief.ConflictError
 	if errors.As(err, &conflict) {
 		ref := &cli.Refusal{Code: cli.CodeConfigConflict, Rule: "injected_path_tracked", Item: ad.Item,
@@ -218,13 +219,17 @@ func (s *Scheduler) runSetup(ctx context.Context, dir, setup string) error {
 	return nil
 }
 
-// brief builds the run's brief. It names the manifest secrets and holds no
-// value.
-func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, prof Profile) brief.Brief {
+// brief builds the run's brief. It names the manifest secrets the stage
+// receives and holds no value. An agent job's run follows the runbook its
+// host config entry names in the repository, not one of the pack.
+func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, hc *config.HostConfig, prof Profile) brief.Brief {
 	b := brief.Brief{
 		RunID: ad.RunID, Project: ad.Project, Stage: ad.Stage, Role: ad.Stage, Harness: string(prof.Harness), Model: prof.Model,
 		BaseBranch: DefaultBaseBranch, Attempt: ad.Attempt,
-		Secrets: brief.Secrets{Present: snap.Manifest.Names(), Missing: []string{}},
+		Secrets: brief.Secrets{Present: snap.Manifest.ForStage(ad.Stage).Names(), Missing: []string{}},
+	}
+	if j, ok := hc.AgentJob(ad.Stage); ok {
+		b.Runbook = j.Runbook
 	}
 	// The brief names the loop faults filed from this project and stage
 	// (KTD31), so the run learns their status without asking.
@@ -255,6 +260,7 @@ func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *conf
 		b.Handoff = []string{n}
 	}
 	b.PriorFailures = s.priorFailures(ctx, ad)
+	b.KeptCheckouts = s.keptWork(ctx, ad)
 	return b
 }
 

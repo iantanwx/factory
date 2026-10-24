@@ -30,6 +30,14 @@ type TicketSpec struct {
 	BlockedBy []string `json:"blocked_by,omitempty"`
 }
 
+// TicketCap is the most tickets one decompose batch may hold. It is a
+// smoke alarm for a runaway decomposer, not a sizing rule: a count cannot
+// see whether an epic reaches more than one subsystem, and a decomposer at
+// a sizing ceiling would merge slices into fat tickets to comply. The two
+// questions of loop-sdlc-split decide the unit. Twenty-five is the cap
+// tickertown keeps on one epic for the same reason.
+const TicketCap = 25
+
 // BatchTicket is one ticket of the answer.
 type BatchTicket struct {
 	Key    string `json:"key"`
@@ -65,6 +73,12 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 	if err := dec.Decode(&d); err != nil {
 		return cli.Reject(cli.CodeUsage, "bad_file", "the decomposition file is not the JSON object the schema names: "+err.Error())
 	}
+	if n := len(d.Tickets); n > TicketCap {
+		return cli.Reject(cli.CodeUsage, "runaway_batch", fmt.Sprintf("the batch holds %d tickets, and %d is the runaway limit: "+
+			"no ticket was created. This is no sizing rule, so never merge slices to fit under it. An epic this large "+
+			"likely needs a split, and only the operator agrees to one: escalate, and name how many slices the spec "+
+			"needs and the seam where the epic would split (loop-sdlc-split)", n, TicketCap))
+	}
 	order, msg := topoOrder(d.Tickets)
 	if msg != "" {
 		return cli.Reject(cli.CodeUsage, "bad_batch", msg)
@@ -73,20 +87,36 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 	if ref != nil {
 		return ref.Result()
 	}
-	labels, ref := p.prdLabels(ctx, epic)
-	if ref != nil {
-		return ref.Result()
+	// An architecture epic follows an ADR and never has a PRD (F-15). Its
+	// ADR stands in for the PRD, so its tickets cite no story label, and
+	// a ticket that names one cites a PRD that does not exist.
+	arch := epic.Fact(machine.FactADR) != "" && epic.Fact(machine.FactPRDMerged) == ""
+	var labels []string
+	if !arch {
+		if labels, ref = p.prdLabels(ctx, epic); ref != nil {
+			return ref.Result()
+		}
 	}
 	var faults []string
 	var texts []string
 	for _, t := range d.Tickets {
-		if m := citeCheck("ticket "+t.Key, t.Stories, labels); m != "" {
-			faults = append(faults, m)
+		switch {
+		case arch && len(t.Stories) > 0:
+			faults = append(faults, fmt.Sprintf("ticket %s cites %s, and an architecture epic has no PRD to hold a story",
+				t.Key, strings.Join(t.Stories, ", ")))
+		case !arch:
+			if m := citeCheck("ticket "+t.Key, t.Stories, labels); m != "" {
+				faults = append(faults, m)
+			}
 		}
 		texts = append(texts, t.Title, t.Body)
 	}
 	if len(faults) > 0 {
-		return cli.Refuse(cli.Refusal{Code: cli.CodeStoryUnknown, Rule: "story_not_in_prd", Item: epic.ID,
+		rule := "story_not_in_prd"
+		if arch {
+			rule = "story_without_prd"
+		}
+		return cli.Refuse(cli.Refusal{Code: cli.CodeStoryUnknown, Rule: rule, Item: epic.ID,
 			Hint: "the batch is refused, and no ticket was created: " + strings.Join(faults, "; ")})
 	}
 	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", texts...); ref != nil {

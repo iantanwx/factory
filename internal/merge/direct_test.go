@@ -179,3 +179,40 @@ func TestDirectChecksCIBeforeItMerges(t *testing.T) {
 		t.Fatalf("merge calls = %+v; want none", got)
 	}
 }
+
+// A PR that is a draft, or that merges into a branch other than the
+// project's default, is refused before any merge call, with a reason that
+// names it. The refusal re-queues once at the head, as any other dequeue
+// does, so a person can mark the PR ready or move its base back, then
+// escalates under the same reason.
+func TestDirectRefusesADraftOrANonDefaultBaseByName(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*gt.PR)
+		reason merge.Reason
+	}{
+		{"draft", func(p *gt.PR) { p.Draft = true }, merge.Draft},
+		{"base", func(p *gt.PR) { p.Base = "release/1" }, merge.WrongBase},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newDirect(t)
+			id, pr := e.reviewed(sha('1'), true)
+			e.tick()
+			e.wantStatus(id, machine.Queued)
+			e.world.Update(pr, tc.change)
+			r, err := e.mech.Poll(e.ctx, merge.PR{Project: e.project, Item: id, Number: pr.Number, Head: sha('1'), Base: pr.Base})
+			if err != nil || r.Outcome != merge.Dequeued || r.Reason != tc.reason {
+				t.Fatalf("poll = %+v, %v; want dequeued with reason %q", r, err, tc.reason)
+			}
+			e.tick()
+			e.wantStatus(id, machine.Queued)
+			e.wantTracked(pr, "requeued", tc.reason, 2)
+			e.tick()
+			e.wantStatus(id, machine.Escalated)
+			e.wantTracked(pr, "escalated", tc.reason, 2)
+			if got := e.world.Merges(); len(got) != 0 {
+				t.Fatalf("merge calls = %+v; want none", got)
+			}
+		})
+	}
+}
