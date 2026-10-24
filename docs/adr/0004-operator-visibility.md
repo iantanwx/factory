@@ -169,7 +169,7 @@ marks "unassigned items lost in Drafting" as gone by design.
    and `--live`. `run events` returns the transitions with the run's `run_id`, and the audit rows
    of the run's actor, oldest first. I rejected removing the verbs from the schema, because
    section 3 of the coordinator runbook reads a run with them. I rejected reading SQLite by hand.
-   Only the server reads its store (R11), and a migration changes the tables.
+   Only the server writes its store (R11), and a migration changes the tables under a hand read.
 
 2. **Count in-flight runs with `run list --live`.** I rejected a port of `queue inflight` as its
    own verb, because the live runs answer the same question.
@@ -202,10 +202,12 @@ marks "unassigned items lost in Drafting" as gone by design.
    for the same reason.
 
 7. **Port neither `ci-minutes` nor `merge-stats`.** `ci-minutes` is tickertown policy: the
-   operator asked it to price hosted runners for one repository. A project that wants it keeps it
-   in its own tooling. `merge-stats` is obsolete under the loop's design. It compared Mergify with
-   tickertown's `land` lanes for one cutover, and the loop has no `land` lane (KTD29). I rejected
-   both as loop verbs, because no stage acts on either number.
+   operator asked it to price hosted runners for one repository. The plan holds no requirement for
+   CI cost: a case-insensitive search of the plan for `runner minute`, `ubicloud`, `ci cost` and
+   `ci-minutes` finds nothing. A project that wants it keeps it in its own tooling. `merge-stats`
+   is obsolete under the loop's design. It compared Mergify with tickertown's `land` lanes for one
+   cutover, and the loop has no `land` lane (KTD29). I rejected both as loop verbs, because no
+   stage acts on either number.
 
 8. **Read the GitHub quota in `loop doctor-github`.** The server reads `GET /rate_limit` with the
    installation's token several times, and prints the lowest `core` and `graphql` values and the
@@ -216,7 +218,9 @@ marks "unassigned items lost in Drafting" as gone by design.
 9. **Filter `work list` by epic, and port no `epic done`.** `work list --epic <id>` lists the
    items whose `epic` fact names the epic. I rejected an `epic children` verb, because the filter
    already exists in `machine.ListFilter`. `epic done` is obsolete under the loop's design: the
-   server closes an epic when its last child ends.
+   server closes an epic when its last child ends. The plan closes an epic only from `execution`,
+   with every child terminal (KTD24). The smell triage behind R14 marks two `Done` writers as must
+   fix, and a hand-run `epic done` would be the second writer.
 
 10. **Add `loop pr pending` for the coordinator, and port no `pr link`.** `pr pending [--project]`
     lists each open pull request that holds a person's unanswered comment, with its item and the
