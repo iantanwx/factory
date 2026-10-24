@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -515,5 +516,58 @@ func TestDoctorWithNoGitHubActor(t *testing.T) {
 	lines := h.githubLines(context.Background(), &serverControl{h: h, instance: instance})
 	if len(lines) != 1 || lines[0].Check != "github" || lines[0].OK || !strings.Contains(lines[0].Detail, "GitHub actor") {
 		t.Fatalf("with no GitHub actor: %+v", lines)
+	}
+}
+
+// factorio-obc: the coordinator's `loop upgrade` and `loop rollback` run
+// outside its session. The new release restarts the coordinator session
+// and revokes its token, so the CLI hands the verb to a detached process
+// that outlives both and runs as the host, and never runs it in place.
+func TestCoordinatorUpgradeHandsOffToADetachedProcess(t *testing.T) {
+	instance := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	svc := &procService{t: t, instance: instance}
+	h := testHostVerbs(t, instance, svc)
+	checkout := t.TempDir()
+	if err := cli.WriteTokenFile(checkout, cli.TokenFile{Token: "tok", RunID: "coordinator-r-1", Kind: cli.PrincipalCoordinator}); err != nil {
+		t.Fatal(err)
+	}
+	h.client.Getwd = func() (string, error) { return filepath.Join(checkout, "sub"), nil }
+	var got [][]string
+	h.detach = func(_ context.Context, dir string, args []string) (server.UpgradeStart, error) {
+		if dir != instance {
+			t.Fatalf("detached into instance %q, want %q", dir, instance)
+		}
+		got = append(got, args)
+		return server.UpgradeStart{Unit: "loop-upgrade-abcd", Command: append([]string{"loop"}, args...)}, nil
+	}
+
+	env := runVerb(t, h, "upgrade", "v1.2.3")
+	data, _ := env["data"].(map[string]any)
+	if env["exit"] != float64(0) || data["unit"] != "loop-upgrade-abcd" || data["started"] != true {
+		t.Fatalf("upgrade from the coordinator = %v", env)
+	}
+	env = runVerb(t, h, "rollback")
+	if env["exit"] != float64(0) {
+		t.Fatalf("rollback from the coordinator = %v", env)
+	}
+	if want := [][]string{{"upgrade", "v1.2.3"}, {"rollback"}}; !slices.EqualFunc(got, want, slices.Equal) {
+		t.Fatalf("detached %q, want %q", got, want)
+	}
+	if len(svc.events) != 0 {
+		t.Fatalf("the coordinator's process touched the service: %v", svc.events)
+	}
+
+	// A run's token never hands off: the verb runs, and fails, in place.
+	run := t.TempDir()
+	if err := cli.WriteTokenFile(run, cli.TokenFile{Token: "tok", RunID: "run-a", Kind: cli.PrincipalRun}); err != nil {
+		t.Fatal(err)
+	}
+	h.client.Getwd = func() (string, error) { return run, nil }
+	env = runVerb(t, h, "rollback")
+	if env["code"] != cli.CodeNotFound || len(got) != 2 {
+		t.Fatalf("rollback from a run = %v, detached %q", env, got)
 	}
 }
