@@ -19,7 +19,7 @@ const FailureLimit = 2
 const attemptPending = "pending"
 
 // counted is the SQL list of the classes that count.
-const counted = `('` + string(ClassFailed) + `', '` + string(ClassCrashed) + `')`
+const counted = `('` + string(ClassFailed) + `', '` + string(ClassCrashed) + `', '` + string(ClassStalled) + `')`
 
 type querier interface {
 	QueryRow(query string, args ...any) *sql.Row
