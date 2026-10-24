@@ -82,6 +82,45 @@ func TestCINeverStartedIsNotRed(t *testing.T) {
 	}
 }
 
+// C-bug-1: a failed check with no annotation, whose job got no runner and
+// ran no step, never started either. The job alone decides it: the ticket
+// stays in review and one alert names the no-runner cause.
+func TestCINoRunnerIsNotRed(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	id := e.ticket(machine.InReview, shaB)
+	w.Add(&gt.PR{Head: BranchFor(id), HeadSHA: shaB})
+	t0 := time.Date(2026, 10, 24, 2, 20, 0, 0, time.UTC)
+	const run = 9201
+	cr := notStartedRun(run, shaB, t0)
+	cr["output"] = map[string]any{"title": nil, "summary": nil, "text": nil, "annotations_count": 0}
+	w.SetRuns(shaB, cr)
+	e.api.Route(fmt.Sprintf("GET /repos/%s/actions/jobs/%d", gt.Repo, run), func(w http.ResponseWriter, _ *http.Request) {
+		gt.WriteJSON(w, 200, map[string]any{"id": run, "run_id": run + 1000, "name": "gates", "head_sha": shaB,
+			"status": "completed", "conclusion": "failure", "runner_id": nil, "runner_name": nil, "steps": []any{}})
+	})
+	r := e.reactor()
+	e.tick(r)
+	e.tick(r)
+	if got := e.status(id).Status; got != machine.InReview {
+		t.Fatalf("a job with no runner and no steps moved %s to %s, want it held in review", id, got)
+	}
+	var n int
+	var subject string
+	if err := e.st.Write(context.Background(), func(tx *storeTx) error {
+		return tx.QueryRow(`SELECT count(*), coalesce(max(subject), '') FROM alerts WHERE kind = 'ci_not_started' AND state = 'open'`).
+			Scan(&n, &subject)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("%d open ci_not_started alerts, want one for the no-runner cause", n)
+	}
+	if !strings.HasSuffix(subject, "/no_runner") {
+		t.Fatalf("the alert does not name the no-runner cause: %q", subject)
+	}
+}
+
 // C-bug-1: a failed job that GitHub started is still red. A check run
 // with an annotation that names no billing cause, whose job had a runner
 // and ran steps, sends the ticket to repair and raises no alert.
