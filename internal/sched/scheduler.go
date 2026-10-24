@@ -98,7 +98,11 @@ type Config struct {
 	// Beads reads an item's body for the brief and the dependency edges of
 	// dependency-advance. Optional. With none, dependency-advance is not
 	// registered.
-	Beads   machine.BeadsResolver
+	Beads machine.BeadsResolver
+	// Pulls lists a project's open pull requests. dependency-advance reads
+	// it to learn whether a canceled blocker landed. Optional. With none, a
+	// canceled blocker holds its dependants.
+	Pulls   admission.PullReader
 	Secrets *secrets.Store
 	Tokens  *rpc.Tokens
 	// Agents is the agent host: start, inventory, liveness, close.
@@ -410,7 +414,7 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 		if s.instanceJob(name) == nil {
 			continue
 		}
-		if s.advance(ctx, rows, "", name, hc.Throughput[name].Schedule, now) {
+		if s.advance(ctx, rows, "", name, hc.ThroughputFor(name).Schedule, now) {
 			s.launch(ctx, "", name, kindInstanceJob, hc)
 		}
 	}
@@ -439,7 +443,7 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 			} else if snap == nil || !snap.Config.StageEnabled(stage) || stage == config.StageIntake {
 				continue
 			}
-			expr := hc.Throughput[stage].Schedule
+			expr := hc.ThroughputFor(stage).Schedule
 			if j, ok := hc.AgentJob(stage); ok {
 				expr = j.Schedule
 			}
@@ -522,7 +526,7 @@ func (s *Scheduler) launch(ctx context.Context, project, stage string, kind laun
 	key := stageKey(project, stage)
 	limit := 1
 	if kind != kindRun {
-		limit = max(1, hc.Throughput[stage].Cap)
+		limit = max(1, hc.ThroughputFor(stage).Cap)
 	}
 	s.mu.Lock()
 	if s.inflight[key] >= limit || kind == kindRun && s.draining {

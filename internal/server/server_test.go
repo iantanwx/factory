@@ -87,10 +87,18 @@ func start(t *testing.T, dir string, opts Options, wait bool) *running {
 	return r
 }
 
+// noCheckout is the working directory of a client that sends no run token.
+// The process working directory can sit under a loop checkout, whose
+// .loop/token the test server never issued.
+func noCheckout(t *testing.T) func() (string, error) {
+	dir := t.TempDir()
+	return func() (string, error) { return dir, nil }
+}
+
 func call(t *testing.T, dir string, budget time.Duration, stdin io.Reader, args ...string) (map[string]any, int, string) {
 	t.Helper()
 	r := cli.Surface()
-	(&cli.Client{Instance: dir, Stdin: stdin, Budget: budget}).Attach(r)
+	(&cli.Client{Instance: dir, Stdin: stdin, Budget: budget, Getwd: noCheckout(t)}).Attach(r)
 	var out, errOut bytes.Buffer
 	code := r.Run(context.Background(), args, &out, &errOut)
 	var env map[string]any
@@ -260,7 +268,7 @@ func TestSecretSetReadsStdinAndNeverEchoes(t *testing.T) {
 	}
 	// No stdin: refused, never read from a flag.
 	r := cli.Surface()
-	(&cli.Client{Instance: dir, Budget: time.Second}).Attach(r)
+	(&cli.Client{Instance: dir, Budget: time.Second, Getwd: noCheckout(t)}).Attach(r)
 	var out bytes.Buffer
 	if code := r.Run(context.Background(), []string{"secret", "set", "API_TOKEN", "--project", "alpha"}, &out, io.Discard); code != 2 {
 		t.Fatalf("secret set with no stdin: %d %s", code, out.String())

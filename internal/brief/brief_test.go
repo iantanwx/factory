@@ -466,3 +466,25 @@ func TestTrackedAppEnvIsAConflict(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// The brief names each kept checkout with its branch and dirty files, and
+// counts the files it leaves out.
+func TestMarkdownNamesKeptCheckouts(t *testing.T) {
+	b := Brief{RunID: "r-2", KeptCheckouts: []KeptCheckout{
+		{RunID: "r-1", Path: "/w/r-1", Branch: "loop-x-r-1", Dirty: []string{"a.go", "b/c.go"}, More: 3},
+	}}
+	md := b.Markdown()
+	for _, s := range []string{
+		"## Uncommitted work of earlier attempts",
+		"- Run r-1: `/w/r-1` (branch loop-x-r-1)",
+		"  - `a.go`\n  - `b/c.go`\n",
+		"  - and 3 more: run `git -C /w/r-1 status` to list them",
+	} {
+		if !strings.Contains(md, s) {
+			t.Fatalf("brief.md lacks %q:\n%s", s, md)
+		}
+	}
+	if md := (Brief{RunID: "r-2"}).Markdown(); strings.Contains(md, "Uncommitted work") {
+		t.Fatalf("a brief with no kept checkout names one:\n%s", md)
+	}
+}

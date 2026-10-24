@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/iantanwx/loop/internal/admission"
+	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/store"
@@ -212,4 +214,76 @@ func unheld(ctx context.Context, path string) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// keptWork lists the kept checkouts of the item's earlier runs of the
+// stage that still hold uncommitted work, oldest first. A run that ended
+// with no finish leaves its work there, and the next run's brief names it.
+// A checkout it cannot read is left out.
+func (s *Scheduler) keptWork(ctx context.Context, ad admission.Admitted) []brief.KeptCheckout {
+	var kept []brief.KeptCheckout
+	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		rs, err := tx.QueryContext(ctx, `SELECT c.run_id, c.path, c.branch FROM checkouts c
+			JOIN runs r ON r.run_id = c.run_id
+			WHERE c.project = ? AND c.item = ? AND c.state = ? AND r.stage = ? AND c.run_id <> ?
+			ORDER BY c.created_at, c.id`, ad.Project, ad.Item, CheckoutKept, ad.Stage, ad.RunID)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rs.Close() }()
+		for rs.Next() {
+			var k brief.KeptCheckout
+			if err := rs.Scan(&k.RunID, &k.Path, &k.Branch); err != nil {
+				return err
+			}
+			kept = append(kept, k)
+		}
+		return rs.Err()
+	})
+	if err != nil {
+		s.log.WarnContext(ctx, "brief: read the kept checkouts", "item", ad.Item, "err", err)
+		return nil
+	}
+	var out []brief.KeptCheckout
+	for _, k := range kept {
+		dirty, err := dirtyPaths(ctx, k.Path)
+		if err != nil {
+			s.log.WarnContext(ctx, "brief: read a kept checkout", "path", k.Path, "err", err)
+			continue
+		}
+		if len(dirty) == 0 {
+			continue
+		}
+		k.Dirty = dirty[:min(len(dirty), brief.MaxDirty)]
+		k.More = len(dirty) - len(k.Dirty)
+		out = append(out, k)
+	}
+	return out
+}
+
+// dirtyPaths lists each modified, added, deleted or untracked path in the
+// checkout at dir, as git status names it. A rename names its new path.
+func dirtyPaths(ctx context.Context, dir string) ([]string, error) {
+	if _, err := os.Stat(dir); err != nil {
+		return nil, err
+	}
+	out, err := gitx.Run(ctx, dir, "status", "--porcelain", "-z", "--untracked-files=all")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	entries := strings.Split(string(out), "\x00")
+	for i := 0; i < len(entries); i++ {
+		e := entries[i]
+		if len(e) < 4 {
+			continue
+		}
+		paths = append(paths, e[3:])
+		// A rename or a copy, in the index or the worktree column, is
+		// followed by the path it came from.
+		if strings.ContainsAny(e[:2], "RC") {
+			i++
+		}
+	}
+	return paths, nil
 }

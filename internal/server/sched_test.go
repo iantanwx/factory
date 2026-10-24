@@ -10,9 +10,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/agenthost"
 	agentfake "github.com/iantanwx/loop/internal/agenthost/fake"
 	"github.com/iantanwx/loop/internal/beadsx"
@@ -179,5 +181,62 @@ func TestLocalRefsReadsTheDefaultBranch(t *testing.T) {
 	snap, err := config.ReadProjectSnapshot(context.Background(), read, branch)
 	if err != nil || len(snap.Manifest.Secrets) != 0 {
 		t.Fatalf("snapshot = %+v, %v", snap, err)
+	}
+}
+
+// countPulls answers that no pull request is open, and counts its reads.
+type countPulls struct{ reads atomic.Int32 }
+
+func (p *countPulls) OpenPulls(context.Context, string) ([]admission.PullHead, error) {
+	p.reads.Add(1)
+	return nil, nil
+}
+
+// The server hands Options.Pulls to the scheduler it composes. So in
+// `loop serve` a dependency-advance tick reads the open pull requests, and
+// frees the dependant of a canceled blocker that holds none.
+func TestServerSchedulerReadsPullsForDependencyAdvance(t *testing.T) {
+	clock := &testClock{now: time.Date(2026, 10, 24, 10, 0, 30, 0, time.UTC)}
+	p := &countPulls{}
+	w := newSchedWorld(t, Options{Pulls: p, Sched: SchedOptions{Now: clock.Now}})
+	ctx := context.Background()
+	ticket := func(status string) string {
+		is, err := w.bx.Create(ctx, beadsx.CreateSpec{Title: "item", Type: "task"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.bx.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: is.Status, Status: status}); err != nil {
+			t.Fatal(err)
+		}
+		return is.ID
+	}
+	dependant := ticket(machine.Backlog)
+	if err := w.bx.AddDependency(ctx, dependant, ticket(machine.Canceled), beadsx.DepBlocks); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.srv.Sched.Tick(ctx); err != nil { // the first sight sets each deadline after now
+		t.Fatal(err)
+	}
+	clock.Advance(10 * time.Minute)
+	if err := w.srv.Sched.Tick(ctx); err != nil { // dependency-advance is due
+		t.Fatal(err)
+	}
+	w.srv.Sched.Wait()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		is, err := w.bx.Get(ctx, dependant)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if is.Status == machine.Todo {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dependant of a canceled blocker with no open pull request = %s after %d reads, want todo", is.Status, p.reads.Load())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := p.reads.Load(); n != 1 {
+		t.Fatalf("%d reads of the open pull requests, want 1", n)
 	}
 }
