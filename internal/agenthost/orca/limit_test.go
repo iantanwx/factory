@@ -63,6 +63,9 @@ func TestEndedClaudeLimitOnly(t *testing.T) {
 		{"a limit outranks a server error", map[string]func(string) []map[string]any{"s1.jsonl": func(d string) []map[string]any {
 			return []map[string]any{prompt(d, t0.Add(time.Second)), server(d, t0.Add(2*time.Second)), weekly(d, t0.Add(3*time.Second)), turnEnd(d, t0.Add(4*time.Second))}
 		}}, "weekly limit", time.Unix(1793041200, 0), ""},
+		{"a limit outranks a later server error", map[string]func(string) []map[string]any{"s1.jsonl": func(d string) []map[string]any {
+			return []map[string]any{prompt(d, t0.Add(time.Second)), weekly(d, t0.Add(2*time.Second)), server(d, t0.Add(3*time.Second)), turnEnd(d, t0.Add(4*time.Second))}
+		}}, "weekly limit", time.Unix(1793041200, 0), ""},
 		{"a run that worked before its limit is no limit run", map[string]func(string) []map[string]any{"s1.jsonl": func(d string) []map[string]any {
 			return []map[string]any{prompt(d, t0.Add(time.Second)), assistant(d, "m", t0.Add(2*time.Second)), weekly(d, t0.Add(3*time.Second)), turnEnd(d, t0.Add(4*time.Second))}
 		}}, "", time.Time{}, "usage limit"},

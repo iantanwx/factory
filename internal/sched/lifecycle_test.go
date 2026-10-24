@@ -244,6 +244,84 @@ func TestALimitedSessionSettlesQuotaHitAtOnce(t *testing.T) {
 	}
 }
 
+// A limit that names no reset, such as the Fable limit, falls in the window
+// of the pause that still holds. A second hit in that window raises no
+// second inbox line, and it does not move the end of the pause.
+func TestAHitWithNoResetFallsInTheWindowThatHolds(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) {
+		c.Harnesses = []config.HarnessLogin{{Name: "claude"}, {Name: "codex"}}
+	})
+	w.ticket(machine.Todo)
+	w.ticket(machine.Todo)
+	w.ticket(machine.Todo)
+	first, second := w.dispatch(machine.StageImplementer), w.dispatch(machine.StageImplementer)
+	if first.Profile.Harness != agenthost.Claude || second.Profile.Harness != agenthost.Claude {
+		t.Fatalf("profiles = %+v, %+v", first.Profile, second.Profile)
+	}
+	fable := "You've reached your Fable limit. Run /usage-credits to continue."
+	end := w.clock.Now().Add(DefaultQuotaPause)
+	w.host.HitLimit(first.Session.ID, agenthost.Limit{Message: fable, At: w.clock.Now()})
+	w.tick()
+	w.clock.Advance(10 * time.Minute)
+	w.host.HitLimit(second.Session.ID, agenthost.Limit{Message: fable, At: w.clock.Now()})
+	w.tick()
+	for _, st := range []*Started{first, second} {
+		if state, class := w.runState(st.RunID); state != "settled" || class != "quota-hit" {
+			t.Fatalf("run %s: state %s, class %s", st.RunID, state, class)
+		}
+	}
+	if n := w.alerts(AlertUsageLimit); n != 1 {
+		t.Fatalf("usage-limit alerts = %d, want one for the window", n)
+	}
+	if due := w.count(`SELECT due_at FROM schedule WHERE kind = 'quota_pause' AND stage = 'claude'`); int64(due) != end.UnixMilli() {
+		t.Fatalf("pause ends %s, want %s", time.UnixMilli(int64(due)).UTC(), end.UTC())
+	}
+	w.clock.Advance(end.Sub(w.clock.Now()) + time.Minute)
+	if again := w.dispatch(machine.StageImplementer); again.Profile.Harness != agenthost.Claude {
+		t.Fatalf("after the first window = %+v", again.Profile)
+	}
+}
+
+// A hit whose reset comes before the end of the pause that holds does not
+// end that pause sooner.
+func TestAPauseNeverEndsBeforeOneThatHolds(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) {
+		c.Harnesses = []config.HarnessLogin{{Name: "claude"}, {Name: "codex"}}
+	})
+	for range 4 {
+		w.ticket(machine.Todo)
+	}
+	first, second := w.dispatch(machine.StageImplementer), w.dispatch(machine.StageImplementer)
+	if first.Profile.Harness != agenthost.Claude || second.Profile.Harness != agenthost.Claude {
+		t.Fatalf("profiles = %+v, %+v", first.Profile, second.Profile)
+	}
+	t0 := w.clock.Now()
+	weekly := t0.Add(3 * time.Hour)
+	w.host.HitLimit(first.Session.ID, agenthost.Limit{Message: "You've hit your weekly limit", At: t0, ResetAt: weekly})
+	w.tick()
+	w.clock.Advance(10 * time.Minute)
+	w.host.HitLimit(second.Session.ID, agenthost.Limit{Message: "You've hit your session limit", At: w.clock.Now(), ResetAt: t0.Add(40 * time.Minute)})
+	w.tick()
+	if due := w.count(`SELECT due_at FROM schedule WHERE kind = 'quota_pause' AND stage = 'claude'`); int64(due) != weekly.UnixMilli() {
+		t.Fatalf("pause ends %s, want %s", time.UnixMilli(int64(due)).UTC(), weekly.UTC())
+	}
+	// Past the second reset, the first still holds Claude.
+	w.clock.Advance(t0.Add(41 * time.Minute).Sub(w.clock.Now()))
+	next := w.dispatch(machine.StageImplementer)
+	if next.Profile.Harness != agenthost.Codex {
+		t.Fatalf("before the weekly reset = %+v", next.Profile)
+	}
+	if _, ref := w.s.Finish(context.Background(), next.RunID, "failed"); ref != nil {
+		t.Fatal(ref)
+	}
+	w.clock.Advance(weekly.Sub(w.clock.Now()) + time.Minute)
+	if again := w.dispatch(machine.StageImplementer); again.Profile.Harness != agenthost.Claude {
+		t.Fatalf("after the weekly reset = %+v", again.Profile)
+	}
+}
+
 // The chooser skips a harness whose window reads 90 % or more. A run that
 // ends with no finish while its window reads under 100 % hit no limit.
 func TestTheChooserSkipsAWindowAt90Percent(t *testing.T) {
