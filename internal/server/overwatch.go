@@ -30,6 +30,7 @@ type overwatchState struct {
 	// sets them, before the job ticks or the verb answers.
 	install func(ctx context.Context) github.CheckLine
 	github  *GitHub
+	reads   overwatch.GitHubReads // nil until the GitHub setup runs
 }
 
 // composeOverwatch builds the production World, serves `overwatch sweep`,
@@ -61,6 +62,14 @@ func (s *Server) setOverwatchParts(parts []overwatch.Part) {
 	s.overwatch.mu.Lock()
 	defer s.overwatch.mu.Unlock()
 	s.overwatch.parts = parts
+}
+
+// setOverwatchGitHub gives the world the GitHub service, once the GitHub
+// setup has built it.
+func (s *Server) setOverwatchGitHub(svc *github.Service) {
+	s.overwatch.mu.Lock()
+	defer s.overwatch.mu.Unlock()
+	s.overwatch.reads = githubReads{svc}
 }
 
 func (s *Server) overwatchPartList() []overwatch.Part {
@@ -267,8 +276,13 @@ func (w *serverWorld) Coordinator() sched.CoordinatorState {
 	return w.s.Sched.Coordinator()
 }
 
-// GitHub belongs to the GitHub parts (spec, Work 9 and 10).
-func (w *serverWorld) GitHub() overwatch.GitHubReads { return noGitHubReads{} }
+// GitHub is the GitHub service's reads, or nil on a server with no GitHub
+// App.
+func (w *serverWorld) GitHub() overwatch.GitHubReads {
+	w.s.overwatch.mu.Lock()
+	defer w.s.overwatch.mu.Unlock()
+	return w.s.overwatch.reads
+}
 
 // Doctor is the install drift line, then each project's GitHub doctor
 // lines, each check named <project>/<check> as loop doctor names it, so
@@ -308,9 +322,13 @@ func (w *serverWorld) LastRing(ctx context.Context) (overwatch.RingOutcome, bool
 	return overwatch.LastRing(ctx, w.s.Store)
 }
 
-// noGitHubReads answers every GitHub read with errNoPartReads.
-type noGitHubReads struct{}
+// githubReads are the GET reads of the GitHub parts, over the service.
+type githubReads struct{ svc *github.Service }
 
-func (noGitHubReads) OpenPulls(context.Context, config.Project) ([]github.PR, error) {
-	return nil, errNoPartReads
+func (r githubReads) OpenPulls(ctx context.Context, p config.Project) ([]github.PR, error) {
+	return r.svc.OpenPulls(ctx, p.ID)
+}
+
+func (r githubReads) WorkflowRuns(ctx context.Context, p config.Project, q github.RunQuery) ([]github.RunView, error) {
+	return r.svc.WorkflowRuns(ctx, p, q)
 }

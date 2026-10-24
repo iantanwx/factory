@@ -79,6 +79,8 @@ func (g *GitHub) Setup(s *Server) error {
 	}
 	s.Projects.AddHooks = append(s.Projects.AddHooks, svc.AddHook)
 	g.Service, g.Reactor = svc, github.NewReactor(svc)
+	// The overwatch parts pulls, main and audit read through it.
+	s.setOverwatchGitHub(svc)
 	if s.Inbox != nil {
 		// A sign-off answer merges the document PR (ADR 0010).
 		s.Inbox.SetGitHub(svc)

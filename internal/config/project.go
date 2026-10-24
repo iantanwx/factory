@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"maps"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -36,7 +37,21 @@ type ProjectConfig struct {
 	Gates       []Command              `yaml:"gates,omitempty"`
 	PolicyHooks []Command              `yaml:"policy_hooks,omitempty"`
 	Signoff     SignoffConfig          `yaml:"signoff,omitempty"`
+	Health      HealthConfig           `yaml:"health,omitempty"`
 }
+
+// HealthConfig is the project's own health limits, which the overwatch
+// sweep reads (ADR 0009). Each field is optional, and none has a default:
+// a part whose limit is absent reports its reading and holds no work.
+type HealthConfig struct {
+	// AuditWorkflow is the file name under .github/workflows of the
+	// project's dependency audit, such as audit.yml.
+	AuditWorkflow string `yaml:"audit_workflow,omitempty"`
+}
+
+// workflowFileRe matches the file name of a workflow under
+// .github/workflows.
+var workflowFileRe = regexp.MustCompile(`^[A-Za-z0-9._-]+\.ya?ml$`)
 
 // SignoffConfig names who signs the project's documents off. GitHub
 // notifies each reader when the server opens a PRD or a spec PR, the two
@@ -173,6 +188,9 @@ func (c *ProjectConfig) validate() error {
 			ck.fail(f, "names a reader twice")
 		}
 		seen[strings.ToLower(r)] = true
+	}
+	if w := c.Health.AuditWorkflow; w != "" && !workflowFileRe.MatchString(w) {
+		ck.fail("health.audit_workflow", "must be the file name of a workflow under .github/workflows, such as audit.yml")
 	}
 	return ck.err()
 }
