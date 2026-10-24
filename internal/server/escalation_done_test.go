@@ -95,3 +95,35 @@ func TestEscalationOnASupersededItemIsClosed(t *testing.T) {
 		t.Fatalf("fixer peek offers %v, want escalation %s only: %d %v", pending, second, code, env)
 	}
 }
+
+// A run that still holds its token after its item went terminal cannot
+// raise an escalation on it: no panel could route one, so the server writes
+// no row and no hold, and the fixer's queue stays empty (F-25).
+func TestRaiseOnATerminalItemIsRefused(t *testing.T) {
+	w := newHumanWorld(t, "")
+	ctx := context.Background()
+	gone := todoTicket(t, w.bx)
+	co := w.runToken("run-1", gone, machine.StageImplementer)
+
+	res := w.srv.Machine.Apply(ctx, machine.Request{Project: "alpha", Item: gone, Verb: machine.VerbSupersede,
+		Params: map[string]string{"evidence": machine.EvidenceCommit, "ref": "6f04f00", "reason": "main holds the change"},
+		Actor:  machine.Server("test")})
+	if res.Refusal != nil {
+		t.Fatalf("supersede = %+v", res.Refusal)
+	}
+
+	env, code := w.as(co, "escalation", "raise", "--score", "4", "--body", "which of two layouts the owner prefers")
+	if code != 3 || env["code"] != cli.CodeTransitionNotAllowed || env["rule"] != "item_terminal" {
+		t.Fatalf("raise on the canceled item = %d %v, want TRANSITION_NOT_ALLOWED rule item_terminal", code, env)
+	}
+	if n := w.count(`SELECT count(*) FROM escalations WHERE project = 'alpha' AND item = ?`, gone); n != 0 {
+		t.Fatalf("%d escalations stand on the canceled item %s", n, gone)
+	}
+	if n := w.count(`SELECT count(*) FROM holds WHERE project = 'alpha' AND item = ?`, gone); n != 0 {
+		t.Fatalf("%d holds rows stand on the canceled item %s", n, gone)
+	}
+	fixer := w.runToken("fix-1", "", "fixer")
+	if env, code := w.as(fixer, "work", "peek", "--stage", "fixer"); code != 1 {
+		t.Fatalf("fixer peek = %d %v, want nothing", code, env)
+	}
+}
