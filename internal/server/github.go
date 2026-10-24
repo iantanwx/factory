@@ -96,6 +96,10 @@ func (g *GitHub) Setup(s *Server) error {
 		// request back before the close is recorded.
 		s.Machine.SetSupersedeChecker(svc.SupersedeEvidence)
 	}
+	if s.Sched != nil {
+		// A repair's brief carries the parsed log of its red build.
+		s.Sched.SetRedBuildReader(svc.RedBuild)
+	}
 	if s.Admission != nil {
 		// The PR head enters a code review's retry identity, so a push
 		// offers a held review again.

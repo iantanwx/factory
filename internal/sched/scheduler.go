@@ -152,6 +152,10 @@ type Scheduler struct {
 	checkoutMu sync.Mutex
 	tickMu     sync.Mutex // one tick at a time
 
+	// redBuild reads the failed CI of a repair's pull request for its
+	// brief. Nil reads none.
+	redBuild RedBuildReader
+
 	wg     sync.WaitGroup // dispatches and jobs in flight
 	loops  sync.WaitGroup
 	cancel context.CancelFunc

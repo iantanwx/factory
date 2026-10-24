@@ -261,7 +261,34 @@ func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *conf
 	}
 	b.PriorFailures = s.priorFailures(ctx, ad)
 	b.KeptCheckouts = s.keptWork(ctx, ad)
+	if it.Status == machine.Repair {
+		b.RedBuild = s.readRedBuild(ctx, ad)
+	}
 	return b
+}
+
+// RedBuildReader reads the failed CI of an item's open pull request. It
+// returns nil when the pull request has no failed job.
+type RedBuildReader func(ctx context.Context, project, item string) (*brief.RedBuild, error)
+
+// SetRedBuildReader sets the reader of a repair's red build. The GitHub
+// setup sets it before the scheduler ticks.
+func (s *Scheduler) SetRedBuildReader(f RedBuildReader) { s.redBuild = f }
+
+// readRedBuild reads the red build for a repair brief. A failed read
+// still starts the run, and the brief says why it holds no log (alpha
+// implementer-ci.ts: no read blocks the repair).
+func (s *Scheduler) readRedBuild(ctx context.Context, ad admission.Admitted) *brief.RedBuild {
+	if s.redBuild == nil {
+		return nil
+	}
+	rb, err := s.redBuild(ctx, ad.Project, ad.Item)
+	if err != nil {
+		s.log.WarnContext(ctx, "brief: read the red build", "item", ad.Item, "err", err)
+		msg, _, _ := strings.Cut(err.Error(), "\n")
+		return &brief.RedBuild{Unreadable: msg}
+	}
+	return rb
 }
 
 // priorFailures lists the notes of the counted failures with the run's
