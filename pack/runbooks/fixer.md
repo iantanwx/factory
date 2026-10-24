@@ -72,6 +72,29 @@ brief.
 `TRANSITION_NOT_ALLOWED` with the rule `already_routed` means another run routed it. Finish the
 run.
 
+### Release one path the ticket forbids
+
+Some findings say that a contract needs a file that the ticket's own `Must not change` list
+forbids. A note does not answer that finding. The implementer reads the body, obeys the list, and
+escalates again. The body is the one place scope lives. So a route that sends every finding to the
+loop may release one path into `May change`:
+
+```bash
+loop escalation route <escalation> --file <dir>/panels.json \
+  --release <path> --forbids "<the entry>" --condition "<what the implementer may do there>"
+```
+
+- **Release only when the ticket's own list blocks work that one of its contracts needs.**
+- **Copy `--forbids` out of the ticket exactly.** The path must sit under that entry.
+- **`--condition` is the new boundary.** State what the implementer may do there, and nothing
+  wider.
+- **Release one path, and widen only.** No command adds an entry to `Must not change`.
+
+The server edits the body once, and the edit enters the item's retry identity. A panel that routes
+to a person releases nothing. A path on the server's never-released list routes the escalation to
+a person, whatever the judges scored. Any other refusal writes nothing, and the escalation still
+waits. Read its `rule` and `hint`, correct the flag, and route again with the same panel file.
+
 Record your answer on the item, so the next run of its stage reads it in its brief:
 
 ```bash
@@ -95,6 +118,6 @@ Finish with `loop run finish --outcome done`. Report each finding, its route and
 
 - Never route a finding by your own reading. When the judges disagree and you believe one of them,
   the server still routes the finding to a person. Your belief is not a third judge.
-- Never change the item or its documents. The note and the close in section 4 are the only
-  writes you make on the item.
+- Never change the item or its documents. The release, the note and the close in section 4 are
+  the only writes you make on the item.
 - Never take a second escalation.

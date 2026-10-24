@@ -176,6 +176,10 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 	if err != nil {
 		return cli.Reject(cli.CodeUsage, "bad_panel", err.Error())
 	}
+	rel, res := releaseIn(inv.Flags)
+	if res.Refusal != nil {
+		return res
+	}
 	rec, err := s.Get(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return cli.Reject(cli.CodeNotFound, "no_escalation", fmt.Sprintf("no escalation %d", id))
@@ -191,14 +195,38 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 			Hint: fmt.Sprintf("escalation %d is already routed: %s", id, rec.State)})
 	}
 	d := DecideAll(panels, DefaultThresholds)
-	raw, err := json.Marshal(map[string]any{"panels": panels, "decision": d})
+	body := ""
+	if rel != nil && d.Route == RouteLoop {
+		rel.Escalation = id
+		var res cli.Result
+		if body, d, res = s.release(ctx, rec, *rel, d); res.Refusal != nil {
+			return res
+		}
+	}
+	released := rel != nil && d.Route == RouteLoop
+	panel := map[string]any{"panels": panels, "decision": d}
+	if released {
+		panel["release"] = rel
+	}
+	raw, err := json.Marshal(panel)
 	if err != nil {
 		return cli.Internal(err)
 	}
 	if d.Route == RouteLoop {
+		if body != "" {
+			res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: "edit",
+				Params: map[string]string{"body": body}, Actor: machine.Server("escalation")})
+			if res.Refusal != nil {
+				return res
+			}
+		}
 		tr, _ := ParseTriage(strconv.Itoa(rec.Level), rec.Choice)
-		note := TriagedNote(tr, "The fixer's panel routed this escalation back to the loop: "+strings.Join(d.Because, "; ")+
-			"\n\nThe finding: "+rec.Finding)
+		why := "The fixer's panel routed this escalation back to the loop: " + strings.Join(d.Because, "; ")
+		if released {
+			why += fmt.Sprintf("\n\nThe fixer released `%s` from `%s` into %q in the item's body: %s",
+				rel.Path, rel.Forbids, "May change", rel.Condition)
+		}
+		note := TriagedNote(tr, why+"\n\nThe finding: "+rec.Finding)
 		res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: machine.VerbNote,
 			Params: map[string]string{"body": note}, Actor: machine.Server("escalation")})
 		if res.Refusal != nil {
@@ -227,7 +255,49 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	s.changed()
 	rec.State, rec.RoutedBy = state, p.Actor()
-	return cli.Found(map[string]any{"escalation": rec, "route": d.Route, "decision": d})
+	out := map[string]any{"escalation": rec, "route": d.Route, "decision": d}
+	if released {
+		out["released"] = rel.Path
+	}
+	return cli.Found(out)
+}
+
+// releaseIn reads the release flags of `escalation route`: none, or all
+// three.
+func releaseIn(flags map[string]string) (*Release, cli.Result) {
+	rel := Release{Path: strings.TrimSpace(flags["release"]), Forbids: strings.TrimSpace(flags["forbids"]),
+		Condition: strings.TrimSpace(flags["condition"])}
+	if rel.Path == "" && rel.Forbids == "" && rel.Condition == "" {
+		return nil, cli.Result{}
+	}
+	if rel.Path == "" || rel.Forbids == "" || rel.Condition == "" {
+		return nil, cli.Reject(cli.CodeUsage, "incomplete_release",
+			"a release names --release, --forbids and --condition together, and one of them is empty")
+	}
+	return &rel, cli.Result{}
+}
+
+// release edits the item's body for a loop route, and answers the new
+// body. A path that is never released sends the escalation to a person
+// instead, whatever the judges scored. Any other refusal writes nothing,
+// and the escalation still waits for its panel.
+func (s *Service) release(ctx context.Context, rec Record, rel Release, d Decision) (string, Decision, cli.Result) {
+	old, ref := s.Machine.Body(ctx, rec.Project, rec.Item)
+	if ref != nil {
+		return "", d, ref.Result()
+	}
+	body, refusal := ReleasePath(old, rel)
+	switch {
+	case refusal == nil:
+		return body, d, cli.Result{}
+	case refusal.Rule == RuleNeverReleased:
+		return "", Decision{Route: RoutePerson, Because: []string{"the release reaches a path that is never released: " + refusal.Hint}}, cli.Result{}
+	case refusal.Rule == "already_released" && strings.Contains(old, fmt.Sprintf("by the fixer for escalation %d.", rec.ID)):
+		// This route already edited the body, and a crash cut it off before
+		// it recorded the route. The edit stands, so finish the route.
+		return "", d, cli.Result{}
+	}
+	return "", d, cli.Reject(cli.CodeUsage, refusal.Rule, "the release writes nothing: "+refusal.Hint)
 }
 
 // Get reads one escalation.
