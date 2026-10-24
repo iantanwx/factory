@@ -159,7 +159,7 @@ func TestCheckRPCsCatchesAVerbWithoutAnRPC(t *testing.T) {
 
 func TestClientVerbsHaveNoRPC(t *testing.T) {
 	r := New()
-	for _, path := range []string{"escalation judge", "install", "upgrade", "rollback", "restore", "serve", "doctor"} {
+	for _, path := range []string{"escalation judge", "review proof", "install", "upgrade", "rollback", "restore", "serve", "doctor"} {
 		v, ok := r.Verb(path)
 		if !ok || v.Side != SideClient || v.RPC != "" {
 			t.Errorf("%s should be a client verb without an RPC: %+v", path, v)
