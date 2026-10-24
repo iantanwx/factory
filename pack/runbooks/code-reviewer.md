@@ -129,7 +129,7 @@ no fault, submit nothing. Note the check and its state with `loop work note`, an
 A `failed` finish counts against the ticket, so never use it here. The server moves a ticket with a
 red build to `repair`, and the review starts again after the repair. For a pending check, the server
 holds the ticket at review and raises an alert. The coordinator answers the alert when the check
-ends.
+ends. A push to the pull request lifts the hold too, because the head enters the review's inputs.
 
 ## 8. When the source is wrong
 
