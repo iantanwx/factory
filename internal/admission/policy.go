@@ -485,9 +485,11 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 // first admissible item. Work in flight comes first: the implementer takes
 // an admissible ticket in repair before any ticket in todo, and a repair
 // ticket that admission would refuse never stops it from taking a todo
-// ticket. Within one state, it takes the item that entered the state first,
-// never the item whose bead id sorts first (F-20). waitOrder states the
-// order, and how it breaks a tie.
+// ticket. Past that rank, the states of a stage queue as one: it takes the
+// item that entered its state first, whichever state that is, so the
+// doc-reviewer takes a spec review that waited longer than a PRD review
+// (parity 2.15). It never takes the item whose bead id sorts first (F-20).
+// waitOrder states the order, and how it breaks a tie.
 func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Candidate, *cli.Refusal) {
 	if a.items == nil {
 		return nil, cli.InternalRefusal(errors.New("admission: no machine attached"))
@@ -542,11 +544,22 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 	if len(states) == 0 {
 		return &Candidate{Project: project, Stage: stage}, nil
 	}
-	for _, s := range states {
-		items, ref := a.items.List(ctx, project, machine.ListFilter{Kind: s.kind, Status: s.status})
-		if ref != nil {
-			return nil, ref
+	for len(states) > 0 {
+		// One tier is the run of states that share a claim rank. Its items
+		// queue as one, so no state of the tier starves another.
+		n := 1
+		for n < len(states) && claimRank(states[n]) == claimRank(states[0]) {
+			n++
 		}
+		var items []machine.Item
+		for _, s := range states[:n] {
+			got, ref := a.items.List(ctx, project, machine.ListFilter{Kind: s.kind, Status: s.status})
+			if ref != nil {
+				return nil, ref
+			}
+			items = append(items, got...)
+		}
+		states = states[n:]
 		entered, err := a.enteredAt(ctx, project, items)
 		if err != nil {
 			return nil, cli.InternalRefusal(err)
@@ -612,8 +625,8 @@ func (a *Admission) enteredAt(ctx context.Context, project string, items []machi
 	return out, err
 }
 
-// waitOrder sorts the items of one state so the item that has waited there
-// longest comes first. An item entered its state at the time entered holds
+// waitOrder sorts the items of one claim tier so the item that has waited
+// in its state longest comes first. An item entered its state at the time entered holds
 // for it, or else at its last bead write. Two items that entered in the same
 // millisecond keep the order of their last bead writes, and then of their
 // bead ids, so the order is stable.
