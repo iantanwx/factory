@@ -172,6 +172,7 @@ var surface = []Verb{
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the question"},
 		Flag{Name: "trigger", Type: FlagString, Required: true, Description: "the event that forces the answer, in one sentence"},
 		Flag{Name: "by", Type: FlagString, Description: "a date the trigger names, YYYY-MM-DD; decision-timers fires the decision on that day"},
+		Flag{Name: "now", Type: FlagBool, Description: "the trigger already fired: the decision waits on a person in the inbox at once; not with --by"},
 		Flag{Name: "body", Type: FlagString, Description: "the evidence behind the question"})),
 	write(server("decision", "fire", "fire a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 	write(server("decision", "defer", "defer a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
