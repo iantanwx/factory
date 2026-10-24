@@ -158,12 +158,10 @@ func TestPartNamesHoldTheFifteenInTheSpecOrder(t *testing.T) {
 	if !reflect.DeepEqual(PartNames, want) {
 		t.Fatalf("PartNames = %q", PartNames)
 	}
-	// Parts() grows by each part entry. Each part it holds is one name of
-	// PartNames, once.
 	seen := map[string]bool{}
 	for _, p := range Parts() {
 		if !slices.Contains(PartNames, p.Name) || seen[p.Name] {
-			t.Fatalf("Parts() holds %q, which is no name of PartNames or holds it twice", p.Name)
+			t.Fatalf("Parts() holds %q outside PartNames, or twice", p.Name)
 		}
 		seen[p.Name] = true
 	}

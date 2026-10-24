@@ -119,29 +119,48 @@ func (p Pack) AgentFiles(h agenthost.Harness) ([]string, error) {
 	return out, nil
 }
 
+// packFile is one regular file of the pack, and the mode a checkout
+// receives it at: 0755 when its source mode holds an executable bit, and
+// 0644 otherwise.
+type packFile struct {
+	name string
+	mode fs.FileMode
+}
+
 // files lists every regular file of the pack, sorted.
-func (p Pack) files() ([]string, error) {
+func (p Pack) files() ([]packFile, error) {
 	if p.FS == nil {
 		return nil, nil
 	}
-	var out []string
+	var out []packFile
 	err := fs.WalkDir(p.FS, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.Type().IsRegular() {
-			out = append(out, name)
-		} else if !d.IsDir() {
+		if !d.Type().IsRegular() {
+			if d.IsDir() {
+				return nil
+			}
 			return fmt.Errorf("brief: pack entry %q is not a regular file", name)
 		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		mode := fs.FileMode(0o644)
+		if info.Mode()&0o111 != 0 {
+			mode = 0o755
+		}
+		out = append(out, packFile{name, mode})
 		return nil
 	})
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
 	return out, err
 }
 
-// Hash is the content hash of the pack: every path and its bytes, and
-// each agent under agents/. The run record and the brief hold it (KTD19).
+// Hash is the content hash of the pack: every path, its mode and its
+// bytes, and each agent under agents/. The run record and the brief hold
+// it (KTD19).
 func (p Pack) Hash() (string, error) {
 	h := sha256.New()
 	files, err := p.files()
@@ -149,11 +168,11 @@ func (p Pack) Hash() (string, error) {
 		return "", err
 	}
 	for _, f := range files {
-		data, err := fs.ReadFile(p.FS, f)
+		data, err := fs.ReadFile(p.FS, f.name)
 		if err != nil {
 			return "", err
 		}
-		_, _ = fmt.Fprintf(h, "%s\x00%d\x00", f, len(data)) // a hash never fails a write
+		_, _ = fmt.Fprintf(h, "%s\x00%o\x00%d\x00", f.name, f.mode, len(data)) // a hash never fails a write
 		h.Write(data)
 	}
 	agents, err := p.AgentNames()
@@ -165,15 +184,17 @@ func (p Pack) Hash() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		_, _ = fmt.Fprintf(h, "agents/%s.md\x00%d\x00", a, len(data))
+		_, _ = fmt.Fprintf(h, "agents/%s.md\x00644\x00%d\x00", a, len(data))
 		h.Write(data)
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // Write injects the pack into the checkout for the harness. Each skill
-// directory is replaced whole, so a file a later pack dropped is gone.
-// Each agent file is written over, beside a project's own agents.
+// directory is replaced whole, so a file a later pack dropped is gone. A
+// file whose mode holds an executable bit is written 0755, and any other
+// file 0644. Each agent file is written over, beside a project's own
+// agents.
 func (p Pack) Write(checkout string, hs agenthost.Harness) error {
 	root := SkillRoot(hs)
 	skills, err := p.Skills()
@@ -194,15 +215,15 @@ func (p Pack) Write(checkout string, hs agenthost.Harness) error {
 		return err
 	}
 	for _, f := range files {
-		data, err := fs.ReadFile(p.FS, f)
+		data, err := fs.ReadFile(p.FS, f.name)
 		if err != nil {
 			return err
 		}
-		dst := filepath.Join(checkout, filepath.FromSlash(path.Join(root, f)))
+		dst := filepath.Join(checkout, filepath.FromSlash(path.Join(root, f.name)))
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
-		if err := config.WriteFileAtomic(dst, data, 0o644); err != nil {
+		if err := config.WriteFileAtomic(dst, data, f.mode); err != nil {
 			return fmt.Errorf("brief: write the pack: %w", err)
 		}
 	}

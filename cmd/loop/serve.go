@@ -18,6 +18,7 @@ import (
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/agenthost/orca"
 	"github.com/iantanwx/loop/internal/beadsx"
+	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
@@ -68,9 +69,18 @@ type wiring struct {
 	agents func(cfg *config.HostConfig, projects *config.Projects) (agenthost.Host, func(project string) sched.CheckoutHost, error)
 	// github overrides GitHub's endpoints. Production leaves it nil.
 	github *server.GitHub
+	// pack builds the pack from the fetched third-party skills. nil is
+	// pack.Brief, whose pins the binary embeds.
+	pack func(fetched fs.FS) (brief.Pack, []pack.ThirdParty, error)
 }
 
 var realWiring = wiring{beads: realBeads, agents: realAgents}
+
+// fetchedSkills is the third-party skill set of the release this binary
+// is, which loop install and loop upgrade place: versions/<v>/skills.
+func fetchedSkills(instance string) fs.FS {
+	return os.DirFS(release.Layout{Dir: instance}.Skills(cli.Version))
+}
 
 // productionOptions composes the server from host config:
 //
@@ -178,12 +188,17 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		return opts, func() {}, fmt.Errorf("agent host: %w", err)
 	}
 	opts.Agents, opts.Sched.Checkouts = agents, checkouts
-	p, err := pack.Brief()
+	build := w.pack
+	if build == nil {
+		build = pack.Brief
+	}
+	p, left, err := build(fetchedSkills(dir))
 	if err != nil {
 		cleanup()
 		return opts, func() {}, fmt.Errorf("pack: %w", err)
 	}
 	opts.Sched.Pack = p
+	opts.Setup = append(opts.Setup, skillsAlert(ctx, left))
 	opts.Sched.Coordinator = &sched.CoordinatorConfig{Harness: agenthost.Claude}
 	if len(cfg.Projects) > 0 {
 		opts.Sched.Coordinator.Project = cfg.Projects[0].ID
@@ -205,6 +220,29 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		})
 	}
 	return opts, cleanup, nil
+}
+
+// skillsAlert raises one alert that names each pinned skill the pack left
+// out, so the server serves without them and says so. With none left out,
+// it closes the alert. The server never fetches a skill: loop install does
+// (ADR 0007, decision 7).
+func skillsAlert(ctx context.Context, left []pack.ThirdParty) func(*server.Server) error {
+	return func(s *server.Server) error {
+		alerts := config.StoreAlerter(s.Store)
+		if len(left) == 0 {
+			return alerts.Clear(ctx, config.AlertThirdPartySkills)
+		}
+		names := make([]string, len(left))
+		for i, p := range left {
+			names[i] = p.Name
+		}
+		return alerts.Raise(ctx, config.Alert{
+			Kind: config.AlertThirdPartySkills, DedupeKey: config.AlertThirdPartySkills,
+			Subject: fmt.Sprintf("runs start without the pinned skills %s: each is missing or fails its hash",
+				strings.Join(names, ", ")),
+			Body: "loop install fetches each pinned skill of this release, checks its hash, and restarts the service.",
+		})
+	}
 }
 
 // lazyBase is admission's base reader over the GitHub service, which

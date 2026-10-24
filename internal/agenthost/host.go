@@ -307,7 +307,8 @@ func (inv Inventory) Readopted(s Session) (Session, bool) {
 // Only the coordinator reads it: the operator decided on 2026-10-24
 // (escalation 5, option A, loop fault F-17) that a live coordinator whose
 // handle went stale keeps its session under the new handle. A stage run's
-// trace still only keeps it Unknown.
+// trace still only keeps it Unknown. When no row carries the incarnation,
+// ReboundToAgent is the coordinator's other way.
 func (inv Inventory) Rebound(s Session) (Session, bool) {
 	if !inv.Complete || inv.Epoch == "" || s.Checkout == "" {
 		return s, false
@@ -328,6 +329,36 @@ func (inv Inventory) Rebound(s Session) (Session, bool) {
 	if match[0].Pty != "" {
 		s.Pty = match[0].Pty
 	}
+	return s, true
+}
+
+// ReboundToAgent returns the session moved to the one live row in its
+// checkout whose agent is the session's harness, with that row's PTY and
+// this inventory's epoch. It needs a complete inventory that lists no row
+// of the exact identity and no row of the session's incarnation, so it
+// serves only where Rebound finds nothing. A row that names no agent, such
+// as the shell orca opens in each worktree or the fresh shell a daemon
+// death leaves (docs/evidence/orca-restart.md), never counts. Two such
+// agent rows, or the one row disconnected, rebind nothing. Only the
+// coordinator reads it: one coordinator runs in its checkout, so the one
+// agent there is the coordinator (loop fault F-30).
+func (inv Inventory) ReboundToAgent(s Session) (Session, bool) {
+	if !inv.Complete || inv.Epoch == "" || s.Checkout == "" || s.Harness == "" {
+		return s, false
+	}
+	var match []Row
+	for _, r := range inv.Rows {
+		if r.ID == s.ID || r.ID.Incarnation == s.ID.Incarnation {
+			return s, false
+		}
+		if r.Checkout == s.Checkout && r.Agent == string(s.Harness) {
+			match = append(match, r)
+		}
+	}
+	if len(match) != 1 || !match[0].Connected {
+		return s, false
+	}
+	s.ID, s.Pty, s.Epoch = match[0].ID, match[0].Pty, inv.Epoch
 	return s, true
 }
 
@@ -368,6 +399,10 @@ const (
 	// EndLimit: the agent wrote only a usage limit and no work of its own.
 	// The session ends at once, with no quiet period.
 	EndLimit EndCause = "limit"
+	// EndAPIError: the last turn ended on a transient model API error, and
+	// the checkout stayed quiet for the quiet period. The server resumes
+	// such a session before it settles it (F-29).
+	EndAPIError EndCause = "api_error"
 )
 
 // Limit is the usage limit a session's agent wrote when it did no work.
@@ -380,6 +415,23 @@ type Limit struct {
 	ResetAt time.Time `json:"reset_at,omitzero"`
 }
 
+// APIError is the transient model API error a session's last turn ended
+// on: a 5xx status, 529, or a server-owned error type such as
+// overloaded_error. The harness does not retry it after the turn ended, so
+// the session idles at its prompt until something types into it.
+type APIError struct {
+	// Message is the text the agent wrote, as the harness wrote it.
+	Message string `json:"message"`
+	// Status is the HTTP status, or zero when the record states none.
+	Status int `json:"status,omitempty"`
+	// At is when the agent wrote the newest error.
+	At time.Time `json:"at,omitzero"`
+	// First is when the agent wrote the first error after its last work.
+	// A resume that fails again keeps it, so it names one outage as the
+	// session saw it.
+	First time.Time `json:"first,omitzero"`
+}
+
 // EndReport answers whether a session ended (KTD8).
 type EndReport struct {
 	Ended bool     `json:"ended"`
@@ -390,6 +442,9 @@ type EndReport struct {
 	Reason string `json:"reason"`
 	// Limit is set when the cause is EndLimit.
 	Limit *Limit `json:"limit,omitempty"`
+	// APIError is set when the last turn ended on a transient model API
+	// error, whether or not the quiet period has passed.
+	APIError *APIError `json:"api_error,omitempty"`
 	// Settlement is the liveness read the answer rests on, when the host
 	// made one, so the caller need not read it again. A failed read is
 	// Unknown.

@@ -173,3 +173,52 @@ func TestReboundNeedsOneRowOfTheSameIncarnationAndCheckout(t *testing.T) {
 		t.Errorf("Rebound = %+v; want %+v", got, want)
 	}
 }
+
+// C-bug-1 (F-30): when a complete inventory lists no row of the session's
+// incarnation, only the one live row in the session's checkout that names
+// the session's harness as its agent rebinds the session. A shell, a second
+// agent row or an agent of another harness rebinds nothing.
+func TestReboundToAgentNeedsTheOneAgentOfTheHarnessInTheCheckout(t *testing.T) {
+	s := agenthost.Session{ID: agenthost.RunID{Host: "h", Terminal: "t1", Incarnation: "i1"}, Checkout: "/c/coord", Harness: agenthost.Claude, Pty: "p1", Epoch: "e1"}
+	agent := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t2", Incarnation: "i2"}, Checkout: "/c/coord", Pty: "p2", Agent: "claude", Connected: true}
+	twin := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t3", Incarnation: "i3"}, Checkout: "/c/coord", Pty: "p3", Agent: "claude", Connected: true}
+	shell := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t4", Incarnation: "i4"}, Checkout: "/c/coord", Pty: "p4", Connected: true}
+	codex := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t5", Incarnation: "i5"}, Checkout: "/c/coord", Pty: "p5", Agent: "codex", Connected: true}
+	elsewhere := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t6", Incarnation: "i6"}, Checkout: "/c/other", Pty: "p6", Agent: "claude", Connected: true}
+	moved := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t7", Incarnation: "i1"}, Checkout: "/c/other", Pty: "p1", Agent: "claude", Connected: true}
+	gone := agent
+	gone.Connected = false
+	cases := []struct {
+		name string
+		inv  agenthost.Inventory
+		want bool
+	}{
+		{"complete, one agent row and a shell", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{shell, agent, elsewhere}}, true},
+		{"complete, a shell only", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{shell}}, false},
+		{"complete, two agent rows", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{agent, twin}}, false},
+		{"complete, an agent of another harness", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{codex}}, false},
+		{"complete, the agent in another checkout", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{elsewhere}}, false},
+		{"complete, the agent row disconnected", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{gone}}, false},
+		{"incomplete, one agent row", agenthost.Inventory{Complete: false, Epoch: "e2", Rows: []agenthost.Row{agent}}, false},
+		{"complete, no epoch", agenthost.Inventory{Complete: true, Rows: []agenthost.Row{agent}}, false},
+		{"complete, a row of the incarnation elsewhere", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{agent, moved}}, false},
+		{"complete, the exact row", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{{ID: s.ID, Checkout: "/c/coord", Agent: "claude", Connected: true}, agent}}, false},
+	}
+	for _, c := range cases {
+		got, ok := c.inv.ReboundToAgent(s)
+		if ok != c.want {
+			t.Errorf("%s: ReboundToAgent ok = %v; want %v", c.name, ok, c.want)
+			continue
+		}
+		if !ok && got != s {
+			t.Errorf("%s: a refused rebind changed the session to %+v", c.name, got)
+		}
+	}
+	got, _ := agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{shell, agent}}.ReboundToAgent(s)
+	want := s
+	want.ID = agenthost.RunID{Host: "h", Terminal: "t2", Incarnation: "i2"}
+	want.Pty, want.Epoch = "p2", "e2"
+	if got != want {
+		t.Errorf("ReboundToAgent = %+v; want %+v", got, want)
+	}
+}

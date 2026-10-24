@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
@@ -283,9 +285,13 @@ func (w *World) options() server.Options {
 	})
 	opts.Agents = w.Host
 	opts.Sched.Checkouts = func(string) sched.CheckoutHost { return checkouts{w} }
-	p, err := pack.Brief()
+	src, fetched, err := fixtureSkills()
 	if err != nil {
 		t.Fatal(err)
+	}
+	p, left, err := pack.BriefOf(src, fetched)
+	if err != nil || len(left) != 0 {
+		t.Fatalf("pack: left out %v, %v", left, err)
 	}
 	opts.Sched.Pack = p
 	opts.Sched.Coordinator = &sched.CoordinatorConfig{Harness: agenthost.Claude}
@@ -318,6 +324,41 @@ func (w *World) options() server.Options {
 	opts.Logger = slog.New(slog.NewJSONHandler(w.logs, nil))
 	opts.Setup = append(opts.Setup, func(s *server.Server) error { w.Srv = s; return nil })
 	return opts
+}
+
+// fixtureSkills is the fetched third-party set each world's runs receive:
+// one skill, impeccable, with an executable file, and the embedded pack
+// source with a pin file that pins it. A world fetches nothing, so no
+// embedded pin could match.
+func fixtureSkills() (src, fetched fs.FS, err error) {
+	set := fstest.MapFS{
+		"impeccable/SKILL.md":           {Data: []byte("---\nname: impeccable\ndescription: A fixture.\n---\n\nRun `scripts/impeccable`.\n")},
+		"impeccable/scripts/impeccable": {Data: []byte("#!/bin/sh\necho impeccable\n"), Mode: 0o755},
+	}
+	sub, err := fs.Sub(set, "impeccable")
+	if err != nil {
+		return nil, nil, err
+	}
+	sum, err := pack.TreeHash(sub)
+	if err != nil {
+		return nil, nil, err
+	}
+	pins := fmt.Sprintf(`{"skills": [{"name": "impeccable", "repo": "acme/impeccable", "commit": %q, "path": "", "sha256": %q}]}`,
+		strings.Repeat("a", 40), sum)
+	return pinned{pack.Source(), []byte(pins)}, set, nil
+}
+
+// pinned is a pack source whose pin file is pins.
+type pinned struct {
+	fs.FS
+	pins []byte
+}
+
+func (p pinned) Open(name string) (fs.File, error) {
+	if name == pack.ThirdPartyFile {
+		return fstest.MapFS{name: {Data: p.pins}}.Open(name)
+	}
+	return p.FS.Open(name)
 }
 
 // lazyBase is admission's base reader over the GitHub service, as in

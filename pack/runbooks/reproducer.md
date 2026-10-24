@@ -53,8 +53,8 @@ names the old one.
 
 ## 3. Reproduce it
 
-Write a failing test at the lowest level that shows the fault. It fails for the reason the report
-gives. A screenshot or a browser helps you see the fault, and it is never the proof.
+Write a failing test at the lowest level that shows the fault, by
+`../loop-test-behavior-not-implementation/SKILL.md`. It fails for the reason the report gives. A screenshot or a browser helps you see the fault, and it is never the proof.
 
 Build the user's data as fixtures from the report. Never read production data or production logs.
 
