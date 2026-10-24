@@ -144,7 +144,7 @@ func TestReviewPassReadsCIBeforeItsComment(t *testing.T) {
 
 	ep := w.create(KindEpic, "prd_submit", nil)
 	w.claim(ep, StageDocReviewer, "doc-rev")
-	mustOK(t, w.call("review submit", w.runOn(ep, StageDocReviewer, "doc-rev"), []string{ep}, map[string]string{"verdict": "pass"}))
+	mustOK(t, w.call("review submit", w.runOn(ep, StageDocReviewer, "doc-rev"), []string{ep}, map[string]string{"verdict": "pass", "head": shaA}))
 	if got := w.show(ep).Status; got != PRDSignoff || len(gated) != 1 {
 		t.Fatalf("a document pass: %s, gate read %v", got, gated)
 	}

@@ -29,6 +29,11 @@ import (
 //     relative pack path, each skill a runbook reads named by its path,
 //     each policy file, and no step in an unattended runbook that asks a
 //     person
+//   - each policy file a runbook names: the pack holds its template, the
+//     template names that file as the place a project keeps it, and each
+//     template is the policy of a runbook. make pack-check runs both
+//     prose linters over each template, and the prose gate of a project
+//     runs them over .loop/policy/*.md.
 //   - no hand-back in the coordinator's runbook or in a skill or agent it
 //     reads: no step that sends the operator to merge, upgrade or install,
 //     or to run a loop verb the coordinator may call (handback.go)
@@ -447,6 +452,7 @@ func Check(src fs.FS, reg *cli.Registry) ([]Finding, error) {
 		return []Finding{{File: ManifestFile, Kind: "manifest", Detail: err.Error()}}, nil
 	}
 	out := manifestFindings(src, m)
+	out = append(out, policyFindings(src, m)...)
 	tree, err := Layout(src)
 	if err != nil {
 		return append(out, Finding{File: ManifestFile, Kind: "manifest", Detail: err.Error()}), nil
@@ -556,6 +562,47 @@ func manifestFindings(src fs.FS, m *Manifest) []Finding {
 			add("agent %s is in no runbook's agents, so nothing dispatches it", a)
 		}
 	}
+	return out
+}
+
+// policyFindings checks the policy template of each runbook that names a
+// policy file. loop-init copies each template to the project, so a
+// missing template leaves a project with no policy text for the runbook
+// to read, and a template that names another file puts the text where no
+// runbook reads it.
+func policyFindings(src fs.FS, m *Manifest) []Finding {
+	var out []Finding
+	roles := map[string]bool{}
+	for _, rb := range m.Runbooks {
+		if rb.Policy == "" || roles[rb.Policy] {
+			continue
+		}
+		roles[rb.Policy] = true
+		file := PolicyTemplate(rb.Policy)
+		raw, err := fs.ReadFile(src, file)
+		if err != nil {
+			out = append(out, Finding{File: ManifestFile, Kind: "policy",
+				Detail: fmt.Sprintf("a runbook names %s, and the pack holds no template %s for loop-init to copy", PolicyPath(rb.Policy), file)})
+			continue
+		}
+		if !strings.Contains(string(raw), PolicyPath(rb.Policy)) {
+			out = append(out, Finding{File: file, Line: 1, Kind: "policy",
+				Detail: fmt.Sprintf("the template never names %s, the file its runbook reads", PolicyPath(rb.Policy))})
+		}
+	}
+	templates, _ := fs.Glob(src, PolicyTemplates+"/*")
+	for _, t := range templates {
+		if role, ok := strings.CutSuffix(path.Base(t), ".md"); !ok || !roles[role] {
+			out = append(out, Finding{File: t, Kind: "policy",
+				Detail: fmt.Sprintf("%s is the policy of no runbook in the manifest, so no run reads its copy", t)})
+		}
+	}
+	slices.SortFunc(out, func(a, b Finding) int {
+		if c := strings.Compare(a.File, b.File); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Detail, b.Detail)
+	})
 	return out
 }
 

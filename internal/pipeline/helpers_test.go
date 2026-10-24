@@ -256,7 +256,7 @@ func (w *world) review(epic, verdict string) {
 	if verdict == "reject" {
 		verb = "review_reject"
 	}
-	w.mustApply(machine.Request{Item: epic, Verb: verb, Command: "review submit",
+	w.mustApply(machine.Request{Item: epic, Verb: verb, Command: "review submit", Params: map[string]string{"head": "h1"},
 		Actor: machine.Actor{Name: "run:" + run, RunID: run, Fenced: true, Epoch: l.Epoch}})
 }
 

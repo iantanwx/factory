@@ -71,6 +71,19 @@ type StageConfig struct {
 	Effort    string        `yaml:"effort,omitempty"`     // overrides the stage's default effort
 	RunBudget time.Duration `yaml:"run_budget,omitempty"` // overrides the host default (KTD9)
 	Schedule  string        `yaml:"schedule,omitempty"`   // overrides the host default schedule
+	// Escalated is the profile of a run on an item whose model_tier is
+	// escalated, after two code-review rejects. Nil takes the default.
+	Escalated *EscalatedProfile `yaml:"escalated,omitempty"`
+}
+
+// EscalatedProfile is the stronger profile a stage's run takes after two
+// code-review rejects. Its model is the full id the harness records, since
+// the start compares the receipt with it exactly. An empty harness or
+// effort takes the stage's own.
+type EscalatedProfile struct {
+	Model   string `yaml:"model,omitempty"`
+	Harness string `yaml:"harness,omitempty"`
+	Effort  string `yaml:"effort,omitempty"`
 }
 
 // Command is one named shell command, such as a gate or a policy hook.
@@ -135,6 +148,17 @@ func (c *ProjectConfig) validate() error {
 		}
 		if s.RunBudget < 0 {
 			ck.fail(f+".run_budget", "must not be negative")
+		}
+		if e := s.Escalated; e != nil {
+			if e.Harness != "" && !validIdent(e.Harness) {
+				ck.fail(f+".escalated.harness", "must be a lower-case identifier")
+			}
+			if e.Effort != "" && !effortRe.MatchString(e.Effort) {
+				ck.fail(f+".escalated.effort", "must be one lower-case word, such as high")
+			}
+			if HasControl(e.Model) {
+				ck.fail(f+".escalated", "must not hold a control character")
+			}
 		}
 	}
 	checkCommands(ck, "gates", c.Gates)
@@ -223,6 +247,18 @@ type ProjectSnapshot struct {
 	Manifest    *Manifest
 	ConfigRaw   []byte
 	ManifestRaw []byte // nil when the default manifest is absent
+	// Branch is the default branch the read named. A run of the project
+	// starts from it.
+	Branch string
+}
+
+// BaseBranch is the branch a run starts from: the branch of the read, or
+// main for a snapshot that names none.
+func (s *ProjectSnapshot) BaseBranch() string {
+	if s.Branch == "" {
+		return DefaultBranch
+	}
+	return s.Branch
 }
 
 // ReadProjectSnapshot reads project config and the secret manifest from the
@@ -244,7 +280,7 @@ func ReadProjectSnapshot(ctx context.Context, read RefReader, defaultBranch stri
 	if err != nil {
 		return nil, err
 	}
-	snap := &ProjectSnapshot{Config: cfg, ConfigRaw: raw, Manifest: &Manifest{}}
+	snap := &ProjectSnapshot{Config: cfg, ConfigRaw: raw, Manifest: &Manifest{}, Branch: defaultBranch}
 	mraw, err := read(ctx, ref, cfg.ManifestPath())
 	switch {
 	case errors.Is(err, fs.ErrNotExist) && cfg.Manifest == "":

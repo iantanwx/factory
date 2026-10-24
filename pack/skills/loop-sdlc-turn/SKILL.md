@@ -60,7 +60,9 @@ codes cannot.
 - `REMOTE_AHEAD`: the remote item branch holds commits that your head does not hold. Run
   `loop branch sync`, and bring the item head in by section 4. Merge it, and push again.
 - `UNSAFE_PATH`: your push changes `.gitmodules`, a gitlink, or a filter or LFS line in
-  `.gitattributes`. Only the operator makes that change. Escalate it with `loop escalation raise`.
+  `.gitattributes`. Or your branch changes the merge queue's config, such as `.mergify.yml`,
+  against the base. Only the operator makes that change. Escalate it with `loop escalation raise`.
+  A merge of the base that brings in the operator's config change is no change of yours.
 - `GITHUB_REFUSED`: GitHub refused the request, and `hint` holds its answer. Never send the same
   request again. Escalate it with `loop escalation raise`.
 - `SERVER_UNAVAILABLE`, `DRAINING`, `BEADS_UNAVAILABLE` and `GITHUB_UNAVAILABLE` exit 4. Run
@@ -183,33 +185,20 @@ a good outcome. To guess is a bad outcome. After the escalation lands, finish `b
 
 ## 7. Report a fault in the loop itself
 
-A loop fault is a fault in the loop, not in the project. Report one in three cases:
-
-- The CLI or the server breaks its own contract. For example, an envelope contradicts the schema,
-  or a write that exited 0 did not change the state.
-- A refusal names no verb that works. Each verb in `allowed_next` is refused too, or the list is
-  empty, and the runbook has no other step.
-- Your runbook needs a verb that does not exist in `loop schema`.
+A loop fault is a fault in the loop, not in the project. `../loop-fault/SKILL.md` states what
+counts as one and how to file it. Follow it. A run adds two steps of its own.
 
 Read the faults in your brief first. When an open fault names the same command and the same
 failure, use its id, and report no second fault.
 
-Write the report to a file under `/tmp`, in a directory from `mktemp -d`. Name the command you ran,
-the envelope it printed, and what you expected. Then report it:
-
-```bash
-loop fault report --file <report file>
-```
-
-The answer names a fault id, `F-<n>`, that never changes. `loop fault show F-<n>` reads its status
-later. When the fault stops the run, finish with the fault:
+When the fault stops the run, finish with the fault:
 
 ```bash
 loop run finish --outcome blocked --fault F-<n>
 ```
 
 When the fault does not stop the run, continue. Name the fault id in your pull request body or in
-a note. Never work around a loop fault in silence. The next run meets the same fault.
+a note.
 
 ## 8. Never
 

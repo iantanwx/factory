@@ -160,7 +160,7 @@ func TestProjectsMoveKeepsTheRegistration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := ps.Move(ctx, "alpha", "acme/alpha")
+	got, err := ps.Move(ctx, "alpha", "acme/alpha", "")
 	want := Project{ID: "alpha", Repo: "acme/alpha", Path: "/srv/a"}
 	if err != nil || got != want || hooked[len(hooked)-1] != want {
 		t.Fatalf("Move = %v, %v; hook saw %v", got, err, hooked[len(hooked)-1])
@@ -168,10 +168,51 @@ func TestProjectsMoveKeepsTheRegistration(t *testing.T) {
 	if p, _ := ps.Show("alpha"); p != want {
 		t.Fatalf("Show after move = %v", p)
 	}
-	if _, err := ps.Move(ctx, "alpha", "IANTANWX/beta"); !errors.Is(err, ErrProjectExists) {
+	if _, err := ps.Move(ctx, "alpha", "IANTANWX/beta", ""); !errors.Is(err, ErrProjectExists) {
 		t.Fatalf("move onto beta's repository: %v", err)
 	}
-	if _, err := ps.Move(ctx, "gamma", "acme/gamma"); !errors.Is(err, ErrProjectNotFound) {
+	if _, err := ps.Move(ctx, "gamma", "acme/gamma", ""); !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("move of an unknown project: %v", err)
+	}
+}
+
+// A registration records the project's default branch, the base of its
+// checkouts and briefs. A registration that names none reads as main. A
+// move that names a branch records it, and one that names none keeps it.
+func TestProjectsRecordTheDefaultBranch(t *testing.T) {
+	ctx := context.Background()
+	ps := newProjects(t)
+	trunk := Project{ID: "alpha", Repo: "iantanwx/alpha", Path: "/srv/a", Branch: "trunk"}
+	if err := ps.Add(ctx, trunk); err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.Add(ctx, Project{ID: "beta", Repo: "iantanwx/beta", Path: "/srv/b"}); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := ps.Show("alpha"); err != nil || p.Branch != "trunk" || p.BaseBranch() != "trunk" {
+		t.Fatalf("Show alpha = %+v, %v; want branch trunk", p, err)
+	}
+	if p, _ := ps.Show("beta"); p.BaseBranch() != "main" {
+		t.Fatalf("beta base = %q, want main", p.BaseBranch())
+	}
+
+	got, err := ps.Move(ctx, "alpha", "iantanwx/alpha", "develop")
+	if err != nil || got.Branch != "develop" {
+		t.Fatalf("Move with a branch = %+v, %v", got, err)
+	}
+	if got, err := ps.Move(ctx, "alpha", "acme/alpha", ""); err != nil || got.Branch != "develop" {
+		t.Fatalf("Move with no branch = %+v, %v; want develop kept", got, err)
+	}
+	if p, _ := ps.Show("alpha"); p.Branch != "develop" || p.Repo != "acme/alpha" {
+		t.Fatalf("Show after moves = %+v", p)
+	}
+
+	for _, bad := range []string{"-x", "a..b", "main:evil", "a b"} {
+		if err := ps.Add(ctx, Project{ID: "gamma", Repo: "iantanwx/gamma", Path: "/srv/g", Branch: bad}); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("Add with branch %q: %v, want ErrInvalid", bad, err)
+		}
+		if _, err := ps.Move(ctx, "beta", "iantanwx/beta", bad); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("Move with branch %q: %v, want ErrInvalid", bad, err)
+		}
 	}
 }

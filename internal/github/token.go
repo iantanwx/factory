@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"net/http"
@@ -196,7 +197,22 @@ func (s *Service) callAs(ctx context.Context, app *App, c Call, out any) error {
 type Installation struct {
 	ID                  int64             `json:"id"`
 	RepositorySelection string            `json:"repository_selection"`
+	SuspendedAt         Suspension        `json:"suspended_at"`
 	Permissions         map[string]string `json:"permissions"`
+}
+
+// Suspension is the suspended_at of an installation. GitHub sends null
+// for an active installation. Present tells that null from an answer
+// that lacks the field, which cannot show the installation is active.
+type Suspension struct {
+	Present bool
+	At      *time.Time
+}
+
+// UnmarshalJSON records that the field was present, null or not.
+func (s *Suspension) UnmarshalJSON(b []byte) error {
+	s.Present = true
+	return json.Unmarshal(b, &s.At)
 }
 
 // Installation reads the App's installation on the project repository.
@@ -294,13 +310,22 @@ func PermissionLevel(l string) int {
 }
 
 // CheckInstallation reads the installation and returns a failed checklist
-// line when it holds any permission beyond the granted set (KTD15). The
-// installation may select every repository of its owner: the loop acts
-// only on the projects the operator registers.
+// line when its owner suspended it, or when it holds any permission beyond
+// the granted set (KTD15). The installation may select every repository
+// of its owner: the loop acts only on the projects the operator registers.
 func (s *Service) CheckInstallation(ctx context.Context, p config.Project) ([]CheckLine, error) {
 	in, err := s.Installation(ctx, p)
 	if err != nil {
 		return nil, err
+	}
+	active := CheckLine{Check: "installation_active", OK: in.SuspendedAt.Present && in.SuspendedAt.At == nil,
+		Detail: "the App's installation is active"}
+	switch {
+	case !in.SuspendedAt.Present:
+		active.Detail = "GitHub's installation answer holds no suspended_at, so the loop cannot tell the installation is active"
+	case in.SuspendedAt.At != nil:
+		active.Detail = "the App's installation was suspended at " + in.SuspendedAt.At.UTC().Format(time.RFC3339) +
+			"; unsuspend it in the owner's GitHub settings"
 	}
 	var extra []string
 	for _, k := range slices.Sorted(maps.Keys(in.Permissions)) {
@@ -309,6 +334,6 @@ func (s *Service) CheckInstallation(ctx context.Context, p config.Project) ([]Ch
 			extra = append(extra, k+":"+in.Permissions[k])
 		}
 	}
-	return []CheckLine{{Check: "installation_permissions", OK: len(extra) == 0,
+	return []CheckLine{active, {Check: "installation_permissions", OK: len(extra) == 0,
 		Detail: "the App holds permissions beyond the loop's set; remove " + strings.Join(extra, ", ")}}, nil
 }

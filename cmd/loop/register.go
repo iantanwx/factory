@@ -51,8 +51,8 @@ type RegisterReport struct {
 	Project string `json:"project"`
 	Repo    string `json:"repo"`
 	Path    string `json:"path"`
-	// Branch is the default branch; empty while the repository has no
-	// commit.
+	// Branch is the default branch, which the registration records as the
+	// base of the project's runs; empty while the repository has no commit.
 	Branch string `json:"branch"`
 	// Ruleset is "created", "updated", or "unavailable" when GitHub offers
 	// no rulesets on the repository's plan.
@@ -133,28 +133,49 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 	}
 	rep.Next = strings.Join(next, "; then ")
 
-	for _, p := range host.Projects {
+	verb, args, flags := registration(host.Projects, &rep)
+	if verb == "" {
+		return cli.Found(rep)
+	}
+	if res := h.remote(ctx, ctl, verb, args, flags); res.Refusal != nil {
+		return res
+	}
+	rep.Added = verb == "project add"
+	return cli.Found(rep)
+}
+
+// registration names the server verb that makes the registration match
+// the clone, with its arguments: project add for a new clone, project move
+// for a repository that moved on GitHub or a default branch that the
+// registration does not name. It answers no verb when the registration is
+// already right. It sets the report's project and the repository the
+// project moved from.
+func registration(projects []config.Project, rep *RegisterReport) (verb string, args []string, flags map[string]string) {
+	branchFlag := func(flags map[string]string) map[string]string {
+		if rep.Branch != "" {
+			flags["branch"] = rep.Branch
+		}
+		return flags
+	}
+	for _, p := range projects {
 		if strings.EqualFold(p.Repo, rep.Repo) {
 			rep.Project = p.ID
-			return cli.Found(rep)
+			// A clone with no commit has no default branch to record.
+			if rep.Branch == "" || p.Branch == rep.Branch {
+				return "", nil, nil
+			}
+			return "project move", []string{p.ID}, branchFlag(map[string]string{"repo": rep.Repo})
 		}
 	}
 	// The project of this clone names another repository: the repository
 	// moved on GitHub, and origin follows it.
-	for _, p := range host.Projects {
+	for _, p := range projects {
 		if p.Path == rep.Path {
 			rep.Project, rep.MovedFrom = p.ID, p.Repo
-			if res := h.remote(ctx, ctl, "project move", []string{p.ID}, map[string]string{"repo": rep.Repo}); res.Refusal != nil {
-				return res
-			}
-			return cli.Found(rep)
+			return "project move", []string{p.ID}, branchFlag(map[string]string{"repo": rep.Repo})
 		}
 	}
-	if res := h.remote(ctx, ctl, "project add", []string{rep.Project}, map[string]string{"repo": rep.Repo, "path": rep.Path}); res.Refusal != nil {
-		return res
-	}
-	rep.Added = true
-	return cli.Found(rep)
+	return "project add", []string{rep.Project}, branchFlag(map[string]string{"repo": rep.Repo, "path": rep.Path})
 }
 
 // remote sends one server verb, and returns its answer with the App hint
