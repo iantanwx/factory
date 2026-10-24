@@ -556,6 +556,51 @@ func manifestFindings(src fs.FS, m *Manifest) []Finding {
 			add("agent %s is in no runbook's agents, so nothing dispatches it", a)
 		}
 	}
+	for _, s := range m.Skills {
+		out = append(out, flagFindings(src, m, s)...)
+	}
+	return out
+}
+
+// codexPolicy is the agents/openai.yaml of a flagged skill, byte for byte.
+// Codex ignores disable-model-invocation and reads this file instead, so a
+// flagged skill holds both, and the gate compares bytes and parses no YAML.
+const codexPolicy = "policy:\n  allow_implicit_invocation: false\n"
+
+// flagFindings checks one listed skill's disable-model-invocation flag. A
+// flagged skill is out of every harness's skill list, so a run reads it
+// only when a runbook lists it, and Codex leaves it out only when the skill
+// also holds codexPolicy.
+func flagFindings(src fs.FS, m *Manifest, skill string) []Finding {
+	var out []Finding
+	add := func(format string, args ...any) {
+		out = append(out, Finding{File: ManifestFile, Kind: "manifest", Detail: fmt.Sprintf(format, args...)})
+	}
+	raw, err := fs.ReadFile(src, "skills/"+skill+"/SKILL.md")
+	if err != nil {
+		return nil
+	}
+	fields, _ := frontFields(string(raw))
+	flagged := fields["disable-model-invocation"] == "true"
+	codex, err := fs.ReadFile(src, "skills/"+skill+"/agents/openai.yaml")
+	held := err == nil
+	if flagged {
+		read := false
+		for _, rb := range m.Runbooks {
+			read = read || slices.Contains(rb.Skills, skill)
+		}
+		if !read {
+			add("skill %s holds disable-model-invocation: true and is in no runbook's skills, so no run reads it", skill)
+		}
+	}
+	switch {
+	case flagged && !held:
+		add("skill %s holds disable-model-invocation: true and no agents/openai.yaml, so each Codex run lists it", skill)
+	case !flagged && held:
+		add("skill %s holds agents/openai.yaml and not disable-model-invocation: true, so Codex hides what Claude Code lists", skill)
+	case flagged && string(codex) != codexPolicy:
+		add("skill %s holds an agents/openai.yaml other than %q", skill, codexPolicy)
+	}
 	return out
 }
 
