@@ -1,8 +1,13 @@
 package pack_test
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -131,7 +136,7 @@ func TestEveryStageHasARunbook(t *testing.T) {
 }
 
 func TestInjectionWritesEveryRunbookAndSkillForEachHarness(t *testing.T) {
-	p, err := pack.Brief()
+	p, _, err := pack.Brief(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +253,7 @@ func TestCoordinatorShipsItsReadOnlySubagents(t *testing.T) {
 	if got := slices.Sorted(slices.Values(m.Runbooks[sched.CoordinatorStage].Agents)); !slices.Equal(got, want) {
 		t.Fatalf("coordinator agents = %v, want %v", got, want)
 	}
-	p, err := pack.Brief()
+	p, _, err := pack.Brief(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +263,212 @@ func TestCoordinatorShipsItsReadOnlySubagents(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("injected agents = %v, want %v", got, want)
+	}
+}
+
+// fixtureSkill is a fetched skill as upstream ships it: a front matter
+// with its upstream name, a body that names its own path, and one
+// executable file.
+func fixtureSkill(name string) fstest.MapFS {
+	return fstest.MapFS{
+		name + "/SKILL.md": {Data: []byte("---\nname: " + name + "\ndescription: A fixture.\n---\n\n" +
+			"Run `.agents/skills/" + name + "/scripts/" + name + "`.\nname: " + name + "\n")},
+		name + "/scripts/" + name:        {Data: []byte("#!/bin/sh\necho " + name + "\n"), Mode: 0o755},
+		name + "/reference/notes.md":     {Data: []byte("# Notes\r\n\r\nname: " + name + "\r\n"), Mode: 0o644},
+		name + "/reference/deep/more.md": {Data: []byte("more\n"), Mode: 0o600},
+	}
+}
+
+// fixtureSource is a pack source with one runbook, one first-party skill
+// and one pin for each name. A pin's tree hash is that of the same name's
+// directory in hashed; a name hashed does not hold gets a hash of nothing.
+func fixtureSource(t *testing.T, hashed fs.FS, names ...string) fstest.MapFS {
+	t.Helper()
+	var pins []string
+	for _, n := range names {
+		sum := strings.Repeat("0", 64)
+		if _, err := fs.Stat(hashed, n); err == nil {
+			sub, err := fs.Sub(hashed, n)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sum, err = pack.TreeHash(sub); err != nil {
+				t.Fatal(err)
+			}
+		}
+		pins = append(pins, fmt.Sprintf(`{"name": %q, "repo": "acme/%s", "commit": %q, "path": "", "sha256": %q}`,
+			n, n, strings.Repeat("a", 40), sum))
+	}
+	return fstest.MapFS{
+		"manifest.json":                  {Data: []byte(`{"runbooks": {"implementer": {"skills": ["loop-sdlc-turn"]}}, "skills": ["loop-sdlc-turn"]}`)},
+		"runbooks/implementer.md":        {Data: []byte("---\nname: loop-implementer\n---\n")},
+		"skills/loop-sdlc-turn/SKILL.md": {Data: []byte("---\nname: loop-sdlc-turn\n---\n")},
+		pack.ThirdPartyFile:              {Data: []byte(`{"skills": [` + strings.Join(pins, ", ") + `]}`)},
+	}
+}
+
+func gitInit(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	return dir
+}
+
+// C11: a run receives each verified skill as loop-<name>. Its SKILL.md
+// differs from the fetched file in the one front matter name line, every
+// other file is byte for byte as fetched, an executable file is 0755 and
+// every other file 0644, and git ignores the directory.
+func TestARunReceivesEachVerifiedSkillRenamedAndOtherwiseUntouched(t *testing.T) {
+	fetched := fixtureSkill("impeccable")
+	src := fixtureSource(t, fetched, "impeccable")
+	p, left, err := pack.BriefOf(src, fetched)
+	if err != nil || len(left) != 0 {
+		t.Fatalf("left out %v, %v", left, err)
+	}
+	for _, h := range []agenthost.Harness{agenthost.Claude, agenthost.Codex} {
+		dir := gitInit(t)
+		_, err := brief.Inject(context.Background(), brief.Injection{Checkout: dir, Harness: h, Pack: p,
+			Brief: brief.Brief{RunID: "r-1", Project: "alpha", Stage: "implementer", Role: "implementer"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := filepath.Join(dir, brief.SkillRoot(h), "loop-impeccable")
+		modes := map[string]os.FileMode{
+			"SKILL.md": 0o644, "scripts/impeccable": 0o755, "reference/notes.md": 0o644, "reference/deep/more.md": 0o644,
+		}
+		var got []string
+		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel, _ := filepath.Rel(root, path)
+			got = append(got, filepath.ToSlash(rel))
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := slices.Sorted(maps.Keys(modes)); !slices.Equal(got, want) {
+			t.Fatalf("%s: loop-impeccable holds %v, want %v", h, got, want)
+		}
+		for rel, mode := range modes {
+			body, err := os.ReadFile(filepath.Join(root, rel))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := fetched["impeccable/"+rel].Data
+			if rel == "SKILL.md" {
+				want = []byte("---\nname: loop-impeccable\ndescription: A fixture.\n---\n\n" +
+					"Run `.agents/skills/impeccable/scripts/impeccable`.\nname: impeccable\n")
+			}
+			if string(body) != string(want) {
+				t.Errorf("%s: %s = %q, want %q", h, rel, body, want)
+			}
+			fi, err := os.Stat(filepath.Join(root, rel))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fi.Mode().Perm() != mode {
+				t.Errorf("%s: %s is mode %o, want %o", h, rel, fi.Mode().Perm(), mode)
+			}
+		}
+		exclude, err := os.ReadFile(filepath.Join(dir, ".git", "info", "exclude"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if line := "/" + brief.SkillRoot(h) + "/loop-impeccable/"; !slices.Contains(strings.Split(string(exclude), "\n"), line) {
+			t.Errorf("%s: info/exclude does not list %s:\n%s", h, line, exclude)
+		}
+		if out, err := exec.Command("git", "-C", dir, "status", "--porcelain", "--untracked-files=all").Output(); err != nil || len(out) != 0 {
+			t.Fatalf("%s: git sees the skills: %q %v", h, out, err)
+		}
+	}
+}
+
+// C12: the pack hash covers each fetched file's bytes and executable bit,
+// and the brief records the hash of the pack Brief returned.
+func TestThePackHashCoversTheFetchedSkills(t *testing.T) {
+	hash := func(fetched fstest.MapFS) string {
+		t.Helper()
+		p, left, err := pack.BriefOf(fixtureSource(t, fetched, "impeccable"), fetched)
+		if err != nil || len(left) != 0 {
+			t.Fatalf("left out %v, %v", left, err)
+		}
+		h, err := p.Hash()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	base := hash(fixtureSkill("impeccable"))
+	bytesChanged := fixtureSkill("impeccable")
+	bytesChanged["impeccable/reference/notes.md"].Data = []byte("other notes\n")
+	if hash(bytesChanged) == base {
+		t.Error("a fetched file's new bytes kept the pack hash")
+	}
+	modeChanged := fixtureSkill("impeccable")
+	modeChanged["impeccable/reference/notes.md"].Mode = 0o755
+	if hash(modeChanged) == base {
+		t.Error("a fetched file's new executable bit kept the pack hash")
+	}
+
+	fetched := fixtureSkill("impeccable")
+	p, _, err := pack.BriefOf(fixtureSource(t, fetched, "impeccable"), fetched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := gitInit(t)
+	res, err := brief.Inject(context.Background(), brief.Injection{Checkout: dir, Harness: agenthost.Claude, Pack: p,
+		Brief: brief.Brief{RunID: "r-1", Project: "alpha", Stage: "implementer", Role: "implementer"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(cli.BriefJSONFile)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b struct {
+		PackHash string `json:"pack_hash"`
+	}
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatal(err)
+	}
+	if b.PackHash != base || res.PackHash != base {
+		t.Fatalf("brief pack_hash %s, inject %s, want Pack.Hash %s", b.PackHash, res.PackHash, base)
+	}
+}
+
+// C13: a pin whose directory is missing, and one whose tree fails its
+// hash, are left out and returned. The pack holds every other pin and
+// every first-party skill.
+func TestBriefLeavesOutAMissingOrWrongSkill(t *testing.T) {
+	fetched := fixtureSkill("widget")
+	maps.Copy(fetched, fixtureSkill("gadget"))
+	src := fixtureSource(t, fetched, "widget", "gadget", "gizmo")
+	fetched["gadget/scripts/gadget"].Mode = 0o644 // the tree no longer matches its pin
+	p, left, err := pack.BriefOf(src, fetched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, pin := range left {
+		names = append(names, pin.Name)
+	}
+	if want := []string{"gadget", "gizmo"}; !slices.Equal(names, want) {
+		t.Fatalf("left out %v, want %v", names, want)
+	}
+	skills, err := p.Skills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"loop-implementer", "loop-sdlc-turn", "loop-widget"}; !slices.Equal(skills, want) {
+		t.Fatalf("pack skills = %v, want %v", skills, want)
+	}
+	// With no fetched set, every pin is left out.
+	if _, left, err := pack.BriefOf(src, nil); err != nil || len(left) != 3 {
+		t.Fatalf("no fetched set left out %v, %v", left, err)
 	}
 }
 
