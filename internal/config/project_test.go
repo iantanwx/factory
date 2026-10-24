@@ -24,6 +24,7 @@ stages:
     harness: claude
     run_budget: 90m
     schedule: 5m
+    effort: max
   code-reviewer:
     enabled: false
 gates:
@@ -53,6 +54,9 @@ func TestParseProjectConfig(t *testing.T) {
 	if got := cfg.Signoff.Readers; len(got) != 2 || got[0] != "octocat" || got[1] != "mona-lisa" {
 		t.Fatalf("sign-off readers = %v", got)
 	}
+	if cfg.Stages["implementer"].Effort != "max" {
+		t.Fatalf("effort = %q", cfg.Stages["implementer"].Effort)
+	}
 	if cfg.Stages["implementer"].RunBudget != 90*time.Minute {
 		t.Fatalf("run budget = %v", cfg.Stages["implementer"].RunBudget)
 	}
@@ -74,6 +78,7 @@ func TestParseProjectConfigRefuses(t *testing.T) {
 		"absolute manifest":   validProjectConfig + "manifest: /etc/secrets.yaml\n",
 		"empty gate command":  strings.Replace(validProjectConfig, "run: make gates", "run: \"\"", 1),
 		"negative budget":     strings.Replace(validProjectConfig, "run_budget: 90m", "run_budget: -5m", 1),
+		"effort not a word":   strings.Replace(validProjectConfig, "effort: max", "effort: \"high --dangerously-skip-permissions\"", 1),
 		"reader not a login":  strings.Replace(validProjectConfig, "mona-lisa", "slothware-labs/loop", 1),
 		"reader twice":        strings.Replace(validProjectConfig, "mona-lisa", "OctoCat", 1),
 	}
