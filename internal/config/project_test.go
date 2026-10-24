@@ -32,6 +32,8 @@ gates:
 policy_hooks:
   - name: trust-paths
     run: ./scripts/policy.sh
+signoff:
+  readers: [octocat, mona-lisa]
 `
 
 func TestParseProjectConfig(t *testing.T) {
@@ -47,6 +49,9 @@ func TestParseProjectConfig(t *testing.T) {
 	}
 	if !cfg.StageEnabled("implementer") || cfg.StageEnabled("code-reviewer") || cfg.StageEnabled("intake") {
 		t.Fatalf("stage enablement is wrong: %+v", cfg.Stages)
+	}
+	if got := cfg.Signoff.Readers; len(got) != 2 || got[0] != "octocat" || got[1] != "mona-lisa" {
+		t.Fatalf("sign-off readers = %v", got)
 	}
 	if cfg.Stages["implementer"].RunBudget != 90*time.Minute {
 		t.Fatalf("run budget = %v", cfg.Stages["implementer"].RunBudget)
@@ -69,6 +74,8 @@ func TestParseProjectConfigRefuses(t *testing.T) {
 		"absolute manifest":   validProjectConfig + "manifest: /etc/secrets.yaml\n",
 		"empty gate command":  strings.Replace(validProjectConfig, "run: make gates", "run: \"\"", 1),
 		"negative budget":     strings.Replace(validProjectConfig, "run_budget: 90m", "run_budget: -5m", 1),
+		"reader not a login":  strings.Replace(validProjectConfig, "mona-lisa", "slothware-labs/loop", 1),
+		"reader twice":        strings.Replace(validProjectConfig, "mona-lisa", "OctoCat", 1),
 	}
 	for name, doc := range cases {
 		t.Run(name, func(t *testing.T) {
