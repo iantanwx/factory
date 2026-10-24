@@ -2,7 +2,7 @@
   "runbooks": {
     "implementer": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage"],
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-commit"],
       "policy": "implementer"
     },
     "code-reviewer": {
@@ -16,15 +16,15 @@
     },
     "amender": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-encode-lessons", "loop-sdlc-documents"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-encode-lessons", "loop-sdlc-documents", "loop-unslop", "loop-commit"]
     },
     "spec-author": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents", "loop-unslop", "loop-commit"]
     },
     "decomposer": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-bro", "loop-unslop"]
     },
     "fixer": {
       "attended": false,
@@ -42,7 +42,7 @@
     },
     "intake-room": {
       "attended": true,
-      "skills": ["loop-sdlc-turn", "loop-brainstorm", "loop-sdlc-split", "loop-sdlc-glossary", "loop-reflect"]
+      "skills": ["loop-sdlc-turn", "loop-brainstorm", "loop-sdlc-split", "loop-sdlc-glossary", "loop-reflect", "loop-unslop", "loop-commit"]
     },
     "decision-room": {
       "attended": true,
@@ -50,7 +50,7 @@
     },
     "review-room": {
       "attended": true,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-reflect"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-reflect", "loop-commit"]
     },
     "architect-room": {
       "attended": true,
@@ -59,6 +59,8 @@
   },
   "skills": [
     "loop-brainstorm",
+    "loop-bro",
+    "loop-commit",
     "loop-encode-lessons",
     "loop-fault",
     "loop-init",
@@ -68,7 +70,8 @@
     "loop-sdlc-review",
     "loop-sdlc-split",
     "loop-sdlc-triage",
-    "loop-sdlc-turn"
+    "loop-sdlc-turn",
+    "loop-unslop"
   ],
   "agents": [
     "loop-alert-root-cause",

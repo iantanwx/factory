@@ -361,7 +361,7 @@ func (w *world) runState(run string) (state, class string) {
 }
 
 func (w *world) failures(item string) int {
-	return w.count(`SELECT count(*) FROM failures WHERE item = ? AND class IN ('failed', 'crashed')`, item)
+	return w.count(`SELECT count(*) FROM failures WHERE item = ? AND class IN ('failed', 'crashed', 'stalled')`, item)
 }
 
 func (w *world) alerts(kind string) int {

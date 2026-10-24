@@ -29,8 +29,9 @@ that a recorded answer settles.
 
 ## 2. A new PRD
 
-Run the session in `../loop-brainstorm/SKILL.md`. When the operator calls the PRD ready, commit it
-and submit it:
+Run the session in `../loop-brainstorm/SKILL.md`. When the operator calls the PRD ready, apply
+`../loop-unslop/SKILL.md` to it. Then commit it, with a message by `../loop-commit/SKILL.md`, and
+submit it:
 
 ```bash
 loop prd submit --path <path in the repository> --title "<title>"
@@ -45,7 +46,8 @@ The epic waits on the operator, and its PRD pull request is open.
 
 1. Bring the head of that pull request into the checkout. The turn skill states how.
 2. Show the operator each finding of both rejects, with the line it names.
-3. Revise the PRD with the operator, one finding at a time. Commit, and push with
+3. Revise the PRD with the operator, one finding at a time. Apply `../loop-unslop/SKILL.md` to
+   each sentence you write. Commit, with a message by `../loop-commit/SKILL.md`, and push with
    `loop branch push`.
 4. Write the decision file: one JSON object that states the decision and quotes the operator.
 
