@@ -38,7 +38,7 @@ const (
 	ConfigPath = ".mergify.yml"
 	// GatesCheck is the CI job that loop-init writes. The template requires
 	// it when the base requires no check of its own.
-	GatesCheck = "gates"
+	GatesCheck = github.GatesCheck
 )
 
 // configPaths are the places Mergify reads its configuration from. Any
@@ -111,7 +111,7 @@ func (m *Mergify) Check(ctx context.Context, p config.Project) error {
 	if err != nil {
 		return err
 	}
-	_, checks, err := m.gh.BranchRules(ctx, p)
+	checks, err := m.gh.RequiredChecks(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func (m *Mergify) appSlug(ctx context.Context, p config.Project) (string, error)
 type Template struct {
 	Bot    string   // the loop App's bot user, "<slug>[bot]"
 	Base   string   // the default branch
-	Checks []string // the required CI contexts of the base, without loop/eligible; GatesCheck when empty
+	Checks []string // the required checks (github.RequiredChecks), without loop/eligible; GatesCheck when empty
 }
 
 var (

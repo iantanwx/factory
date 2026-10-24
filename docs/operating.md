@@ -326,6 +326,27 @@ on:
 `project add` refuses `github-queue` when the default branch has no
 merge-queue rule.
 
+### Required checks
+
+The loop never merges a head that no CI check verified. A ticket's head
+must pass each required check before its review pass makes it eligible,
+and again before the `direct` mechanism merges it. A required check that
+has not reported counts as not passed, so a head with no check waits in
+`queued` and never merges. Name the checks in `.loop/config.yaml`:
+
+```yaml
+merge:
+  mechanism: direct
+  required_checks: [gates, acceptance]
+```
+
+The loop requires the checks the config names, then the checks that the
+default branch's ruleset requires. When neither names a check, it
+requires `gates`, the CI job that `loop-init` writes. The Mergify template
+requires the same checks. `project add` refuses `github-queue` when the
+ruleset leaves out a required check, because GitHub's queue merges once
+the ruleset's checks pass.
+
 ## Secrets
 
 A project lists the secrets its runs need in `.loop/secrets.yaml`, names

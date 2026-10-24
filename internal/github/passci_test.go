@@ -11,10 +11,10 @@ import (
 )
 
 // A code pass names the full sha of the head, since loop/eligible is
-// posted on that sha only. A repository whose plan has no rulesets
-// requires no check by name, so every check on the head decides; with no
-// check at all the head is never green.
-func TestPassCINeedsTheFullHeadAndReadsEveryCheckWithoutRulesets(t *testing.T) {
+// posted on that sha only. A repository whose plan has no rulesets, and
+// whose config names no required check, requires the gates job: a head
+// with no check, or with other checks only, is never green.
+func TestPassCINeedsTheFullHeadAndTheGatesJobWithoutRulesets(t *testing.T) {
 	e := newEnv(t)
 	w := e.withWorld()
 	ctx := context.Background()
@@ -34,9 +34,11 @@ func TestPassCINeedsTheFullHeadAndReadsEveryCheckWithoutRulesets(t *testing.T) {
 	w.SetRuns(shaA)
 	want(e.svc.PassCI(ctx, testProject, "tk-1", shaA), cli.CodeCINotGreen, "ci_pending")
 	w.SetRuns(shaA, gt.CheckRun("lint", shaA, "completed", "success", at))
+	want(e.svc.PassCI(ctx, testProject, "tk-1", shaA), cli.CodeCINotGreen, "ci_pending")
+	w.SetRuns(shaA, gt.CheckRun("lint", shaA, "completed", "success", at), gt.CheckRun("gates", shaA, "completed", "success", at))
 	if r := e.svc.PassCI(ctx, testProject, "tk-1", shaA); r != nil {
-		t.Fatalf("green CI on a repository with no rulesets: %+v", r)
+		t.Fatalf("green gates on a repository with no rulesets: %+v", r)
 	}
-	w.SetRuns(shaA, gt.CheckRun("lint", shaA, "completed", "success", at), gt.CheckRun("test", shaA, "completed", "failure", at))
+	w.SetRuns(shaA, gt.CheckRun("gates", shaA, "completed", "success", at), gt.CheckRun("test", shaA, "completed", "failure", at))
 	want(e.svc.PassCI(ctx, testProject, "tk-1", shaA), cli.CodeCINotGreen, "ci_failed")
 }

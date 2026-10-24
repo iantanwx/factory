@@ -164,6 +164,47 @@ func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 	return rep
 }
 
+// CIVerdict is a head's CI read against the checks a merge requires.
+type CIVerdict struct {
+	State   string   // CIGreen, CIRed or CIPending; never CINone
+	Red     []string // the checks that failed
+	Waiting []string // the checks that run, or that must report and have not
+}
+
+// Against reads the report against the checks a merge requires. Every
+// check on the head must be green, and each required check must have
+// reported there. A required check that has not reported waits, and a
+// head with no check at all is never green: absence is never evidence of
+// success (alpha premerge.ts:99-110).
+func (r CIReport) Against(required []string) CIVerdict {
+	var v CIVerdict
+	for _, c := range r.Checks {
+		switch c.State {
+		case CIRed:
+			v.Red = append(v.Red, c.Name)
+		case CIPending:
+			v.Waiting = append(v.Waiting, c.Name)
+		}
+	}
+	for _, name := range required {
+		if !slices.ContainsFunc(r.Checks, func(c CheckView) bool { return c.Name == name }) {
+			v.Waiting = append(v.Waiting, name+" (not reported)")
+		}
+	}
+	if len(r.Checks) == 0 && len(v.Waiting) == 0 {
+		v.Waiting = []string{"no check has reported"}
+	}
+	switch {
+	case len(v.Red) > 0:
+		v.State = CIRed
+	case len(v.Waiting) > 0:
+		v.State = CIPending
+	default:
+		v.State = CIGreen
+	}
+	return v
+}
+
 func newer(a, b CheckRun) bool {
 	at, bt := time.Time{}, time.Time{}
 	if a.StartedAt != nil {
