@@ -25,6 +25,11 @@ work query take a ticket in `repair` before any ticket in `todo`
 first. That is no longer true. D10 still holds, and work entry 12 replaces `claimFirst` with the
 rank of D10.
 
+Round 2 of this spec reads the base at `22d8fc4`. The changes since `13a783e` touch agent jobs,
+usage limits, the implementer's cron and review proof. None of them changes a table, a verb or a
+work query that this spec names. The implementer now runs every 5 minutes, so D10's overdue wait
+of 90 minutes is 18 implementer ticks, not tickertown's 9.
+
 ## Scope check
 
 **Components:**
@@ -70,20 +75,27 @@ to the spec.
    `--story` already takes a list this way.
 4. **Each verb writes the edge and the move in the order that fails safe.** `work create` and
    `work shape` write each edge before the create move, as `epic decompose` does. `work block`
-   moves the ticket to `backlog`, then writes the edge. `work unblock --by` deletes the edge, then
-   moves the ticket. We chose these three orders over one order for every verb, because each
-   crash then leaves the ticket held, never claimable. A ticket in `Initial` is in no queue. A
-   `backlog` ticket with no blocks edge is a doubt that dependency-advance holds
-   (`blockersDone`). A `backlog` ticket whose edges all lead to done items moves on at the next
-   dependency-advance tick.
+   moves the ticket to `backlog` and records the blocker as the fact `pending_block` in that same
+   write, then writes the edge. `work unblock --by` deletes the edge, then moves the ticket. We
+   chose these three orders over one order for every verb, because each crash then leaves the
+   ticket held, never claimable. A ticket in `Initial` is in no queue. A `backlog` ticket with no
+   blocker is a doubt that dependency-advance holds (`blockersDone`). A `backlog` ticket whose
+   `pending_block` names an item that is not `done` is held too, whether its edge landed or not
+   (Decision 22).
+   A ticket can already hold edges to done items, because dependency-advance keeps those edges
+   when it frees a ticket. Without the fact, a crash after the move would leave only those done
+   edges, and the next tick would free the ticket while its new blocker is open.
 5. **`work block` starts from `todo` and from `backlog` only.** We chose these two states over
    every live state, because a ticket in `in_progress` holds a run's lease, and a ticket in a
    pull request state holds a pull request. Neither can wait in `backlog` without dropping
    those. D2 names `todo`. A block from `backlog` adds an edge and keeps the state.
-6. **`work unblock` with no `--by` moves only a `backlog` ticket that holds no blocks edge.** We
-   chose this over an `--by` that is always required, because the coordinator runbook's doubt
-   case, a `backlog` ticket with no edge, then has no exit. We rejected an unblock with no `--by`
-   that deletes every edge, because a person would delete edges that the person never read.
+6. **`work unblock` with no `--by` moves only a `backlog` ticket that has no open blocker.** It
+   deletes no edge. We chose this over an `--by` that is always required, because the coordinator
+   runbook's doubt case, a `backlog` ticket with no edge, then has no exit. A ticket whose every
+   edge leads to a done item moves too, as dependency-advance would move it at its next tick, and
+   the acceptance scenario `epic_test.go:214` relies on that. We rejected an unblock with no
+   `--by` that deletes every edge, because a person would delete edges that the person never
+   read. An edge to a canceled item is open, so the person names it with `--by`, and the edge goes.
 7. **An escalated ticket resumes to `backlog` when it was escalated from `backlog`.** We chose
    the state at the escalate write over a read of the edges at the answer, because R12 stores the
    resume target in the escalate write, and a table setter reads the item and its parameters,
@@ -136,14 +148,21 @@ to the spec.
     We chose an existing code over a new code, because a new code changes the schema's code
     table, and every runbook branches on codes. The code already means "read the hint and the
     next moves".
-18. **The decision moves write three facts.** `why` holds the reason of the latest fire or
-    defer. `answer` holds the note of `decision settle`, as the inbox and a room write it today.
-    `close_note` holds the note of a drop or a moot. We chose three facts over one fact for every
-    move, because `answer` already means a person's answer, and the fired inbox entry reads
-    `why`.
-19. **The decision-timers job writes its own `why`.** We chose a server text over an exception
-    to D6, because D6 records why on every fire. The text names the `--by` date, or the end of an
-    inbox defer.
+18. **The decision moves write four facts.** `why` holds the reason of the latest fire or
+    defer. `defer_reason` holds the `--reason` of the inbox defer that the latest fire ended, and
+    is empty when that fire ended no defer. `answer` holds the note of `decision settle`, as the
+    inbox and a room write it today. `close_note` holds the note of a drop or a moot. We chose
+    four facts over one fact for every move, because `answer` already means a person's answer, the
+    fired inbox entry reads `why`, and a fire must not overwrite the defer's reason.
+19. **The decision-timers job writes its own `why`, and carries the defer's reason.** We chose a
+    server text over an exception to D6, because D6 records why on every fire. The text names the
+    `--by` date, or the end of an inbox defer and its time. When the fire ends an inbox defer, the
+    job reads the reason from that defer's `schedule` row, and passes it to the `fire` row as
+    `defer_reason`, in the same write as the move. Every other fire passes none, so the fact
+    clears. We chose a fact on the decision over a read of the `schedule` row at list time,
+    because the job marks that row `done` when it fires, and `readDefers` reads `active` rows
+    only. So a returned decision entry shows `defer_reason`, as every other returned entry does
+    (D8).
 20. **A decision that waits for a person makes no inbox entry while it is pending.** We chose
     the coordinator's pending list over a new inbox entry kind, because the coordinator runbook
     already reads each pending decision on each wake (section 6). The fact `waits_for` tells it
@@ -151,6 +170,30 @@ to the spec.
 21. **The decision `answer` move requires an answer.** We chose to refuse an empty answer over
     an optional one, because D6 rejects a settle that records no answer. `inbox answer` and
     `room apply` already send one.
+22. **An open blocker is an edge or the `pending_block` fact.** An open blocker of a ticket is an
+    item that is not `done`, and that the ticket names by a blocks edge or by `pending_block`.
+    Dependency-advance frees a `backlog` ticket that has at least one blocker and no open blocker.
+    We chose the fact over a third write that clears it after the edge lands, because a third write
+    adds a third crash point. Once the edge lands, the fact and the edge name the same item, so the
+    stale fact changes no answer. `work block` and `work unblock --by` refuse with `USAGE`, rule
+    `block_pending`, while `pending_block` names an item other than their own `--by` that has no
+    edge from the ticket. The hint says to run the earlier `work block` call again. We chose that
+    refusal over a later block that overwrites the fact, because the overwrite would lose the
+    blocker of the crashed call. Each `unblock` row that lands in `todo` clears `pending_block`.
+    The `unblock` row that keeps `backlog` clears it when it names the `--by` blocker.
+23. **`work unblock --by X` is safe to run again.** When the ticket holds no edge to X, the call
+    skips the delete. On a `backlog` ticket it still runs the move step: the ticket moves to `todo`
+    when it has no open blocker, and stays otherwise. On a `todo` ticket it writes nothing and
+    answers exit 0 with `"edge_removed": false`, because the state the call asks for already holds.
+    Every other state refuses with `TRANSITION_NOT_ALLOWED`. We chose this over a refusal of an
+    `--by` that names no edge, because a replay after a crash finds the edge already deleted, and a
+    refusal would then leave a `backlog` doubt where the first call would have freed the ticket. A
+    wrong `--by` costs nothing: the move step lands only where the state of the edges allows it.
+24. **A bug in `awaiting_build` takes no `cancel`.** We chose no `cancel` row over a fourth edge
+    out of the waiting state, because D3 keeps the states of `work cancel`, and the ADR gives the
+    waiting state only the edges to `shaped`, `duplicate` and `reported`. A coordinator that wants
+    to drop a waiting report closes it with `work duplicate <bug> --of <item>`, as the reproducer
+    closes a "not built yet" report today.
 
 ## Assumptions
 
@@ -188,18 +231,24 @@ the beads client. `work create`, `work shape` and `work block` call it before an
 is the order of `epic decompose` (`internal/pipeline/decompose.go:137-150`). `--blocked-by` with
 `--kind bug` is a usage fault, because a bug has no `backlog`.
 
-`work block <item> --by <blocker>` takes the item lock, checks the blocker, and applies `block`.
-From `todo` the move lands in `backlog`. From `backlog` it keeps the state. Then the handler adds
-the edge. A retry after a crash finds the ticket in `backlog`, applies the `backlog` row, and
-adds the edge again, which beads keeps as one edge.
+`work block <item> --by <blocker>` takes the item lock, checks the blocker, checks the
+`block_pending` rule (Decision 22), and applies `block` with the parameter `by`. From `todo` the
+move lands in `backlog`. From `backlog` it keeps the state. Both rows write the fact
+`pending_block`. Then the handler adds the edge. A retry after a crash finds the ticket in
+`backlog`, applies the `backlog` row, and adds the edge again, which beads keeps as one edge.
 
-`work unblock <item> --by <blocker>` takes the item lock, and refuses a blocker that holds no
-blocks edge from the item. It deletes the edge with the new `beadsx.Client.RemoveDependency`.
-Then it reads the edges that remain. When one leads to an item that is not `done`, it applies
-`unblock` with `open=true`, which keeps `backlog`. Otherwise it applies `unblock`, which lands in
-`todo`. `work unblock <item>` with no `--by` applies `unblock` only when the item holds no blocks
-edge. The dependency-advance job applies `unblock` through `Machine.Apply`, not through the CLI
-handler, so its move is unchanged.
+`blockersDone` in `internal/sched/deps.go` reads the item as well as its edges. It counts
+`pending_block` as one more blocker, and frees the ticket only when it has a blocker and none is
+open (Decision 22). A crash between the move and the edge thus leaves the ticket held at every
+tick until the replay adds the edge, or until the blocker reaches `done`.
+
+`work unblock <item> --by <blocker>` takes the item lock and checks the `block_pending` rule. It
+deletes the edge with the new `beadsx.Client.RemoveDependency`, and skips the delete when no edge
+exists (Decision 23). Then it reads the edges that remain and `pending_block`. When an open
+blocker remains, it applies `unblock` with `open=true` and `by`, which keeps `backlog`.
+Otherwise it applies `unblock`, which lands in `todo`. `work unblock <item>` with no `--by` applies
+`unblock` only when the item has no open blocker, and deletes no edge. The dependency-advance job
+applies `unblock` through `Machine.Apply`, not through the CLI handler.
 
 `ticketResume` returns `backlog` for a ticket escalated from `backlog`, and the ticket `answer`
 row accepts `backlog` as a resume target beside `todo`.
@@ -208,7 +257,7 @@ row accepts `backlog` as a resume target beside `todo`.
 
 `work cancel` requires `--reason`. The ticket and bug `cancel` rows copy it into the fact
 `cancel_reason`, in the same write as `canceled`. The states that `cancel` starts from stay as
-they are, and the waiting bug state of D9 adds one more.
+they are. The waiting bug state of D9 adds none (Decision 24).
 
 `decision file` requires exactly one of `--by` and `--waits-for-a-person`. The second writes the
 fact `waits_for`. The decision-timers job reads `by` only, so it never fires a decision that waits
@@ -216,15 +265,22 @@ for a person.
 
 The decision rows keep their states and edges. Each row gains a setter. `fire` and `defer` need
 the parameter `why`. `answer` needs `answer`. `drop` and `moot` need `note`. A new handler maps
-each CLI flag to its parameter. The timers job passes its own `why`. `inbox defer` on a decision
-entry passes its `--reason` as the `why` of the `defer` move.
+each CLI flag to its parameter. The timers job passes its own `why`, and the defer's reason as
+`defer_reason` when the fire ends an inbox defer (Decision 19). `inbox defer` on a decision entry
+passes its `--reason` as the `why` of the `defer` move.
 
 The server refuses a reason, a why or a note that holds the value of a secret, with
 `SECRET_IN_OUTPUT`, as it refuses a body today.
 
 `inbox defer` requires `--reason`. The reason goes into the defer row's `payload` as
 `{"reason": "..."}`. When the defer time passes, the entry returns with the reason in a new
-field, `defer_reason`. The fired decision entry shows the `why` of the fire.
+field, `defer_reason`:
+
+- An entry that is no decision returns while its defer row is still `active`. `readDefers` reads
+  the row's `payload` with its time, and the entry takes the reason from there.
+- A decision entry returns because the timers job fired the decision and marked the row `done`.
+  The entry takes `defer_reason` from the decision's fact of that name (Decision 19). It also
+  shows the `why` of the fire, which names the end of the defer.
 
 ### Early answers (D7)
 
@@ -245,8 +301,8 @@ not terminal, then applies `await_build`. The bug lands in `awaiting_build` with
 building item. A `done` item applies `build_landed`, which closes the bug as `duplicate` with
 `duplicate_of` set to the building item. A `canceled` item applies `build_canceled`, which returns
 the bug to `reported` and clears `built_by`. Any other status leaves the bug alone. From
-`awaiting_build`, the coordinator may still apply `shape`, `duplicate`, `cancel`, `note` and
-`edit`.
+`awaiting_build`, the coordinator may still apply `shape`, `duplicate`, `note` and `edit`. It
+may not apply `cancel` (Decision 24).
 
 ### The implementer rank (D10)
 
@@ -271,8 +327,13 @@ named.
 internal/machine (changed)
 
 Ticket states       unchanged
-  invariant (new): a ticket in todo holds no blocks edge to an item that is not done, except
-             an edge to a canceled item that a person accepted with `work unblock`.
+  invariant (new): a ticket in todo has no open blocker: no blocks edge and no pending_block
+             fact names an item that is not done. A ticket unblocked by a person before entry 3
+             lands may still hold an edge to a canceled item, because the old `unblock` deleted
+             no edge. No move after entry 3 makes such a ticket.
+  invariant (new): a ticket in backlog whose pending_block names an item with no blocks edge
+             from it is held, and leaves backlog only when that item is done or a replay adds
+             the edge.
 
 Bug states          + awaiting_build (frozen)
   invariant: a bug in awaiting_build holds the fact built_by, and built_by names a ticket or
@@ -334,7 +395,9 @@ const (
 	FactPriority     = "priority"      // the priority work shape gave the ticket: 1 to 4
 	FactBuiltBy      = "built_by"      // the ticket or epic a waiting bug waits for
 	FactWhy          = "why"           // the reason of a decision's latest fire or defer
+	FactDeferReason  = "defer_reason"  // the --reason of the inbox defer that the latest fire ended
 	FactCloseNote    = "close_note"    // why a decision was dropped or became moot
+	FactPendingBlock = "pending_block" // the blocker of the latest work block, written before its edge
 )
 
 const (
@@ -355,14 +418,16 @@ func (m *Machine) CheckBlockers(ctx context.Context, project, ticket string, blo
 ```text
 Machine parameters, by row:
   ticket create   blocked = "true" | ""                 (unchanged)
-  ticket block    none
-  ticket unblock  open = "true" | ""                    "true" selects the row that keeps backlog
+  ticket block    by, required                          -> pending_block
+  ticket unblock  open = "true" | "", by = id | ""      "true" selects the row that keeps backlog;
+                                                        it clears pending_block when it equals by.
+                                                        The row to todo always clears pending_block
   ticket cancel   reason, required                      -> cancel_reason
   bug cancel      reason, required                      -> cancel_reason
   bug await_build of, required                          -> built_by
   bug build_landed  none; copies built_by               -> duplicate_of
   bug build_canceled none                               clears built_by
-  decision fire   why, required                         -> why
+  decision fire   why, required; defer_reason, optional -> why, defer_reason (cleared when empty)
   decision defer  why, required                         -> why
   decision answer answer, required                      -> answer
   decision drop   note, required                        -> close_note
@@ -413,7 +478,9 @@ beads metadata (new keys, each "loop." + name)
   priority        "1" | "2" | "3" | "4", on a shaped ticket
   built_by        item id, on a bug in awaiting_build
   why             text, on a decision
+  defer_reason    text, on a decision whose latest fire ended an inbox defer
   close_note      text, on a canceled decision
+  pending_block   item id, on a ticket that work block parked
   waits_for       text, on a decision filed with --waits-for-a-person
 
 beads statuses
@@ -431,7 +498,9 @@ returns with no `defer_reason`. A pending decision filed before entry 6 may hold
 `waits_for`. It keeps its state, and the coordinator reads it on each wake as today. A ticket or a
 bug canceled before entry 5 holds no `cancel_reason`. No bug is in `awaiting_build` before entry
 11. Every ticket created before entry 10 holds no `priority`, and the rank reads it as no
-priority.
+priority. No ticket holds `pending_block` before entry 3, so dependency-advance counts
+only edges for it, as today. No decision holds `defer_reason` before entry 8. A decision whose
+defer ended before entry 8 returns with no `defer_reason`.
 
 ## Flows
 
@@ -449,12 +518,15 @@ sequenceDiagram
     alt X unknown, T itself, an epic, a bug, terminal, or a cycle
         M-->>C: refused, nothing written
     end
-    V->>M: Apply block (todo -> backlog, or backlog -> backlog)
+    alt pending_block names Y, not X, and T holds no edge to Y
+        V-->>C: USAGE block_pending, nothing written
+    end
+    V->>M: Apply block by=X (todo -> backlog, or backlog -> backlog), sets pending_block X
     alt T in any other state
         M-->>C: TRANSITION_NOT_ALLOWED, nothing written
     end
     V->>B: AddDependency(T, X, blocks)
-    Note over V,B: a crash here leaves T in backlog with no edge, a doubt that holds it
+    Note over V,B: a crash here leaves T in backlog with pending_block X and no edge to X, so dependency-advance holds it while X is open
     V-->>C: T in backlog
 ```
 
@@ -469,15 +541,19 @@ sequenceDiagram
     C->>V: work unblock T [--by X]
     V->>M: lock T
     V->>B: Dependencies(T)
-    alt no --by and T holds a blocks edge
-        V-->>C: USAGE, the hint names each edge
-    else --by X and T holds no edge to X
-        V-->>C: USAGE no_edge
+    alt no --by and T has an open blocker
+        V-->>C: USAGE, the hint names each open blocker
+    else pending_block names Y, not X, and T holds no edge to Y
+        V-->>C: USAGE block_pending
+    else --by X, T in todo, and T holds no edge to X
+        V-->>C: done, edge_removed false, nothing written
     end
-    V->>B: RemoveDependency(T, X, blocks)
+    opt --by X and T holds an edge to X
+        V->>B: RemoveDependency(T, X, blocks)
+    end
     V->>B: Dependencies(T)
-    alt an edge leads to an item that is not done
-        V->>M: Apply unblock open=true (backlog -> backlog)
+    alt an open blocker remains
+        V->>M: Apply unblock open=true by=X (backlog -> backlog)
     else
         V->>M: Apply unblock (backlog -> todo, entry new)
     end
@@ -584,18 +660,22 @@ sequenceDiagram
    - Files: `internal/machine/blockers.go` (new), `internal/machine/verbs.go` (`workShape`,
      `shapedTicket`), `internal/pipeline/adhoc.go`, `internal/cli/surface.go`, their tests
    - Needs: nothing
-   - Proves: C1, C2, C3, C4, C8 for create and shape
+   - Proves: C1, C2 for create and shape, C3, C4, C8 for create and shape
    - Done when: `loop work create --help` and `loop work shape --help` list `blocked-by`, and a
      PRD-less ticket created with `--blocked-by` lands in `backlog` with one edge for each id.
-3. **Block and unblock with `--by`.** Add the ticket `block` rows and the `unblock` row that keeps
-   `backlog`. Add the handlers of `work block` and `work unblock`, which today answers
-   `NOT_IMPLEMENTED` for `work block`. Change the coordinator runbook's canceled-blocker bullet to
-   `loop work unblock <item> --by <blocker>`, and the comment of `blockersDone`.
-   - Files: `internal/machine/ticket.go`, `internal/machine/verbs.go`, `internal/cli/surface.go`,
-     `internal/sched/deps.go` (comment only), `pack/runbooks/coordinator.md`,
-     `acceptance/scenarios/` (a scenario that applies each new ticket row), their tests
+3. **Block and unblock with `--by`.** Add the ticket `block` rows, which write `pending_block`,
+   and the `unblock` row that keeps `backlog`. Add the handlers of `work block` and
+   `work unblock`, which today answers `NOT_IMPLEMENTED` for `work block`. Make `blockersDone`
+   count `pending_block` as a blocker (Decision 22). Change the coordinator runbook's
+   canceled-blocker bullet to `loop work unblock <item> --by <blocker>`.
+   - Files: `internal/machine/ticket.go`, `internal/machine/rows.go` (`FactPendingBlock`),
+     `internal/machine/verbs.go`, `internal/cli/surface.go`, `internal/sched/deps.go`,
+     `pack/runbooks/coordinator.md`, `acceptance/scenarios/` (a scenario that applies each new
+     ticket row), their tests. `acceptance/scenarios/epic_test.go:214` runs `work unblock` with no
+     `--by` on a ticket whose one edge leads to a done ticket. It passes unchanged under
+     Decision 6, and stays as the proof of that case.
    - Needs: entries 1 and 2
-   - Proves: C5, C6, C7, C8 for block and unblock, C9
+   - Proves: C2 for `work block`, C5, C6, C7, C8 for block and unblock, C9
    - Done when: `loop work block --help` and `loop work unblock --help` list `by`, and the
      acceptance catalogue passes with the new rows applied end to end.
 4. **Resume to backlog.** `ticketResume` returns `backlog` for a ticket escalated from `backlog`.
@@ -611,7 +691,10 @@ sequenceDiagram
    drop bullet to pass `--reason`.
    - Files: `internal/cli/surface.go`, `internal/machine/ticket.go`, `internal/machine/bug.go`,
      `internal/machine/verbs.go`, `pack/runbooks/reproducer.md`, `pack/runbooks/coordinator.md`,
-     `internal/pack/` (the C25 test), their tests
+     `internal/pack/` (the C25 test), their tests. The acceptance scenarios that call
+     `work cancel` with no reason gain `--reason`: `acceptance/scenarios/ae_ticket_test.go:69`
+     (AE3 still expects exit 3 from the table, so it needs `--reason` to reach the table),
+     `acceptance/scenarios/ticket_rows_test.go:130` and `acceptance/scenarios/corpus_test.go:184`.
    - Needs: nothing
    - Proves: C12, C25 for `work cancel`
    - Done when: `loop work cancel <item>` with no `--reason` exits 2 with `USAGE`.
@@ -621,29 +704,33 @@ sequenceDiagram
    - Files: `internal/cli/surface.go`, `internal/decision/decision.go`, `internal/inbox/entries.go`
      (`FactWaitsFor`), `pack/runbooks/amender.md`, `pack/runbooks/code-reviewer.md`,
      `pack/skills/loop-brainstorm/SKILL.md`, `pack/skills/loop-encode-lessons/SKILL.md`,
-     `internal/pack/` (the C25 test), their tests
+     `internal/pack/` (the C25 test), their tests. `acceptance/scenarios/stages_test.go:35` calls
+     `decision file` with neither flag, and gains `--by` or `--waits-for-a-person`.
    - Needs: nothing
    - Proves: C13, C25 for `decision file`
    - Done when: `loop decision file --title t --trigger t` exits 2 with code `USAGE`.
 7. **A reason on defer.** `inbox defer` requires `--reason`. The defer row stores it, and the
    entry returns with `defer_reason`. Change the coordinator runbook, section 5.
-   - Files: `internal/cli/surface.go`, `internal/inbox/answer.go`, `internal/inbox/entries.go`,
-     `internal/inbox/inbox.go`, `pack/runbooks/coordinator.md`, `internal/pack/` (the C25 test),
-     their tests
+   - Files: `internal/cli/surface.go`, `internal/inbox/answer.go`, `internal/inbox/entries.go`
+     (`readDefers` reads `payload`), `internal/inbox/inbox.go`, `pack/runbooks/coordinator.md`,
+     `internal/pack/` (the C25 test), their tests
    - Needs: nothing
-   - Proves: C16, C25 for `inbox defer`
-   - Done when: a deferred entry shows `defer_reason` in `loop inbox list` after its time.
+   - Proves: C16 for an entry that is no decision, C25 for `inbox defer`
+   - Done when: a deferred escalation entry shows `defer_reason` in `loop inbox list` after its
+     time.
 8. **Text on every decision move.** `decision fire` and `decision defer` require `--why`.
    `decision settle` and `decision moot` require `--note`. The rows store each text. The timers
-   job writes its own `why`, and `inbox defer` passes its reason as the `why` of a decision's
-   defer. The fired decision entry shows the `why`. Change the coordinator runbook, section 6.
+   job writes its own `why`, and passes the reason of the defer it ends as `defer_reason`.
+   `inbox defer` passes its reason as the `why` of a decision's defer. The fired decision entry
+   shows the `why` and the `defer_reason`. Change the coordinator runbook, section 6.
    - Files: `internal/cli/surface.go`, `internal/machine/decision.go`, `internal/machine/verbs.go`,
      `internal/decision/decision.go`, `internal/inbox/answer.go`, `internal/inbox/entries.go`,
      `pack/runbooks/coordinator.md`, `internal/pack/` (the C25 test), their tests
    - Needs: entry 7
-   - Proves: C14, C15, C25 for the four decision verbs
-   - Done when: `loop decision settle <decision>` with no `--note` exits 2 with `USAGE`, and
-     `internal/machine/parity_test.go` passes with the rows' states unchanged.
+   - Proves: C14, C15, C16 for a decision entry, C25 for the four decision verbs
+   - Done when: `loop decision settle <decision>` with no `--note` exits 2 with `USAGE`,
+     `internal/machine/parity_test.go` passes with the rows' states unchanged, and a decision
+     deferred with a reason returns after its time with that reason in `defer_reason`.
 9. **No early escalation answer.** `inbox answer` on an escalation refuses while a question
    about it is open. The escalation entry's `next` line names the order. Change the coordinator
    runbook, section 5, to answer each question first.
@@ -656,7 +743,9 @@ sequenceDiagram
 10. **Priority on shape.** `work shape` requires `--priority`. The shaped ticket holds the fact
     `priority`. Change the reproducer runbook, sections 4 and 5.
     - Files: `internal/cli/surface.go`, `internal/machine/verbs.go`, `internal/machine/rows.go`,
-      `pack/runbooks/reproducer.md`, `internal/pack/` (the C25 test), their tests
+      `pack/runbooks/reproducer.md`, `internal/pack/` (the C25 test), their tests. The C3 test
+      of entry 2 gains `--priority`. `acceptance/scenarios/entry_test.go:36` calls `work shape`
+      with no `--priority`, and gains it.
     - Needs: entry 2, which changes the same handler
     - Proves: C18, C25 for `work shape`
     - Done when: `loop work shape` with no `--priority` exits 2 with `USAGE`, and a shaped ticket
@@ -668,8 +757,8 @@ sequenceDiagram
       `internal/machine/verbs.go` (`workDuplicate`), `internal/cli/surface.go`,
       `internal/sched/deps.go`, `pack/runbooks/reproducer.md`,
       `pack/skills/loop-sdlc-glossary/SKILL.md`, their tests
-    - Needs: entry 5, because the new state's `cancel` row needs the reason
-    - Proves: C19, C20
+    - Needs: nothing. The new state has no `cancel` row (Decision 24).
+    - Proves: C12 for `awaiting_build`, C19, C20
     - Done when: a bug routed `--unbuilt` closes as `duplicate` one dependency-advance tick after
       its building ticket merges, and returns to `reported` one tick after that ticket is
       canceled.
@@ -717,8 +806,9 @@ was shaped is refused with a hint that names its ticket.
 item count and the ticket's edges did not change.*
 
 **C3. Behaviour: a bug shaped with blockers makes a ticket that waits.** Proves D2.
-`loop work shape <bug> --blocked-by X --priority 2 ...` closes the bug as `shaped`, and its ticket
-is in `backlog` with one blocks edge to X. `loop work shape --help` lists `blocked-by`.
+`loop work shape <bug> --blocked-by X`, with every other flag that `work shape` requires when the
+test runs, closes the bug as `shaped`, and its ticket is in `backlog` with one blocks edge to X.
+`loop work shape --help` lists `blocked-by`.
 *An example test.*
 
 **C4. Refusal: a bug report takes no blocker.** Proves D2. `loop work create --kind bug
@@ -733,24 +823,35 @@ From `todo` the ticket moves to `backlog` with the new edge. From `backlog` it s
 *An example test for each starting state of the ticket table.*
 
 **C6. Behaviour: `work unblock --by` deletes one edge, and frees the ticket only when no open
-edge remains.** Proves D2. After `work unblock T --by X`, T holds no edge to X, and every other
-edge of T stays. T moves to `todo` when every remaining blocks edge leads to a `done` item, or
-none remains. Otherwise T stays in `backlog`. An `--by` that names no edge of T refuses with
-`USAGE`, rule `no_edge`. `loop work unblock --help` lists `by`.
+blocker remains.** Proves D2. After `work unblock T --by X`, T holds no edge to X, and every other
+edge of T stays. T moves to `todo` when it has no open blocker left (Decision 22). Otherwise T
+stays in `backlog`. An `--by` that names no edge of a `backlog` T deletes nothing and runs the
+same move step. An `--by` that names no edge of a `todo` T writes nothing and exits 0 with
+`"edge_removed": false`. From any other state the call refuses with `TRANSITION_NOT_ALLOWED`.
+`loop work unblock --help` lists `by`.
 *Example tests: one edge removed of two open edges, the last open edge removed, a remaining edge
-to a canceled item, and an `--by` with no edge.*
+to a canceled item, an `--by` with no edge on a `backlog` ticket with and without an open
+blocker, and an `--by` with no edge on a `todo` ticket.*
 
-**C7. Refusal: `work unblock` with no `--by` frees only a ticket with no edge.** Proves D2. On a
-`backlog` ticket with no blocks edge, it moves the ticket to `todo`. On a ticket with a blocks
-edge, it refuses with `USAGE` and the hint names each edge.
-*Two example tests.*
+**C7. Refusal: `work unblock` with no `--by` frees only a ticket with no open blocker.** Proves
+D2. On a `backlog` ticket with no blocks edge, or whose every edge leads to a `done` item, it
+moves the ticket to `todo` and deletes no edge. On a ticket with an open blocker, an edge to a
+canceled item among them, it refuses with `USAGE` and the hint names each open blocker.
+*Example tests for no edge, only done edges, an open edge and a canceled edge. The acceptance
+scenario `epic_test.go:214` covers the done edge end to end.*
 
 **C8. Invariant: a crash never leaves a claimable ticket with an open blocker.** Proves D2. For
 `work create --blocked-by`, `work shape --blocked-by`, `work block` and `work unblock --by`, a
 crash between the edge write and the move leaves the ticket in `Initial` or in `backlog`. A
-replay of the same call reaches the same end state as a call with no crash.
+dependency-advance tick between the crash and the replay leaves it there too, also when the
+ticket already held edges to done items before `work block`. A replay of the same call then
+reaches the same status and the same edges as a call with no crash, and exits 0. While
+`pending_block` names an item with no edge from the ticket, `work block` and `work unblock --by`
+with another blocker refuse with `USAGE`, rule `block_pending`, and write nothing.
 *A crash-injection test for each verb at the point between its two writes, as the `stop` hook of
-`epic decompose` does, followed by a replay.*
+`epic decompose` does, then one dependency-advance tick, then a replay. The `work block` case
+starts from a `todo` ticket that holds one edge to a done ticket. A `work unblock --by` case
+replays after the delete and after the move. One test for each `block_pending` refusal.*
 
 **C9. Equivalence: dependency-advance frees a ticket as before.** Proves D2. A `backlog` ticket
 whose every blocks edge leads to a `done` item moves to `todo` at the next tick, with or without
@@ -773,10 +874,12 @@ other edge of T. A second call succeeds and changes nothing. A call for an unkno
 **C12. Refusal: `work cancel` needs a reason.** Proves D3. With no `--reason`, or a blank one,
 the call refuses with `USAGE` and the item stays. With a reason, the item moves to `canceled`, and
 the same transition records the fact `cancel_reason`. The states that `cancel` starts from are
-`escalated` for a ticket, and `reproducing`, `escalated` and `awaiting_build` for a bug, and no
-others.
-*An example test for the refusal, and a test that reads the reason from the transition's facts
-in `transitions`.*
+`escalated` for a ticket, and `reproducing` and `escalated` for a bug, and no others. A bug in
+`awaiting_build` refuses `cancel` with `TRANSITION_NOT_ALLOWED` (Decision 24), which entry 11
+proves when it adds the state.
+*An example test for the refusal, a test that reads the reason from the transition's facts in
+`transitions`, and a test that walks every state of both tables and finds `cancel` only in the
+named states.*
 
 **C13. Refusal: a decision names its notice.** Proves D5 and AC2. `loop decision file` with
 neither `--by` nor `--waits-for-a-person`, or with both, exits 2 with code `USAGE` and files
@@ -787,7 +890,8 @@ future.*
 
 **C14. Behaviour: every fire records why.** Proves D5 and D6. A fire by the decision-timers job
 records `why` naming the `--by` date, or the end of the inbox defer. A fire by `decision fire`
-records the caller's `--why`. The fired inbox entry's text holds the `why`.
+records the caller's `--why`, and clears `defer_reason`. The fired inbox entry's text holds the
+`why`.
 *A timers test with a fake clock, and an example test of the entry text.*
 
 **C15. Refusal: every decision move records its text.** Proves D6. `decision fire` and
@@ -800,9 +904,18 @@ equal DECISION_MOVES.
 
 **C16. Behaviour: a deferred entry returns with its reason.** Proves D8 and D6. `inbox defer`
 with no `--reason` refuses with `USAGE`, and defers nothing. With a reason, the entry is absent
-until `--until`, then present with `defer_reason` equal to the reason. A defer of a decision entry
-records the reason as the `why` of the decision's `defer` move.
-*An example test with a fake clock, before and after the time.*
+until `--until`, then present with `defer_reason` equal to the reason. This holds for each kind of
+entry:
+
+- For an entry that is no decision, the entry returns once the time passes. Entry 7 proves it.
+- For a decision entry, the defer records the reason as the `why` of the decision's `defer` move.
+  After the time, one decision-timers tick fires the decision. The returned entry then shows
+  `defer_reason` equal to the reason, and a `why` that names the end of the defer. Entry 8
+  proves it.
+
+*An example test with a fake clock, before and after the time, for an escalation entry. A test
+with a fake clock for a decision entry, which runs the decision-timers tick after the time and
+reads the returned entry.*
 
 **C17. Refusal: an escalation answer waits for its questions.** Proves D7. While a question that
 `inbox prepare --entry E` wrote has no answer, `inbox answer E` refuses with
@@ -820,7 +933,8 @@ the ticket holds the fact `priority` with that value, and its native beads prior
 **C19. Behaviour: a report that a build answers waits for that build.** Proves D9.
 `work duplicate G --of X --unbuilt` moves G from `reported` or `reproducing` to `awaiting_build`
 with `built_by` X. It refuses an X that is not a ticket or an epic, or that is terminal, and G
-stays. No stage claims a bug in `awaiting_build`.
+stays. No stage claims a bug in `awaiting_build`. `work cancel` on G in `awaiting_build` refuses
+with `TRANSITION_NOT_ALLOWED`.
 *Example tests, and a peek of the reproducer stage that finds nothing.*
 
 **C20. Behaviour: the build's end routes the waiting report.** Proves D9. At the
