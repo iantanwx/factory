@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -165,8 +166,44 @@ func TestThreadsRefuseAThreadWithNoState(t *testing.T) {
 	pr := w.Add(&gt.PR{Head: "loop/tk-1", HeadSHA: shaA})
 	root := w.Say(pr.Number, gt.Said{Login: "owner", Association: "OWNER", Review: true, Body: "rename this"})
 	w.SetThread(root, false, false, true)
-	if cs, err := e.svc.Threads(context.Background(), e.project, pr.Number); err == nil {
-		t.Fatalf("threads = %+v, want an error", cs)
+	cs, err := e.svc.Threads(context.Background(), e.project, pr.Number)
+	var ue *UnavailableError
+	if !errors.As(err, &ue) {
+		t.Fatalf("threads = %+v, %v, want an UnavailableError", cs, err)
+	}
+}
+
+// A person can delete the root comment of a review thread. Its replies
+// keep the root's id in in_reply_to_id, and GraphQL names the thread by
+// the comments left, so the read finds the thread by each comment's own
+// id. Guess, not checked against GitHub: the fake keeps the thread.
+func TestThreadsFindAThreadWhoseRootIsGone(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	pr := w.Add(&gt.PR{Head: "loop/tk-1", HeadSHA: shaA})
+	ctx := context.Background()
+	root := w.Say(pr.Number, gt.Said{Login: "owner", Association: "OWNER", Review: true, Body: "rename this"})
+	if _, _, err := e.svc.Reply(ctx, e.project, pr.Number, root, "renamed", "key1"); err != nil {
+		t.Fatal(err)
+	}
+	w.Say(pr.Number, gt.Said{Login: "owner", Association: "OWNER", Review: true, InReplyTo: root, Body: "not that one"})
+	w.SetThread(root, false, true, false)
+	w.Unsay(pr.Number, root)
+
+	cs, err := e.svc.Threads(ctx, e.project, pr.Number)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, c := range cs {
+		got = append(got, fmt.Sprintf("%s %+v", strings.SplitN(c.Body, "\n", 2)[0], *c.Thread))
+	}
+	want := []string{
+		fmt.Sprintf("renamed {ID:%d Resolved:false Outdated:true AwaitingUs:true}", root),
+		fmt.Sprintf("not that one {ID:%d Resolved:false Outdated:true AwaitingUs:true}", root),
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("threads:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
 

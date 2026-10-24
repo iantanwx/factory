@@ -401,6 +401,14 @@ func (w *World) SetThread(root int64, resolved, outdated, hidden bool) {
 	w.threads[root] = threadState{resolved: resolved, outdated: outdated, hidden: hidden}
 }
 
+// Unsay deletes comment id of PR n, as a person does on GitHub. A reply
+// keeps the in_reply_to_id of a root comment that is gone.
+func (w *World) Unsay(n int, id int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.reviews[n] = slices.DeleteFunc(w.reviews[n], func(c map[string]any) bool { return c["id"] == id })
+}
+
 // Said is a comment that somebody other than the loop App wrote on a PR.
 type Said struct {
 	Login string

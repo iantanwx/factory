@@ -415,10 +415,10 @@ func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]
 		if c.Kind != "review" {
 			continue
 		}
-		root := c.root()
-		if _, ok := states[root]; !ok {
-			return nil, &UnavailableError{Err: fmt.Errorf("GitHub names no review thread for comment %d of #%d", root, number)}
+		if _, ok := stateOf(states, c); !ok {
+			return nil, &UnavailableError{Err: fmt.Errorf("GitHub names no review thread for comment %d of #%d", c.ID, number)}
 		}
+		root := c.root()
 		if l, ok := last[root]; !ok || !c.CreatedAt.Before(l.CreatedAt) {
 			last[root] = c
 		}
@@ -428,11 +428,22 @@ func (s *Service) Threads(ctx context.Context, p config.Project, number int) ([]
 			continue
 		}
 		root := c.root()
-		t := states[root]
+		t, _ := stateOf(states, c)
 		cs[i].Thread = &ThreadState{ID: root, Resolved: t.Resolved, Outdated: t.Outdated,
 			AwaitingUs: !t.Resolved && last[root].AuthorClass != AuthorApp}
 	}
 	return cs, nil
+}
+
+// stateOf finds the thread of review comment c by its own id, else by
+// its root's. A reply keeps the id of a root comment a person deleted,
+// and GraphQL then names the thread only by the comments left.
+func stateOf(states map[int64]ThreadState, c Comment) (ThreadState, bool) {
+	if t, ok := states[c.ID]; ok {
+		return t, true
+	}
+	t, ok := states[c.root()]
+	return t, ok
 }
 
 const threadsQuery = `query LoopReviewThreads($owner: String!, $name: String!, $number: Int!, $after: String) {
@@ -440,14 +451,15 @@ const threadsQuery = `query LoopReviewThreads($owner: String!, $name: String!, $
     pullRequest(number: $number) {
       reviewThreads(first: 100, after: $after) {
         pageInfo { hasNextPage endCursor }
-        nodes { isResolved isOutdated comments(first: 1) { nodes { databaseId } } }
+        nodes { isResolved isOutdated comments(first: 100) { nodes { databaseId } } }
       }
     }
   }
 }`
 
 // threadStates reads the state of each review thread of a PR, keyed by
-// the database id of the thread's root comment, which REST names.
+// the database id of each of the thread's first 100 comments, which REST
+// names. A longer thread is found by its root comment.
 func (s *Service) threadStates(ctx context.Context, p config.Project, number int) (map[int64]ThreadState, error) {
 	own, name, _ := strings.Cut(p.Repo, "/")
 	out := map[int64]ThreadState{}
@@ -483,8 +495,8 @@ func (s *Service) threadStates(ctx context.Context, p config.Project, number int
 			return nil, &UnavailableError{Err: fmt.Errorf("GitHub names no PR #%d", number)}
 		}
 		for _, t := range pr.ReviewThreads.Nodes {
-			if len(t.Comments.Nodes) > 0 {
-				out[t.Comments.Nodes[0].DatabaseID] = ThreadState{Resolved: t.IsResolved, Outdated: t.IsOutdated}
+			for _, c := range t.Comments.Nodes {
+				out[c.DatabaseID] = ThreadState{Resolved: t.IsResolved, Outdated: t.IsOutdated}
 			}
 		}
 		if !pr.ReviewThreads.PageInfo.HasNextPage {
