@@ -136,6 +136,15 @@ project config on the default branch. `loop doctor` asks the server for
 them. When the server is down, it reports them as one failed `github` line
 marked unchecked.
 
+The `required_jobs` line fails when the ruleset requires a check that no
+job in `.github/workflows` on the default branch reports. Such a check never
+reports on a pull request, so no review can pass there. It happens when you
+rename a CI job and not the required check. A job reports its `name`, or its
+id when it has no name. A matrix job adds its values in parentheses, and a
+job that calls a reusable workflow reports `<name> / <called job>`. The line
+skips a check whose source is another App, a branch with no workflow, and a
+plan with no rulesets, which requires no check by name.
+
 Every settlement removes the checkout's `.env` files, and so does a room that
 goes idle or interrupted. These are the root `.env` and each `.env` of a
 manifest `dir` that the checkout's `.loop/env-files` record names. `loop
@@ -209,6 +218,15 @@ message from any shell on the host with
 `loop coordinator send --body "<message>"`. One coordinator serves every
 project.
 
+Every other session names its work in Orca. A stage run's terminal title
+and the first line of its first message read
+`loop <project> <stage> <item>: <item title>`, and its worktree is
+`loop-<project>-<stage>-<item>-<title slug>-<run id>`. Orca takes a
+worktree name of at most 128 bytes, so a long project id shortens the
+slug first, then drops the item; the run id always stays. A room's title and
+first line read `loop <kind> room <item>: <reason>`, without the item when
+the room has none.
+
 Only that session holds the coordinator's token, in `.loop/token` of its
 worktree. A session in your own clone holds none, and the server refuses
 its coordinator verbs. The coordinator may run the host verbs `upgrade`,
@@ -258,6 +276,13 @@ agent_jobs:
     schedule: "55 2 * * *"
     runbook: docs/runbooks/nightly-qa.md
 ```
+
+A schedule is a five-field cron, read in UTC. To read it in another
+timezone, start it with `TZ=` and an IANA zone name, such as
+`schedule: "TZ=Asia/Singapore 55 2 * * *"`. That runs at 02:55 in
+Singapore. A wall time that daylight saving skips does not run that day,
+and one that it repeats runs once. Every schedule takes the prefix: a
+throughput entry, an agent job and a project's stage override.
 
 `runbook` is a path in the project repository. The run's prompt names it
 in place of a loop runbook. `cap` is the most runs of the job that live at
@@ -332,6 +357,27 @@ on:
 
 `project add` refuses `github-queue` when the default branch has no
 merge-queue rule.
+
+### Required checks
+
+The loop never merges a head that no CI check verified. A ticket's head
+must pass each required check before its review pass makes it eligible,
+and again before the `direct` mechanism merges it. A required check that
+has not reported counts as not passed, so a head with no check waits in
+`queued` and never merges. Name the checks in `.loop/config.yaml`:
+
+```yaml
+merge:
+  mechanism: direct
+  required_checks: [gates, acceptance]
+```
+
+The loop requires the checks the config names, then the checks that the
+default branch's ruleset requires. When neither names a check, it
+requires `gates`, the CI job that `loop-init` writes. The Mergify template
+requires the same checks. `project add` refuses `github-queue` when the
+ruleset leaves out a required check, because GitHub's queue merges once
+the ruleset's checks pass.
 
 ## Secrets
 

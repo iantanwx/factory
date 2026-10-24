@@ -35,8 +35,9 @@ each earlier verdict. Each round holds the reviewer's comment in `body`. The las
 Read every handoff note and every earlier failure before you work. A note can hold an answer that
 a person already gave. Never escalate a question that a recorded answer settles.
 
-A pull request that conflicts with its base comes back as rework with no reject. Then
-`loop pr show` reports a conflict. Merge the base as section 2 states, and change nothing else.
+A pull request that conflicts with its base comes back as rework with no reject, or as repair
+with no failed check. Then `loop pr show` reports a conflict. GitHub runs no CI on a conflicting
+pull request. Merge the base as section 2 states, and change nothing else.
 
 When the status says rework, no round holds a reject with a comment, and the pull request has no
 conflict, do not build. A rework without its rejection repeats the rejected work. The state is then
@@ -67,9 +68,11 @@ Never rebase a branch that has a pull request.
 
 **Repair: read the failure before the contracts.** Run `loop pr checks`, then `loop pr logs`. A
 check can fail for a cause outside your change, such as a merge batch that held other pull
-requests. Read the failing test before you change your own code. Run each failing test file again,
-with the tests of the directories you changed. When the failure is outside your change, run
-`loop pr rerun` to run the failed checks again.
+requests. A merge queue tests the pull request on a draft. When the head holds no failed job, run
+`loop pr logs --queue`. It reads the failed jobs of the newest draft that holds the head, and its
+title names each pull request of the batch. Read the failing test before you change your own code.
+Run each failing test file again, with the tests of the directories you changed. When the failure
+is outside your change, run `loop pr rerun` to run the failed checks again.
 
 **Rework: read the rejection before the contracts.** Read the latest round, and run
 `loop pr threads`. Repair every finding before you add any work.

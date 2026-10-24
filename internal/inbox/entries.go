@@ -35,7 +35,7 @@ func rowEntry(kind string, id int64) string { return kind + "/" + strconv.Format
 func parseEntry(id string) (kind, project, item string, row int64, ok bool) {
 	parts := strings.Split(id, "/")
 	switch {
-	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindDecision || parts[0] == KindSignoff):
+	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindDecision || parts[0] == KindSignoff || parts[0] == KindAsk):
 		return parts[0], parts[1], parts[2], 0, parts[1] != "" && parts[2] != ""
 	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel):
 		n, err := strconv.ParseInt(parts[1], 10, 64)
@@ -57,6 +57,7 @@ var itemSources = []itemSource{
 	{KindDecision, machine.ListFilter{Kind: machine.KindDecision, Status: machine.NeedsHuman}},
 	{KindSignoff, machine.ListFilter{Kind: machine.KindEpic, Status: machine.PRDSignoff}},
 	{KindSignoff, machine.ListFilter{Kind: machine.KindEpic, Status: machine.SpecSignoff}},
+	{KindAsk, machine.ListFilter{Kind: machine.KindBug, Status: machine.Asked}},
 }
 
 // Entries builds the inbox now: every entry, oldest first. A deferred
@@ -201,6 +202,11 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 	case KindDecision:
 		e.Next = "loop inbox answer " + e.ID + " --body <the operator's answer>"
 		text = append(text, "The decision's trigger fired. The trigger, as filed:", AgentText(it.Fact(FactFiledBy), it.Fact(FactTrigger)))
+	case KindAsk:
+		e.Next = "loop inbox answer " + e.ID + " --body <the reporter's answer, in the reporter's own words>"
+		text = append(text, fmt.Sprintf("The reproducer cannot reproduce this bug report without a fact only its reporter holds. "+
+			"Ask %d of %d. Relay the questions to the reporter. The answer returns the report to the reproducer. The questions:",
+			askCount(it), machine.AskLimit), AgentText(it.Fact(machine.FactAskedBy), it.Fact(machine.AskFact(machine.FactQuestion, askCount(it)))))
 	case KindSignoff:
 		e.Head = it.Fact(machine.FactReviewedHead)
 		e.Next = "loop inbox answer " + e.ID + ` --body "<the operator's approval, in the operator's own words>"; the server merges the document at head ` + orDefault(e.Head, "<none pinned>")
@@ -216,6 +222,12 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 	}
 	e.Text = strings.Join(text, "\n\n")
 	return e, nil
+}
+
+// askCount is the number of the ask an asked report holds.
+func askCount(it machine.Item) int {
+	n, _ := strconv.Atoi(it.Fact(machine.FactAsks))
+	return n
 }
 
 // Decision facts that `decision file` writes (internal/decision).

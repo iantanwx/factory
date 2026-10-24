@@ -44,6 +44,7 @@ type env struct {
 	t       *testing.T
 	ctx     context.Context
 	api     *gt.API
+	git     *gt.GitServer
 	world   *gt.World
 	st      *store.Store
 	m       *machine.Machine
@@ -63,9 +64,9 @@ func newEnv(t *testing.T, mk func(e *env) merge.Mechanism, opts ...func(*github.
 	ctx := context.Background()
 	e := &env{t: t, ctx: ctx, api: gt.NewAPI(t)}
 	e.world = e.api.World
-	git := gt.NewGitServer(t, e.api)
+	e.git = gt.NewGitServer(t, e.api)
 	checkout := t.TempDir()
-	git.Seed(t, checkout)
+	e.git.Seed(t, checkout)
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "loop.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +90,7 @@ func newEnv(t *testing.T, mk func(e *env) merge.Mechanism, opts ...func(*github.
 	}
 	gc := github.Config{
 		Apps: github.OneApp(gt.AppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
-		API:  e.api.URL(), GitURL: git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(),
+		API:  e.api.URL(), GitURL: e.git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(),
 		Store: st, Redactor: red, Projects: staticProjects{e.project}, Machine: e.m,
 		Sleep: func(context.Context, time.Duration) error { return nil },
 	}
@@ -138,6 +139,8 @@ func (e *env) reviewed(head string, eligible bool) (string, *gt.PR) {
 	e.mustOK(res)
 	e.apply(id, "pr_open", map[string]string{"head": head})
 	pr := e.world.Add(&gt.PR{Head: github.BranchFor(id), HeadSHA: head, Title: id})
+	// The review passed at green CI: the ruleset's ci check reported.
+	e.world.SetRuns(head, gt.CheckRun("ci", head, "completed", "success", time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)))
 	e.apply(id, "review_pass", map[string]string{"head": head})
 	if eligible {
 		e.postEligibility()
@@ -237,6 +240,20 @@ func (e *env) wantTracked(pr *gt.PR, state string, reason merge.Reason, attempts
 	}
 	e.t.Fatalf("merge status holds no #%d: %+v", pr.Number, rows)
 	return merge.Tracked{}
+}
+
+// baseConfig commits .loop/config.yaml to main on the remote and syncs
+// the project's mirror, as the reactor's tick does.
+func (e *env) baseConfig(doc string) {
+	e.t.Helper()
+	dir := e.project.Path
+	gt.Git(e.t, dir, "checkout", "-q", "main")
+	gt.Commit(e.t, dir, "config", map[string]string{config.ProjectConfigPath: doc})
+	gt.Git(e.t, dir, "push", "-q", e.git.RemoteDir(), "main")
+	gt.Git(e.t, dir, "checkout", "-q", "work")
+	if _, _, err := e.svc.SyncBase(e.ctx, e.project); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 func failing(head string) map[string]any {

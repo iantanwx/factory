@@ -142,8 +142,9 @@ func noRulesets(err error) bool {
 }
 
 // Doctor runs every GitHub check of one project for `loop doctor`: the
-// installation's permissions, and the branch
-// rules. A check that cannot run is one failed line, never a pass.
+// installation's permissions, the branch rules, and the workflow job of
+// each required check. A check that cannot run is one failed line, never
+// a pass.
 func (s *Service) Doctor(ctx context.Context, p config.Project) []CheckLine {
 	var lines []CheckLine
 	inst, err := s.CheckInstallation(ctx, p)
@@ -156,5 +157,10 @@ func (s *Service) Doctor(ctx context.Context, p config.Project) []CheckLine {
 	if err != nil && !errors.As(err, &re) {
 		lines = append(lines, CheckLine{Check: "branch_rules", Detail: "the branch rules could not be read: " + err.Error()})
 	}
-	return append(lines, rules...)
+	lines = append(lines, rules...)
+	jobs, err := s.CheckRequiredJobs(ctx, p)
+	if err != nil {
+		jobs.OK, jobs.Detail = false, "the required checks and the workflow jobs could not be compared: "+err.Error()
+	}
+	return append(lines, jobs)
 }

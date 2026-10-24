@@ -521,7 +521,7 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 		return fail(cli.CodeInternal, err)
 	}
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindRoom, Checkout: r.Checkout, Harness: s.cfg.Harness,
-		Model: s.cfg.Model, PromptFile: res.Prompt, Title: fmt.Sprintf("loop %s room %s", r.Kind, r.ID)})
+		Model: s.cfg.Model, PromptFile: res.Prompt, Title: sessionTitle(r)})
 	if err != nil {
 		_, _ = s.cfg.Tokens.Revoke(ctx, run)
 		return fail(cli.CodeInternal, fmt.Errorf("room: start the session: %w", err))
@@ -538,6 +538,19 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 	r.State, r.RunID, r.Session = Live, run, &sess
 	r.Sessions++
 	return nil
+}
+
+// sessionTitle names the room's session in the host: its kind, its item
+// when it has one, and the reason it opened, on one line.
+func sessionTitle(r *Room) string {
+	t := "loop " + r.Kind + " room"
+	if r.Item != "" {
+		t += " " + r.Item
+	}
+	if reason := strings.TrimSpace(r.Reason); reason != "" {
+		t += ": " + reason
+	}
+	return agenthost.Label(t)
 }
 
 // Prompt is the room's prompt: the runbook of its kind, and the reason it

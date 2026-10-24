@@ -40,9 +40,12 @@ package merge_test
 //   - L102 a draft PR: TestParityADraftPRIsNeverHandedOff.
 //   - L108 a PR on another base: TestParityAPROnAnotherBaseIsNeverHandedOff.
 //   - L114 a PR that is not open: TestParityAClosedPRIsNeverHandedOff.
-//   - L122 every required check has a job in ci.yml. No counterpart: the
-//     loop keeps no list of check names that could drift from the
-//     workflows.
+//   - L122 every required check has a job in ci.yml: the required_jobs
+//     line of loop doctor, TestDoctorFailsOnARequiredCheckNoWorkflowJobReports
+//     in internal/github. The ruleset holds the list of check names, and
+//     the line compares it with the jobs of every workflow on the default
+//     branch. A plan with no rulesets requires no check by name, so no
+//     name can drift there.
 //
 // land-queue.test.ts:
 //   - L8 a stale PR enters once and waits:

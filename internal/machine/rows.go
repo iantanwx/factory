@@ -41,6 +41,9 @@ const (
 	FactTitle        = "title"         // the title work edit wrote; it replaces the bead's title
 	FactBody         = "body"          // the body work edit wrote; it replaces the bead's description
 	FactBug          = "bug"           // the bug a shaped ticket came from
+	FactAsks         = "asks"          // the asks of a bug's reporter
+	FactQuestion     = "question"      // a reproducer's ask of the reporter, kept per round as question_<n> (AskFact)
+	FactAskedBy      = "asked_by"      // the actor that asked it
 	// FactSupersededBy is the checked evidence that closed a ticket with no
 	// work left: "commit <sha>", "done <item>" or "adr <path>".
 	FactSupersededBy    = "superseded_by"

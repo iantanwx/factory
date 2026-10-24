@@ -17,23 +17,40 @@ import (
 // day-of-week fields.
 var cronLimits = [5][2]int{{0, 59}, {0, 23}, {1, 31}, {1, 12}, {0, 6}}
 
-// Cron is one parsed five-field numeric UTC cron. Ported from slothbot's
-// scheduling/clock.ts (alpha): lists, ranges, steps and wildcards.
+// Cron is one parsed five-field numeric cron. Ported from slothbot's
+// scheduling/clock.ts (alpha): lists, ranges, steps and wildcards. Its
+// fields read the wall clock of loc, UTC unless a TZ= prefix names a zone.
 type Cron struct {
 	fields [5]map[int]bool
+	loc    *time.Location
 	// restricted marks a day-of-month or day-of-week field that does not
 	// start with "*". Cron reads two restricted day fields as either one.
 	domRestricted, dowRestricted bool
 }
 
 // ParseCron parses a five-field cron. A step on a single value, such as
-// 5/10, runs from that value to the field's maximum.
+// 5/10, runs from that value to the field's maximum. An optional first
+// word TZ=<IANA zone>, such as TZ=Asia/Singapore, sets the zone whose wall
+// clock the fields read, as tickertown's timers do (nightly-qa.md, alpha).
 func ParseCron(expr string) (*Cron, error) {
 	parts := strings.Fields(expr)
+	c := &Cron{loc: time.UTC}
+	if len(parts) > 0 {
+		if name, ok := strings.CutPrefix(parts[0], "TZ="); ok {
+			// LoadLocation reads "" and "Local" as zones of this host.
+			if name == "" || name == "Local" {
+				return nil, fmt.Errorf("sched: cron %q must name an IANA timezone", expr)
+			}
+			loc, err := time.LoadLocation(name)
+			if err != nil {
+				return nil, fmt.Errorf("sched: cron %q: %w", expr, err)
+			}
+			c.loc, parts = loc, parts[1:]
+		}
+	}
 	if len(parts) != len(cronLimits) {
 		return nil, fmt.Errorf("sched: cron %q must have five fields", expr)
 	}
-	c := &Cron{}
 	for i, part := range parts {
 		set, err := cronField(part, cronLimits[i][0], cronLimits[i][1])
 		if err != nil {
@@ -93,13 +110,17 @@ func (c *Cron) dayMatches(d time.Time) bool {
 }
 
 // errNoDate is a cron that no date holds, such as 0 0 31 2 *.
-var errNoDate = errors.New("sched: cron has no possible UTC date")
+var errNoDate = errors.New("sched: cron has no possible date")
 
 // Next returns the first deadline strictly after now. It searches dates,
-// then hours and minutes, rather than minutes.
+// then hours and minutes, rather than minutes. A wall time that a daylight
+// saving change skips does not fire that day, and one that it repeats fires
+// once, at its first instant.
 func (c *Cron) Next(now time.Time) (time.Time, error) {
-	now = now.UTC()
-	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	local := now.In(c.loc)
+	// day holds the local calendar date only; UTC keeps its arithmetic
+	// clear of daylight saving.
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 	// The Gregorian calendar repeats after 400 years, leap days and weekdays
 	// included.
 	end := day.AddDate(400, 0, 0)
@@ -115,13 +136,34 @@ func (c *Cron) Next(now time.Time) (time.Time, error) {
 				if !c.fields[0][m] {
 					continue
 				}
-				if t := day.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute); t.After(now) {
-					return t, nil
+				if t, ok := c.instant(day, h, m); ok && t.After(now) {
+					return t.UTC(), nil
 				}
 			}
 		}
 	}
 	return time.Time{}, errNoDate
+}
+
+// instant returns the first instant whose wall clock in loc reads the date
+// of day at h:m, and false when no instant does. time.Date picks either
+// instant of a repeated wall time, so this tries the offsets of both sides.
+func (c *Cron) instant(day time.Time, h, m int) (time.Time, bool) {
+	wall := day.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute)
+	guess := time.Date(day.Year(), day.Month(), day.Day(), h, m, 0, 0, c.loc)
+	var first time.Time
+	for _, side := range []time.Time{guess.Add(-24 * time.Hour), guess, guess.Add(24 * time.Hour)} {
+		_, offset := side.Zone()
+		t := wall.Add(-time.Duration(offset) * time.Second).In(c.loc)
+		y, mo, d := t.Date()
+		if y != day.Year() || mo != day.Month() || d != day.Day() || t.Hour() != h || t.Minute() != m {
+			continue
+		}
+		if first.IsZero() || t.Before(first) {
+			first = t
+		}
+	}
+	return first, !first.IsZero()
 }
 
 // NextDue is the first deadline of expr strictly after now.
