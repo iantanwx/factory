@@ -52,7 +52,11 @@ func fakeDolt(args []string) {
 			tmp := "fake-hang-pid.tmp"
 			_ = os.WriteFile(tmp, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600)
 			_ = os.Rename(tmp, "fake-hang-pid")
-			select {}
+			// A sleep keeps a timer. Without cgo, select {} leaves the
+			// runtime nothing to wait for, and it exits on a deadlock.
+			for {
+				time.Sleep(time.Hour)
+			}
 		}
 		var socket string
 		for _, a := range args {
