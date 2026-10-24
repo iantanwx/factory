@@ -220,7 +220,11 @@ The plan is `docs/plans/2026-10-21-1328-feat-standalone-sdlc-loop-plan.md`. Its 
    reason. I rejected tickertown's `questions await --until --resume`, because the server cannot
    see whether a person's act happened, so a resume at a time is a guess. I rejected a defer with
    no reason, because the server restarts the coordinator session after a crash (KTD21), and the
-   new session cannot tell what the entry waits for.
+   new session cannot tell what the entry waits for. I rejected tickertown's
+   `questions answer --hold <act>`, which records the answer and holds the resume until the act.
+   In the loop the coordinator defers the entry with `--reason` naming the act, does the act, and
+   then answers. So the item resumes only after the act, the reason records the act, and the
+   answer needs no second mode that resumes nothing.
 
 9. **Carry priority and a "not built yet" wait on bugs, and port no other bug field.**
    `work shape` requires `--priority 1-4`, with the meanings in `reproducer.md` section 4. A
@@ -256,8 +260,9 @@ Files, commands and stages that change, for the spec of epic factorio-9wh:
   `decision settle` and `decision moot` gain `--note`. `inbox defer` gains `--reason`. `gen/`
   regenerates with `make proto`.
 - `internal/machine/ticket.go`: a `block` row from `todo` to `backlog`. `unblock` deletes an edge.
-  `ticketResume` returns `backlog` for a ticket with an open blocks edge. `cancel` carries a
-  reason fact.
+  `ticketResume` returns `backlog` for a ticket with an open blocks edge, and the `answer` row's
+  `ResumeTo` accepts `backlog` beside `todo`, or `answerResume` refuses it (`internal/machine/rows.go`).
+  `cancel` carries a reason fact.
 - `internal/machine/bug.go`: a waiting state for a report that an open item builds, with its
   edges out to `shaped`, `duplicate` and `reported`. `cancel` carries a reason fact.
 - `internal/machine/decision.go`, `internal/machine/verbs.go` and `internal/decision/decision.go`:
@@ -269,6 +274,9 @@ Files, commands and stages that change, for the spec of epic factorio-9wh:
 - `internal/admission/policy.go`: the implementer order of decision 10.
 - `internal/sched/deps.go`: the dependency-advance job also closes or returns a waiting bug.
 - `pack/runbooks/reproducer.md`: the "not built yet" route, and `--priority` on `work shape`.
+  Beads already holds a native priority, 0-4, that the loop sets to 2 for every item
+  (`internal/beadsx/beadsx.go`, `internal/machine/seams.go`). The spec states whether
+  `--priority` writes that field or a fact.
 - `pack/runbooks/coordinator.md`: `--reason` on `inbox defer`, and the order of question answers.
 - Stages: the stage set stays the same. The implementer, reproducer and coordinator change behaviour.
 
@@ -309,8 +317,8 @@ Each line runs from the repository root, and each one can fail on the day this A
 
 Epic factorio-9wh owns these, because each waits on its spec and tickets:
 
-- `loop work create --help`, `loop work shape --help` and `loop work block --help` each list
-  `blocked-by` or `by`.
-- `loop decision file --title t --trigger t` exits 3 with code `USAGE`.
+- `loop work create --help`, `loop work shape --help`, `loop work block --help` and
+  `loop work unblock --help` each list `blocked-by` or `by`.
+- `loop decision file --title t --trigger t` exits 2 with code `USAGE`.
 - A test proves that `work peek --stage implementer` returns a repair before a new ticket.
 - A test proves that an escalated ticket with an open blocks edge resumes to `backlog`.
