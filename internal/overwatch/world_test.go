@@ -18,8 +18,9 @@ import (
 )
 
 // fakeWorld serves the reads of the records from maps and a real store.
-// Its host holds an empty temporary checkout root. Every read a part of a
-// later entry makes answers errFake.
+// Its host runs the default config with an empty temporary checkout root, and
+// no project holds a config, so the stalls part reads an idle host. Every read
+// a part of a later entry makes answers errFake.
 type fakeWorld struct {
 	now      time.Time
 	root     string
@@ -64,11 +65,13 @@ func (w *fakeWorld) add(project string, it machine.Item, body string) {
 
 func (w *fakeWorld) Now() time.Time { return w.now }
 func (w *fakeWorld) Host(context.Context) (*config.HostConfig, error) {
-	return &config.HostConfig{AgentHost: config.AgentHostConfig{CheckoutRoot: w.root}}, nil
+	hc := config.DefaultHost("")
+	hc.AgentHost.CheckoutRoot = w.root
+	return hc, nil
 }
 func (w *fakeWorld) Projects(context.Context) ([]config.Project, error) { return w.projects, nil }
 func (w *fakeWorld) ProjectConfig(context.Context, string) (*config.ProjectSnapshot, error) {
-	return nil, errFake
+	return nil, config.ErrConfigMissing
 }
 func (w *fakeWorld) Items(_ context.Context, project string, f machine.ListFilter) ([]machine.Item, error) {
 	if w.itemsErr != nil {
