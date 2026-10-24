@@ -2,6 +2,7 @@ package machine
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 
 	"github.com/iantanwx/loop/internal/beadsx"
@@ -26,8 +27,24 @@ const (
 // and the reproducer escalates at level 5.
 const AskLimit = 2
 
-// askPut stores the reproducer's question and counts it. The reporter's
-// answer keeps the count, so a report asks at most AskLimit times.
+// AskFact names the fact of one round of asks: question_<n> holds the
+// reproducer's nth ask and answer_<n> the reporter's answer to it. Every
+// round stays on the report, as each ask and reply stays on the issue
+// thread in alpha, so a later brief holds each question beside its answer.
+func AskFact(name string, n int) string { return name + "_" + strconv.Itoa(n) }
+
+// askFacts lists the facts of every round, for the table's schema.
+func askFacts(name string) []string {
+	out := make([]string, 0, AskLimit)
+	for n := 1; n <= AskLimit; n++ {
+		out = append(out, AskFact(name, n))
+	}
+	return out
+}
+
+// askPut stores the reproducer's question as the next round and counts
+// it. The reporter's answer keeps the count, so a report asks at most
+// AskLimit times.
 func askPut(c *change) *cli.Refusal {
 	if r := c.needParam("body"); r != nil {
 		return r
@@ -35,20 +52,25 @@ func askPut(c *change) *cli.Refusal {
 	n := count(c, FactAsks)
 	if n >= AskLimit {
 		return &cli.Refusal{Code: cli.CodeAskLimit, Rule: "ask_limit", Item: c.item.ID, CurrentStatus: c.item.Status,
-			AllowedNext: c.table.AllowedNext(c.item.Status),
+			AllowedNext: slices.DeleteFunc(c.table.AllowedNext(c.item.Status), func(v string) bool { return v == c.row.Verb }),
 			Hint:        fmt.Sprintf("%s already asked its reporter %d times; escalate the missing fact at level 5 with loop escalation raise", c.item.ID, n)}
 	}
 	c.setFact(FactAsks, strconv.Itoa(n+1))
-	c.setFact(FactQuestion, c.param("body"))
+	c.setFact(AskFact(FactQuestion, n+1), c.param("body"))
 	c.setFact(FactAskedBy, c.req.Actor.Name)
 	return nil
 }
 
-// answerAsk stores the reporter's answer, and the report returns to the
-// reproducer.
+// answerAsk stores the reporter's answer beside the question of its
+// round, and the report returns to the reproducer. An answer to an ask
+// amends no task, so it never enters the inputs.
 func answerAsk(c *change) *cli.Refusal {
-	c.unsetFact(FactQuestion, FactAskedBy)
-	return answerFacts(c)
+	if a := c.param("answer"); a != "" {
+		c.setFact(AskFact(FactAnswer, count(c, FactAsks)), a)
+		c.setFact(FactAnswer, a)
+	}
+	c.unsetFact(FactAskedBy)
+	return nil
 }
 
 func bugResume(string) (string, string) { return Reported, "" }
@@ -79,9 +101,9 @@ func bugTable() *Table {
 		// holds. The inbox relays the question, and the answer returns the
 		// report to the reproducer.
 		{Verb: "ask", From: []string{Reproducing}, To: Asked, Command: "work ask", Lease: LeaseDrop, set: askPut,
-			Facts: []string{FactAsks, FactQuestion, FactAskedBy}},
+			Facts: append([]string{FactAsks, FactAskedBy}, askFacts(FactQuestion)...)},
 		{Verb: VerbAnswer, From: []string{Asked}, To: Reported, set: answerAsk,
-			Facts: []string{FactQuestion, FactAskedBy, FactAnswer, FactAmendment}},
+			Facts: append([]string{FactAskedBy, FactAnswer}, askFacts(FactAnswer)...)},
 		// The reproducer cancels a report whose symptom is in the loop, after
 		// it reports the loop fault. Released to reported, the report
 		// would only run again.

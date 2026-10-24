@@ -206,7 +206,7 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 		e.Next = "loop inbox answer " + e.ID + " --body <the reporter's answer, in the reporter's own words>"
 		text = append(text, fmt.Sprintf("The reproducer cannot reproduce this bug report without a fact only its reporter holds. "+
 			"Ask %d of %d. Relay the questions to the reporter. The answer returns the report to the reproducer. The questions:",
-			askCount(it), machine.AskLimit), AgentText(it.Fact(machine.FactAskedBy), it.Fact(machine.FactQuestion)))
+			askCount(it), machine.AskLimit), AgentText(it.Fact(machine.FactAskedBy), it.Fact(machine.AskFact(machine.FactQuestion, askCount(it)))))
 	case KindSignoff:
 		e.Head = it.Fact(machine.FactReviewedHead)
 		e.Next = "loop inbox answer " + e.ID + ` --body "<the operator's approval, in the operator's own words>"; the server merges the document at head ` + orDefault(e.Head, "<none pinned>")

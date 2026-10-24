@@ -151,6 +151,9 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		in.Changed()
 		return res
 	case KindAsk:
+		if call.Inv.Flags["amend"] == "true" {
+			return cli.Reject(cli.CodeUsage, "amend_ask", "an ask's answer is a fact of the report, not a change of the task; --amend applies to an escalated item")
+		}
 		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: machine.VerbAnswer,
 			Params: map[string]string{"answer": body}, Actor: actor, ExpectedStatus: machine.Asked})
 		if res.Refusal != nil {
