@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -157,8 +158,10 @@ func TestPartNamesHoldTheFifteenInTheSpecOrder(t *testing.T) {
 	if !reflect.DeepEqual(PartNames, want) {
 		t.Fatalf("PartNames = %q", PartNames)
 	}
-	if len(Parts()) != 0 {
-		t.Fatalf("Parts() = %d parts; no part has landed", len(Parts()))
+	for _, p := range Parts() {
+		if !slices.Contains(PartNames, p.Name) {
+			t.Fatalf("Parts() holds %q, which PartNames does not name", p.Name)
+		}
 	}
 	if PartDeadline != 60*time.Second {
 		t.Fatalf("PartDeadline = %s", PartDeadline)
