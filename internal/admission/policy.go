@@ -177,6 +177,24 @@ type stateOf struct {
 	status string
 }
 
+// ClaimState is one kind and status that a stage claims from.
+type ClaimState struct {
+	Kind   machine.Kind
+	Status string
+}
+
+// ClaimStates returns each kind and status that stage claims from, in
+// claim order. It is the view of the claim states for a reader outside
+// admission, such as overwatch's stalls part, so that reader lists no state
+// of its own. A stage that claims no item returns none.
+func ClaimStates(stage string) []ClaimState {
+	var out []ClaimState
+	for _, s := range claimStates(stage) {
+		out = append(out, ClaimState{Kind: s.kind, Status: s.status})
+	}
+	return out
+}
+
 // limitsFor reads the current host config and returns the stage's limits.
 func (a *Admission) limitsFor(ctx context.Context, stage string) ([]config.Limit, *cli.Refusal) {
 	cfg, err := a.cfg.Host.Load(ctx)
