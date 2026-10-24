@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,11 +125,7 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 	if rep.Ruleset, err = h.ensureRuleset(ctx, rep, appID); err != nil {
 		return fail(err)
 	}
-	p, _, err := pack.Brief(fetchedSkills(dir))
-	if err != nil {
-		return fail(err)
-	}
-	if rep.Skills, err = installSkills(ctx, rep.Path, p); err != nil {
+	if rep.Skills, err = registerSkills(ctx, dir, rep.Path, nil); err != nil {
 		return fail(err)
 	}
 	var next []string
@@ -194,6 +191,20 @@ func (h *hostVerbs) remote(ctx context.Context, ctl *serverControl, path string,
 		return cli.Reject(r.Code, r.Rule, r.Hint+"; install the loop App on "+flags["repo"]+" from the App's page on GitHub, then run loop register again")
 	}
 	return res
+}
+
+// registerSkills builds the pack from the instance's fetched skill set,
+// as loop serve does, and installs it into the clone. build is the test
+// seam: nil is pack.Brief, whose pins the binary embeds.
+func registerSkills(ctx context.Context, instance, clone string, build func(fetched fs.FS) (brief.Pack, []pack.ThirdParty, error)) ([]string, error) {
+	if build == nil {
+		build = pack.Brief
+	}
+	p, _, err := build(fetchedSkills(instance))
+	if err != nil {
+		return nil, err
+	}
+	return installSkills(ctx, clone, p)
 }
 
 // installSkills writes the pack's skills and agents into the clone for

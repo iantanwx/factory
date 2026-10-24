@@ -154,16 +154,19 @@ func TestARegisteredCloneHoldsWhatARunHolds(t *testing.T) {
 	skills := release.Layout{Dir: instance}.Skills(cli.Version)
 	writeSkill(t, skills, "impeccable")
 	src := pinnedSource(t, skills, "impeccable")
-	p, left, err := pack.BriefOf(src, fetchedSkills(instance))
-	if err != nil || len(left) != 0 {
-		t.Fatalf("left out %v, %v", left, err)
-	}
 	clone := t.TempDir()
 	if out, err := exec.Command("git", "init", "-q", clone).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	if _, err := installSkills(context.Background(), clone, p); err != nil {
+	// Register builds its pack from the instance's fetched set. The
+	// builder pins the fixture skill, as pack.Brief pins the real ones.
+	build := func(fetched fs.FS) (brief.Pack, []pack.ThirdParty, error) { return pack.BriefOf(src, fetched) }
+	if _, err := registerSkills(context.Background(), instance, clone, build); err != nil {
 		t.Fatal(err)
+	}
+	p, left, err := pack.BriefOf(src, os.DirFS(skills))
+	if err != nil || len(left) != 0 {
+		t.Fatalf("left out %v, %v", left, err)
 	}
 	for _, h := range []agenthost.Harness{agenthost.Claude, agenthost.Codex} {
 		run := t.TempDir()
