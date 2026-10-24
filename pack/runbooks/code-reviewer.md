@@ -46,7 +46,8 @@ When the cause is a fault in the loop, report it, and finish `blocked` with the 
 
 ## 3. Judge the named list
 
-Round 1 judges the whole work, and names every fault.
+Round 1 judges the whole work, and names every fault in it. A defect that shows at the merge base
+is not in the work, unless the item promises to repair it. Section 6 states what you do with it.
 
 A later round judges two things only: each finding an earlier round named, and the diff since the
 last reviewed head. Read that head from `loop review rounds <item>`. Restrict the diff to the files
@@ -104,7 +105,7 @@ merge base, and the new text at the head. Record both. The same result at both c
 
 Put the findings first, the worst first. Write one line for each contract, each done line and each
 stop condition, with pass or fail and its evidence. A fault that no line covers is a fail of its
-own.
+own, unless it shows at the merge base.
 
 - A pass holds no fail. A reject holds at least one.
 - Round 1 checks every line, because a line it skips is what round 3 raises.
@@ -114,7 +115,14 @@ own.
 - A fired stop condition is a finding to escalate. Mark it waived only when a recorded answer of a
   person waives it, and quote that answer.
 
-Name each defect outside this round under its own heading, with its evidence. Never reject for it.
+A defect that the merge base already holds is outside every round, round 1 included. The diff did
+not add it, and its author cannot repair it inside the ticket. It shows at the merge base when the
+same run in the second worktree of section 4 fails there, or when `git show <merge base>:<path>`
+holds the faulty lines. A defect that a contract, a done line or a stop condition of the item
+promises to repair is the work, and you judge it. Name each defect outside this round under its
+own heading, with its evidence. Record it in the place that the project policy names under
+"Defects outside the round". When the policy names no place, the comment is the record. Never
+reject for it. Judge the ticket's own diff.
 
 ## 7. Submit the verdict
 
