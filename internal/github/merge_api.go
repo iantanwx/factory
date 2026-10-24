@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/config"
@@ -208,6 +209,39 @@ func (s *Service) BranchRules(ctx context.Context, p config.Project) (types, che
 		}
 	}
 	return types, checks, nil
+}
+
+// GatesCheck is the CI job that loop-init writes. A project whose config
+// and ruleset name no required check requires it, so no merge is ever
+// unguarded (alpha premerge.ts:91-93).
+const GatesCheck = "gates"
+
+// RequiredChecks names the CI checks that must pass at a ticket's head
+// before its review pass and before any mechanism merges it: the checks
+// that merge.required_checks in project config names, then the required
+// contexts of the base's ruleset. With none named, it is GatesCheck.
+func (s *Service) RequiredChecks(ctx context.Context, p config.Project) ([]string, error) {
+	cfg, err := s.baseConfig(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	if cfg != nil {
+		names = slices.Clone(cfg.Merge.RequiredChecks)
+	}
+	_, rules, err := s.BranchRules(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range rules {
+		if !slices.Contains(names, c) {
+			names = append(names, c)
+		}
+	}
+	if len(names) == 0 {
+		names = []string{GatesCheck}
+	}
+	return names, nil
 }
 
 // FileAt reports whether path exists on branch.

@@ -51,9 +51,15 @@ type TrackerConfig struct {
 	Adapter string `yaml:"adapter,omitempty"`
 }
 
-// MergeConfig names the project's merge mechanism.
+// MergeConfig names the project's merge mechanism and the CI checks that
+// guard every merge.
 type MergeConfig struct {
 	Mechanism MergeMechanism `yaml:"mechanism"`
+	// RequiredChecks names the CI checks that must pass at a ticket's
+	// head before the review pass makes it eligible and before any
+	// mechanism merges it. Empty means the base's ruleset checks, or the
+	// gates job when the ruleset names none (github.RequiredChecks).
+	RequiredChecks []string `yaml:"required_checks,omitempty"`
 }
 
 // StageConfig sets one stage for the project. A listed stage is enabled
@@ -113,6 +119,17 @@ func (c *ProjectConfig) validate() error {
 	case MergeMergify, MergeGitHubQueue, MergeDirect:
 	default:
 		ck.fail("merge.mechanism", "must be mergify, github-queue or direct")
+	}
+	checks := map[string]bool{}
+	for i, name := range c.Merge.RequiredChecks {
+		f := fmt.Sprintf("merge.required_checks[%d]", i)
+		switch {
+		case strings.TrimSpace(name) == "" || HasControl(name):
+			ck.fail(f, "must be a check name with no control character")
+		case checks[name]:
+			ck.fail(f, "names a check twice")
+		}
+		checks[name] = true
 	}
 	for _, name := range slices.Sorted(maps.Keys(c.Stages)) {
 		s, f := c.Stages[name], "stages."+name
