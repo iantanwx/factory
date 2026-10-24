@@ -4,6 +4,8 @@ package scenarios
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
@@ -102,4 +104,51 @@ func TestMisjoinedEpicReturnsToArchitecture(t *testing.T) {
 	if got := w.Show(cited).Facts[machine.FactADR]; got != "" {
 		t.Fatalf("the cited epic still records ADR %q", got)
 	}
+}
+
+// factorio-dr8 (alpha bugs-report-ask.ts): the reproducer asks the
+// reporter for a fact only the reporter holds, and no escalation pages
+// the operator. The ask ends the run's claim, and the inbox relays the
+// question to the reporter. The coordinator answers it with the
+// reporter's words, and the report returns to the reproducer, whose next
+// brief holds the answer. A report asks at most twice: the third ask
+// refuses with ASK_LIMIT, and the run escalates instead.
+func TestReproducerAsksTheReporterThroughTheInbox(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	bug := fileBug(w, "The list page shows no widgets", "The list is empty.")
+	entry := "ask/" + acceptance.Project + "/" + bug
+	for n, answer := range []string{"The widgets page, at /widgets.", "Every account I tried."} {
+		run := w.Dispatch(machine.StageReproducer)
+		if run.Item != bug {
+			t.Fatalf("ask %d: the reproducer took %s, want %s", n+1, run.Item, bug)
+		}
+		if n > 0 {
+			brief, err := os.ReadFile(filepath.Join(run.Checkout, ".loop", "brief.json"))
+			if err != nil || !contains(string(brief), "The widgets page, at /widgets.") {
+				t.Fatalf("the brief of the run after the answer does not hold the reporter's answer: %v", err)
+			}
+		}
+		w.Must(w.In(run.Checkout, "work", "ask", bug, "--body", "- Which page shows the empty list?\n- Which account did you use?"))
+		w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
+		wantStatus(w, bug, "asked")
+		e := w.Entry(entry)
+		if e == nil || e["awaits"] != "person" || !contains(e["text"].(string), "Which account did you use?") ||
+			!contains(e["next"].(string), "loop inbox answer "+entry) {
+			t.Fatalf("ask %d: the inbox entry = %v", n+1, e)
+		}
+		w.Must(w.Coordinator("inbox", "answer", entry, "--body", answer))
+		wantStatus(w, bug, machine.Reported)
+		if got := w.Show(bug).Facts[machine.FactAnswer]; got != answer {
+			t.Fatalf("ask %d: the report holds answer %q", n+1, got)
+		}
+		if w.Entry(entry) != nil {
+			t.Fatalf("ask %d: the answered entry is still in the inbox", n+1)
+		}
+	}
+	run := w.Dispatch(machine.StageReproducer)
+	r := w.In(run.Checkout, "work", "ask", bug, "--body", "- Which browser did you use?")
+	if r.Code != 3 || r.RefusalCode() != "ASK_LIMIT" {
+		t.Fatalf("the third ask: %s", r)
+	}
+	wantStatus(w, bug, machine.Reproducing)
 }

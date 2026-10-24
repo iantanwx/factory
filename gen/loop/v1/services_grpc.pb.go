@@ -29,6 +29,7 @@ const (
 	WorkService_Cancel_FullMethodName    = "/loop.v1.WorkService/Cancel"
 	WorkService_Create_FullMethodName    = "/loop.v1.WorkService/Create"
 	WorkService_Shape_FullMethodName     = "/loop.v1.WorkService/Shape"
+	WorkService_Ask_FullMethodName       = "/loop.v1.WorkService/Ask"
 	WorkService_Duplicate_FullMethodName = "/loop.v1.WorkService/Duplicate"
 	WorkService_Supersede_FullMethodName = "/loop.v1.WorkService/Supersede"
 )
@@ -47,6 +48,7 @@ type WorkServiceClient interface {
 	Cancel(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Create(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Shape(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Ask(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Duplicate(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Supersede(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
@@ -159,6 +161,16 @@ func (c *workServiceClient) Shape(ctx context.Context, in *VerbRequest, opts ...
 	return out, nil
 }
 
+func (c *workServiceClient) Ask(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, WorkService_Ask_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *workServiceClient) Duplicate(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Envelope)
@@ -193,6 +205,7 @@ type WorkServiceServer interface {
 	Cancel(context.Context, *VerbRequest) (*Envelope, error)
 	Create(context.Context, *VerbRequest) (*Envelope, error)
 	Shape(context.Context, *VerbRequest) (*Envelope, error)
+	Ask(context.Context, *VerbRequest) (*Envelope, error)
 	Duplicate(context.Context, *VerbRequest) (*Envelope, error)
 	Supersede(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedWorkServiceServer()
@@ -234,6 +247,9 @@ func (UnimplementedWorkServiceServer) Create(context.Context, *VerbRequest) (*En
 }
 func (UnimplementedWorkServiceServer) Shape(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Shape not implemented")
+}
+func (UnimplementedWorkServiceServer) Ask(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Ask not implemented")
 }
 func (UnimplementedWorkServiceServer) Duplicate(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Duplicate not implemented")
@@ -442,6 +458,24 @@ func _WorkService_Shape_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WorkService_Ask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WorkServiceServer).Ask(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: WorkService_Ask_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WorkServiceServer).Ask(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WorkService_Duplicate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(VerbRequest)
 	if err := dec(in); err != nil {
@@ -524,6 +558,10 @@ var WorkService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Shape",
 			Handler:    _WorkService_Shape_Handler,
+		},
+		{
+			MethodName: "Ask",
+			Handler:    _WorkService_Ask_Handler,
 		},
 		{
 			MethodName: "Duplicate",

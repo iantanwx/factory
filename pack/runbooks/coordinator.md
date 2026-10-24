@@ -225,7 +225,16 @@ words:
 loop work create --kind bug --project <project> --title "<summary>" --body "<the report>" --request "<the operator's words>"
 ```
 
-The reproducer shapes the bug into a ticket, closes it as a duplicate, or escalates it.
+The reproducer shapes the bug into a ticket, closes it as a duplicate, or escalates it. It can ask
+the reporter for a missing fact. The report then waits in `asked`, and the inbox shows an
+`ask/<project>/<bug>` entry with the questions. Relay them to the operator, who reported the bug.
+Record the operator's own words:
+
+```bash
+loop inbox answer ask/<project>/<bug> --body "<the operator's words>"
+```
+
+The answer returns the report to the reproducer. Never answer an ask yourself.
 
 When the operator asks for an architecture decision in place of a PRD, create an architecture epic:
 
