@@ -366,7 +366,8 @@ func TestRunReceivesOnlyItsStagesSecretsInEachDir(t *testing.T) {
 }
 
 // run finish --outcome done releases the lease and settles the checkout.
-// The next tick closes the session.
+// The next tick closes the session. The reviewer submitted no verdict, so
+// the finish moved nothing and counts as stalled.
 func TestFinishDoneReleasesTheLease(t *testing.T) {
 	w := newWorld(t)
 	id := w.ticket(machine.InReview)
@@ -375,7 +376,7 @@ func TestFinishDoneReleasesTheLease(t *testing.T) {
 		t.Fatal("the reviewer holds no lease")
 	}
 	res, ref := w.s.Finish(context.Background(), st.RunID, "done")
-	if ref != nil || res.Class != "done" || res.Counted || !res.Released {
+	if ref != nil || res.Class != "stalled" || !res.Counted || !res.Released {
 		t.Fatalf("finish = %+v, %+v", res, ref)
 	}
 	if w.lease(id).Owner != "" || w.status(id) != machine.InReview {
@@ -388,7 +389,7 @@ func TestFinishDoneReleasesTheLease(t *testing.T) {
 		t.Fatalf("checkout state = %s", s)
 	}
 	again, ref := w.s.Finish(context.Background(), st.RunID, "done")
-	if ref != nil || !again.Replayed || again.Class != "done" {
+	if ref != nil || !again.Replayed || again.Class != "stalled" {
 		t.Fatalf("a second finish = %+v, %+v", again, ref)
 	}
 	w.tick()
@@ -464,6 +465,58 @@ func TestRetryLimitAlertsOnce(t *testing.T) {
 	if !strings.Contains(subject, id) || !strings.Contains(subject, machine.StageImplementer) ||
 		!strings.Contains(body, runs[0]) || !strings.Contains(body, runs[1]) || !strings.Contains(body, "loop work edit "+id) {
 		t.Fatalf("alert = %q / %q", subject, body)
+	}
+}
+
+// tickertown admission.ts:239-243, ported (parity 2.12): a done finish
+// whose run still held its item moved nothing, so it counts as a failure.
+// Two such finishes at unchanged inputs stop the stage: the third
+// admission is refused RETRY_LIMIT, and the item no longer starts a run on
+// every fire.
+func TestDoneFinishThatMovedNothingCounts(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	for range 2 {
+		st := w.dispatch(machine.StageImplementer)
+		res, ref := w.s.Finish(ctx, st.RunID, "done")
+		if ref != nil || res.Class != "stalled" || !res.Counted || !res.Released {
+			t.Fatalf("finish = %+v, %+v", res, ref)
+		}
+		if w.status(id) != machine.Todo || w.lease(id).Owner != "" {
+			t.Fatalf("status %s, lease %+v", w.status(id), w.lease(id))
+		}
+	}
+	if n := w.count(`SELECT count(*) FROM failures WHERE item = ? AND class = 'stalled'`, id); n != 2 {
+		t.Fatalf("stalled failures = %d, want 2", n)
+	}
+	if w.alerts(AlertRetryLimit) != 1 {
+		t.Fatalf("retry-limit alerts = %d, want 1", w.alerts(AlertRetryLimit))
+	}
+	if st, ref := w.s.Dispatch(ctx, prj, machine.StageImplementer); st != nil || ref != nil {
+		t.Fatalf("a third run started: %+v, %+v", st, ref)
+	}
+	if _, ref := w.a.Admit(ctx, admissionRequest(id)); ref == nil || ref.Code != cli.CodeRetryLimit {
+		t.Fatalf("third admission = %+v, want %s", ref, cli.CodeRetryLimit)
+	}
+}
+
+// A done finish after a move that ended the run's claim never counts.
+func TestDoneFinishAfterAMoveNeverCounts(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	if res := w.m.Apply(ctx, machine.Request{Project: prj, Item: id, Verb: "pr_open", Actor: machine.Server("test"),
+		Params: map[string]string{"head": "h1"}}); res.Refusal != nil {
+		t.Fatalf("pr_open: %+v", res.Refusal)
+	}
+	res, ref := w.s.Finish(ctx, st.RunID, "done")
+	if ref != nil || res.Class != "done" || res.Counted || res.Released {
+		t.Fatalf("finish = %+v, %+v", res, ref)
+	}
+	if n := w.count(`SELECT count(*) FROM failures WHERE item = ?`, id); n != 0 {
+		t.Fatalf("failure rows = %d, want 0", n)
 	}
 }
 

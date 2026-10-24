@@ -270,7 +270,7 @@ func (s *Scheduler) priorFailures(ctx context.Context, ad admission.Admitted) []
 	var out []string
 	_ = s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		rs, err := tx.QueryContext(ctx, `SELECT class, note FROM failures WHERE project = ? AND item = ? AND stage = ? AND inputs_hash = ?
-			AND class IN ('failed', 'crashed') ORDER BY recorded_at`, ad.Project, ad.Item, ad.Stage, ad.Inputs)
+			AND class IN ('failed', 'crashed', 'stalled') ORDER BY recorded_at`, ad.Project, ad.Item, ad.Stage, ad.Inputs)
 		if err != nil {
 			return err
 		}
