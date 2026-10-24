@@ -206,7 +206,13 @@ project.
 
 Only that session holds the coordinator's token, in `.loop/token` of its
 worktree. A session in your own clone holds none, and the server refuses
-its coordinator verbs. When you remove the coordinator's project, the
+its coordinator verbs. The coordinator may run the host verbs `upgrade`,
+`rollback`, `doctor`, `project list` and `project show` from its worktree,
+as your shell would. A run or a room may not: the server refuses each with
+rule `host_verb_from_checkout` and raises an alert. It also refuses a call
+with no token from inside any checkout. The coordinator's `upgrade`
+and `rollback` run outside its session, as a transient systemd user unit
+in your home directory, so the restart they make cannot end them. When you remove the coordinator's project, the
 server ends the session and starts the next one in a project that is
 still registered. When you upgrade the loop, the server leaves a running
 session up. It sends that session one message that names the new release
@@ -359,11 +365,11 @@ loop upgrade v1.2.3
 loop upgrade          # the newest published release
 ```
 
-You need not run it yourself. Tell the coordinator to upgrade, and it runs
-`loop coordinator upgrade` with your words. The server then starts
-`loop upgrade` as a transient systemd user unit, outside its own service and
-outside every checkout (ADR 0010). The unit's journal holds the report, and
-the coordinator reads the new version back after the restart.
+You need not run it yourself. When a published release ends an open loop
+fault, the coordinator runs `loop upgrade` from its worktree. The CLI then
+starts the upgrade as a transient systemd user unit, outside the server's
+service and outside every checkout. The unit's journal holds the report,
+and the coordinator reads the new version back after the restart.
 
 The loop repository is private, so `loop upgrade` reads its releases through
 the GitHub API with the host's `gh` login, the token `gh auth token` prints.

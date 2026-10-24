@@ -44,9 +44,9 @@ func wait(t *testing.T, expr string, at time.Time) time.Duration {
 // A code review writes one of two outcomes, and a different stage reads
 // each one. A pass leaves the ticket in ready_to_merge, which merge-handoff
 // hands to the merge mechanism. A reject sends it back to todo as rework,
-// which the implementer claims. Each scheduler tick dispatches at most one
-// run of a stage for each project, so the implementer's ticks bound both how
-// soon a rework round starts and how many implementer runs start in an hour.
+// which the implementer claims. So the implementer's ticks bound how soon a
+// rework round starts. Each tick fills the stage's free cap, so they do not
+// bound how many implementer runs start.
 //
 // Tickertown runs three implementer rows on main, at minutes 3, 8 and 13 of
 // each fifteen, and holds that each pipeline transition is offered within

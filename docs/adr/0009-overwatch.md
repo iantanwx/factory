@@ -163,9 +163,9 @@ loop fault with `loop fault report`, and a bug in its own project. The sweep fin
 What changes:
 
 - **A native job.** `internal/config/throughput.go` adds `overwatch` to `nativeJobs` and to
-  `DefaultThroughput`. Config load refuses a host config with no `overwatch` entry. So
-  `loop upgrade` writes the default entry into a host config that has none, and the operator edits
-  no config.
+  `DefaultThroughput`. A host config with no `overwatch` entry loads, and `ThroughputFor` reads the
+  default entry at read time. Nothing writes the entry into the file, so the operator edits no
+  config (`docs/plans/factorio-a7r-overwatch-sweep-spec.md`, Decisions, first bullet).
 - **A server package.** A new package holds one function for each ported part. Each part returns
   a code and its lines, with tickertown's exit convention. The job and the verb call the same code.
 - **A verb.** `loop overwatch sweep` prints the report as one envelope, for the coordinator and the

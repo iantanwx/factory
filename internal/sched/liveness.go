@@ -137,7 +137,7 @@ func (s *Scheduler) check(ctx context.Context, hc *config.HostConfig, r runRow, 
 	case inv.Lookup(sess) == agenthost.Absent:
 		s.settleEnded(ctx, r, s.now(), "a complete inventory of the session's epoch no longer lists it", nil)
 	default:
-		s.markUnknown(ctx, hc, r)
+		s.markUnknown(ctx, hc, r, inv)
 	}
 }
 
@@ -170,8 +170,11 @@ func (s *Scheduler) markLive(ctx context.Context, hc *config.HostConfig, r runRo
 }
 
 // markUnknown keeps the lease of a run whose liveness reads unknown. Past
-// two run budgets it raises one alert and still reclaims nothing (KTD9).
-func (s *Scheduler) markUnknown(ctx context.Context, hc *config.HostConfig, r runRow) {
+// two run budgets, a complete inventory of any epoch with no row of the
+// run's identity and no trace of it settles the run as ended (KTD9, F-21).
+// A traced run, or one only an incomplete inventory read, raises one alert
+// and is reclaimed by nothing.
+func (s *Scheduler) markUnknown(ctx context.Context, hc *config.HostConfig, r runRow, inv agenthost.Inventory) {
 	rec := r.Rec
 	if rec.UnknownSince == 0 {
 		rec.UnknownSince = s.now64()
@@ -182,6 +185,10 @@ func (s *Scheduler) markUnknown(ctx context.Context, hc *config.HostConfig, r ru
 	}
 	bound := 2 * s.budget(ctx, hc, r)
 	if s.now().Sub(time.UnixMilli(rec.UnknownSince)) > bound {
+		if inv.Untraced(*rec.Session) {
+			s.settleEnded(ctx, r, s.now(), fmt.Sprintf("Liveness read unknown for more than %s, and a complete inventory lists no terminal and no PTY of the run.", bound), nil)
+			return
+		}
 		s.raiseOnce(ctx, config.Alert{Project: r.Project, Kind: AlertRunUnknown, DedupeKey: AlertRunUnknown + ":" + r.ID,
 			Subject: fmt.Sprintf("the agent host cannot say whether %s run %s on %s lives", r.Stage, r.ID, r.Item),
 			Body:    fmt.Sprintf("Liveness has read unknown for more than %s. The server keeps the lease and reclaims nothing.", bound)})
