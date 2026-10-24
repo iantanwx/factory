@@ -409,6 +409,18 @@ func TestArchitectRoomServesAnArchitectureEpic(t *testing.T) {
 	if env := open("--item", ticket); env["code"] != cli.CodeTransitionNotAllowed || env["rule"] != "not_architecture_epic" {
 		t.Fatalf("an architect room on a ticket = %v", env)
 	}
+	review, res := w.srv.Machine.Create(context.Background(), machine.CreateRequest{Project: "alpha", Kind: machine.KindEpic,
+		Title: "Widget feed", Description: "Feed the widgets.", Verb: machine.VerbPRDSubmit,
+		Params: map[string]string{"pr": "7"}, Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		t.Fatalf("create the epic in review: %+v", *res.Refusal)
+	}
+	if st := w.show(review).Status; st != machine.PRDReview {
+		t.Fatalf("the epic in review is in %s", st)
+	}
+	if env := open("--item", review); env["code"] != cli.CodeTransitionNotAllowed || env["rule"] != "not_architecture_epic" {
+		t.Fatalf("an architect room on an epic in %s = %v", machine.PRDReview, env)
+	}
 	if n := w.count(`SELECT count(*) FROM rooms`); n != 0 {
 		t.Fatalf("a refused architect room left %d rooms", n)
 	}
