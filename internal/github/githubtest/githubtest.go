@@ -283,7 +283,7 @@ func (p *PR) json() map[string]any {
 	}
 	out := map[string]any{
 		"number": p.Number, "html_url": fmt.Sprintf("https://example.invalid/pull/%d", p.Number), "state": p.State,
-		"title": p.Title, "draft": p.Draft, "merge_commit_sha": p.MergeSHA, "updated_at": p.UpdatedAt.UTC().Format(time.RFC3339),
+		"title": p.Title, "body": p.Body, "draft": p.Draft, "merge_commit_sha": p.MergeSHA, "updated_at": p.UpdatedAt.UTC().Format(time.RFC3339),
 		"head": map[string]any{"ref": p.Head, "sha": p.HeadSHA, "repo": map[string]any{"full_name": repo}},
 		"base": map[string]any{"ref": p.Base, "sha": strings.Repeat("b", 40)},
 	}

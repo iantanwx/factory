@@ -20,6 +20,7 @@ type PR struct {
 	URL            string     `json:"html_url"`
 	State          string     `json:"state"` // open or closed
 	Title          string     `json:"title"`
+	Body           string     `json:"body"`
 	Draft          bool       `json:"draft"`
 	MergedAt       *time.Time `json:"merged_at"`
 	MergeCommitSHA string     `json:"merge_commit_sha"`
@@ -59,6 +60,11 @@ type PRView struct {
 	Base           string `json:"base"`
 	Draft          bool   `json:"draft"`
 	MergeableState string `json:"mergeable_state,omitempty"`
+	// Body is whole, with no omitempty: the implementer records its
+	// red-green evidence there, and a reviewer reads it through `pr show`.
+	// An empty body is an answer too. Ported from shownFrom in
+	// scripts/sdlc/pr.ts (alpha).
+	Body string `json:"body"`
 }
 
 // View is the CLI form of a PR.
@@ -68,7 +74,7 @@ func (pr PR) View() PRView {
 		state = "merged"
 	}
 	return PRView{Number: pr.Number, URL: pr.URL, State: state, Title: pr.Title, Head: pr.Head.Ref,
-		HeadSHA: pr.Head.SHA, Base: pr.Base.Ref, Draft: pr.Draft, MergeableState: pr.MergeableState}
+		HeadSHA: pr.Head.SHA, Base: pr.Base.Ref, Draft: pr.Draft, MergeableState: pr.MergeableState, Body: pr.Body}
 }
 
 // FindPR returns the PR whose head is branch in the project repository:
