@@ -2,9 +2,9 @@
 // decides, and the tests that hold the workflow and action.yml to it.
 //
 // The gates and acceptance jobs each ask `go run ./tools/ci/docsonly`
-// whether a change touched documents alone. Such a change runs only
-// `loop gates --docs`, and skips the stack gates and the acceptance
-// suite. The verify job then joins every job, because the loop counts a
+// whether a change touched documents alone. Such a change runs
+// `loop gates --docs` and the secrets gate, and skips the stack gates and
+// the acceptance suite. The verify job then joins every job, because the loop counts a
 // skipped check as green.
 package ci
 

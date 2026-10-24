@@ -17,6 +17,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/gates"
 )
 
 type workflow struct {
@@ -214,23 +215,77 @@ func TestWorkflowDocsOnlyPathSkipsOnlyTheCodeSteps(t *testing.T) {
 		}
 	}
 
-	g := w.Jobs["gates"]
-	runs := map[string]string{}
-	for _, s := range g.Steps {
-		if strings.HasPrefix(s.Run, "loop gates") {
-			runs[s.Run] = s.If
-		}
-	}
-	want := map[string]string{
-		"loop gates":        "steps.scope.outputs.docs != 'true'",
-		"loop gates --docs": "steps.scope.outputs.docs == 'true'",
-	}
-	if !maps.Equal(runs, want) {
-		t.Errorf("gates runs %v, want %v", runs, want)
-	}
 	for _, s := range w.Jobs["acceptance"].Steps {
 		if strings.HasPrefix(s.Run, "make ") && s.If != "steps.scope.outputs.docs != 'true'" {
 			t.Errorf("acceptance: %q runs if %q, want it to skip a documents-only change", s.Run, s.If)
+		}
+	}
+}
+
+// A documents-only change skips the stack gates alone. Every other gate
+// still runs: the secrets gate most of all, since Markdown is a common
+// place for a pasted key. Resolve each `loop gates` step of the gates job
+// to the gates it runs, for each decision, as gates.Select picks them.
+func TestWorkflowEachDecisionRunsEveryGateItOwes(t *testing.T) {
+	g := ciWorkflow(t).Jobs["gates"]
+	ran := map[bool][]string{}
+	for _, s := range g.Steps {
+		args, ok := strings.CutPrefix(s.Run, "loop gates")
+		if !ok {
+			continue
+		}
+		var docs, fast bool
+		var only string
+		fields := strings.Fields(args)
+		for i := 0; i < len(fields); i++ {
+			switch f := fields[i]; {
+			case f == "--docs":
+				docs = true
+			case f == "--fast":
+				fast = true
+			case f == "--only" && i+1 < len(fields):
+				i++
+				only = fields[i]
+			case strings.HasPrefix(f, "--only="):
+				only = strings.TrimPrefix(f, "--only=")
+			default:
+				t.Fatalf("gates: %q holds %q, which this test cannot resolve", s.Run, f)
+			}
+		}
+		selected, err := gates.Select(nil, docs, fast, only)
+		if err != nil {
+			t.Fatalf("gates: %q: %v", s.Run, err)
+		}
+		for _, decision := range []bool{false, true} {
+			switch s.If {
+			case "steps.scope.outputs.docs != 'true'":
+				if decision {
+					continue
+				}
+			case "steps.scope.outputs.docs == 'true'":
+				if !decision {
+					continue
+				}
+			case "":
+			default:
+				t.Fatalf("gates: %q runs if %q, which this test cannot resolve", s.Run, s.If)
+			}
+			for _, gate := range selected {
+				ran[decision] = append(ran[decision], gate.Name)
+			}
+		}
+	}
+	for _, decision := range []bool{false, true} {
+		var want []string
+		for _, gate := range gates.List(nil) {
+			if !decision || !gate.Stack {
+				want = append(want, gate.Name)
+			}
+		}
+		got := slices.Compact(slices.Sorted(slices.Values(ran[decision])))
+		slices.Sort(want)
+		if !slices.Equal(got, want) {
+			t.Errorf("gates with docs=%v runs %q, want %q", decision, got, want)
 		}
 	}
 }

@@ -14,11 +14,11 @@ jobs:
   # request. The commits gate reads the branch, and the secrets gate reads
   # every commit.
   #
-  # A change to documents alone runs `loop gates --docs`, and skips the
-  # stack gates. tools/ci/docsonly.go names what counts as a document. A
-  # failed decision leaves the output empty, and an empty output runs
-  # every gate. tools/ci/workflow_test.go holds this job, the acceptance
-  # job and the verify job to that rule.
+  # A change to documents alone runs `loop gates --docs` and the secrets
+  # gate, and skips the stack gates. tools/ci/docsonly.go names what
+  # counts as a document. A failed decision leaves the output empty, and
+  # an empty output runs every gate. tools/ci/workflow_test.go holds this
+  # job, the acceptance job and the verify job to that rule.
   gates:
     runs-on: depot-ubuntu-24.04-4
     outputs:
@@ -48,6 +48,10 @@ jobs:
         run: loop gates
       - if: steps.scope.outputs.docs == 'true'
         run: loop gates --docs
+      # --docs leaves out the secrets gate, since an agent stage may have
+      # no gitleaks. The local action put it on PATH here.
+      - if: steps.scope.outputs.docs == 'true'
+        run: loop gates --only secrets
 
   # The beads contract and the parity suite (U17) on the real server and
   # real beads. The job provisions the bd and dolt that
