@@ -3,6 +3,7 @@ package github
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,9 +19,14 @@ const (
 )
 
 // queueRun is one completed Actions run of a merge-queue draft, as the
-// repository's run listing reads it.
+// repository's run listing reads it. GitHub's merge queue runs carry the
+// merge_group event.
 func queueRun(id int64, name, branch, sha, conclusion string) map[string]any {
-	return map[string]any{"id": id, "name": name, "head_branch": branch, "head_sha": sha, "event": "pull_request",
+	event := "pull_request"
+	if strings.HasPrefix(branch, "gh-readonly-queue/") {
+		event = "merge_group"
+	}
+	return map[string]any{"id": id, "name": name, "head_branch": branch, "head_sha": sha, "event": event,
 		"status": "completed", "conclusion": conclusion,
 		"html_url":      fmt.Sprintf("https://github.com/%s/actions/runs/%d", gt.Repo, id),
 		"display_title": "merge queue: embarking #7 and #9 together"}
@@ -98,6 +104,37 @@ func TestPRLogsQueueReadsTheDraftsFailedJob(t *testing.T) {
 				t.Fatalf("queue = %+v, want %+v", got.Queue, want)
 			}
 		})
+	}
+}
+
+// A draft with two failed workflows yields jobs of two runs. Each
+// excerpt names the run its own job ran in, so its URL opens that run.
+func TestPRLogsQueueNamesEachJobsOwnRun(t *testing.T) {
+	e := newEnv(t)
+	e.withWorld()
+	id := repairItem(e)
+	const branch = "mergify/merge-queue/4f1c2a"
+	serveQueue(e, shaB,
+		queueRun(732, "lint", branch, draftHeld, "failure"),
+		queueRun(731, "ci", branch, draftHeld, "failure"))
+	serveFailedJob(e, 732, 832, draftHeld, "FAIL: lint\n")
+	serveFailedJob(e, 731, 831, draftHeld, "FAIL: ci\n")
+
+	res := e.runCall("pr logs", id, machine.StageImplementer, map[string]string{"queue": "true"}, nil)
+	mustOK(t, res)
+	logs, ok := res.Data.([]LogExcerpt)
+	if !ok || len(logs) != 2 {
+		t.Fatalf("pr logs --queue = %#v, want the failed job of each of the two runs", res.Data)
+	}
+	for _, want := range []struct{ job, run int64 }{{832, 732}, {831, 731}} {
+		i := slices.IndexFunc(logs, func(l LogExcerpt) bool { return l.Job == want.job })
+		if i < 0 {
+			t.Fatalf("pr logs --queue read no job %d", want.job)
+		}
+		url := fmt.Sprintf("https://github.com/%s/actions/runs/%d", gt.Repo, want.run)
+		if q := logs[i].Queue; q == nil || q.Run != want.run || q.URL != url {
+			t.Fatalf("job %d: queue = %+v, want run %d at %s", want.job, q, want.run, url)
+		}
 	}
 }
 

@@ -364,9 +364,10 @@ func (s *Service) Logs(ctx context.Context, p config.Project, head string, jobID
 	return s.excerpts(ctx, p, jobs, nil)
 }
 
-// excerpts reads the tail of each job's log. queue names the merge-queue
-// run the jobs ran in, or is nil for the head's own jobs.
-func (s *Service) excerpts(ctx context.Context, p config.Project, jobs []job, queue *QueueRun) ([]LogExcerpt, error) {
+// excerpts reads the tail of each job's log. queue maps a run id to the
+// merge-queue run of that id, so each job names the run it ran in. It is
+// nil for the head's own jobs.
+func (s *Service) excerpts(ctx context.Context, p config.Project, jobs []job, queue map[int64]*QueueRun) ([]LogExcerpt, error) {
 	var out []LogExcerpt
 	for _, j := range jobs {
 		var text string
@@ -375,7 +376,7 @@ func (s *Service) excerpts(ctx context.Context, p config.Project, jobs []job, qu
 			return nil, err
 		}
 		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
-		ex := LogExcerpt{Job: j.ID, Name: j.Name, URL: j.HTMLURL, AuthorClass: AuthorOther, Lines: len(lines), Queue: queue}
+		ex := LogExcerpt{Job: j.ID, Name: j.Name, URL: j.HTMLURL, AuthorClass: AuthorOther, Lines: len(lines), Queue: queue[j.RunID]}
 		if len(lines) > logTail {
 			lines, ex.Truncated = lines[len(lines)-logTail:], true
 		}
@@ -469,8 +470,11 @@ func (s *Service) QueueLogs(ctx context.Context, p config.Project, head string) 
 		if err != nil {
 			return nil, err
 		}
-		r := failed[0]
-		return s.excerpts(ctx, p, jobs, &QueueRun{Run: r.ID, URL: r.HTMLURL, HeadSHA: sha, Branch: r.HeadBranch, Title: r.DisplayTitle})
+		queue := map[int64]*QueueRun{}
+		for _, r := range failed {
+			queue[r.ID] = &QueueRun{Run: r.ID, URL: r.HTMLURL, HeadSHA: sha, Branch: r.HeadBranch, Title: r.DisplayTitle}
+		}
+		return s.excerpts(ctx, p, jobs, queue)
 	}
 	return nil, nil
 }
