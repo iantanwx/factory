@@ -369,3 +369,41 @@ func (s *Service) Sync(ctx context.Context, p config.Project, item, branch strin
 	}
 	return res, nil
 }
+
+// FetchBase reads the head the remote holds for base, the project's base
+// branch, into the mirror with the token, and copies that commit into the
+// project's clone as refs/remotes/origin/<base>. It returns the head. A
+// new checkout starts from it, never from the clone's local branch, which
+// only a person moves (C-bug-1). The clone's local branches stay as they
+// were.
+func (s *Service) FetchBase(ctx context.Context, project, base string) (string, error) {
+	p, err := s.project(project)
+	if err != nil {
+		return "", err
+	}
+	unlock := s.lock(p.ID + "\x00" + base)
+	defer unlock()
+	m := s.Mirror(p)
+	if err := m.Init(ctx); err != nil {
+		return "", err
+	}
+	tok, err := s.Token(ctx, p, ScopeRead)
+	if err != nil {
+		return "", err
+	}
+	if err := m.Fetch(ctx, tok, base); err != nil {
+		return "", err
+	}
+	if err := m.ServeLocalFetch(ctx); err != nil {
+		return "", err
+	}
+	sha := m.Resolve(ctx, remoteRef(base))
+	if sha == "" {
+		return "", fmt.Errorf("github: the remote holds no branch %s", base)
+	}
+	if _, err := s.git.run(ctx, gitRun{dir: p.Path, args: []string{"fetch", "--quiet", "--no-tags", "--no-recurse-submodules",
+		"--no-write-fetch-head", m.Dir, "+" + sha + ":" + remoteRef(base)}}); err != nil {
+		return "", err
+	}
+	return sha, nil
+}

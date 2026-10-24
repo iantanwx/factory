@@ -264,6 +264,12 @@ func (w *World) options() server.Options {
 		}
 		return gh.Service.RefReader(p.ID), branch, nil
 	}
+	opts.Sched.BaseHead = func(ctx context.Context, project, branch string) (string, error) {
+		if gh.Service == nil {
+			return "", errors.New("the GitHub service is not set up")
+		}
+		return gh.Service.FetchBase(ctx, project, branch)
+	}
 
 	resolver, stopBeads, err := w.beads(cfg)
 	if err != nil {

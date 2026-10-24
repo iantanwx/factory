@@ -109,8 +109,11 @@ type Config struct {
 	Agents agenthost.Host
 	// Checkouts returns a project's checkout host. Agents when nil.
 	Checkouts func(project string) CheckoutHost
-	Pack      brief.Pack
-	Alerts    config.Alerter
+	// BaseHead reads the remote head that each new checkout starts from.
+	// OriginBaseHead over Projects when nil.
+	BaseHead BaseHeadSource
+	Pack     brief.Pack
+	Alerts   config.Alerter
 	// Release is the loop release a run starts under. cli.Version when
 	// empty.
 	Release string
@@ -170,6 +173,9 @@ func New(cfg Config) (*Scheduler, error) {
 	if cfg.Checkouts == nil {
 		agents := cfg.Agents
 		cfg.Checkouts = func(string) CheckoutHost { return agents }
+	}
+	if cfg.BaseHead == nil {
+		cfg.BaseHead = OriginBaseHead(cfg.Projects)
 	}
 	if cfg.Release == "" {
 		cfg.Release = cli.Version

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/pack"
@@ -93,7 +95,9 @@ func fetchedSkills(instance string) fs.FS {
 //     source, and the reactor as the github-reactor native job; and the
 //     merge interface after it, with its hand-off as the
 //     merge-handoff native job; and the document pipeline with
-//     prd submit, epic decompose and work create.
+//     prd submit, epic decompose and work create;
+//   - with beads set, the overwatch part server's checks: the install drift
+//     check and the GitHub actor.
 //
 // A host config that names none of them serves only the verbs of the core
 // server. The returned cleanup stops what it started.
@@ -141,6 +145,15 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 			}
 			return gh.Service.RefReader(p.ID), branch, nil
 		}
+		// Each checkout starts at the base head the mirror reads with the
+		// app token. The host clone's own origin may need a person's
+		// credential.
+		opts.Sched.BaseHead = func(ctx context.Context, project, branch string) (string, error) {
+			if gh.Service == nil {
+				return "", errNoGitHub
+			}
+			return gh.Service.FetchBase(ctx, project, branch)
+		}
 	}
 
 	if cfg.Beads.BD == "" || cfg.Beads.Dolt == "" {
@@ -151,6 +164,12 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		return opts, cleanup, fmt.Errorf("beads: %w", err)
 	}
 	opts.Beads = resolver
+	// The overwatch part server reads the install drift check, then the
+	// GitHub doctor lines (ADR 0009).
+	opts.Setup = append(opts.Setup, func(s *server.Server) error {
+		s.SetOverwatchDoctor(installCheck(dir), gh)
+		return nil
+	})
 	cleanup = func() {
 		// SIGTERM first. A Dolt that has not exited when the bound ends
 		// gets SIGKILL, so serve always returns.
@@ -335,4 +354,50 @@ func realAgents(cfg *config.HostConfig, projects *config.Projects) (agenthost.Ho
 		return h
 	}
 	return host, checkouts, nil
+}
+
+// installCheck is the install drift line of `loop doctor` for the
+// instance, which the overwatch part server reads (ADR 0009). The server
+// process runs it: the check reads files only, so it needs no terminal and
+// no user service bus. A check that cannot run is a failed line.
+func installCheck(dir string) func(context.Context) github.CheckLine {
+	return func(ctx context.Context) github.CheckLine {
+		line := github.CheckLine{Check: "install"}
+		in, err := checkInstaller(ctx, dir)
+		var rep release.InstallReport
+		if err == nil {
+			rep, err = in.Check(ctx)
+		}
+		switch {
+		case err != nil:
+			line.Detail = fmt.Sprintf("the install check could not run: %v", err)
+		case len(rep.Drift) > 0:
+			line.Detail = "run loop install: " + strings.Join(rep.Drift, "; ")
+		default:
+			line.OK, line.Detail = true, "the service, binaries, host config, key file and credential match loop install"
+		}
+		return line
+	}
+}
+
+// checkInstaller is the installer of the instance, with only what Check
+// reads: the layout, the service, this release, its pins and its skills.
+func checkInstaller(ctx context.Context, dir string) (*release.Installer, error) {
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	svc, err := release.HostServiceManager(dir)
+	if err != nil {
+		return nil, err
+	}
+	meta, err := release.ThisRelease(ctx)
+	if err != nil {
+		return nil, err
+	}
+	pins, err := release.PinsFor(release.Pins(), runtime.GOOS+"/"+runtime.GOARCH)
+	if err != nil {
+		return nil, err
+	}
+	return &release.Installer{Layout: release.Layout{Dir: dir}, Service: svc, Meta: meta, Pins: pins, Skills: pack.ThirdPartyPins()}, nil
 }
