@@ -14,6 +14,7 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -484,8 +485,11 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 // first admissible item. Work in flight comes first: the implementer takes
 // an admissible ticket in repair before any ticket in todo, and a repair
 // ticket that admission would refuse never stops it from taking a todo
-// ticket. Within one state, it takes items in the order the machine lists
-// them.
+// ticket. Past that rank, the states of a stage queue as one: it takes the
+// item that entered its state first, whichever state that is, so the
+// doc-reviewer takes a spec review that waited longer than a PRD review
+// (parity 2.15). It never takes the item whose bead id sorts first (F-20).
+// waitOrder states the order, and how it breaks a tie.
 func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Candidate, *cli.Refusal) {
 	if a.items == nil {
 		return nil, cli.InternalRefusal(errors.New("admission: no machine attached"))
@@ -540,11 +544,27 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 	if len(states) == 0 {
 		return &Candidate{Project: project, Stage: stage}, nil
 	}
-	for _, s := range states {
-		items, ref := a.items.List(ctx, project, machine.ListFilter{Kind: s.kind, Status: s.status})
-		if ref != nil {
-			return nil, ref
+	for len(states) > 0 {
+		// One tier is the run of states that share a claim rank. Its items
+		// queue as one, so no state of the tier starves another.
+		n := 1
+		for n < len(states) && claimRank(states[n]) == claimRank(states[0]) {
+			n++
 		}
+		var items []machine.Item
+		for _, s := range states[:n] {
+			got, ref := a.items.List(ctx, project, machine.ListFilter{Kind: s.kind, Status: s.status})
+			if ref != nil {
+				return nil, ref
+			}
+			items = append(items, got...)
+		}
+		states = states[n:]
+		entered, err := a.enteredAt(ctx, project, items)
+		if err != nil {
+			return nil, cli.InternalRefusal(err)
+		}
+		waitOrder(items, entered)
 		for _, it := range items {
 			ok, err := a.admissible(ctx, stage, it)
 			if err != nil {
@@ -556,6 +576,70 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 		}
 	}
 	return nil, nil
+}
+
+// enteredAt returns, for each item whose history records its entry into
+// its current status, the time of that entry in Unix milliseconds. The entry
+// is the item's last transition that changed its status. When that
+// transition led elsewhere, something outside the machine moved the item,
+// and the history does not date its status.
+func (a *Admission) enteredAt(ctx context.Context, project string, items []machine.Item) (map[string]int64, error) {
+	out := map[string]int64{}
+	if len(items) < 2 {
+		return out, nil
+	}
+	status := make(map[string]string, len(items))
+	ids := make([]string, 0, len(items))
+	for _, it := range items {
+		status[it.ID] = it.Status
+		ids = append(ids, it.ID)
+	}
+	raw, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	err = a.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT t.item, t.to_status, t.at FROM transitions t
+			JOIN json_each(?) j ON j.value = t.item
+			WHERE t.project = ? AND t.from_status <> t.to_status
+			AND t.seq = (SELECT max(u.seq) FROM transitions u WHERE u.project = t.project AND u.item = t.item
+				AND u.from_status <> u.to_status)`, string(raw), project)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var (
+				item, to string
+				at       int64
+			)
+			if err := rows.Scan(&item, &to, &at); err != nil {
+				return err
+			}
+			if status[item] == to {
+				out[item] = at
+			}
+		}
+		return rows.Err()
+	})
+	return out, err
+}
+
+// waitOrder sorts the items of one claim tier so the item that has waited
+// in its state longest comes first. An item entered its state at the time entered holds
+// for it, or else at its last bead write. Two items that entered in the same
+// millisecond keep the order of their last bead writes, and then of their
+// bead ids, so the order is stable.
+func waitOrder(items []machine.Item, entered map[string]int64) {
+	since := func(it machine.Item) int64 {
+		if at, ok := entered[it.ID]; ok {
+			return at
+		}
+		return it.Updated.UnixMilli()
+	}
+	slices.SortStableFunc(items, func(x, y machine.Item) int {
+		return cmp.Or(cmp.Compare(since(x), since(y)), x.Updated.Compare(y.Updated), cmp.Compare(x.ID, y.ID))
+	})
 }
 
 // admissible reports whether Admit would take the item now, apart from the

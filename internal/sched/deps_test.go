@@ -2,8 +2,11 @@ package sched
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/machine"
@@ -87,9 +90,9 @@ func TestDependencyAdvance(t *testing.T) {
 			w.dependsOn(d, w.ticket(machine.Done), beadsx.DepBlocks)
 			w.dependsOn(d, w.ticket(machine.InProgress), beadsx.DepBlocks)
 		},
-		// A canceled blocker never landed. A person decides with
-		// `work unblock`.
-		"canceled blocker": func(w *world, d string) {
+		// With no reader of the open pull requests, no read proves that
+		// a canceled blocker holds no pull request, so it holds.
+		"canceled blocker with no pull reader": func(w *world, d string) {
 			w.dependsOn(d, w.ticket(machine.Canceled), beadsx.DepBlocks)
 		},
 		// decompose adds every edge before the create that puts a ticket
@@ -137,6 +140,125 @@ func TestDependencyAdvance(t *testing.T) {
 			t.Fatalf("dependent = %s, want backlog", got)
 		}
 	})
+}
+
+// pulls is a reader of the open pull requests that answers with heads,
+// or with err. It counts its reads.
+type pulls struct {
+	heads []admission.PullHead
+	err   error
+	reads int
+}
+
+func (p *pulls) OpenPulls(context.Context, string) ([]admission.PullHead, error) {
+	p.reads++
+	return p.heads, p.err
+}
+
+func (w *world) readPulls(p *pulls) {
+	w.t.Helper()
+	w.cfg.Pulls = p
+	w.rebuild()
+}
+
+// A canceled blocker has landed when it holds no open pull request, as
+// blocker-landed.ts in tickertown rules for every closed blocker. Its
+// dependant leaves backlog on the next tick.
+func TestDependencyAdvanceReleasesACanceledBlockerWithNoOpenPull(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	p := &pulls{heads: []admission.PullHead{{Number: 7, Branch: "loop/tk-other"}}}
+	w.readPulls(p)
+	d := w.ticket(machine.Backlog)
+	w.dependsOn(d, w.ticket(machine.Canceled), beadsx.DepBlocks)
+	w.dependsOn(d, w.ticket(machine.Done), beadsx.DepBlocks)
+	if err := w.s.advanceDependencies(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.status(d); got != machine.Todo {
+		t.Fatalf("dependent of a canceled blocker with no open pull request = %s, want todo", got)
+	}
+	if p.reads != 1 {
+		t.Fatalf("%d reads of the open pull requests, want 1", p.reads)
+	}
+}
+
+// One tick reads the open pull requests at most once, however many
+// dependants wait on a canceled blocker.
+func TestDependencyAdvanceReadsThePullsOnceATick(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	p := &pulls{}
+	w.readPulls(p)
+	d := w.ticket(machine.Backlog)
+	w.dependsOn(d, w.ticket(machine.Canceled), beadsx.DepBlocks)
+	e := w.ticket(machine.Backlog)
+	w.dependsOn(e, w.ticket(machine.Canceled), beadsx.DepBlocks)
+	if err := w.s.advanceDependencies(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 1 {
+		t.Fatalf("%d reads of the open pull requests for two dependants, want 1", p.reads)
+	}
+	if w.status(d) != machine.Todo || w.status(e) != machine.Todo {
+		t.Fatalf("dependents = %s, %s; want todo, todo", w.status(d), w.status(e))
+	}
+}
+
+// A canceled blocker that still holds an open pull request has not
+// landed: that pull request can still merge its code.
+func TestDependencyAdvanceHoldsACanceledBlockerWithAnOpenPull(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	blocker := w.ticket(machine.Canceled)
+	w.readPulls(&pulls{heads: []admission.PullHead{{Number: 41, Branch: "loop/" + blocker}}})
+	d := w.ticket(machine.Backlog)
+	w.dependsOn(d, blocker, beadsx.DepBlocks)
+	if err := w.s.advanceDependencies(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.status(d); got != machine.Backlog {
+		t.Fatalf("dependent of a canceled blocker with pull request #41 open = %s, want backlog", got)
+	}
+}
+
+// A failed read never reads as "no pull request". The canceled blocker
+// holds, and the tick reports the read, so the next tick tries again.
+func TestDependencyAdvanceHoldsACanceledBlockerWhenThePullReadFails(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	w.readPulls(&pulls{err: errors.New("github: 502")})
+	d := w.ticket(machine.Backlog)
+	w.dependsOn(d, w.ticket(machine.Canceled), beadsx.DepBlocks)
+	err := w.s.advanceDependencies(ctx, prj)
+	if err == nil || !strings.Contains(err.Error(), "github: 502") {
+		t.Fatalf("tick error = %v; want the failed read", err)
+	}
+	if got := w.status(d); got != machine.Backlog {
+		t.Fatalf("dependent after a failed read = %s, want backlog", got)
+	}
+}
+
+// Only a canceled blocker needs the read. A tick over done and open
+// blockers makes none.
+func TestDependencyAdvanceReadsNoPullsWithNoCanceledBlocker(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	p := &pulls{}
+	w.readPulls(p)
+	d := w.ticket(machine.Backlog)
+	w.dependsOn(d, w.ticket(machine.Done), beadsx.DepBlocks)
+	e := w.ticket(machine.Backlog)
+	w.dependsOn(e, w.ticket(machine.InProgress), beadsx.DepBlocks)
+	if err := w.s.advanceDependencies(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	if p.reads != 0 {
+		t.Fatalf("%d reads of the open pull requests, want 0", p.reads)
+	}
+	if w.status(d) != machine.Todo || w.status(e) != machine.Backlog {
+		t.Fatalf("dependents = %s, %s; want todo, backlog", w.status(d), w.status(e))
+	}
 }
 
 // A child's terminal write and its epic's complete write are two writes.

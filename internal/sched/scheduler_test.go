@@ -3,6 +3,7 @@ package sched
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -114,6 +115,62 @@ func TestMissedDeadlineFiresOnceAfterRestart(t *testing.T) {
 	w.tick()
 	if c.get(prj) != 1 {
 		t.Fatalf("twelve missed deadlines fired %d times, want once", c.get(prj))
+	}
+}
+
+// C2: a host config that v0.0.22 wrote holds no overwatch entry. The
+// scheduler ticks the overwatch row on the default schedule, and the file
+// stays as it was.
+func TestC2OldHostConfigTicksOverwatchOnTheDefault(t *testing.T) {
+	w := newWorld(t)
+	fixture, err := os.ReadFile(filepath.Join("..", "config", "testdata", "host-v0.0.22.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(w.hostPath, fixture, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	n := 0
+	if err := w.s.RegisterInstanceJob("overwatch", func(context.Context) error {
+		mu.Lock()
+		defer mu.Unlock()
+		n++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calls := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return n
+	}
+	for _, c := range []struct {
+		at   string
+		want int
+	}{
+		{"2026-10-21T10:00:30Z", 0}, // the first sight sets the deadline after now
+		{"2026-10-21T10:03:30Z", 1},
+		{"2026-10-21T10:10:30Z", 1},
+		{"2026-10-21T10:13:30Z", 2},
+		{"2026-10-21T10:53:30Z", 3},
+	} {
+		w.clock.Set(at(t, c.at))
+		w.tick()
+		if got := calls(); got != c.want {
+			t.Fatalf("at %s overwatch ran %d times, want %d", c.at, got, c.want)
+		}
+	}
+	if got := w.count(`SELECT count(*) FROM schedule WHERE kind = 'cron' AND project = '' AND stage = 'overwatch' AND cron_expr = ?`,
+		"3,13,23,33,43,53 * * * *"); got != 1 {
+		t.Fatalf("%d overwatch rows on the default schedule, want 1", got)
+	}
+	after, err := os.ReadFile(w.hostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(fixture) {
+		t.Fatalf("the scheduler changed host config:\n%s", after)
 	}
 }
 
@@ -575,5 +632,170 @@ func TestBriefCarriesTheEditedBody(t *testing.T) {
 	var b brief.Brief
 	if err := json.Unmarshal(raw, &b); err != nil || b.Item == nil || b.Item.Body != "The edited body." {
 		t.Fatalf("brief = %s", raw)
+	}
+}
+
+// A crashed attempt's uncommitted work stays in its kept checkout. The
+// next attempt's brief names that checkout and each dirty file in it, so
+// the run can carry the work over. A kept checkout with nothing dirty,
+// and one of another item, go unnamed.
+func TestBriefNamesTheKeptCheckoutOfACrashedAttempt(t *testing.T) {
+	w := newWorld(t)
+	w.ticket(machine.Todo)
+	w.ticket(machine.Todo)
+	dirty := w.dispatch(machine.StageImplementer)
+	clean := w.dispatch(machine.StageImplementer)
+	if err := os.WriteFile(filepath.Join(dirty.Checkout, "README.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dirty.Checkout, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dirty.Checkout, "pkg", "work.go"), []byte("package pkg\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w.host.Exit(dirty.Session.ID, 1)
+	w.host.Exit(clean.Session.ID, 1)
+	w.tick()
+	briefs := map[string]brief.Brief{}
+	mds := map[string]string{}
+	for range 2 {
+		st := w.dispatch(machine.StageImplementer)
+		raw, err := os.ReadFile(filepath.Join(st.Checkout, brief.BriefJSON))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b brief.Brief
+		if err := json.Unmarshal(raw, &b); err != nil {
+			t.Fatal(err)
+		}
+		md, err := os.ReadFile(filepath.Join(st.Checkout, brief.BriefMD))
+		if err != nil {
+			t.Fatal(err)
+		}
+		briefs[st.Item], mds[st.Item] = b, string(md)
+	}
+	want := []brief.KeptCheckout{{RunID: dirty.RunID, Path: dirty.Checkout, Dirty: []string{"README.md", "pkg/work.go"}}}
+	got := briefs[dirty.Item].KeptCheckouts
+	if !slices.EqualFunc(got, want, func(a, b brief.KeptCheckout) bool {
+		return a.RunID == b.RunID && a.Path == b.Path && slices.Equal(a.Dirty, b.Dirty)
+	}) {
+		t.Fatalf("kept checkouts = %+v, want %+v", got, want)
+	}
+	for _, s := range []string{dirty.Checkout, dirty.RunID, "`README.md`", "`pkg/work.go`"} {
+		if !strings.Contains(mds[dirty.Item], s) {
+			t.Fatalf("brief.md lacks %q:\n%s", s, mds[dirty.Item])
+		}
+	}
+	if got := briefs[clean.Item].KeptCheckouts; len(got) != 0 || strings.Contains(mds[clean.Item], dirty.Checkout) {
+		t.Fatalf("the clean item's brief names a kept checkout: %+v\n%s", got, mds[clean.Item])
+	}
+}
+
+// dirtyPaths names a modified, a deleted, a renamed and an untracked
+// path, each once, and nothing in a clean checkout.
+func TestDirtyPathsNamesEachChangedPathOnce(t *testing.T) {
+	_, repo := makeProjectRepo(t, t.TempDir())
+	if got, err := dirtyPaths(context.Background(), repo); err != nil || len(got) != 0 {
+		t.Fatalf("clean checkout: %v, %v", got, err)
+	}
+	gitIn(t, repo, "mv", "README.md", "READ ME.md")
+	gitIn(t, repo, "rm", "-q", ".loop/secrets.yaml")
+	if err := os.WriteFile(filepath.Join(repo, ".loop", "config.yaml"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dirtyPaths(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got)
+	want := []string{".loop/config.yaml", ".loop/secrets.yaml", "READ ME.md", "new.txt"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("dirty = %q, want %q", got, want)
+	}
+}
+
+// A rename that git status names in the worktree column, as for a moved
+// file added with intent to add, names its new path once, and not a
+// piece of the path it came from.
+func TestDirtyPathsReadsAWorktreeRename(t *testing.T) {
+	_, repo := makeProjectRepo(t, t.TempDir())
+	if err := os.Rename(filepath.Join(repo, "README.md"), filepath.Join(repo, "NOTES.md")); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repo, "add", "-N", "NOTES.md")
+	got, err := dirtyPaths(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"NOTES.md"}; !slices.Equal(got, want) {
+		t.Fatalf("dirty = %q, want %q", got, want)
+	}
+}
+
+// A kept checkout with more dirty files than a brief names lists the
+// first MaxDirty of them, and counts the rest.
+func TestBriefCapsTheDirtyFilesOfAKeptCheckout(t *testing.T) {
+	w := newWorld(t)
+	w.ticket(machine.Todo)
+	crashed := w.dispatch(machine.StageImplementer)
+	for i := range brief.MaxDirty + 3 {
+		if err := os.WriteFile(filepath.Join(crashed.Checkout, fmt.Sprintf("f%03d.txt", i)), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.host.Exit(crashed.Session.ID, 1)
+	w.tick()
+	st := w.dispatch(machine.StageImplementer)
+	raw, err := os.ReadFile(filepath.Join(st.Checkout, brief.BriefJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b brief.Brief
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.KeptCheckouts) != 1 {
+		t.Fatalf("kept checkouts = %+v", b.KeptCheckouts)
+	}
+	if k := b.KeptCheckouts[0]; len(k.Dirty) != brief.MaxDirty || k.More != 3 {
+		t.Fatalf("dirty = %d files, more = %d, want %d and 3", len(k.Dirty), k.More, brief.MaxDirty)
+	}
+}
+
+// One fire of a run stage admits runs until the stage's cap is full or no
+// candidate is left. Tickertown runs four implementer rows, each with its
+// own window of runs, so 16 starts an hour reach its cap of 8
+// (scripts/sdlc/timer-implementer-rows.ts, alpha). A fire that starts one
+// run holds the loop to one start a tick, shared by new and repair work.
+func TestOneFireFillsTheStagesFreeCap(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(map[string]int{"implementer": 8}, map[string]string{"implementer": "0 * * * *"})
+	w.rebuild()
+	var ids []string
+	for range 9 {
+		ids = append(ids, w.ticket(machine.Todo))
+	}
+	w.clock.Set(at(t, "2026-10-21T10:00:30Z"))
+	w.tick() // the first sight sets the deadline after now
+	w.clock.Set(at(t, "2026-10-21T11:00:30Z"))
+	w.tick()
+	if n := len(w.host.Launches()); n != 8 {
+		t.Fatalf("one fire with 9 todo tickets and cap 8 started %d runs, want 8", n)
+	}
+	todo := 0
+	for _, id := range ids {
+		if w.status(id) == machine.Todo {
+			todo++
+		}
+	}
+	if todo != 1 {
+		t.Fatalf("%d tickets still todo, want 1", todo)
+	}
+	if n := w.count(`SELECT count(*) FROM runs WHERE ended_at IS NULL`); n != 8 {
+		t.Fatalf("%d live runs, want 8", n)
 	}
 }

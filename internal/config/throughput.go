@@ -40,7 +40,13 @@ var (
 		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StageSpecAuthor,
 		StageDecomposer, StageFixer, StageReproducer, StageIntake,
 	}
-	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor"}
+	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch"}
+	// optional lists the keys that a later release added. A host config
+	// that an older release wrote holds no entry for them, so a missing
+	// entry reads as its default and is never written to the file
+	// (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Decisions). Every
+	// other key stays required.
+	optional = []string{"overwatch"}
 	// pools bound several stages together. The reviewers pool is today's
 	// REVIEW_CAP over every reviewer stage (scripts/sdlc/review-cap.ts,
 	// alpha), next to each stage's own cap.
@@ -58,8 +64,9 @@ func RunStages() []string { return slices.Clone(runStages) }
 // NativeJobs lists every stage the server runs itself (R24).
 func NativeJobs() []string { return slices.Clone(nativeJobs) }
 
-// ThroughputKeys lists every key the throughput map must hold: each run
-// stage, each native job and each pool.
+// ThroughputKeys lists every key of the throughput map: each run stage,
+// each native job and each pool. The map must hold each one except an
+// optional key, which ThroughputFor reads as its default.
 func ThroughputKeys() []string {
 	out := append(RunStages(), nativeJobs...)
 	for _, p := range pools {
@@ -77,9 +84,10 @@ func isPool(key string) bool {
 // current loop capped no other stage, so each other cap is a starting
 // value for the operator to tune. The schedules follow the current timer
 // table (scripts/sdlc/timer-table.ts MAIN_CRONS, alpha). The implementer
-// holds the minutes of all three implementer rows there, because one tick
-// starts at most one run of a stage. internal/sched/cadence_test.go holds
-// why.
+// holds the minutes of all three implementer rows there, so a reject waits
+// at most one reviewer cycle for it. internal/sched/cadence_test.go holds
+// why. Each firing fills the stage's free cap, so the schedule bounds the
+// wait and not how many runs start.
 func DefaultThroughput() map[string]Throughput {
 	every5 := "*/5 * * * *"
 	return map[string]Throughput{
@@ -97,7 +105,28 @@ func DefaultThroughput() map[string]Throughput {
 		"dependency-advance": {Cap: 1, Schedule: every5},
 		"decision-timers":    {Cap: 1, Schedule: "* * * * *"},
 		"github-reactor":     {Cap: 1, Schedule: "* * * * *"},
+		"overwatch":          {Cap: 1, Schedule: "3,13,23,33,43,53 * * * *"},
 	}
+}
+
+// ThroughputFor returns a stage's, job's or pool's entry. A native job that a
+// later release added, which the host config does not hold, returns its
+// DefaultThroughput entry. The returned value is never written into c.
+func (c *HostConfig) ThroughputFor(name string) Throughput {
+	e, _ := c.throughput(name)
+	return e
+}
+
+// throughput returns name's entry, and whether the file holds it or name is
+// an optional key that reads as its default.
+func (c *HostConfig) throughput(name string) (Throughput, bool) {
+	if e, ok := c.Throughput[name]; ok {
+		return e, true
+	}
+	if slices.Contains(optional, name) {
+		return DefaultThroughput()[name], true
+	}
+	return Throughput{}, false
 }
 
 // DefaultHost is the host config a first start writes when none exists.
@@ -110,6 +139,8 @@ func (c *HostConfig) validateThroughput(ck *checker) {
 		e, ok := c.Throughput[key]
 		f := "throughput." + key
 		switch {
+		case !ok && slices.Contains(optional, key):
+			continue
 		case !ok:
 			ck.fail(f, "is missing; every stage, native job and pool needs an entry")
 			continue
@@ -189,14 +220,14 @@ func (c *HostConfig) Limits(stage string) []Limit {
 	if j, ok := c.AgentJob(stage); ok {
 		return []Limit{{Name: stage, Cap: j.Cap, Stages: []string{stage}}}
 	}
-	e, ok := c.Throughput[stage]
+	e, ok := c.throughput(stage)
 	if !ok || isPool(stage) {
 		return nil
 	}
 	out := []Limit{{Name: stage, Cap: e.Cap, Stages: []string{stage}}}
 	for _, p := range pools {
 		if slices.Contains(p.stages, stage) {
-			out = append(out, Limit{Name: p.name, Cap: c.Throughput[p.name].Cap, Stages: slices.Clone(p.stages)})
+			out = append(out, Limit{Name: p.name, Cap: c.ThroughputFor(p.name).Cap, Stages: slices.Clone(p.stages)})
 		}
 	}
 	return out

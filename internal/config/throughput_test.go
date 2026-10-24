@@ -219,3 +219,96 @@ func TestAgentJobRefusals(t *testing.T) {
 		})
 	}
 }
+
+// C1: overwatch is a native job with an entry, cap 1, on the minutes 3, 13,
+// 23, 33, 43 and 53 (ADR 0009, A1).
+func TestC1OverwatchEntryExists(t *testing.T) {
+	if !slices.Contains(ThroughputKeys(), "overwatch") {
+		t.Fatalf("ThroughputKeys lacks overwatch: %v", ThroughputKeys())
+	}
+	if !slices.Contains(NativeJobs(), "overwatch") {
+		t.Fatalf("NativeJobs lacks overwatch: %v", NativeJobs())
+	}
+	want := Throughput{Cap: 1, Schedule: "3,13,23,33,43,53 * * * *"}
+	if got := DefaultThroughput()["overwatch"]; got != want {
+		t.Fatalf("DefaultThroughput()[overwatch] = %+v, want %+v", got, want)
+	}
+}
+
+// C2: a host config that v0.0.22 wrote holds no overwatch entry. It loads,
+// ThroughputFor reads the default without writing it, and a save writes no
+// overwatch key.
+func TestC2OldHostConfigLoadsAndStaysAsItWas(t *testing.T) {
+	cfg, err := LoadHost(filepath.Join("testdata", "host-v0.0.22.yaml"))
+	if err != nil {
+		t.Fatalf("the v0.0.22 host config does not load: %v", err)
+	}
+	want := Throughput{Cap: 1, Schedule: "3,13,23,33,43,53 * * * *"}
+	if got := cfg.ThroughputFor("overwatch"); got != want {
+		t.Fatalf("ThroughputFor(overwatch) = %+v, want %+v", got, want)
+	}
+	if _, ok := cfg.Throughput["overwatch"]; ok {
+		t.Fatal("ThroughputFor wrote the overwatch entry into the config")
+	}
+	if ls := cfg.Limits("overwatch"); len(ls) != 1 || ls[0].Cap != 1 {
+		t.Fatalf("Limits(overwatch) = %+v, want the default cap 1", ls)
+	}
+	if _, ok := cfg.Throughput["overwatch"]; ok {
+		t.Fatal("Limits wrote the overwatch entry into the config")
+	}
+	if got := cfg.ThroughputFor("implementer"); got != (Throughput{Cap: 8, Schedule: "3,18,33,48 * * * *"}) {
+		t.Fatalf("ThroughputFor(implementer) = %+v, want the file's entry", got)
+	}
+	path := filepath.Join(t.TempDir(), HostConfigFile)
+	if err := SaveHost(path, cfg); err != nil {
+		t.Fatalf("SaveHost: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "overwatch") {
+		t.Fatalf("SaveHost wrote an overwatch key:\n%s", data)
+	}
+	if _, err := LoadHost(path); err != nil {
+		t.Fatalf("the saved config does not load: %v", err)
+	}
+}
+
+// C2: a present overwatch entry is checked as every other entry is, and
+// every entry v0.0.22 requires stays required.
+func TestC2OverwatchEntryRefusals(t *testing.T) {
+	cases := map[string]struct{ doc, names string }{
+		"zero cap": {
+			strings.Replace(validHost, "throughput:\n", "throughput:\n  overwatch: {cap: 0, schedule: \"3,13,23,33,43,53 * * * *\"}\n", 1),
+			"throughput.overwatch.cap",
+		},
+		"empty schedule": {
+			strings.Replace(validHost, "throughput:\n", "throughput:\n  overwatch: {cap: 1, schedule: \"\"}\n", 1),
+			"throughput.overwatch.schedule",
+		},
+		"no merge-handoff": {
+			strings.Replace(validHost, "  merge-handoff: {cap: 1, schedule: \"*/5 * * * *\"}\n", "", 1),
+			"throughput.merge-handoff",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if c.doc == validHost {
+				t.Fatal("the edit changed nothing")
+			}
+			_, err := ParseHost([]byte(c.doc))
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("err = %v, want a refusal that names %s", err, c.names)
+			}
+		})
+	}
+	good := strings.Replace(validHost, "throughput:\n", "throughput:\n  overwatch: {cap: 2, schedule: \"*/10 * * * *\"}\n", 1)
+	cfg, err := ParseHost([]byte(good))
+	if err != nil {
+		t.Fatalf("a valid overwatch entry does not load: %v", err)
+	}
+	if got := cfg.ThroughputFor("overwatch"); got != (Throughput{Cap: 2, Schedule: "*/10 * * * *"}) {
+		t.Fatalf("ThroughputFor(overwatch) = %+v, want the file's entry", got)
+	}
+}

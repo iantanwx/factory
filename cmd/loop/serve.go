@@ -200,8 +200,8 @@ func (l lazyBase) Files(ctx context.Context, project string, prefixes []string) 
 	return l.gh.Service.Files(ctx, project, prefixes)
 }
 
-// lazyPulls is admission's reader of open pull requests over the GitHub
-// service, for the `## Depends on` hold.
+// lazyPulls is the reader of open pull requests over the GitHub service,
+// for admission's `## Depends on` hold and for dependency-advance.
 type lazyPulls struct{ gh *server.GitHub }
 
 func (l lazyPulls) OpenPulls(ctx context.Context, project string) ([]admission.PullHead, error) {

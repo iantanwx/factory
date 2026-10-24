@@ -260,6 +260,7 @@ func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *conf
 		b.Handoff = []string{n}
 	}
 	b.PriorFailures = s.priorFailures(ctx, ad)
+	b.KeptCheckouts = s.keptWork(ctx, ad)
 	return b
 }
 
