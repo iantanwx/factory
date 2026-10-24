@@ -251,7 +251,7 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		return fmt.Errorf("sched: the coordinator's base branch: %w", err)
 	}
 	if cs.Checkout == "" {
-		spec, err := BaseCheckout(ctx, s.cfg.BaseHead, cc.Project, coordinatorCheckout)
+		spec, err := BaseCheckout(ctx, s.cfg.BaseHead, cc.Project, base, coordinatorCheckout)
 		if err != nil {
 			return err
 		}

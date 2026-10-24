@@ -370,18 +370,14 @@ func (s *Service) Sync(ctx context.Context, p config.Project, item, branch strin
 	return res, nil
 }
 
-// FetchBase reads the head the remote holds for the project's base branch
-// into the mirror with the token, and copies that commit into the
+// FetchBase reads the head the remote holds for base, the project's base
+// branch, into the mirror with the token, and copies that commit into the
 // project's clone as refs/remotes/origin/<base>. It returns the head. A
 // new checkout starts from it, never from the clone's local branch, which
 // only a person moves (C-bug-1). The clone's local branches stay as they
 // were.
-func (s *Service) FetchBase(ctx context.Context, project string) (string, error) {
+func (s *Service) FetchBase(ctx context.Context, project, base string) (string, error) {
 	p, err := s.project(project)
-	if err != nil {
-		return "", err
-	}
-	base, err := s.DefaultBranch(ctx, p)
 	if err != nil {
 		return "", err
 	}

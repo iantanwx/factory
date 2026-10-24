@@ -461,7 +461,7 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 		return fail(cli.CodeInternal, err)
 	}
 	if r.Checkout == "" {
-		spec, err := sched.BaseCheckout(ctx, s.cfg.BaseHead, r.Project, "loop-"+r.ID)
+		spec, err := sched.BaseCheckout(ctx, s.cfg.BaseHead, r.Project, snap.BaseBranch(), "loop-"+r.ID)
 		if err != nil {
 			return fail(cli.CodeInternal, fmt.Errorf("room: %w", err))
 		}

@@ -129,7 +129,7 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		}
 		return nil, ref
 	}
-	spec, err := BaseCheckout(ctx, s.cfg.BaseHead, ad.Project, checkoutName(ad))
+	spec, err := BaseCheckout(ctx, s.cfg.BaseHead, ad.Project, snap.BaseBranch(), checkoutName(ad))
 	if err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}

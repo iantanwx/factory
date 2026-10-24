@@ -25,7 +25,7 @@ func TestFetchBaseBringsTheRemoteBaseHeadIntoTheClone(t *testing.T) {
 		t.Fatal("the remote base did not move")
 	}
 
-	got, err := e.svc.FetchBase(context.Background(), testProject)
+	got, err := e.svc.FetchBase(context.Background(), testProject, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,5 +40,31 @@ func TestFetchBaseBringsTheRemoteBaseHeadIntoTheClone(t *testing.T) {
 	}
 	if m := gt.Git(t, e.checkout, "rev-parse", "main"); m != stale {
 		t.Fatalf("the clone's local main moved to %s, want %s", m, stale)
+	}
+}
+
+// FetchBase reads the base branch it is given, so a project whose base is
+// not main starts each checkout at that branch's remote head.
+func TestFetchBaseReadsTheGivenBranch(t *testing.T) {
+	e := newEnv(t)
+	main := gt.Git(t, e.checkout, "rev-parse", "main")
+
+	other := filepath.Join(t.TempDir(), "other")
+	gt.Git(t, filepath.Dir(other), "clone", "-q", e.git.RemoteDir(), other)
+	trunk := commit(t, other, "trunk", map[string]string{"trunk.txt": "trunk\n"})
+	gt.Git(t, other, "push", "-q", "origin", "HEAD:refs/heads/trunk")
+	if trunk == main {
+		t.Fatal("trunk is main")
+	}
+
+	got, err := e.svc.FetchBase(context.Background(), testProject, "trunk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != trunk {
+		t.Fatalf("FetchBase(trunk) = %s, want the head of trunk %s", got, trunk)
+	}
+	if o := gt.Git(t, e.checkout, "rev-parse", "refs/remotes/origin/trunk"); o != trunk {
+		t.Fatalf("origin/trunk in the clone = %s, want %s", o, trunk)
 	}
 }

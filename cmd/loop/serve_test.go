@@ -102,7 +102,7 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if opts.Sched.BaseHead == nil {
 		t.Fatal("the base head source is not wired")
 	}
-	if _, err := opts.Sched.BaseHead(context.Background(), "alpha"); !errors.Is(err, errNoGitHub) {
+	if _, err := opts.Sched.BaseHead(context.Background(), "alpha", "main"); !errors.Is(err, errNoGitHub) {
 		t.Fatalf("a base head read before setup = %v", err)
 	}
 	if opts.Sched.Pack.FS == nil || opts.Sched.Pack.Version == "" {
