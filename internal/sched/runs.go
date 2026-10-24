@@ -28,6 +28,18 @@ type hostRecord struct {
 	UnknownSince int64 `json:"unknown_since,omitempty"`
 	// ClosedAt is when the server closed the ended session.
 	ClosedAt int64 `json:"closed_at,omitempty"`
+	// Resume counts the nudges the server sent a session idle on a
+	// transient model API error (resume.go).
+	Resume *resumeRecord `json:"resume,omitempty"`
+}
+
+// resumeRecord is the resume state of one outage as the session saw it.
+type resumeRecord struct {
+	// First is the APIError.First of the outage, in unix milliseconds. An
+	// error with another First is a new outage, and its nudges start over.
+	First int64 `json:"first"`
+	// Nudges are the times of each nudge sent, in unix milliseconds.
+	Nudges []int64 `json:"nudges,omitempty"`
 }
 
 func (r hostRecord) encode() string {

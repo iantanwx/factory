@@ -524,6 +524,110 @@ func TestIdleAtPromptSettlesAfterTheQuietPeriod(t *testing.T) {
 	}
 }
 
+// gateway503 is the error every agent saw in F-29.
+var gateway503 = agenthost.APIError{Message: "API Error: 503 All accounts are temporarily unavailable", Status: 503}
+
+// resumeNudges reads the nudge times the run record holds.
+func (w *world) resumeNudges(run string) int {
+	w.t.Helper()
+	var rec struct {
+		Resume *struct {
+			Nudges []int64 `json:"nudges"`
+		} `json:"resume"`
+	}
+	if err := json.Unmarshal([]byte(w.str(`SELECT host_identity FROM runs WHERE run_id = ?`, run)), &rec); err != nil {
+		w.t.Fatal(err)
+	}
+	if rec.Resume == nil {
+		return 0
+	}
+	return len(rec.Resume.Nudges)
+}
+
+// C-bug-1: an agent that worked and then ended its turn on a transient
+// 503 gets a resume nudge through Notify one minute on, far inside the run
+// budget. The run record counts the nudge. The agent then works, and the
+// run keeps its lease past the quiet period.
+func TestTransientAPIErrorResumesTheRun(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.clock.Advance(10 * time.Minute)
+	w.host.FailTurn(st.Session.ID, gateway503)
+	w.clock.Advance(59 * time.Second)
+	w.tick()
+	if notes := w.host.Notifications(st.Session.ID); len(notes) != 0 {
+		t.Fatalf("nudged %d times before the first backoff step", len(notes))
+	}
+	w.clock.Advance(time.Second)
+	w.tick()
+	want := "Your last turn ended on a transient model API error. Continue the run from where you stopped."
+	if notes := w.host.Notifications(st.Session.ID); !slices.Equal(notes, []string{want}) {
+		t.Fatalf("notifications = %q; want one resume nudge", notes)
+	}
+	if n := w.resumeNudges(st.RunID); n != 1 {
+		t.Fatalf("the run record holds %d nudges, want 1", n)
+	}
+	w.tick()
+	if notes := w.host.Notifications(st.Session.ID); len(notes) != 1 {
+		t.Fatalf("notifications = %q; the next tick nudged again", notes)
+	}
+	w.host.Work(st.Session.ID)
+	w.clock.Advance(40 * time.Minute)
+	w.tick()
+	if s, class := w.runState(st.RunID); s != "running" || class != "" {
+		t.Fatalf("run state = %s, class %q; want running", s, class)
+	}
+	if w.lease(id).Owner != st.RunID {
+		t.Fatal("the resumed run lost its lease")
+	}
+	if notes := w.host.Notifications(st.Session.ID); len(notes) != 1 {
+		t.Fatalf("notifications = %q; a working agent was nudged", notes)
+	}
+}
+
+// C-bug-1: an agent that stays on the 503 through every retry gets one
+// nudge for each backoff step: 1, 5, 15 and 30 minutes. When it is still
+// idle at its prompt on the error a quiet period after the last retry, the
+// run settles, its session closes, its lease ends and its slot frees.
+func TestTransientAPIErrorSettlesWhenRetriesRunOut(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.host.FailTurn(st.Session.ID, gateway503)
+	for i, step := range []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute} {
+		w.clock.Advance(step)
+		w.tick()
+		if notes := w.host.Notifications(st.Session.ID); len(notes) != i+1 {
+			t.Fatalf("after step %d (%s): %d nudges", i+1, step, len(notes))
+		}
+		if n := w.resumeNudges(st.RunID); n != i+1 {
+			t.Fatalf("after step %d: the run record holds %d nudges", i+1, n)
+		}
+		// The resumed turn fails on the same outage.
+		w.host.FailTurn(st.Session.ID, gateway503)
+	}
+	w.clock.Advance(29 * time.Minute)
+	w.tick()
+	if s, _ := w.runState(st.RunID); s != "running" {
+		t.Fatalf("state 29 minutes after the last retry = %s", s)
+	}
+	w.clock.Advance(2 * time.Minute)
+	w.tick()
+	if _, class := w.runState(st.RunID); class != "crashed" {
+		t.Fatalf("class = %q; want the run settled", class)
+	}
+	if notes := w.host.Notifications(st.Session.ID); len(notes) != 4 {
+		t.Fatalf("%d nudges; want one for each of the 4 backoff steps", len(notes))
+	}
+	if inv, _ := w.host.Inventory(context.Background()); len(inv.Rows) != 0 || !exists(st.Checkout) {
+		t.Fatal("the session stays open, or the checkout is gone")
+	}
+	if w.count(`SELECT count(*) FROM runs WHERE ended_at IS NULL`) != 0 || w.status(id) != machine.Todo || w.lease(id).Owner != "" {
+		t.Fatal("the slot or the lease is held")
+	}
+}
+
 // A live run past its run budget raises one coordinator-owned alert and
 // keeps running.
 func TestRunPastBudgetAlertsAndKeepsRunning(t *testing.T) {

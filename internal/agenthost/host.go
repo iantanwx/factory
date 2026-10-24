@@ -329,6 +329,10 @@ const (
 	// EndLimit: the agent wrote only a usage limit and no work of its own.
 	// The session ends at once, with no quiet period.
 	EndLimit EndCause = "limit"
+	// EndAPIError: the last turn ended on a transient model API error, and
+	// the checkout stayed quiet for the quiet period. The server resumes
+	// such a session before it settles it (F-29).
+	EndAPIError EndCause = "api_error"
 )
 
 // Limit is the usage limit a session's agent wrote when it did no work.
@@ -341,6 +345,23 @@ type Limit struct {
 	ResetAt time.Time `json:"reset_at,omitzero"`
 }
 
+// APIError is the transient model API error a session's last turn ended
+// on: a 5xx status, 529, or a server-owned error type such as
+// overloaded_error. The harness does not retry it after the turn ended, so
+// the session idles at its prompt until something types into it.
+type APIError struct {
+	// Message is the text the agent wrote, as the harness wrote it.
+	Message string `json:"message"`
+	// Status is the HTTP status, or zero when the record states none.
+	Status int `json:"status,omitempty"`
+	// At is when the agent wrote the newest error.
+	At time.Time `json:"at,omitzero"`
+	// First is when the agent wrote the first error after its last work.
+	// A resume that fails again keeps it, so it names one outage as the
+	// session saw it.
+	First time.Time `json:"first,omitzero"`
+}
+
 // EndReport answers whether a session ended (KTD8).
 type EndReport struct {
 	Ended bool     `json:"ended"`
@@ -351,6 +372,9 @@ type EndReport struct {
 	Reason string `json:"reason"`
 	// Limit is set when the cause is EndLimit.
 	Limit *Limit `json:"limit,omitempty"`
+	// APIError is set when the last turn ended on a transient model API
+	// error, whether or not the quiet period has passed.
+	APIError *APIError `json:"api_error,omitempty"`
 	// Settlement is the liveness read the answer rests on, when the host
 	// made one, so the caller need not read it again. A failed read is
 	// Unknown.
