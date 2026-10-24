@@ -271,5 +271,5 @@ the settings as "stages, caps, schedules, merge", and none of these is one of th
   spec-author escalates it. Blocks: A8 and A9.
 - Does US-03 keep a story? Its requirements hold today. One new promise the code shows is a
   refusal of a job name under `stages` that names no job. Today the server accepts such a name,
-  and it does nothing. The operator keeps US-03 with that promise, or drops it, at sign-off. It blocks no
-  criterion, because A6 holds either way.
+  and it does nothing. The operator keeps US-03 with that promise, or drops it, at sign-off. It
+  blocks no criterion, because A6 holds either way.
