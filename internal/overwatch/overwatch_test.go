@@ -161,7 +161,7 @@ func TestPartNamesHoldTheFifteenInTheSpecOrder(t *testing.T) {
 	seen := map[string]bool{}
 	for _, p := range Parts() {
 		if !slices.Contains(PartNames, p.Name) || seen[p.Name] {
-			t.Fatalf("Parts() holds %q, which is not in PartNames or comes twice", p.Name)
+			t.Fatalf("Parts() holds %q outside PartNames, or twice", p.Name)
 		}
 		seen[p.Name] = true
 	}

@@ -56,7 +56,8 @@ note it, and finish `failed`.
 
 ## 4. Prove each contract
 
-For each contract, the test names the contract, and the test fails at the merge base.
+For each contract, the test names the contract, and the test fails at the merge base. Judge what
+each test asserts by `../loop-test-behavior-not-implementation/SKILL.md`.
 
 1. Run `loop review proof --test <files> --base <base ref> --run "<command>"`. Put commas between
    the test files. Add `--bring <files>` for the fixtures they need. Take the command from the
@@ -100,6 +101,8 @@ merge base, and the new text at the head. Record both. The same result at both c
    when a narrower change would prove the contract.
 4. A rejection path that the item promised and the code does not build.
 5. A rule of the project policy that the change breaks.
+6. A rule of `../loop-boundaries/SKILL.md`, `../loop-least-code/SKILL.md` or
+   `../loop-reader-load/SKILL.md` that the change breaks.
 
 ## 6. Write the comment
 

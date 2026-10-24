@@ -61,11 +61,17 @@ func (h *Host) ended(s agenthost.Session, st agenthost.Settlement) (agenthost.En
 			return agenthost.EndReport{Ended: true, Cause: agenthost.EndLimit, Since: since, Limit: lim, Reason: limitReason(lim)}, nil
 		}
 	}
-	var since time.Time
+	// The API error that counts is the one of the transcript whose last
+	// turn ended last: a newer session that ended cleanly answers it.
+	var since, last time.Time
+	var api finish
 	for _, t := range ts {
 		f := finished(s.Harness, t.text, s.Checkout)
 		if !f.finished {
 			return agenthost.EndReport{Reason: filepath.Base(t.path) + ": " + f.reason}, nil
+		}
+		if !f.since.Before(last) {
+			last, api = f.since, f
 		}
 		since = latest(since, f.since, t.childNewest)
 	}
@@ -74,8 +80,18 @@ func (h *Host) ended(s agenthost.Session, st agenthost.Settlement) (agenthost.En
 	}
 	idle := now.Sub(since)
 	if idle < h.cfg.QuietPeriod {
-		return agenthost.EndReport{Reason: fmt.Sprintf("its last turn ended %s ago, and the quiet period is %s",
-			idle.Round(time.Second), h.cfg.QuietPeriod)}, nil
+		ended := "its last turn ended"
+		if api.apiErr != nil {
+			ended += " on " + api.apiWhy
+		}
+		return agenthost.EndReport{APIError: api.apiErr, Reason: fmt.Sprintf("%s %s ago, and the quiet period is %s",
+			ended, idle.Round(time.Second), h.cfg.QuietPeriod)}, nil
+	}
+	if api.apiErr != nil {
+		return agenthost.EndReport{
+			Ended: true, Cause: agenthost.EndAPIError, Since: since, APIError: api.apiErr,
+			Reason: fmt.Sprintf("its last turn ended on %s, and it stayed quiet for %s", api.apiWhy, idle.Round(time.Second)),
+		}, nil
 	}
 	return agenthost.EndReport{
 		Ended: true, Cause: agenthost.EndQuiet, Since: since,
@@ -265,6 +281,10 @@ type finish struct {
 	finished bool
 	since    time.Time
 	reason   string
+	// apiErr is the transient API error a finished Claude turn ended on,
+	// and apiWhy names it for a reason.
+	apiErr *agenthost.APIError
+	apiWhy string
 }
 
 func finished(h agenthost.Harness, text []byte, dir string) finish {
@@ -294,6 +314,7 @@ type claudeScan struct {
 	newest        time.Time
 	last          map[string]any
 	lastAssistant map[string]any
+	apiFirst      time.Time
 	started       []string
 	notified      map[string]bool
 	deadline      time.Time
@@ -306,12 +327,15 @@ type claudeScan struct {
 
 // claudeFinished ports finishedSince in alpha's agent-finished.ts. All six
 // must hold: the newest turn record is system/turn_duration; it holds no
-// pending background agent; the last assistant record is no API error and
-// no usage-limit resume is queued; every background command it started has
-// a notification or a successful TaskStop; it started no persistent
-// monitor; and every working directory it names is inside the checkout.
+// pending background agent; the last assistant record is no API error
+// other than a transient one, and no usage-limit resume is queued; every
+// background command it started has a notification or a successful
+// TaskStop; it started no persistent monitor; and every working directory
+// it names is inside the checkout.
 // The answer is the newest of: every timestamp, the latest wake, and the
-// latest monitor timeout.
+// latest monitor timeout. A turn that ended on a transient API error
+// finishes with the error (F-29): Claude Code does not retry it once the
+// turn ended, so only a nudge or the quiet period moves the session on.
 func claudeFinished(text []byte, dir string) finish {
 	s := claudeScan{notified: map[string]bool{}}
 	for line := range bytes.Lines(text) {
@@ -331,7 +355,20 @@ func claudeFinished(text []byte, dir string) finish {
 	if why := s.keeps(); why != "" {
 		return finish{reason: why}
 	}
-	return finish{finished: true, since: latest(s.newest, s.deadline)}
+	f := finish{finished: true, since: latest(s.newest, s.deadline)}
+	if apiError(s.lastAssistant) {
+		msg := textOf(s.lastAssistant)
+		status, _ := statusOf(s.lastAssistant, msg)
+		at, _ := stamp(str(s.lastAssistant["timestamp"]))
+		f.apiErr = &agenthost.APIError{Message: msg, Status: status, At: at, First: s.apiFirst}
+		f.apiWhy = refusalOf(s.lastAssistant)
+	}
+	return f
+}
+
+// apiError says whether r is an assistant record of an API error.
+func apiError(r map[string]any) bool {
+	return r != nil && r["isApiErrorMessage"] == true
 }
 
 // strs calls f on every string value inside v.
@@ -388,6 +425,9 @@ func (s *claudeScan) read(r map[string]any, dir string) {
 		s.resuming = false
 	}
 	if typ == "assistant" {
+		if apiError(r) && !apiError(s.lastAssistant) {
+			s.apiFirst = at
+		}
 		s.lastAssistant = r
 	}
 }
@@ -427,7 +467,7 @@ func (s *claudeScan) keeps() string {
 	if n, ok := s.last["pendingBackgroundAgentCount"].(float64); ok && n > 0 {
 		return fmt.Sprintf("its last turn ended with %d background agent(s) still at work", int(n))
 	}
-	if s.lastAssistant != nil && s.lastAssistant["isApiErrorMessage"] == true {
+	if apiError(s.lastAssistant) && !isTransient(s.lastAssistant) {
 		return "its last turn ended on " + refusalOf(s.lastAssistant) + ", and Claude Code may resume it"
 	}
 	if s.resumes {

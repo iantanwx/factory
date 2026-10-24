@@ -68,6 +68,9 @@ const (
 	ToolRunning
 	// TurnEnded: the last turn ended with nothing pending.
 	TurnEnded
+	// APIErrored: the last turn ended on a transient model API error. The
+	// session idles at its prompt until something types into it.
+	APIErrored
 )
 
 // Launch records one start: the harness argument vector and the spec.
@@ -93,6 +96,7 @@ type session struct {
 	notes       []string
 	observed    string
 	limit       *agenthost.Limit
+	apiErr      *agenthost.APIError
 }
 
 // Host is the fake agent host. The zero value is not usable; call New.
@@ -196,6 +200,20 @@ func (h *Host) HitLimit(id agenthost.RunID, l agenthost.Limit) {
 	})
 }
 
+// FailTurn makes the transcript show the last turn ended now on the
+// transient API error e. At is now. First is now, or the First of the
+// error the session already sat on, as a resume that failed again keeps it.
+func (h *Host) FailTurn(id agenthost.RunID, e agenthost.APIError) {
+	h.with(id, func(s *session) {
+		now := h.clock.Now()
+		e.At, e.First = now, now
+		if s.turn == APIErrored && s.apiErr != nil {
+			e.First = s.apiErr.First
+		}
+		s.turn, s.apiErr, s.lastWrite = APIErrored, &e, now
+	})
+}
+
 // Work makes the transcript show a turn in progress.
 func (h *Host) Work(id agenthost.RunID) { h.setTurn(id, Working) }
 
@@ -265,8 +283,9 @@ func (h *Host) Restart(keepHandles bool) {
 // DaemonDeath replays the measured death of the daemon that owns the PTYs
 // (docs/evidence/orca-restart.md): each open session's process dies, and
 // the daemon comes back with the same handle and PTY on a fresh shell. The
-// fresh shell gets a new incarnation, the unmeasured case the real host
-// must never take as the run. The epoch stays, because orca-serve did not
+// fresh shell gets a new incarnation and runs no agent, so Inventory lists
+// it with no Agent. It is the unmeasured case the real host must never
+// take as the run. The epoch stays, because orca-serve did not
 // restart.
 func (h *Host) DaemonDeath() {
 	h.mu.Lock()
@@ -474,9 +493,15 @@ func (h *Host) Inventory(_ context.Context) (agenthost.Inventory, error) {
 		if s.closed || s.exited {
 			continue
 		}
+		// After DaemonDeath the terminal holds a fresh shell, which runs
+		// no agent (docs/evidence/orca-restart.md).
+		agent := string(s.s.Harness)
+		if s.incarnation != s.s.ID.Incarnation {
+			agent = ""
+		}
 		inv.Rows = append(inv.Rows, agenthost.Row{
 			ID: h.current(s), Checkout: s.s.Checkout, Pty: s.s.Pty,
-			Agent: string(s.s.Harness), Connected: true,
+			Agent: agent, Connected: true,
 		})
 	}
 	return inv, nil
@@ -525,15 +550,25 @@ func (h *Host) endedLocked(sess agenthost.Session, st agenthost.Settlement) agen
 		l := *s.limit
 		return agenthost.EndReport{Ended: true, Cause: agenthost.EndLimit, Since: s.lastWrite, Limit: &l, Reason: "its agent wrote only a usage limit"}
 	}
+	var apiErr *agenthost.APIError
 	switch s.turn {
 	case ToolRunning:
 		return agenthost.EndReport{Reason: "a tool call is still running"}
 	case Working:
 		return agenthost.EndReport{Reason: "its last turn has not ended"}
+	case APIErrored:
+		e := *s.apiErr
+		apiErr = &e
 	}
 	idle := h.clock.Now().Sub(s.lastWrite)
 	if idle < h.quiet {
-		return agenthost.EndReport{Reason: fmt.Sprintf("quiet for %s of %s", idle, h.quiet)}
+		return agenthost.EndReport{APIError: apiErr, Reason: fmt.Sprintf("quiet for %s of %s", idle, h.quiet)}
+	}
+	if apiErr != nil {
+		return agenthost.EndReport{
+			Ended: true, Cause: agenthost.EndAPIError, Since: s.lastWrite, APIError: apiErr,
+			Reason: fmt.Sprintf("last turn ended on %q and the checkout stayed quiet for %s", apiErr.Message, idle),
+		}
 	}
 	return agenthost.EndReport{
 		Ended: true, Cause: agenthost.EndQuiet, Since: s.lastWrite,

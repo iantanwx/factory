@@ -23,6 +23,10 @@ const (
 	StateLoop          = "loop"
 	StatePerson        = "person"
 	StateAnswered      = "answered"
+	// StateClosed is an escalation whose item reached a terminal state
+	// before its panel routed it. No panel can route it, so it waits for
+	// none (F-25).
+	StateClosed = "closed"
 )
 
 // FixerStage is the stage that routes escalations.
@@ -119,7 +123,19 @@ func (s *Service) raise(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeRoutedToLoop, Rule: "triage_routes_to_loop", Item: p.Item, Hint: RefusalHint(tr)})
 	}
 	var rec Record
+	var ended string
+	var allowed []string
 	err = s.Store.Write(ctx, func(tx *store.Tx) error {
+		// The same transaction as the terminal write's close (CloseFor), so
+		// either order leaves no escalation on a terminal item (F-25).
+		table, status, err := lastStatus(tx, p.Project, p.Item)
+		if err != nil {
+			return err
+		}
+		if table != nil && table.Terminal(status) {
+			ended, allowed = status, table.AllowedNext(status)
+			return nil
+		}
 		prior, err := openFor(tx, p.Project, p.Item)
 		if err != nil {
 			return err
@@ -149,6 +165,11 @@ func (s *Service) raise(ctx context.Context, call *rpc.Call) cli.Result {
 	})
 	if err != nil {
 		return cli.Internal(err)
+	}
+	if ended != "" {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "item_terminal", Item: p.Item,
+			CurrentStatus: ended, AllowedNext: allowed,
+			Hint: fmt.Sprintf("%s is %s, a terminal state, so no panel can route an escalation on it; finish the run", p.Item, ended)})
 	}
 	s.changed()
 	return cli.Found(map[string]any{"escalation": rec,
@@ -193,6 +214,10 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	if p.Project != "" && rec.Project != p.Project {
 		return cli.Reject(cli.CodeCapabilityDenied, "other_project", "a fixer routes the escalations of its own project only")
+	}
+	if rec.State == StateClosed {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "already_routed", Item: rec.Item,
+			Hint: fmt.Sprintf("escalation %d is closed: %s reached a terminal state before a panel routed it, so no panel routes it", id, rec.Item)})
 	}
 	if rec.State != StateAwaitingPanel {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "already_routed", Item: rec.Item,
@@ -377,6 +402,40 @@ func openFor(q Querier, project, item string) (*Record, error) {
 		return nil, err
 	}
 	return &r, nil
+}
+
+// lastStatus reads the item's status from its last transition, with the
+// table of its kind. It answers a nil table for an item with no transition
+// or of an unknown kind.
+func lastStatus(q Querier, project, item string) (*machine.Table, string, error) {
+	var kind, status string
+	err := q.QueryRow(`SELECT kind, to_status FROM transitions WHERE project = ? AND item = ? ORDER BY seq DESC LIMIT 1`,
+		project, item).Scan(&kind, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	t, ok := machine.TableFor(machine.Kind(kind))
+	if !ok {
+		return nil, status, nil
+	}
+	return t, status, nil
+}
+
+// CloseFor closes the item's escalations that wait for their panel, and
+// drops the item's escalation holds. The machine calls it in the
+// transaction that lands the item in a terminal state: no panel can route
+// an escalation of a terminal item, so it must not head the fixer's queue
+// (F-25).
+func CloseFor(tx *store.Tx, project, item string) error {
+	if _, err := tx.Exec(`UPDATE escalations SET state = ?, updated_at = ? WHERE project = ? AND item = ? AND state = ?`,
+		StateClosed, tx.Now().UnixMilli(), project, item, StateAwaitingPanel); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`DELETE FROM holds WHERE project = ? AND item = ? AND kind = ?`, project, item, HoldKind)
+	return err
 }
 
 // Latest returns the item's last escalation in state, or nil. The inbox

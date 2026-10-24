@@ -49,10 +49,11 @@ When a pull request exists, bring its head into the checkout first. The turn ski
 Inspect its diff before you change anything. Never reset, clean or discard work on the item branch.
 An unpushed commit can be the only copy.
 
-Merge the base only when `loop pr show` reports a conflict: `mergeable_state` is `dirty`. A
-`behind` state is no conflict. The merge mechanism already tests each pull request on the current
-base. A merge you do not need changes the reviewed head, and it costs a new build and a new review.
-When the state is `unknown`, GitHub did not compute it yet. Run `loop pr show` again.
+Merge the base only when `loop pr show` reports a conflict: `mergeable_state` is `dirty`. Or merge
+it with no conflict when the base caused a red build and the base is now green, as section 3 states.
+A `behind` state alone is no conflict. The merge mechanism already tests each pull request on the
+current base. A merge you do not need changes the reviewed head, and it costs a new build and a new
+review. When the state is `unknown`, GitHub did not compute it yet. Run `loop pr show` again.
 
 To merge the base:
 
@@ -72,17 +73,22 @@ requests. A merge queue tests the pull request on a draft. When the head holds n
 `loop pr logs --queue`. It reads the failed jobs of the newest draft that holds the head, and its
 title names each pull request of the batch. Read the failing test before you change your own code.
 Run each failing test file again, with the tests of the directories you changed. When the failure
-is outside your change, run `loop pr rerun` to run the failed checks again.
+is outside your change, run `loop pr rerun` only for a flaky failure. A rerun tests the old base.
+It checks out the merge commit that GitHub made when the check first started, so it never picks up
+a commit that landed on the base since. So a rerun repairs only a flaky failure. The base caused
+the failure when the base failed the same test when the check ran, and the current base passes it.
+In that case merge the base by section 2, push, and let CI run on the new base.
 
 **Rework: read the rejection before the contracts.** Read the latest round, and run
 `loop pr threads`. Repair every finding before you add any work.
 
 **Then the contracts.** The contracts in the item body are the job. Everything else helps you keep
 them. Read each document the brief names, and the user stories each contract cites. Compare your
-approach with the code next to it.
+approach with the code next to it. Order the work by `../loop-verifiable-units/SKILL.md`.
 
 **Write the test first, and watch it fail.** A test that passes before the change proves nothing.
-The code-reviewer runs your test at the merge base, and a pass there rejects the work.
+The code-reviewer runs your test at the merge base, and a pass there rejects the work. Write each
+test by `../loop-test-behavior-not-implementation/SKILL.md`.
 
 - Go from red to green once for each piece, not once for the whole item. A long red hides which
   piece broke.
@@ -94,7 +100,13 @@ The code-reviewer runs your test at the merge base, and a pass there rejects the
 - A change to documents only still owes a proof command, such as a search. Run it before and after
   the edit, and record both results in the pull request body.
 
+**Then write the code.** Put each guard and each piece of wiring by `../loop-boundaries/SKILL.md`.
+Model the domain by `../loop-domain-modeling/SKILL.md`.
+
 ## 4. Finish the work
+
+Before you commit, read your diff by `../loop-least-code/SKILL.md` and
+`../loop-reader-load/SKILL.md`. Cut what they find.
 
 1. Commit. Write the message by `../loop-commit/SKILL.md`. A gate can read commits and not the
    working tree.

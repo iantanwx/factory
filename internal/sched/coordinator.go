@@ -95,8 +95,9 @@ func (s *Scheduler) saveCoordinator(ctx context.Context, cs CoordinatorState) er
 // first tick after the service starts, and after the session's process
 // exits. A session whose liveness reads unknown is left alone, unless a
 // complete inventory proves it gone, or lists it under a new handle with
-// the same incarnation and checkout (Inventory.Rebound), which the stored
-// session then takes.
+// the same incarnation and checkout (Inventory.Rebound), or, with its
+// incarnation gone, lists one agent of its harness in its checkout
+// (Inventory.ReboundToAgent). The stored session then takes that row.
 func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 	cc := s.cfg.Coordinator
 	if cc == nil || s.Draining() {
@@ -143,7 +144,13 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 			if ierr != nil {
 				return
 			}
-			if moved, ok := inv.Rebound(*cs.Session); ok {
+			moved, ok := inv.Rebound(*cs.Session)
+			if !ok {
+				// The incarnation is gone. The one agent of the harness in
+				// the checkout is the coordinator (F-30).
+				moved, ok = inv.ReboundToAgent(*cs.Session)
+			}
+			if ok {
 				// The host moved the live session to a new handle (F-17).
 				// The doorbell rings the stored handle, so it follows.
 				s.log.WarnContext(ctx, "the coordinator session moved to a new handle; rebinding",

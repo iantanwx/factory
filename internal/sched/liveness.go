@@ -113,12 +113,19 @@ func (s *Scheduler) watch(ctx context.Context, hc *config.HostConfig, startup bo
 func (s *Scheduler) check(ctx context.Context, hc *config.HostConfig, r runRow, inv agenthost.Inventory) {
 	sess := *r.Rec.Session
 	rep, err := s.cfg.Agents.Ended(ctx, sess)
+	if err == nil && s.resume(ctx, hc, r, rep, inv) {
+		return
+	}
 	if err == nil && rep.Ended {
 		end := rep.Since
 		if end.IsZero() {
 			end = s.now()
 		}
-		s.settleEnded(ctx, r, end, rep.Reason, rep.Limit)
+		reason := rep.Reason
+		if rep.APIError != nil && r.Rec.Resume != nil {
+			reason = fmt.Sprintf("%s. The server resumed it %d times, and it stayed on the error.", reason, len(r.Rec.Resume.Nudges))
+		}
+		s.settleEnded(ctx, r, end, reason, rep.Limit)
 		return
 	}
 	var st agenthost.Settlement

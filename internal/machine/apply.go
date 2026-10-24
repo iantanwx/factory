@@ -339,7 +339,13 @@ func (m *Machine) markApplied(ctx context.Context, in store.Intent, f facts) (cl
 		if err := insertHistory(tx, in, f); err != nil {
 			return err
 		}
-		return moveLease(tx, in, f)
+		if err := moveLease(tx, in, f); err != nil {
+			return err
+		}
+		if t, ok := TableFor(f.Kind); ok && t.Terminal(in.TargetStatus) && m.cfg.Terminal != nil {
+			return m.cfg.Terminal(tx, in.Project, in.Item)
+		}
+		return nil
 	})
 	if errors.Is(err, store.ErrIntentSettled) {
 		return m.settledResult(ctx, in.ID)
