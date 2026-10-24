@@ -1581,8 +1581,9 @@ var MergeService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	EscalationService_Raise_FullMethodName = "/loop.v1.EscalationService/Raise"
-	EscalationService_Route_FullMethodName = "/loop.v1.EscalationService/Route"
+	EscalationService_Raise_FullMethodName     = "/loop.v1.EscalationService/Raise"
+	EscalationService_Route_FullMethodName     = "/loop.v1.EscalationService/Route"
+	EscalationService_Decisions_FullMethodName = "/loop.v1.EscalationService/Decisions"
 )
 
 // EscalationServiceClient is the client API for EscalationService service.
@@ -1591,6 +1592,7 @@ const (
 type EscalationServiceClient interface {
 	Raise(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Route(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Decisions(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type escalationServiceClient struct {
@@ -1621,12 +1623,23 @@ func (c *escalationServiceClient) Route(ctx context.Context, in *VerbRequest, op
 	return out, nil
 }
 
+func (c *escalationServiceClient) Decisions(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, EscalationService_Decisions_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EscalationServiceServer is the server API for EscalationService service.
 // All implementations must embed UnimplementedEscalationServiceServer
 // for forward compatibility.
 type EscalationServiceServer interface {
 	Raise(context.Context, *VerbRequest) (*Envelope, error)
 	Route(context.Context, *VerbRequest) (*Envelope, error)
+	Decisions(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedEscalationServiceServer()
 }
 
@@ -1642,6 +1655,9 @@ func (UnimplementedEscalationServiceServer) Raise(context.Context, *VerbRequest)
 }
 func (UnimplementedEscalationServiceServer) Route(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Route not implemented")
+}
+func (UnimplementedEscalationServiceServer) Decisions(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Decisions not implemented")
 }
 func (UnimplementedEscalationServiceServer) mustEmbedUnimplementedEscalationServiceServer() {}
 func (UnimplementedEscalationServiceServer) testEmbeddedByValue()                           {}
@@ -1700,6 +1716,24 @@ func _EscalationService_Route_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EscalationService_Decisions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EscalationServiceServer).Decisions(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EscalationService_Decisions_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EscalationServiceServer).Decisions(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EscalationService_ServiceDesc is the grpc.ServiceDesc for EscalationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1714,6 +1748,10 @@ var EscalationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Route",
 			Handler:    _EscalationService_Route_Handler,
+		},
+		{
+			MethodName: "Decisions",
+			Handler:    _EscalationService_Decisions_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
