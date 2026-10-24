@@ -416,7 +416,7 @@ const codexFile = "policy:\n  allow_implicit_invocation: false\n"
 func flaggedFixture() fstest.MapFS {
 	src := fixture()
 	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"attended": false,
-		"skills": ["loop-sdlc-turn", "loop-flagged"], "policy": "implementer"}}, "skills": ["loop-sdlc-turn", "loop-flagged"]}`)}
+		"skills": ["loop-sdlc-turn", "loop-flagged"], "policy": "implementer"}}, "skills": ["loop-init", "loop-sdlc-turn", "loop-flagged"]}`)}
 	src["runbooks/implementer.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-implementer\ndescription: Build one ticket.\n---\n\n" +
 		"Read `../loop-sdlc-turn/SKILL.md` first. Read `.loop/policy/implementer.md` when it exists.\n" +
 		"Read `../loop-flagged/SKILL.md` before you commit.\n")}
@@ -434,7 +434,7 @@ func TestFlaggedSkillNeedsAReader(t *testing.T) {
 	// No runbook lists it, so no run is ever told to read it.
 	src := flaggedFixture()
 	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"attended": false,
-		"skills": ["loop-sdlc-turn"], "policy": "implementer"}}, "skills": ["loop-sdlc-turn", "loop-flagged"]}`)}
+		"skills": ["loop-sdlc-turn"], "policy": "implementer"}}, "skills": ["loop-init", "loop-sdlc-turn", "loop-flagged"]}`)}
 	wantOne(t, check(t, src), "manifest", "loop-flagged")
 
 	// Codex ignores the flag, so the flag alone lists the skill in each Codex run.

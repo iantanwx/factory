@@ -29,7 +29,7 @@ func (h *Host) Start(ctx context.Context, spec agenthost.StartSpec) (agenthost.S
 		return agenthost.Session{}, fmt.Errorf("%w: prompt file %s is not a readable file", agenthost.ErrBadSpec, spec.PromptFile)
 	}
 	checkout := filepath.Clean(spec.Checkout)
-	title := spec.Title
+	title := agenthost.Label(spec.Title)
 	if title == "" {
 		title = "loop " + string(spec.Kind)
 	}
@@ -84,15 +84,16 @@ func (h *Host) Start(ctx context.Context, spec agenthost.StartSpec) (agenthost.S
 	return s, nil
 }
 
-// LaunchArgs is the orca agent launch of spec in checkout. The prompt names
-// only the prompt file, so no secret reaches the process arguments.
+// LaunchArgs is the orca agent launch of spec in checkout. The prompt is
+// the session's first message: its title and the prompt file's name, so no
+// secret reaches the process arguments.
 func LaunchArgs(spec agenthost.StartSpec, checkout string) []string {
 	args := []string{"agent", "launch", "--agent", string(spec.Harness), "--worktree", "path:" + checkout,
 		"--model", spec.Model}
 	if spec.Effort != "" {
 		args = append(args, "--effort", spec.Effort)
 	}
-	return append(args, "--surface", "terminal", "--prompt", agenthost.PromptInstruction(spec.PromptFile), "--json")
+	return append(args, "--surface", "terminal", "--prompt", agenthost.FirstMessage(spec), "--json")
 }
 
 // showHandle reads the terminal a handle names now.

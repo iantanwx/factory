@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/iantanwx/loop/internal/config"
@@ -68,7 +69,7 @@ func (d *Direct) lock(project string) func() {
 }
 
 // Poll merges the PR at its reviewed head, one merge at a time for each
-// project. A draft, or a PR whose base is not the project's default
+// project, once every required check passed there. A draft, or a PR whose base is not the project's default
 // branch, is dequeued under a reason that names it, with no merge call. A
 // PR that conflicts with its base goes to rework with no merge call. A
 // head that moved is refused by GitHub, and the PR stays pending
@@ -94,16 +95,23 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 		return res, nil
 	}
 	// A repository with no rulesets lets any merge through, so the loop
-	// reads CI on the reviewed head itself before it merges.
+	// reads CI on the reviewed head itself before it merges. Each
+	// required check must have passed there: a head with no check, or
+	// one whose required check has not reported, waits and never merges.
+	required, err := d.gh.RequiredChecks(ctx, pr.Project)
+	if err != nil {
+		return merge.Result{}, err
+	}
 	ci, err := d.gh.Checks(ctx, pr.Project, pr.Head)
 	if err != nil {
 		return merge.Result{}, err
 	}
-	switch ci.State {
+	switch v := ci.Against(required); v.State {
 	case github.CIRed:
 		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Red, Detail: "CI failed on the reviewed head"}, nil
 	case github.CIPending:
-		return merge.Result{Outcome: merge.Pending, Detail: "CI still runs on the reviewed head"}, nil
+		return merge.Result{Outcome: merge.Pending,
+			Detail: "CI has not passed on the reviewed head: " + strings.Join(v.Waiting, ", ")}, nil
 	}
 	sha, err := d.gh.MergePR(ctx, pr.Project, pr.Number, pr.Head)
 	if err == nil {

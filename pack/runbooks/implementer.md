@@ -68,9 +68,11 @@ Never rebase a branch that has a pull request.
 
 **Repair: read the failure before the contracts.** Run `loop pr checks`, then `loop pr logs`. A
 check can fail for a cause outside your change, such as a merge batch that held other pull
-requests. Read the failing test before you change your own code. Run each failing test file again,
-with the tests of the directories you changed. When the failure is outside your change, run
-`loop pr rerun` to run the failed checks again.
+requests. A merge queue tests the pull request on a draft. When the head holds no failed job, run
+`loop pr logs --queue`. It reads the failed jobs of the newest draft that holds the head, and its
+title names each pull request of the batch. Read the failing test before you change your own code.
+Run each failing test file again, with the tests of the directories you changed. When the failure
+is outside your change, run `loop pr rerun` to run the failed checks again.
 
 **Rework: read the rejection before the contracts.** Read the latest round, and run
 `loop pr threads`. Repair every finding before you add any work.
@@ -94,7 +96,8 @@ The code-reviewer runs your test at the merge base, and a pass there rejects the
 
 ## 4. Finish the work
 
-1. Commit. A gate can read commits and not the working tree.
+1. Commit. Write the message by `../loop-commit/SKILL.md`. A gate can read commits and not the
+   working tree.
 2. Run `loop gates --fast`, and the tests the policy names for the directories you changed. Both
    must be green. CI runs every gate, so run `loop gates` here only when the policy says so.
 3. A test that times out in a file you did not change is load. Run that file alone once. When it
