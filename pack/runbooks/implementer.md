@@ -96,7 +96,8 @@ The code-reviewer runs your test at the merge base, and a pass there rejects the
 
 ## 4. Finish the work
 
-1. Commit. A gate can read commits and not the working tree.
+1. Commit. Write the message by `../loop-commit/SKILL.md`. A gate can read commits and not the
+   working tree.
 2. Run `loop gates --fast`, and the tests the policy names for the directories you changed. Both
    must be green. CI runs every gate, so run `loop gates` here only when the policy says so.
 3. A test that times out in a file you did not change is load. Run that file alone once. When it
