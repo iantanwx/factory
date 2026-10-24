@@ -190,7 +190,7 @@ func (h *Host) codexTranscripts(checkout string, started time.Time) ([]transcrip
 			}
 			for _, n := range names {
 				path := filepath.Join(dir, n)
-				if !codexNames(path, checkout) {
+				if !h.codexNames(path, checkout) {
 					continue
 				}
 				t, err := readTranscript(path)
@@ -206,7 +206,8 @@ func (h *Host) codexTranscripts(checkout string, started time.Time) ([]transcrip
 
 // codexNames reads only the first record of a rollout, session_meta, and
 // says whether it names the checkout.
-func codexNames(path, checkout string) bool {
+func (h *Host) codexNames(path, checkout string) bool {
+	h.headReads.Add(1)
 	f, err := os.Open(path)
 	if err != nil {
 		return false

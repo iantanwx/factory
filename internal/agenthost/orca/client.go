@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
@@ -144,6 +145,12 @@ type Config struct {
 type Host struct {
 	cfg Config
 	run Runner
+	// wall is the filesystem's clock, which dates a rollout's change time.
+	// cfg.Now is the scheduler's clock, and a test moves it apart from
+	// the files. Tests set wall through export_test.go.
+	wall func() time.Time
+	// headReads counts the rollout heads read from disk.
+	headReads atomic.Int64
 }
 
 var (
@@ -188,7 +195,7 @@ func New(cfg Config) (*Host, error) {
 	if cfg.Sleep == nil {
 		cfg.Sleep = sleep
 	}
-	return &Host{cfg: cfg, run: cfg.Runner}, nil
+	return &Host{cfg: cfg, run: cfg.Runner, wall: time.Now}, nil
 }
 
 func sleep(ctx context.Context, d time.Duration) error {
