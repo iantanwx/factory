@@ -648,7 +648,7 @@ func (s *Service) interrupt(ctx context.Context, r *Room) {
 
 // close is `loop room close`. Only the coordinator's token reaches it. The
 // session closes, the token goes, .env goes and the hold drops. The
-// checkout is kept for a person.
+// checkout is kept until the scheduler's next cleanup pass judges it.
 func (s *Service) close(ctx context.Context, call *rpc.Call) cli.Result {
 	if call.Principal.Kind != cli.PrincipalCoordinator {
 		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator closes a room")
