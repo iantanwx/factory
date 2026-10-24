@@ -121,8 +121,9 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		}
 		return nil, ref
 	}
+	title := s.itemTitle(ctx, ad)
 	s.checkoutMu.Lock()
-	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: checkoutName(ad), BaseBranch: DefaultBaseBranch})
+	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: checkoutName(ad, title), BaseBranch: DefaultBaseBranch})
 	s.checkoutMu.Unlock()
 	if err != nil {
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: create the checkout: %w", err)), false, AlertStartFailed, err)
@@ -170,7 +171,7 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	}
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindStage, Checkout: co.Path, Harness: prof.Harness,
 		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt,
-		Title: strings.TrimSpace(fmt.Sprintf("loop %s %s %s", ad.Project, ad.Stage, ad.Item))})
+		Title: sessionTitle(ad, title)})
 	if err != nil {
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: start the session: %w", err)), false, AlertStartFailed, err)
 	}
@@ -184,9 +185,21 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	return st, nil
 }
 
-// checkoutName names a run's checkout. A run id is unique, so the name is.
-func checkoutName(ad admission.Admitted) string {
-	name := "loop-" + ad.Project + "-" + ad.Stage + "-" + ad.RunID
+// maxSlug bounds the title slug in a checkout name, in bytes.
+const maxSlug = 32
+
+// checkoutName names a run's checkout after its work:
+// loop-<project>-<stage>-<item>-<title slug>-<run id>. A run id is unique,
+// so the name is, even when two runs of one item keep checkouts at once.
+func checkoutName(ad admission.Admitted, title string) string {
+	name := "loop-" + ad.Project + "-" + ad.Stage
+	if ad.Item != "" {
+		name += "-" + ad.Item
+		if sl := slug(title); sl != "" {
+			name += "-" + sl
+		}
+	}
+	name += "-" + ad.RunID
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
@@ -194,6 +207,59 @@ func checkoutName(ad admission.Admitted) string {
 		}
 		return '-'
 	}, name)
+}
+
+// slug makes a title short lowercase [a-z0-9-]. An apostrophe joins its
+// word, and a long slug is cut at a word.
+func slug(title string) string {
+	var b strings.Builder
+	dash := false
+	for _, r := range strings.ToLower(title) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			if dash && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			b.WriteRune(r)
+			dash = false
+		case r == '\'' || r == '’':
+		default:
+			dash = true
+		}
+	}
+	s := b.String()
+	if len(s) > maxSlug {
+		s = s[:maxSlug+1]
+		if i := strings.LastIndexByte(s, '-'); i > 0 {
+			s = s[:i]
+		} else {
+			s = s[:maxSlug]
+		}
+	}
+	return s
+}
+
+// sessionTitle names a run's session in the host: the stage, the item and
+// the item's title, on one line.
+func sessionTitle(ad admission.Admitted, title string) string {
+	t := strings.TrimSpace(fmt.Sprintf("loop %s %s %s", ad.Project, ad.Stage, ad.Item))
+	if title != "" {
+		t += ": " + title
+	}
+	return agenthost.Label(t)
+}
+
+// itemTitle reads the title of the run's item. A run with no item, or an
+// item the machine cannot read, has none.
+func (s *Scheduler) itemTitle(ctx context.Context, ad admission.Admitted) string {
+	if ad.Item == "" {
+		return ""
+	}
+	it, ref := s.cfg.Machine.Show(ctx, ad.Project, ad.Item)
+	if ref != nil {
+		return ""
+	}
+	return it.Title
 }
 
 func (s *Scheduler) recordCheckout(ctx context.Context, ad admission.Admitted, co agenthost.Checkout) error {

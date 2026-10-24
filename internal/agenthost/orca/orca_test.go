@@ -1074,3 +1074,30 @@ func TestDaemonDeathNewIncarnationIsNotTheRun(t *testing.T) {
 		t.Fatalf("Stop = %+v, %v, closed=%v; want unproven and no close", st, err, w.sim.closed)
 	}
 }
+
+// C-bug-1: the orca launch hands the agent the same first message as
+// HarnessArgv, and its first line names the session's work.
+func TestLaunchPromptOpensWithTheTitle(t *testing.T) {
+	w := newWorld(t)
+	w.sim.agent = string(agenthost.Claude)
+	spec := w.spec(agenthost.Claude)
+	spec.Title = "loop alpha implementer tk-1: Fix the thing"
+	if _, err := w.host.Start(context.Background(), spec); err != nil {
+		t.Fatal(err)
+	}
+	var launch []string
+	for _, args := range w.sim.allArgs() {
+		if strings.Join(args[:2], " ") == "agent launch" {
+			launch = args
+		}
+	}
+	argv, err := agenthost.HarnessArgv(spec, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, _ := strings.Cut(flag(launch, "--prompt"), "\n")
+	want, _, _ := strings.Cut(argv[len(argv)-1], "\n")
+	if got != want || !strings.Contains(got, spec.Title) {
+		t.Fatalf("orca first line %q, HarnessArgv first line %q, title %q", got, want, spec.Title)
+	}
+}
