@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -33,12 +34,24 @@ type CheckRun struct {
 	Conclusion string     `json:"conclusion"`
 	StartedAt  *time.Time `json:"started_at"`
 	HTMLURL    string     `json:"html_url"`
-	Output     struct {
-		Annotations int `json:"annotations_count"`
-	} `json:"output"`
+	App        CheckApp   `json:"app"`
+	Output     CheckOut   `json:"output"`
 	// Unstarted says why GitHub never started the run's job. Checks
 	// fills it in; GitHub's answer never holds it.
 	Unstarted *Unstarted `json:"-"`
+}
+
+// CheckApp is the GitHub App that posted a check run.
+type CheckApp struct {
+	Slug string `json:"slug"`
+}
+
+// CheckOut is the text a check run reports.
+type CheckOut struct {
+	Title       string `json:"title"`
+	Summary     string `json:"summary"`
+	Text        string `json:"text"`
+	Annotations int    `json:"annotations_count"`
 }
 
 // Causes of a check run that GitHub never started.
@@ -223,6 +236,21 @@ func (s *Service) Checks(ctx context.Context, p config.Project, head string) (CI
 	return Classify(head, runs, combined.Statuses), nil
 }
 
+// CheckRunsNamed reads the latest check runs named name on head, from
+// every App.
+func (s *Service) CheckRunsNamed(ctx context.Context, p config.Project, head, name string) ([]CheckRun, error) {
+	var batch struct {
+		Runs []CheckRun `json:"check_runs"`
+	}
+	q := url.Values{"check_name": {name}, "filter": {"latest"}, "per_page": {"100"}}
+	// Encode writes a space as "+"; a literal "+" is already "%2B".
+	query := strings.ReplaceAll(q.Encode(), "+", "%20")
+	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/commits/"+head+"/check-runs?"+query), &batch); err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(batch.Runs, func(r CheckRun) bool { return r.Name != name }), nil
+}
+
 // notStarted matches the annotation GitHub writes on a job it never
 // started, such as "The job was not started because recent account
 // payments have failed or your spending limit needs to be increased".
@@ -337,29 +365,15 @@ func (s *Service) Logs(ctx context.Context, p config.Project, head string, jobID
 		}
 		jobs = []job{j}
 	} else {
-		runs, err := s.failedRuns(ctx, p, head)
-		if err != nil {
+		var err error
+		if jobs, err = s.failedJobs(ctx, p, head); err != nil {
 			return nil, err
-		}
-		for _, r := range runs {
-			var list struct {
-				Jobs []job `json:"jobs"`
-			}
-			if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, fmt.Sprintf("/actions/runs/%d/jobs?filter=latest&per_page=100", r.ID)), &list); err != nil {
-				return nil, err
-			}
-			for _, j := range list.Jobs {
-				if slices.Contains(redConclusions, j.Conclusion) {
-					jobs = append(jobs, j)
-				}
-			}
 		}
 	}
 	var out []LogExcerpt
 	for _, j := range jobs {
-		var text string
-		if _, err := s.repoDo(ctx, p, ScopeRead, Call{Method: http.MethodGet,
-			Path: repoPath(p, fmt.Sprintf("/actions/jobs/%d/logs", j.ID)), Raw: &text}, nil); err != nil {
+		text, err := s.jobLog(ctx, p, j.ID)
+		if err != nil {
 			return nil, err
 		}
 		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
@@ -371,6 +385,38 @@ func (s *Service) Logs(ctx context.Context, p config.Project, head string, jobID
 		out = append(out, ex)
 	}
 	return out, nil
+}
+
+// failedJobs lists the failed jobs of the latest attempt of each failed
+// Actions run on head.
+func (s *Service) failedJobs(ctx context.Context, p config.Project, head string) ([]job, error) {
+	runs, err := s.failedRuns(ctx, p, head)
+	if err != nil {
+		return nil, err
+	}
+	var jobs []job
+	for _, r := range runs {
+		var list struct {
+			Jobs []job `json:"jobs"`
+		}
+		if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, fmt.Sprintf("/actions/runs/%d/jobs?filter=latest&per_page=100", r.ID)), &list); err != nil {
+			return nil, err
+		}
+		for _, j := range list.Jobs {
+			if slices.Contains(redConclusions, j.Conclusion) {
+				jobs = append(jobs, j)
+			}
+		}
+	}
+	return jobs, nil
+}
+
+// jobLog reads the whole log of one job as text.
+func (s *Service) jobLog(ctx context.Context, p config.Project, id int64) (string, error) {
+	var text string
+	_, err := s.repoDo(ctx, p, ScopeRead, Call{Method: http.MethodGet,
+		Path: repoPath(p, fmt.Sprintf("/actions/jobs/%d/logs", id)), Raw: &text}, nil)
+	return text, err
 }
 
 // Rerun asks GitHub to rerun the failed jobs of every failed Actions run

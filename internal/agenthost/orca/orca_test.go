@@ -713,6 +713,87 @@ func TestEndedCodex(t *testing.T) {
 	})
 }
 
+// TestCodexScanCachesRolloutHeads proves parity 9.22, ported from
+// codex-sessions.ts and codex-census.ts in alpha: a tick re-reads the head of
+// no rollout that is unchanged since the last tick, so the cost of a tick
+// stops growing with the rollouts of other sessions.
+func TestCodexScanCachesRolloutHeads(t *testing.T) {
+	ctx := context.Background()
+	setup := func(t *testing.T) (*world, agenthost.Session, string) {
+		w := newWorld(t)
+		s := w.start(agenthost.Codex)
+		day := filepath.Join(w.codex, w.now.Format("2006/01/02"))
+		for _, n := range []string{"rollout-a.jsonl", "rollout-b.jsonl", "rollout-c.jsonl"} {
+			writeJSONL(t, filepath.Join(day, n), []map[string]any{
+				{"type": "session_meta", "timestamp": ts(w.now), "payload": map[string]any{"id": n, "cwd": "/elsewhere"}},
+			})
+		}
+		writeJSONL(t, filepath.Join(day, "rollout-own.jsonl"), []map[string]any{
+			{"type": "session_meta", "timestamp": ts(w.now), "payload": map[string]any{"id": "sess", "cwd": w.checkout}},
+			{"type": "event_msg", "timestamp": ts(w.now), "payload": map[string]any{"type": "task_started", "turn_id": "t1"}},
+			{"type": "event_msg", "timestamp": ts(w.now.Add(time.Second)), "payload": map[string]any{"type": "task_complete", "turn_id": "t1"}},
+		})
+		return w, s, day
+	}
+	tick := func(t *testing.T, w *world, s agenthost.Session) (int64, agenthost.EndReport) {
+		t.Helper()
+		before := orca.HeadReads(w.host)
+		r, err := w.host.Ended(ctx, s)
+		if err != nil {
+			t.Fatalf("Ended: %v", err)
+		}
+		return orca.HeadReads(w.host) - before, r
+	}
+	t.Run("an unchanged rollout is read once", func(t *testing.T) {
+		w, s, day := setup(t)
+		orca.SetWall(w.host, func() time.Time { return time.Now().Add(time.Hour) })
+		w.now = w.now.Add(31 * time.Minute)
+		if n, r := tick(t, w, s); n != 4 || !r.Ended {
+			t.Fatalf("first tick read %d heads, report %+v; want 4, ended", n, r)
+		}
+		if n, r := tick(t, w, s); n != 0 || !r.Ended {
+			t.Fatalf("second tick read %d heads, report %+v; want 0, ended", n, r)
+		}
+		f, err := os.OpenFile(filepath.Join(day, "rollout-b.jsonl"), os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString("{}\n"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if n, _ := tick(t, w, s); n != 1 {
+			t.Fatalf("tick after a write read %d heads; want 1", n)
+		}
+	})
+	t.Run("a rollout that changed within the last second reads again", func(t *testing.T) {
+		w, s, _ := setup(t)
+		orca.SetWall(w.host, func() time.Time { return time.Now().Add(-time.Hour) })
+		w.now = w.now.Add(31 * time.Minute)
+		for i := range 2 {
+			if n, _ := tick(t, w, s); n != 4 {
+				t.Fatalf("tick %d read %d heads; want 4", i, n)
+			}
+		}
+	})
+	t.Run("a cached head still finds the session's own rollout", func(t *testing.T) {
+		w, s, day := setup(t)
+		orca.SetWall(w.host, func() time.Time { return time.Now().Add(time.Hour) })
+		if _, r := tick(t, w, s); r.Ended {
+			t.Fatalf("Ended inside the quiet period: %+v", r)
+		}
+		if err := os.Remove(filepath.Join(day, "rollout-own.jsonl")); err != nil {
+			t.Fatal(err)
+		}
+		w.now = w.now.Add(31 * time.Minute)
+		if _, r := tick(t, w, s); r.Ended || !strings.Contains(r.Reason, "no transcript") {
+			t.Fatalf("Ended after its rollout was removed: %+v", r)
+		}
+	})
+}
+
 // ---- Notify ----
 
 func TestNotify(t *testing.T) {

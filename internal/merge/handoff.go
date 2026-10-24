@@ -281,8 +281,9 @@ func (h *HandOff) advance(ctx context.Context, p config.Project, mech Mechanism,
 	return nil
 }
 
-// dequeued makes the move of one dequeue reason. A dequeue that is
-// neither a conflict nor red CI re-queues once for each head, then
+// dequeued makes the move of one dequeue reason. A broken merge config
+// escalates at once: only the operator repairs it. Any other dequeue that
+// is neither a conflict nor red CI re-queues once for each head, then
 // escalates. t is nil only for a conflict found before the hand-off.
 func (h *HandOff) dequeued(ctx context.Context, mech Mechanism, pr PR, t *track, r Result) error {
 	verb := ""
@@ -291,6 +292,8 @@ func (h *HandOff) dequeued(ctx context.Context, mech Mechanism, pr PR, t *track,
 		verb = "dequeue_conflict"
 	case Red:
 		verb = "dequeue_red"
+	case MergeConfig:
+		verb = "escalate"
 	default:
 		if t == nil || t.state != stateRequeued {
 			if err := mech.Requeue(ctx, pr); err != nil {

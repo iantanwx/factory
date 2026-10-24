@@ -232,7 +232,9 @@ func (s *Service) Rooms(ctx context.Context, all bool) ([]Room, error) {
 }
 
 // open is `loop room open`: a new room, or the reopen of an idle or
-// interrupted one of the same kind on the same item.
+// interrupted one of the same kind on the same item. An intake room with
+// no item reopens only an idle or interrupted one: a live or opening
+// itemless intake room is never matched, so each such open is a new room.
 func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
 	if p.Kind != cli.PrincipalCoordinator {
@@ -275,7 +277,8 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	err = s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		var err error
 		r, err = scanRoom(tx.QueryRow(roomCols+` WHERE r.project = ? AND r.item = ? AND r.kind = ? AND r.closed_at IS NULL
-			ORDER BY r.opened_at DESC LIMIT 1`, project, item, kind))
+			AND (r.item != '' OR r.state IN (?, ?))
+			ORDER BY r.opened_at DESC LIMIT 1`, project, item, kind, Idle, Interrupted))
 		if err == nil {
 			reopen = true
 			_, err = tx.Exec(`UPDATE rooms SET reason = ?, updated_at = ? WHERE id = ?`, reason, tx.Now().UnixMilli(), r.ID)
@@ -341,21 +344,23 @@ func architectItem(kind string, it machine.Item) *cli.Refusal {
 }
 
 // intakeCap applies the intake cap to a new intake room that names no
-// item: such a room submits a new epic. The reopen of an open room, and
-// an intake room on an existing epic, add no epic, so the cap passes them.
+// item: such a room submits a new epic. A live or opening intake room
+// names no item to match, so a second itemless open is a new room and
+// meets the cap. The reopen of an idle or interrupted one, and an intake
+// room on an existing epic, add no epic, so the cap passes them.
 func (s *Service) intakeCap(ctx context.Context, kind, project, item string) *cli.Refusal {
 	if kind != "intake" || item != "" || s.cfg.IntakeCap == nil {
 		return nil
 	}
-	var open int
+	var reopenable int
 	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT count(*) FROM rooms WHERE project = ? AND item = '' AND kind = ? AND closed_at IS NULL`,
-			project, kind).Scan(&open)
+		return tx.QueryRowContext(ctx, `SELECT count(*) FROM rooms WHERE project = ? AND item = '' AND kind = ? AND closed_at IS NULL
+			AND state IN (?, ?)`, project, kind, Idle, Interrupted).Scan(&reopenable)
 	})
 	if err != nil {
 		return cli.InternalRefusal(err)
 	}
-	if open > 0 {
+	if reopenable > 0 {
 		return nil
 	}
 	return s.cfg.IntakeCap(ctx, project)
@@ -454,7 +459,7 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 		return fail(cli.CodeInternal, err)
 	}
 	if r.Checkout == "" {
-		co, err := s.cfg.Checkouts(r.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: "loop-" + r.ID, BaseBranch: sched.DefaultBaseBranch})
+		co, err := s.cfg.Checkouts(r.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: "loop-" + r.ID, BaseBranch: snap.BaseBranch()})
 		if err != nil {
 			return fail(cli.CodeInternal, fmt.Errorf("room: create the checkout: %w", err))
 		}
@@ -491,7 +496,7 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 	}
 	run := fmt.Sprintf("%s-s%d", r.ID, r.Sessions+1)
 	b := brief.Brief{RunID: run, Project: r.Project, Stage: Stage(r.Kind), Role: "room", Harness: string(s.cfg.Harness),
-		Model: s.cfg.Model, BaseBranch: sched.DefaultBaseBranch,
+		Model: s.cfg.Model, BaseBranch: snap.BaseBranch(),
 		Secrets: brief.Secrets{Present: manifest.Names(), Missing: []string{}}}
 	if r.Item != "" {
 		if it, ref := s.cfg.Machine.Show(ctx, r.Project, r.Item); ref == nil {

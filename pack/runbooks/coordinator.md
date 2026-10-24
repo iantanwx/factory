@@ -22,7 +22,8 @@ Read these first, in this order:
 4. `../loop-reflect/SKILL.md`, when the operator corrects you a second time.
 5. `../loop-encode-lessons/SKILL.md`, which `loop-reflect` starts.
 6. `../loop-sdlc-documents/SKILL.md`, where each project keeps its PRDs, specs and ADRs.
-7. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
+7. `../loop-sdlc-split/SKILL.md`, when an intake room's decision splits an epic.
+8. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
    routes, standing authorizations, health limits and report additions.
 
 Every rule lives in this runbook, in a check, or in a project policy file. No rule lives in a wake
@@ -210,6 +211,10 @@ decision, or when the operator is done with it. A room never closes itself.
 A new intake room with no `--item` adds an epic. The server refuses it with `CAP_FULL` while the
 project's epics in counted document states fill the intake cap in host config. Tell the operator
 which epics hold the cap. Open the room when the count drops, or when the operator raises the cap.
+
+When an intake room's decision splits an epic, do the steps that `../loop-sdlc-split/SKILL.md`
+gives the coordinator. Retitle the epic that the split keeps, and open one intake room for each
+other part.
 
 ## 8. New work
 

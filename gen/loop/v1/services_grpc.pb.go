@@ -2051,6 +2051,108 @@ var DecisionService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	OverwatchService_Sweep_FullMethodName = "/loop.v1.OverwatchService/Sweep"
+)
+
+// OverwatchServiceClient is the client API for OverwatchService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type OverwatchServiceClient interface {
+	Sweep(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+}
+
+type overwatchServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewOverwatchServiceClient(cc grpc.ClientConnInterface) OverwatchServiceClient {
+	return &overwatchServiceClient{cc}
+}
+
+func (c *overwatchServiceClient) Sweep(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, OverwatchService_Sweep_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OverwatchServiceServer is the server API for OverwatchService service.
+// All implementations must embed UnimplementedOverwatchServiceServer
+// for forward compatibility.
+type OverwatchServiceServer interface {
+	Sweep(context.Context, *VerbRequest) (*Envelope, error)
+	mustEmbedUnimplementedOverwatchServiceServer()
+}
+
+// UnimplementedOverwatchServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedOverwatchServiceServer struct{}
+
+func (UnimplementedOverwatchServiceServer) Sweep(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Sweep not implemented")
+}
+func (UnimplementedOverwatchServiceServer) mustEmbedUnimplementedOverwatchServiceServer() {}
+func (UnimplementedOverwatchServiceServer) testEmbeddedByValue()                          {}
+
+// UnsafeOverwatchServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to OverwatchServiceServer will
+// result in compilation errors.
+type UnsafeOverwatchServiceServer interface {
+	mustEmbedUnimplementedOverwatchServiceServer()
+}
+
+func RegisterOverwatchServiceServer(s grpc.ServiceRegistrar, srv OverwatchServiceServer) {
+	// If the following call panics, it indicates UnimplementedOverwatchServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&OverwatchService_ServiceDesc, srv)
+}
+
+func _OverwatchService_Sweep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OverwatchServiceServer).Sweep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OverwatchService_Sweep_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OverwatchServiceServer).Sweep(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// OverwatchService_ServiceDesc is the grpc.ServiceDesc for OverwatchService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var OverwatchService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "loop.v1.OverwatchService",
+	HandlerType: (*OverwatchServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Sweep",
+			Handler:    _OverwatchService_Sweep_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "loop/v1/services.proto",
+}
+
+const (
 	FaultService_Report_FullMethodName  = "/loop.v1.FaultService/Report"
 	FaultService_Show_FullMethodName    = "/loop.v1.FaultService/Show"
 	FaultService_List_FullMethodName    = "/loop.v1.FaultService/List"
