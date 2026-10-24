@@ -389,3 +389,46 @@ func TestReopenedIdleRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
 		t.Fatalf("git status after the reopen = %q, %v", out, err)
 	}
 }
+
+// Parity 1.32: an architect room serves one architecture epic, so the
+// operator and an agent write its ADR together. It needs the epic, and an
+// item in any other state is refused before any room opens. Its session
+// reads the architect room's runbook, and the epic stays in architecture:
+// only the ADR's merge moves it.
+func TestArchitectRoomServesAnArchitectureEpic(t *testing.T) {
+	w := newRoomWorld(t)
+	open := func(args ...string) map[string]any {
+		env, _ := w.coordinator(append([]string{"room", "open", "--kind", "architect", "--project", "alpha",
+			"--reason", "the operator wants to decide the widget store", "--score", "4"}, args...)...)
+		return env
+	}
+	if env := open(); env["code"] != cli.CodeUsage || env["rule"] != "no_item" {
+		t.Fatalf("an architect room with no item = %v", env)
+	}
+	ticket := todoTicket(t, w.bx)
+	if env := open("--item", ticket); env["code"] != cli.CodeTransitionNotAllowed || env["rule"] != "not_architecture_epic" {
+		t.Fatalf("an architect room on a ticket = %v", env)
+	}
+	if n := w.count(`SELECT count(*) FROM rooms`); n != 0 {
+		t.Fatalf("a refused architect room left %d rooms", n)
+	}
+
+	epic, res := w.srv.Machine.Create(context.Background(), machine.CreateRequest{Project: "alpha", Kind: machine.KindEpic,
+		Title: "Widget store", Description: "Decide where widgets live.", Verb: machine.VerbCreateArchitecture,
+		Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		t.Fatalf("create the architecture epic: %+v", *res.Refusal)
+	}
+	r := w.openRoom("architect", epic, "the operator wants to decide the widget store")
+	if r["state"] != room.Live || r["kind"] != "architect" {
+		t.Fatalf("architect room = %v", r)
+	}
+	got := w.room(r["room"].(string))
+	prompt, err := os.ReadFile(filepath.Join(got.Checkout, brief.PromptFile))
+	if err != nil || !strings.Contains(string(prompt), "loop-architect-room/SKILL.md") {
+		t.Fatalf("architect room prompt = %s %v", prompt, err)
+	}
+	if st := w.show(epic).Status; st != machine.Architecture {
+		t.Fatalf("opening the room moved the epic to %s", st)
+	}
+}

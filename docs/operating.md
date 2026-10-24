@@ -317,7 +317,7 @@ At each run start, the server writes each secret the run's stage
 receives into the `.env` of the entry's `dir`, or the checkout's root
 `.env` when the entry names none. An entry with no `stages` reaches every
 stage. A stage is a stage name, such as `implementer`, or a room:
-`intake-room`, `decision-room` or `review-room`. So a key that one app
+`intake-room`, `decision-room`, `review-room` or `architect-room`. So a key that one app
 uses reaches that app's `.env` only, in the runs that need it. Each file
 holds only its own names, and the server deletes each one when the run
 settles. A repository that tracks a file at one of those paths starts no
