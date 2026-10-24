@@ -147,6 +147,10 @@ func Injected(stage string) string { return brief.SkillPrefix + stage }
 // loop-<name> directory of each third-party pin. Two sources that
 // land on one directory are refused.
 func Layout(src fs.FS) (fs.FS, error) {
+	return layout(src)
+}
+
+func layout(src fs.FS) (fstest.MapFS, error) {
 	m, err := ReadManifest(src)
 	if err != nil {
 		return nil, err

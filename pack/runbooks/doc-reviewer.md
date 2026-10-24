@@ -62,7 +62,8 @@ Check in this order:
 2. A contract that cannot fail.
 3. Work that no slice can cover, or an order of dependencies that cannot finish.
 4. A decision that names no alternative it rejected.
-5. A domain concept that the contracts use and the domain model does not define.
+5. A domain concept that the contracts use and the domain model does not define, or a domain
+   model that breaks a rule of `../loop-domain-modeling/SKILL.md`.
 6. An excluded part with no owner.
 7. An open question that the author could have settled from the PRD or the code.
 8. More than two components, or a second component with no line that says why it is not its own
