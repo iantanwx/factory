@@ -11,7 +11,6 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/rpc"
-	"github.com/iantanwx/loop/internal/sched"
 )
 
 // composeAdmission builds admission over the host config file and the
@@ -19,7 +18,7 @@ import (
 func (s *Server) composeAdmission() (*admission.Admission, error) {
 	base := s.opts.BaseFiles
 	if base == nil {
-		base = GitBase{Projects: s.Projects, Branch: sched.DefaultBaseBranch}
+		base = GitBase{Projects: s.Projects}
 	}
 	return admission.New(admission.Config{
 		Store:   s.Store,
@@ -55,12 +54,11 @@ func (s *Server) workPeek(ctx context.Context, call *rpc.Call) cli.Result {
 }
 
 // GitBase reads a project's base branch from the project's local directory
-// with `git ls-tree`, at origin/<Branch>. It runs no hook and reads no user
-// or system git config. A server with the GitHub mirror reads the bare
-// mirror instead, which knows each project's base branch.
+// with `git ls-tree`, at origin/<its registered default branch>. It runs no
+// hook and reads no user or system git config. A server with the GitHub
+// mirror reads the bare mirror instead.
 type GitBase struct {
 	Projects *config.Projects
-	Branch   string
 }
 
 // Files implements admission.BaseReader. The content id is the blob id.
@@ -69,9 +67,10 @@ func (g GitBase) Files(ctx context.Context, project string, prefixes []string) (
 	if err != nil {
 		return nil, err
 	}
-	out, err := gitx.Run(ctx, p.Path, "ls-tree", "-r", "-z", "--full-tree", "origin/"+g.Branch)
+	ref := config.DefaultRef(p.BaseBranch())
+	out, err := gitx.Run(ctx, p.Path, "ls-tree", "-r", "-z", "--full-tree", ref)
 	if ge, ok := errors.AsType[*gitx.Error](err); ok {
-		return nil, fmt.Errorf("git ls-tree origin/%s: %w: %s", g.Branch, ge.Err, strings.TrimSpace(ge.Stderr))
+		return nil, fmt.Errorf("git ls-tree %s: %w: %s", ref, ge.Err, strings.TrimSpace(ge.Stderr))
 	}
 	return gitx.TreeFiles(out, prefixes), nil
 }

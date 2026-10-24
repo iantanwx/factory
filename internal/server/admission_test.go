@@ -152,7 +152,7 @@ func TestGitBaseReadsDeclaredPaths(t *testing.T) {
 	if err := config.SaveHost(hostPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	files, err := GitBase{Projects: &config.Projects{HostPath: hostPath}, Branch: "main"}.
+	files, err := GitBase{Projects: &config.Projects{HostPath: hostPath}}.
 		Files(context.Background(), "alpha", []string{"app/task.go", "docs/"})
 	if err != nil {
 		t.Fatal(err)

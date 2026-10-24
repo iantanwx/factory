@@ -236,7 +236,7 @@ func TestContract(t *testing.T) {
 					Verb: "prd_submit", Actor: machine.Server("test")})
 				e.mustOK(res)
 				e.world.Add(&gt.PR{Head: github.BranchFor(epic), HeadSHA: sha('4'), Title: epic})
-				e.apply(epic, "review_pass", nil)
+				e.apply(epic, "review_pass", map[string]string{"head": sha('4')})
 				e.postEligibility()
 				e.tick()
 				e.tick()
