@@ -78,6 +78,38 @@ func TestDoctorFailsOnAnExtraPermission(t *testing.T) {
 	}
 }
 
+// Doctor fails an installation that its owner suspended, and one whose
+// answer cannot show that it is active (parity 10.2). An installation
+// that selects every repository still passes.
+func TestDoctorFailsASuspendedInstallation(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	line := func() CheckLine {
+		for _, l := range e.svc.Doctor(ctx, e.project) {
+			if l.Check == "installation_active" {
+				return l
+			}
+		}
+		t.Fatal("doctor has no installation_active line")
+		return CheckLine{}
+	}
+	if l := line(); !l.OK {
+		t.Fatalf("an active installation fails: %s", l.Detail)
+	}
+	e.api.SetInstallField("repository_selection", "all")
+	if l := line(); !l.OK {
+		t.Fatalf("an active installation on all repositories fails: %s", l.Detail)
+	}
+	e.api.SetInstallField("suspended_at", "2026-10-16T13:00:00Z")
+	if l := line(); l.OK || !strings.Contains(l.Detail, "2026-10-16T13:00:00Z") {
+		t.Fatalf("a suspended installation: ok=%v detail=%q", l.OK, l.Detail)
+	}
+	e.api.DropInstallField("suspended_at")
+	if l := line(); l.OK || !strings.Contains(l.Detail, "suspended_at") {
+		t.Fatalf("an answer with no suspended_at: ok=%v detail=%q", l.OK, l.Detail)
+	}
+}
+
 func failed(lines []CheckLine) []string {
 	var out []string
 	for _, l := range lines {

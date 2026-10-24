@@ -130,10 +130,11 @@ Run `loop doctor`. It exits 0 when every check passes. It exits 3 with code
 
 It checks the install, the harness settings above, and that the agent host
 knows each project's repository. The GitHub checks run on the server, so the
-App's private key never leaves it. They cover the App's installation and
-permissions, the default-branch rules, and project config on the default
-branch. `loop doctor` asks the server for them. When the server is down, it
-reports them as one failed `github` line marked unchecked.
+App's private key never leaves it. They cover the App's installation, which
+must not be suspended, its permissions, the default-branch rules, and
+project config on the default branch. `loop doctor` asks the server for
+them. When the server is down, it reports them as one failed `github` line
+marked unchecked.
 
 Every settlement removes the checkout's `.env` files, and so does a room that
 goes idle or interrupted. These are the root `.env` and each `.env` of a
