@@ -36,8 +36,8 @@ and submit it:
 loop prd submit --path <path in the repository> --title "<title>"
 ```
 
-The server pushes the commit, opens the pull request and creates the epic in `prd_review`. Submit
-each PRD of a split once.
+The server pushes the commit, opens the pull request and creates the epic in `prd_review`. One
+room submits one PRD. `../loop-sdlc-split/SKILL.md` states how a split creates each other epic.
 
 ## 3. A PRD after its second reject
 

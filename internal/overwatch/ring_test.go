@@ -1,0 +1,41 @@
+package overwatch
+
+import (
+	"context"
+	"database/sql"
+	"testing"
+	"time"
+)
+
+// The one coordinator_ring row holds the last outcome, updated in place.
+func TestRecordRingKeepsOneRow(t *testing.T) {
+	w := newFakeWorld(t)
+	ctx := context.Background()
+	if _, ok, err := LastRing(ctx, w.st); ok || err != nil {
+		t.Fatalf("an empty store's ring = %v %v", ok, err)
+	}
+	at := time.Date(2026, 10, 24, 9, 3, 0, 0, time.UTC)
+	first := RingOutcome{At: at, Source: SourceOverwatch, Result: RingRefused, Detail: "notify refused: no receipt"}
+	second := RingOutcome{At: at.Add(10 * time.Minute), Source: SourceInbox, Result: RingAccepted}
+	for _, o := range []RingOutcome{first, second} {
+		if err := RecordRing(ctx, w.st, o); err != nil {
+			t.Fatal(err)
+		}
+		got, ok, err := LastRing(ctx, w.st)
+		if err != nil || !ok || !got.At.Equal(o.At) || got.Source != o.Source || got.Result != o.Result || got.Detail != o.Detail {
+			t.Fatalf("LastRing = %+v %v %v, want %+v", got, ok, err, o)
+		}
+	}
+	var n int
+	if err := w.st.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM schedule WHERE kind = ? AND project = ''`, RingKind).Scan(&n)
+	}); err != nil || n != 1 {
+		t.Fatalf("%d coordinator_ring rows, %v", n, err)
+	}
+	if err := RecordRing(ctx, w.st, RingOutcome{At: at, Source: "operator", Result: RingAccepted}); err == nil {
+		t.Fatal("RecordRing took a third source")
+	}
+	if err := RecordRing(ctx, w.st, RingOutcome{At: at, Source: SourceInbox, Result: RingAccepted, Detail: "x"}); err == nil {
+		t.Fatal("RecordRing took text on an accepted ring")
+	}
+}
