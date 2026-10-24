@@ -53,7 +53,7 @@ func (s *Store) Missing(ctx context.Context, project string, m *config.Manifest)
 	return missing, nil
 }
 
-// Values decrypts every manifest secret for project, for the run's .env. It
+// Values decrypts every secret of m for project, for the run's .env. It
 // returns a MissingSecretsError when any is unset, and then no value.
 func (s *Store) Values(ctx context.Context, project string, m *config.Manifest) (map[string]string, error) {
 	missing, err := s.Missing(ctx, project, m)
@@ -93,25 +93,34 @@ func (s *Store) Values(ctx context.Context, project string, m *config.Manifest) 
 // double quotes that holds $ may be expanded by a reader that interpolates,
 // such as bash source. That case needs a quote and a newline in one value.
 func WriteEnvFile(path string, values map[string]string) error {
-	names := slices.Sorted(maps.Keys(values))
+	data, err := FormatEnv(values)
+	if err != nil {
+		return err
+	}
+	if err := config.WriteFileAtomic(path, data, 0o600); err != nil {
+		return fmt.Errorf("secrets: write .env: %w", err)
+	}
+	return nil
+}
+
+// FormatEnv returns the text of a .env that holds values, sorted by name,
+// quoted as WriteEnvFile states.
+func FormatEnv(values map[string]string) ([]byte, error) {
 	var b strings.Builder
-	for _, n := range names {
+	for _, n := range slices.Sorted(maps.Keys(values)) {
 		if !config.ValidSecretName(n) {
-			return fmt.Errorf("secrets: %q is not an environment variable name", n)
+			return nil, fmt.Errorf("secrets: %q is not an environment variable name", n)
 		}
 		v := values[n]
 		if strings.ContainsRune(v, 0) {
-			return fmt.Errorf("secrets: the value of %s holds a NUL byte, which .env cannot carry", n)
+			return nil, fmt.Errorf("secrets: the value of %s holds a NUL byte, which .env cannot carry", n)
 		}
 		b.WriteString(n)
 		b.WriteByte('=')
 		b.WriteString(quoteEnv(v))
 		b.WriteByte('\n')
 	}
-	if err := config.WriteFileAtomic(path, []byte(b.String()), 0o600); err != nil {
-		return fmt.Errorf("secrets: write .env: %w", err)
-	}
-	return nil
+	return []byte(b.String()), nil
 }
 
 func quoteEnv(v string) string {

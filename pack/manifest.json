@@ -37,6 +37,7 @@
     "coordinator": {
       "attended": true,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-reflect", "loop-encode-lessons", "loop-sdlc-documents"],
+      "agents": ["loop-alert-root-cause", "loop-checkout-forensics", "loop-doctor", "loop-escalation-prep"],
       "policy": "coordinator"
     },
     "intake-room": {
@@ -63,5 +64,11 @@
     "loop-sdlc-split",
     "loop-sdlc-triage",
     "loop-sdlc-turn"
+  ],
+  "agents": [
+    "loop-alert-root-cause",
+    "loop-checkout-forensics",
+    "loop-doctor",
+    "loop-escalation-prep"
   ]
 }

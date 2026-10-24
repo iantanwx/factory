@@ -50,6 +50,9 @@ type Config struct {
 	Base BaseReader
 	// Deps reports open dependencies. Optional.
 	Deps DepReader
+	// Pulls lists open pull requests for the `## Depends on` hold.
+	// Optional.
+	Pulls PullReader
 	// Release is the loop release version. It enters the retry identity.
 	Release string
 }
@@ -222,7 +225,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		if ref != nil {
 			return Admitted{}, ref
 		}
-		if ref, err := dependencyRefusal(ctx, a.cfg.Deps, it); err != nil || ref != nil {
+		if ref, err := a.dependencyRefusal(ctx, it); err != nil || ref != nil {
 			if err != nil {
 				return Admitted{}, cli.InternalRefusal(err)
 			}
@@ -276,7 +279,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 			if ref := intakeFull(epics, limits[0]); ref != nil {
 				return refusalErr{ref}
 			}
-		} else if ref, err := capRefusal(tx, r.Stage, limits, 0); err != nil || ref != nil {
+		} else if ref, err := capRefusal(tx, r.Stage, limits, ""); err != nil || ref != nil {
 			if err != nil {
 				return err
 			}
@@ -431,6 +434,14 @@ type Candidate struct {
 // nothing now. A stage that claims no item returns a candidate with no
 // item when it may start.
 func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate, *cli.Refusal) {
+	return a.PeekAs(ctx, project, stage, "")
+}
+
+// PeekAs is Peek asked from inside a run. The caps leave that run out of
+// their count, so a run that fills its stage's cap still finds the work
+// it was started for, such as the fixer's waiting escalations. Every other
+// live run still counts.
+func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Candidate, *cli.Refusal) {
 	if a.items == nil {
 		return nil, cli.InternalRefusal(errors.New("admission: no machine attached"))
 	}
@@ -463,7 +474,7 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 		if stage == config.StageIntake {
 			return nil
 		}
-		ref, err := capRefusal(q, stage, limits, 0)
+		ref, err := capRefusal(q, stage, limits, run)
 		full = ref != nil
 		if err != nil || full || stage != stageFixer {
 			return err
@@ -508,7 +519,7 @@ func (a *Admission) admissible(ctx context.Context, stage string, it machine.Ite
 	if it.Fact(machine.FactOwner) != "" {
 		return false, nil
 	}
-	if ref, err := dependencyRefusal(ctx, a.cfg.Deps, it); err != nil || ref != nil {
+	if ref, err := a.dependencyRefusal(ctx, it); err != nil || ref != nil {
 		return false, err
 	}
 	var held, blocked, holds bool

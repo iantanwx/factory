@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -107,5 +108,32 @@ func TestNoSourceRebasesOrForcePushes(t *testing.T) {
 	}
 	if read < 10 {
 		t.Fatalf("the scan read %d sources", read)
+	}
+}
+
+// OpenPulls reads every page of the open pull requests, and no closed one,
+// for the `## Depends on` hold.
+func TestOpenPullsReadEveryOpenPage(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	for i := range 120 {
+		w.Add(&gt.PR{Head: "feat/b" + strconv.Itoa(i+1)})
+	}
+	w.Add(&gt.PR{Head: "feat/closed", State: "closed"})
+	open, err := e.svc.OpenPulls(context.Background(), testProject)
+	if err != nil || len(open) != 120 {
+		t.Fatalf("open: %d %v", len(open), err)
+	}
+	if open[0].Number != 1 || open[0].Head.Ref != "feat/b1" || open[119].Head.Ref != "feat/b120" {
+		t.Fatalf("open: %+v ... %+v", open[0], open[119])
+	}
+	var pages []string
+	for _, c := range e.api.Calls() {
+		if strings.Contains(c, "/pulls?") {
+			pages = append(pages, c)
+		}
+	}
+	if len(pages) != 2 || !strings.HasSuffix(pages[0], "/pulls?page=1&per_page=100&state=open") {
+		t.Fatalf("pages read: %v", pages)
 	}
 }

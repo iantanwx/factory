@@ -235,6 +235,20 @@ func (s *Service) ownPush(ctx context.Context, project, branch, sha string) (boo
 	return n > 0, err
 }
 
+// lastPush is the sha of the newest push the server made to the branch,
+// or "" when it made none.
+func (s *Service) lastPush(ctx context.Context, project, branch string) (string, error) {
+	var sha string
+	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT new_sha FROM push_intents
+			WHERE project = ? AND branch = ? AND state = 'done' ORDER BY id DESC LIMIT 1`, project, branch).Scan(&sha)
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return sha, err
+}
+
 // ReconcilePushes settles every pending push intent of one project
 // against the remote. A start-up runs it before the reactor reads any
 // head, so the server's own push never reads as foreign.

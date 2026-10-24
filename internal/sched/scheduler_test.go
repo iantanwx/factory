@@ -268,6 +268,46 @@ func TestMissingSecretRefusesBeforeClaim(t *testing.T) {
 	}
 }
 
+// A run receives only the secrets its stage's entries name, each in the
+// .env of the entry's directory (parity 9.3, 11.2). A secret of another
+// stage with no stored value does not stop the run, and the brief names
+// only the run's own secrets.
+func TestRunReceivesOnlyItsStagesSecretsInEachDir(t *testing.T) {
+	w := newWorld(t)
+	w.project.set(snapshot(t, "stages:\n  implementer: {}\nmerge:\n  mechanism: direct\n",
+		"secrets:\n  - name: ROOT_KEY\n  - name: WEB_KEY\n    dir: apps/web\n    stages: [implementer]\n"+
+			"  - name: REVIEW_KEY\n    stages: [code-reviewer]\n"))
+	for name, v := range map[string]string{"ROOT_KEY": "root_value_1", "WEB_KEY": "web_value_1"} {
+		if err := w.sec.Set(context.Background(), prj, name, strings.NewReader(v)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	root, err := os.ReadFile(filepath.Join(st.Checkout, ".env"))
+	if err != nil || string(root) != "ROOT_KEY='root_value_1'\n" {
+		t.Fatalf(".env = %q, %v", root, err)
+	}
+	web, err := os.ReadFile(filepath.Join(st.Checkout, "apps/web/.env"))
+	if err != nil || string(web) != "WEB_KEY='web_value_1'\n" {
+		t.Fatalf("apps/web/.env = %q, %v", web, err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(st.Checkout, brief.BriefJSON))
+	var b brief.Brief
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(b.Secrets.Present, []string{"ROOT_KEY", "WEB_KEY"}) {
+		t.Fatalf("brief secrets = %v", b.Secrets.Present)
+	}
+	if _, ref := w.s.Finish(context.Background(), st.RunID, "done"); ref != nil {
+		t.Fatal(ref)
+	}
+	if exists(filepath.Join(st.Checkout, "apps/web/.env")) || exists(filepath.Join(st.Checkout, ".env")) {
+		t.Fatal("a .env stays after the run settled")
+	}
+}
+
 // run finish --outcome done releases the lease and settles the checkout.
 // The next tick closes the session.
 func TestFinishDoneReleasesTheLease(t *testing.T) {

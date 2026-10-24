@@ -177,6 +177,7 @@ func (s *Service) BranchSHA(ctx context.Context, p config.Project, branch string
 // BranchRules reads the rules that apply to the default branch: the type
 // of each rule, and the required status contexts other than loop/eligible.
 // It reads the rule types and the contexts only, never a response layout.
+// A plan with no rulesets has no rules.
 func (s *Service) BranchRules(ctx context.Context, p config.Project) (types, checks []string, err error) {
 	base, err := s.DefaultBranch(ctx, p)
 	if err != nil {
@@ -184,6 +185,9 @@ func (s *Service) BranchRules(ctx context.Context, p config.Project) (types, che
 	}
 	var rules []rule
 	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/rules/branches/"+pathEscapeBranch(base)), &rules); err != nil {
+		if noRulesets(err) {
+			return nil, nil, nil
+		}
 		return nil, nil, err
 	}
 	for _, r := range rules {

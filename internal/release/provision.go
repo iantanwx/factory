@@ -241,6 +241,11 @@ func extractMember(archive []byte, member string) ([]byte, error) {
 
 // httpGet reads one URL, or one local file when u is an absolute path.
 func httpGet(ctx context.Context, client *http.Client, u string, limit int64) ([]byte, error) {
+	return httpGetHeader(ctx, client, u, nil, limit)
+}
+
+// httpGetHeader is httpGet with header on the request.
+func httpGetHeader(ctx context.Context, client *http.Client, u string, header http.Header, limit int64) ([]byte, error) {
 	if filepath.IsAbs(u) {
 		f, err := os.Open(u)
 		if err != nil {
@@ -255,6 +260,11 @@ func httpGet(ctx context.Context, client *http.Client, u string, limit int64) ([
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
+	}
+	for k, vs := range header {
+		for _, v := range vs {
+			req.Header.Add(k, v)
+		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {

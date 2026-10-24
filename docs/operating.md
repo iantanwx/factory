@@ -135,6 +135,16 @@ permissions, the default-branch rules, and project config on the default
 branch. `loop doctor` asks the server for them. When the server is down, it
 reports them as one failed `github` line marked unchecked.
 
+Every settlement removes the checkout's `.env` files, and so does a room that
+goes idle or interrupted. These are the root `.env` and each `.env` of a
+manifest `dir` that the checkout's `.loop/env-files` record names. `loop
+doctor` fails one `stale_env` line for each of these files that one of these
+steps missed: in a checkout the loop made whose run ended, or whose room is
+idle, interrupted or closed. The coordinator's checkout is listed even while it
+runs, because the loop never writes a `.env` there. Run `loop doctor --fix` to
+remove each one, with its record. The server knows which runs live, so this
+check also reads unchecked when the server is down.
+
 ## Add a project
 
 Run `loop register` in the project's local clone:
@@ -198,8 +208,10 @@ Only that session holds the coordinator's token, in `.loop/token` of its
 worktree. A session in your own clone holds none, and the server refuses
 its coordinator verbs. When you remove the coordinator's project, the
 server ends the session and starts the next one in a project that is
-still registered. When you upgrade the loop, the server restarts the
-session in the same worktree, so it reads the new runbooks.
+still registered. When you upgrade the loop, the server leaves a running
+session up. It sends that session one message that names the new release
+and tells it to read its runbook again. When the session ends, the server
+starts the next one under the new release, in the same worktree.
 
 ## The gates
 
@@ -274,11 +286,21 @@ secrets:
   - name: OPENAI_API_KEY
   - name: STRIPE_KEY
     source: op://Dev/stripe/key   # only for loop secret import
+  - name: POSTHOG_KEY
+    dir: apps/web                 # written to apps/web/.env, not the root .env
+    stages: [implementer, review-room]  # only these runs receive it
 ```
 
-At each run start, the server writes each listed secret into the
-checkout's `.env`. A run whose list names a secret with no stored value
-does not start, and the inbox names the secret.
+At each run start, the server writes each secret the run's stage
+receives into the `.env` of the entry's `dir`, or the checkout's root
+`.env` when the entry names none. An entry with no `stages` reaches every
+stage. A stage is a stage name, such as `implementer`, or a room:
+`intake-room`, `decision-room` or `review-room`. So a key that one app
+uses reaches that app's `.env` only, in the runs that need it. Each file
+holds only its own names, and the server deletes each one when the run
+settles. A repository that tracks a file at one of those paths starts no
+run. A run whose stage's list names a secret with no stored value does
+not start, and the inbox names the secret.
 
 Store a value from stdin. The value never prints:
 
@@ -314,6 +336,10 @@ new reference since the last import, so read that list before you trust it.
 loop upgrade v1.2.3
 loop upgrade          # the newest published release
 ```
+
+The loop repository is private, so `loop upgrade` reads its releases through
+the GitHub API with the host's `gh` login, the token `gh auth token` prints.
+With no login it exits 4, and its hint names the missing login.
 
 The upgrade checks everything before it changes anything:
 

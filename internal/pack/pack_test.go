@@ -125,6 +125,26 @@ func TestInjectionWritesEveryRunbookAndSkillForEachHarness(t *testing.T) {
 				t.Errorf("%s: skill %s is missing: %v", h, s, err)
 			}
 		}
+		root := brief.AgentRoot(h)
+		for _, a := range m.Agents {
+			body, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(root), a+".md"))
+			switch {
+			case root == "":
+				if err == nil {
+					t.Errorf("%s: a harness with no agent directory received agent %s", h, a)
+				}
+			case err != nil:
+				t.Errorf("%s: agent %s is missing: %v", h, a, err)
+			case !strings.Contains(string(body), "name: "+a+"\n"):
+				t.Errorf("%s: %s.md holds another agent", h, a)
+			}
+		}
+	}
+	if brief.AgentRoot(agenthost.Codex) != "" {
+		t.Errorf("codex agent root = %q, want none", brief.AgentRoot(agenthost.Codex))
+	}
+	if brief.AgentRoot(agenthost.Claude) != ".claude/agents" {
+		t.Errorf("claude agent root = %q, want .claude/agents", brief.AgentRoot(agenthost.Claude))
 	}
 	want := map[agenthost.Harness]string{agenthost.Claude: ".claude/skills/", agenthost.Codex: ".agents/skills/"}
 	for h, prefix := range want {
@@ -176,5 +196,33 @@ func TestLayoutRefusesTwoSourcesForOneDirectory(t *testing.T) {
 	}
 	if _, err := pack.Layout(src); err == nil || !strings.Contains(err.Error(), "loop-sdlc-turn") {
 		t.Fatalf("want a refusal that names loop-sdlc-turn, got %v", err)
+	}
+}
+
+// TestCoordinatorShipsItsReadOnlySubagents holds the pack to the four
+// named helpers of the coordinator (runbook section 11): each one ships,
+// the coordinator's runbook lists it, and the release injects it.
+func TestCoordinatorShipsItsReadOnlySubagents(t *testing.T) {
+	want := []string{"loop-alert-root-cause", "loop-checkout-forensics", "loop-doctor", "loop-escalation-prep"}
+	m, err := pack.ReadManifest(pack.Source())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := slices.Sorted(slices.Values(m.Agents)); !slices.Equal(got, want) {
+		t.Fatalf("manifest agents = %v, want %v", got, want)
+	}
+	if got := slices.Sorted(slices.Values(m.Runbooks[sched.CoordinatorStage].Agents)); !slices.Equal(got, want) {
+		t.Fatalf("coordinator agents = %v, want %v", got, want)
+	}
+	p, err := pack.Brief()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.AgentNames()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("injected agents = %v, want %v", got, want)
 	}
 }
