@@ -108,6 +108,10 @@ type Options struct {
 	// Human holds the optional parts of the inbox, escalations, decisions
 	// and rooms, which the server composes with the machine.
 	Human HumanOptions
+	// Upgrade starts `loop upgrade` outside every checkout, on the
+	// operator's decision that the coordinator relays (ADR 0010). A
+	// server with none refuses `coordinator upgrade`. Optional.
+	Upgrade UpgradeStarter
 }
 
 // Server is one composed instance.

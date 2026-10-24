@@ -83,4 +83,4 @@ Each work entry that draws a screen names its design references, when the projec
 
 - Never write code. A spec run changes one document.
 - Never leave a decision implicit.
-- Never merge the spec. The operator's merge is the sign-off.
+- Never merge the spec. The operator's approval is the sign-off, and the server merges.

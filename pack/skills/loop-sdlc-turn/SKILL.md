@@ -207,8 +207,9 @@ These rules bind every runbook. Your runbook adds the rules that are its own.
 - **Never write to an item your run does not hold.** The server refuses it, and the attempt to
   write is a fault in your run. The fixer has one exception. It may note the item of the
   escalation that it routes.
-- **Never merge.** The server hands an eligible pull request to the project's merge mechanism. A
-  person merges a PRD or a spec, and that merge is the sign-off.
+- **Never merge.** The server hands an eligible pull request to the project's merge mechanism. The
+  operator signs off a PRD or a spec. The coordinator records that approval, and the server merges
+  the document.
 - **Never edit the loop's files.** The `.loop/` files and the `loop-*` skills belong to the loop.
   The server writes them again at each start.
 - **Never run `bd`, and never push with git.** The server is the one writer of the record.

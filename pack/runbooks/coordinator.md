@@ -108,6 +108,15 @@ Every other act is yours. Do it, then report it with its evidence. Never end a t
 do it?" A question that waits costs more than the change it asks about, and the defect runs while
 the question waits.
 
+A step that the loop can run is the loop's step. Bring the operator only the approval or the
+decision, never the commands that apply it. When the operator approves or decides, apply it in the
+same turn:
+
+- A sign-off of a PRD or a spec: `loop inbox answer signoff/<project>/<epic> --body "<words>"`,
+  with the operator's own words. The server merges the document. Section 5 states how.
+- An upgrade of the host: `loop coordinator upgrade [<version>] --body "<the operator's words>"`.
+  Section 9 states how.
+
 When a rule in the repository picks the answer, decide, and name the rule in the report. The
 operator can then overturn it. When a project policy routes a kind of decision to a named role,
 follow that route. When two routes apply, follow the stricter one.
@@ -145,6 +154,18 @@ defer the entry until that act: `loop inbox defer <entry> --until <time>`.
 
 Before the operator signs off a PRD or a spec, read its Open questions. Prepare one question for
 each one that holds no answer, with the document's proposed answer as the recommendation.
+
+The operator's approval is the sign-off. Record it on the sign-off entry only with the operator's
+own words, quoted:
+
+```bash
+loop inbox answer signoff/<project>/<epic> --body "<the operator's words>"
+```
+
+The entry names the head the review passed at. The server merges the document's pull request at
+that head, and the epic moves on. When the head moved after the entry was raised, the server
+merges nothing. It refuses with `STATUS_CHANGED` and rule `head_moved`, and it raises the entry
+again at the new head. Bring the operator the new head and its diff, and record a new approval.
 
 ## 6. Decisions that wait on an event
 
@@ -233,15 +254,25 @@ A run, a room or you report each loop fault. Triage each open one:
    - `loop fault resolve <fault> --not-a-fault --reason "<why>"`, when the loop kept its contract.
 
 `loop version` names the release this host runs. A fault that a later release ends stays a
-reason to upgrade. Name it in the report. The operator upgrades the host.
+reason to upgrade. Name it in the report, and ask the operator whether to upgrade. An upgrade
+drains the loop and restarts the server, so it waits for the operator's decision. When the
+operator decides, start it yourself:
+
+```bash
+loop coordinator upgrade [<version>] --body "<the operator's words>"
+```
+
+The server starts the upgrade outside every checkout, then restarts. After the restart, run
+`loop version`, and report the release it names.
 
 ## 10. Report
 
 End each reply to the operator with two blocks, in this order, with nothing after them:
 
 1. **Situation**: a short list of facts, not a story.
-2. **Blocked on you**: each entry of `loop inbox list --awaits person`, the act that ends its wait,
-   and the full link of each pull request. Write "nothing" when the list is empty.
+2. **Blocked on you**: each entry of `loop inbox list --awaits person`, the approval or the
+   decision that ends its wait, and the full link of each pull request. Write "nothing" when the
+   list is empty. List only decisions and approvals, never a command for the operator to run.
 
 Put findings, changes and merges above the two blocks. For each change, name the symptom, the
 items, the cause, the change, the evidence and the status. Keep a proposed change, a passing test, a
@@ -275,5 +306,6 @@ merges a pull request on its own, and it never reads a credential file.
 
 - Never decide what the operator must decide.
 - Never claim an item or take over a live run.
-- Never merge a PRD or a spec. The operator's merge is the sign-off.
+- Never sign off a PRD or a spec without the operator's approval. Record that approval with
+  `loop inbox answer`, and the server merges.
 - Never put a secret in the inbox, a report or a brief.

@@ -68,7 +68,7 @@ Delete the prose that the mechanism replaces.
 ## 4. Land it
 
 - **A rule of the project:** commit the mechanism and the record, run the project's gates, and open
-  one pull request. The operator's merge is the approval. In a room, push with `loop branch push`.
+  one pull request. The operator's approval lands it. In a room, push with `loop branch push`.
   In the coordinator's session, give the change to the operator as a link to the pull request.
 - **A rule of the loop itself:** report a loop fault with `loop fault report`. Name the rule, the
   correction and what you expected the loop to do.

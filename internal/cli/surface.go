@@ -190,6 +190,9 @@ var surface = []Verb{
 
 	write(server("coordinator", "send", "type a message into the coordinator's terminal, as the operator would", hostOnly, nil,
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the message"})),
+	write(server("coordinator", "upgrade", "on the operator's decision, have the server run loop upgrade outside every checkout; it drains and restarts the server", coordinator,
+		[]Arg{{Name: "version", Description: "the release to install; the latest when absent"}},
+		Flag{Name: "body", Type: FlagString, Required: true, Description: "the operator's decision, in the operator's own words"})),
 
 	server("inbox", "list", "list inbox entries", coordinator, nil,
 		Flag{Name: "awaits", Type: FlagString, Enum: []string{"person", "coordinator"}, Description: "only entries that wait on this actor"}),

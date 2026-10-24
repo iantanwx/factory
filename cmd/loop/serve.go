@@ -86,7 +86,7 @@ var realWiring = wiring{beads: realBeads, agents: realAgents}
 // A host config that names none of them serves only the verbs of the core
 // server. The returned cleanup stops what it started.
 func productionOptions(ctx context.Context, dir string, w wiring) (server.Options, func(), error) {
-	opts := server.Options{Instance: dir}
+	opts := server.Options{Instance: dir, Upgrade: newUpgradeStarter(dir).Start}
 	cleanup := func() {}
 	cfg, err := config.LoadHost(filepath.Join(dir, config.HostConfigFile))
 	if errors.Is(err, fs.ErrNotExist) {
