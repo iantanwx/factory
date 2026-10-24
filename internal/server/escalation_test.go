@@ -87,6 +87,7 @@ func newHumanWorld(t *testing.T, manifest string) *humanWorld {
 			ProjectConfig: func(context.Context, string) (*config.ProjectSnapshot, error) { return snap, nil },
 			Coordinator:   &sched.CoordinatorConfig{Project: "alpha", Harness: agenthost.Claude},
 			TickInterval:  time.Hour,
+			BaseHead:      repoBaseHead(repo),
 		},
 		Human: HumanOptions{Now: w.clock.Now, PollInterval: 20 * time.Millisecond, WatchInterval: time.Hour},
 	}

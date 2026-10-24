@@ -23,10 +23,14 @@ import (
 // overwatchState is the sweep's world and part list. The list is
 // overwatch.Parts() outside tests, and a test replaces it.
 type overwatchState struct {
-	world  overwatch.World
-	mu     sync.Mutex
-	parts  []overwatch.Part
-	github overwatch.GitHubReads // nil until the GitHub setup runs
+	world overwatch.World
+	mu    sync.Mutex
+	parts []overwatch.Part
+	// install and github are the checks World.Doctor reads. A Setup step
+	// sets them, before the job ticks or the verb answers.
+	install func(ctx context.Context) github.CheckLine
+	github  *GitHub
+	reads   overwatch.GitHubReads // nil until the GitHub setup runs
 }
 
 // composeOverwatch builds the production World, serves `overwatch sweep`,
@@ -46,6 +50,14 @@ func (s *Server) composeOverwatch() error {
 	})
 }
 
+// SetOverwatchDoctor gives the server part its checks: install, the
+// install drift line of `loop doctor`, and gh, the GitHub actor, nil when
+// the host has no App. internal/release imports this package, so `loop
+// serve` builds the install check and calls this in a Setup step.
+func (s *Server) SetOverwatchDoctor(install func(ctx context.Context) github.CheckLine, gh *GitHub) {
+	s.overwatch.install, s.overwatch.github = install, gh
+}
+
 func (s *Server) setOverwatchParts(parts []overwatch.Part) {
 	s.overwatch.mu.Lock()
 	defer s.overwatch.mu.Unlock()
@@ -57,7 +69,7 @@ func (s *Server) setOverwatchParts(parts []overwatch.Part) {
 func (s *Server) setOverwatchGitHub(svc *github.Service) {
 	s.overwatch.mu.Lock()
 	defer s.overwatch.mu.Unlock()
-	s.overwatch.github = githubReads{svc}
+	s.overwatch.reads = githubReads{svc}
 }
 
 func (s *Server) overwatchPartList() []overwatch.Part {
@@ -194,11 +206,42 @@ func (w *serverWorld) Coordinator() sched.CoordinatorState {
 func (w *serverWorld) GitHub() overwatch.GitHubReads {
 	w.s.overwatch.mu.Lock()
 	defer w.s.overwatch.mu.Unlock()
-	return w.s.overwatch.github
+	return w.s.overwatch.reads
 }
 
-// Doctor belongs to the server part (spec, Work 7).
-func (w *serverWorld) Doctor(context.Context) ([]github.CheckLine, error) { return nil, errNoPartReads }
+// Doctor is the install drift line, then each project's GitHub doctor
+// lines, each check named <project>/<check> as loop doctor names it, so
+// one project's finding key differs from another's. A check that cannot
+// run is a failed line, never a pass.
+func (w *serverWorld) Doctor(ctx context.Context) ([]github.CheckLine, error) {
+	line := github.CheckLine{Check: "install", Detail: "this server was started with no install check; run it with loop serve"}
+	if install := w.s.overwatch.install; install != nil {
+		line = install(ctx)
+	}
+	lines := []github.CheckLine{line}
+	ps, err := w.s.Projects.List()
+	if err != nil {
+		return nil, err
+	}
+	if len(ps) == 0 {
+		return lines, nil
+	}
+	gh := w.s.overwatch.github
+	if gh == nil {
+		return append(lines, github.CheckLine{Check: "github", Detail: "the server holds no GitHub actor; set credentials.github_app in host config"}), nil
+	}
+	docs, err := gh.Doctor(ctx, w.s.Projects)
+	if err != nil {
+		return append(lines, github.CheckLine{Check: "github", Detail: "the server's GitHub checks could not run: " + err.Error()}), nil
+	}
+	for _, d := range docs {
+		for _, l := range d.Lines {
+			l.Check = d.Project + "/" + l.Check
+			lines = append(lines, l)
+		}
+	}
+	return lines, nil
+}
 
 func (w *serverWorld) LastRing(ctx context.Context) (overwatch.RingOutcome, bool, error) {
 	return overwatch.LastRing(ctx, w.s.Store)

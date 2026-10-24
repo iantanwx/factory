@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -15,10 +16,14 @@ import (
 	agentfake "github.com/iantanwx/loop/internal/agenthost/fake"
 	"github.com/iantanwx/loop/internal/beadsx"
 	beadsfake "github.com/iantanwx/loop/internal/beadsx/fake"
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/merge"
+	"github.com/iantanwx/loop/internal/overwatch"
+	"github.com/iantanwx/loop/internal/release"
+	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
 )
@@ -98,11 +103,23 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if _, ok := opts.BaseFiles.(lazyBase); !ok || opts.ManifestReader == nil || opts.Sched.Refs == nil {
 		t.Fatalf("the GitHub readers are not wired: %+v", opts)
 	}
+	// C-bug-1: checkouts start at the base head the mirror reads.
+	if opts.Sched.BaseHead == nil {
+		t.Fatal("the base head source is not wired")
+	}
+	if _, err := opts.Sched.BaseHead(context.Background(), "alpha", "main"); !errors.Is(err, errNoGitHub) {
+		t.Fatalf("a base head read before setup = %v", err)
+	}
 	if opts.Sched.Pack.FS == nil || opts.Sched.Pack.Version == "" {
 		t.Fatal("the skill pack is not wired")
 	}
 	var srv *server.Server
 	opts.Setup = append(opts.Setup, func(s *server.Server) error { srv = s; return nil })
+	// The install check reads the service unit under HOME.
+	t.Setenv("HOME", t.TempDir())
+	if _, err := rpc.EnsureAdminCredential(dir); err != nil {
+		t.Fatal(err)
+	}
 	opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	ready := make(chan struct{})
 	opts.Ready = ready
@@ -141,6 +158,9 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if _, err := (lazyBase{w.github}).Files(context.Background(), "alpha", nil); err == nil {
 		t.Fatal("the base reader read a project that is not registered")
 	}
+	if line := sweepPart(t, dir, "server")[0]; !strings.HasPrefix(line, "install failed: run loop install: ") {
+		t.Fatalf("the overwatch server part does not read the install check: %q", line)
+	}
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -170,5 +190,70 @@ func TestReviewProofRunsInTheCallersCheckout(t *testing.T) {
 	code := run(context.Background(), []string{"review", "proof", "--test", "a_test.go"}, strings.NewReader(""), &out, io.Discard)
 	if code != 2 || !strings.Contains(out.String(), `"not_a_checkout"`) {
 		t.Fatalf("review proof = %d %s", code, out.String())
+	}
+}
+
+// sweepPart runs `loop overwatch sweep` as the host, and returns the lines
+// of one part.
+func sweepPart(t *testing.T, dir, part string) []string {
+	t.Helper()
+	r := cli.Surface()
+	cwd := t.TempDir()
+	c := &cli.Client{Instance: dir, Budget: 10 * time.Second, Getwd: func() (string, error) { return cwd, nil }}
+	c.Attach(r)
+	v, ok := r.Verb("overwatch sweep")
+	if !ok {
+		t.Fatal("no overwatch sweep verb")
+	}
+	res := c.Remote(context.Background(), cli.Invocation{Verb: v, Flags: map[string]string{}, RequestID: newRequestID()})
+	if res.Refusal != nil {
+		t.Fatalf("overwatch sweep = %+v", res.Refusal)
+	}
+	var rep overwatch.Report
+	raw, err := json.Marshal(res.Data)
+	if err == nil {
+		err = json.Unmarshal(raw, &rep)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range rep.Parts {
+		if p.Name == part && len(p.Lines) > 0 {
+			return p.Lines
+		}
+	}
+	t.Fatalf("the sweep holds no part %s with lines: %+v", part, rep)
+	return nil
+}
+
+// The spec assumes the service process can run release.Installer.Check
+// with no terminal and no user service bus. The check runs here with
+// neither, on an instance that loop install never set up, and it reports
+// drift: it ran. Its line is the install line of loop doctor.
+func TestInstallCheckRunsWithNoTerminalOrUserBus(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	for _, name := range []string{"TERM", "DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR"} {
+		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	line := installCheck(dir)(ctx)
+	if line.Check != "install" || line.OK || !strings.HasPrefix(line.Detail, "run loop install: ") ||
+		!strings.Contains(line.Detail, "is not installed") {
+		t.Fatalf("install check = %+v", line)
+	}
+	in, err := checkInstaller(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doctor := (&release.Doctor{Layout: in.Layout, Installer: in}).Run(ctx)
+	if len(doctor) == 0 || doctor[0] != line {
+		t.Fatalf("loop doctor's install line = %+v, the server's = %+v", doctor, line)
 	}
 }
