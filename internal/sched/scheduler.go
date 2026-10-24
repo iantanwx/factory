@@ -516,8 +516,8 @@ const (
 )
 
 // launch starts one firing in its own goroutine. A stage starts at most one
-// dispatch at a time for each project, and a job at most its cap of
-// concurrent calls.
+// firing at a time for each project, and a job at most its cap of
+// concurrent calls. A run stage's firing fills its free cap.
 func (s *Scheduler) launch(ctx context.Context, project, stage string, kind launchKind, hc *config.HostConfig) {
 	key := stageKey(project, stage)
 	limit := 1
@@ -541,13 +541,7 @@ func (s *Scheduler) launch(ctx context.Context, project, stage string, kind laun
 		}()
 		switch kind {
 		case kindRun:
-			st, ref := s.Dispatch(ctx, project, stage)
-			switch {
-			case ref != nil:
-				s.log.InfoContext(ctx, "dispatch refused", "project", project, "stage", stage, "code", ref.Code, "hint", ref.Hint)
-			case st != nil:
-				s.log.InfoContext(ctx, "run started", "project", project, "stage", stage, "run", st.RunID, "item", st.Item)
-			}
+			s.fill(ctx, project, stage, max(1, hc.Throughput[stage].Cap))
 		case kindJob:
 			if err := s.job(stage)(ctx, project); err != nil {
 				s.log.WarnContext(ctx, "native job", "project", project, "job", stage, "err", err)
@@ -558,6 +552,30 @@ func (s *Scheduler) launch(ctx context.Context, project, stage string, kind laun
 			}
 		}
 	}()
+}
+
+// fill starts runs of stage on project until admission refuses, no
+// candidate is left, or limit runs started. Admission holds the stage's
+// cap, so a firing fills the free cap. Tickertown runs four implementer
+// rows that each hold a window of runs, so 16 starts an hour reach its cap
+// of 8, shared by new and repair work (scripts/sdlc/timer-implementer-rows.ts,
+// alpha). A stage that claims no item starts one run a firing: its
+// candidate names no work that a second run would not repeat.
+func (s *Scheduler) fill(ctx context.Context, project, stage string, limit int) {
+	for range limit {
+		st, ref := s.Dispatch(ctx, project, stage)
+		if ref != nil {
+			s.log.InfoContext(ctx, "dispatch refused", "project", project, "stage", stage, "code", ref.Code, "hint", ref.Hint)
+			return
+		}
+		if st == nil {
+			return
+		}
+		s.log.InfoContext(ctx, "run started", "project", project, "stage", stage, "run", st.RunID, "item", st.Item)
+		if st.Item == "" {
+			return
+		}
+	}
 }
 
 // raise raises an alert, or counts up the open one with the same key.
