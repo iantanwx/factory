@@ -135,6 +135,15 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 			}
 			return gh.Service.RefReader(p.ID), branch, nil
 		}
+		// Each checkout starts at the base head the mirror reads with the
+		// app token. The host clone's own origin may need a person's
+		// credential.
+		opts.Sched.BaseHead = func(ctx context.Context, project, branch string) (string, error) {
+			if gh.Service == nil {
+				return "", errNoGitHub
+			}
+			return gh.Service.FetchBase(ctx, project, branch)
+		}
 	}
 
 	if cfg.Beads.BD == "" || cfg.Beads.Dolt == "" {

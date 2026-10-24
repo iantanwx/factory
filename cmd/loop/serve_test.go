@@ -103,6 +103,13 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if _, ok := opts.BaseFiles.(lazyBase); !ok || opts.ManifestReader == nil || opts.Sched.Refs == nil {
 		t.Fatalf("the GitHub readers are not wired: %+v", opts)
 	}
+	// C-bug-1: checkouts start at the base head the mirror reads.
+	if opts.Sched.BaseHead == nil {
+		t.Fatal("the base head source is not wired")
+	}
+	if _, err := opts.Sched.BaseHead(context.Background(), "alpha", "main"); !errors.Is(err, errNoGitHub) {
+		t.Fatalf("a base head read before setup = %v", err)
+	}
 	if opts.Sched.Pack.FS == nil || opts.Sched.Pack.Version == "" {
 		t.Fatal("the skill pack is not wired")
 	}
