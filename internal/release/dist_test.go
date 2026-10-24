@@ -1,6 +1,7 @@
 package release
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/iantanwx/loop/internal/hexid"
 )
 
 func writeBinaries(t *testing.T, dir, version string) {
@@ -46,7 +49,8 @@ func TestSignedDistIsAcceptedByUpgrade(t *testing.T) {
 	}
 
 	// The release pins this binary's bd and dolt; the test instance runs
-	// synthetic ones, so it pins those.
+	// synthetic ones, so it pins those. It pins no skill, so the upgrade
+	// reads nothing from GitHub.
 	meta, err := ReadMetadata(filepath.Join(dist, MetadataFile))
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +60,7 @@ func TestSignedDistIsAcceptedByUpgrade(t *testing.T) {
 	}
 	meta.Pins = w.pins.pins
 	writeFile(t, filepath.Join(dist, MetadataFile), string(meta.Encode()))
+	writeFile(t, filepath.Join(dist, ThirdPartyAsset), `{"skills": []}`)
 	if err := WriteDistChecksums(dist); err != nil {
 		t.Fatal(err)
 	}
@@ -140,5 +145,63 @@ func TestCIReleasesAfterBothJobs(t *testing.T) {
 	}
 	if signed < 0 || published < 0 || signed > published {
 		t.Fatalf("sign step %d, publish step %d: the job must sign before it publishes", signed, published)
+	}
+}
+
+// TestC16TheReleaseCarriesThePinsItsBinaryChecks: WriteDist writes the
+// asset third-party.json byte for byte as pack/third-party.json, and
+// checksums.txt names it. A release directory without it fails
+// VerifyAssets, so SignDist refuses to sign it.
+func TestC16TheReleaseCarriesThePinsItsBinaryChecks(t *testing.T) {
+	ctx := context.Background()
+	want, err := os.ReadFile(filepath.Join("..", "..", "pack", "third-party.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dist := filepath.Join(t.TempDir(), "v1.1.0")
+	writeBinaries(t, dist, "v1.1.0")
+	if err := WriteDist(ctx, dist, DistOptions{Version: "v1.1.0"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dist, "third-party.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("third-party.json differs from pack/third-party.json:\n%s", got)
+	}
+	sumsRaw, err := os.ReadFile(filepath.Join(dist, ChecksumsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums, err := ParseChecksums(sumsRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sums["third-party.json"] != hexid.SHA256(want) {
+		t.Fatalf("checksums.txt names third-party.json as %q:\n%s", sums["third-party.json"], sumsRaw)
+	}
+	_, sec := mustKey(t)
+	if err := SignDist(dist, sec); err != nil {
+		t.Fatal(err)
+	}
+
+	// The same release without the asset, and without its line.
+	if err := os.Remove(filepath.Join(dist, "third-party.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dist, SignatureFile)); err != nil {
+		t.Fatal(err)
+	}
+	delete(sums, "third-party.json")
+	writeFile(t, filepath.Join(dist, ChecksumsFile), string(sums.Bytes()))
+	if _, err := VerifyAssets(dist, sums.Bytes()); err == nil || !strings.Contains(err.Error(), "third-party.json") {
+		t.Fatalf("VerifyAssets accepted a release without third-party.json: %v", err)
+	}
+	if err := SignDist(dist, sec); err == nil {
+		t.Fatal("SignDist signed a release without third-party.json")
+	}
+	if _, err := os.Stat(filepath.Join(dist, SignatureFile)); err == nil {
+		t.Fatal("SignDist wrote a signature for a release without third-party.json")
 	}
 }

@@ -13,9 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"testing/fstest"
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -210,6 +212,8 @@ type Upgrader struct {
 	// Platform is "<GOOS>/<GOARCH>" of this host.
 	Platform string
 	Prov     Provisioner
+	// Fetcher fetches the target release's third-party skills.
+	Fetcher SkillFetcher
 	// Self is the running binary's metadata. It stands in for the current
 	// release when versions/<current>/release.json is missing.
 	Self Metadata
@@ -224,6 +228,8 @@ type UpgradeReport struct {
 	Drain    DrainReport   `json:"drain"`
 	Snapshot string        `json:"snapshot,omitempty"`
 	Pins     []Provisioned `json:"pins,omitempty"`
+	// Skills names each third-party skill the upgrade fetched.
+	Skills []string `json:"skills,omitempty"`
 	// NoRollback lists why `loop rollback` cannot return from this
 	// release. Empty means a rollback stays possible.
 	NoRollback []string `json:"no_rollback"`
@@ -237,12 +243,16 @@ type verified struct {
 	sums    []byte
 	sig     []byte
 	metaRaw []byte
+	// pinsRaw is the release's third-party.json, and skills its pins.
+	pinsRaw []byte
+	skills  []pack.ThirdParty
 }
 
 // Run upgrades to version. Every check runs before the first state
 // change, so a refused release leaves the instance and the service as
 // they were. Then it drains, stops the service, takes a snapshot, installs
-// the release into versions/<v>/, repoints current and starts the service.
+// the release and its third-party skills into versions/<v>/, repoints
+// current and starts the service.
 func (u *Upgrader) Run(ctx context.Context, version string) (UpgradeReport, error) {
 	if !ValidVersion(version) {
 		return UpgradeReport{}, refuse(cli.CodeUsage, "bad_version", "%q is not a release version such as v1.2.3", version)
@@ -282,6 +292,14 @@ func (u *Upgrader) Run(ctx context.Context, version string) (UpgradeReport, erro
 			return rep, refuse(CodeReleaseUnavailable, "pin_fetch_failed", "%v", err)
 		}
 	}
+	var skills map[string]fs.FS
+	if len(CheckSkills(rel.skills, u.Layout.Skills(version))) > 0 {
+		if skills, err = u.Fetcher.Fetch(ctx, rel.skills); errors.Is(err, ErrPinMismatch) {
+			return rep, refuse(CodeChecksumMismatch, "skill_mismatch", "%v", err)
+		} else if err != nil {
+			return rep, refuse(CodeReleaseUnavailable, "skill_fetch_failed", "%v", err)
+		}
+	}
 	rep.NoRollback = append(rep.NoRollback, RollbackBlockers(rel.meta, fromMeta, dbMin)...)
 
 	// Every check passed. From here the upgrade changes state.
@@ -304,6 +322,14 @@ func (u *Upgrader) Run(ctx context.Context, version string) (UpgradeReport, erro
 	for name := range bins {
 		rep.Pins = append(rep.Pins, Provisioned{Name: name, Path: u.Layout.Bin(name), Fetched: true})
 	}
+	if skills != nil {
+		if err := PlaceSkills(skills, u.Layout.Skills(version)); err != nil {
+			return rep, u.abort(ctx, lock, err)
+		}
+		for _, p := range rel.skills {
+			rep.Skills = append(rep.Skills, p.Name)
+		}
+	}
 	if err := u.Layout.WritePrevious(from); err != nil {
 		return rep, u.abort(ctx, lock, err)
 	}
@@ -322,7 +348,7 @@ func (u *Upgrader) Run(ctx context.Context, version string) (UpgradeReport, erro
 }
 
 // fetch reads the release and verifies its signature, its trusted
-// comment, every checksum and its metadata.
+// comment, every checksum, its metadata and its third-party pins.
 func (u *Upgrader) fetch(ctx context.Context, version string) (verified, error) {
 	var rel verified
 	refuseFetch := func(asset string, err error) error {
@@ -387,6 +413,15 @@ func (u *Upgrader) fetch(ctx context.Context, version string) (verified, error) 
 	if rel.meta.Version != version {
 		return rel, refuse(CodeVersionRefused, "metadata_version_mismatch", "release.json names %s, not %s", rel.meta.Version, version)
 	}
+	if rel.pinsRaw, err = get(ThirdPartyAsset); err != nil {
+		return rel, err
+	}
+	if err := sums.Check(ThirdPartyAsset, rel.pinsRaw); err != nil {
+		return rel, refuse(CodeChecksumMismatch, "third_party_checksum", "%v", err)
+	}
+	if rel.skills, err = pack.ReadThirdParty(fstest.MapFS{pack.ThirdPartyFile: {Data: rel.pinsRaw}}); err != nil {
+		return rel, refuse(CodeChecksumMismatch, "bad_third_party", "%v", err)
+	}
 	return rel, nil
 }
 
@@ -419,10 +454,11 @@ func (u *Upgrader) install(rel verified) error {
 		data []byte
 		perm fs.FileMode
 	}{
-		BinaryName:    {rel.bin, 0o755},
-		MetadataFile:  {rel.metaRaw, 0o600},
-		ChecksumsFile: {rel.sums, 0o600},
-		SignatureFile: {rel.sig, 0o600},
+		BinaryName:      {rel.bin, 0o755},
+		MetadataFile:    {rel.metaRaw, 0o600},
+		ChecksumsFile:   {rel.sums, 0o600},
+		SignatureFile:   {rel.sig, 0o600},
+		ThirdPartyAsset: {rel.pinsRaw, 0o600},
 	} {
 		if err := writeFileAtomic(filepath.Join(dir, name), f.data, f.perm); err != nil {
 			return err
