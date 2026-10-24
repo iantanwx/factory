@@ -61,10 +61,16 @@ func TestC24WhatEndsARedBaseBranch(t *testing.T) {
 		}
 	})
 	t.Run("the head moved", func(t *testing.T) {
+		// The new head has no completed ci.yml run yet, so the red run at the
+		// old head stays the newest completed one. Only the head rule ends it.
 		w := newGHWorld(t, alpha)
 		w.prs().AddRun(&gt.Run{Workflow: "ci.yml", HeadSHA: headOld, Conclusion: "failure", CreatedAt: w.now.Add(-2 * time.Hour)})
-		w.prs().AddRun(&gt.Run{Workflow: "ci.yml", HeadSHA: headA, Conclusion: "success", CreatedAt: w.now.Add(-time.Hour)})
-		expect(t, sweepOne(t, w, partNamed(t, "main")), Quiet)
+		w.prs().AddRun(&gt.Run{Workflow: "ci.yml", HeadSHA: headA, Status: "in_progress", CreatedAt: w.now.Add(-time.Minute)})
+		pr := sweepOne(t, w, partNamed(t, "main"))
+		expect(t, pr, Quiet, headA[:12])
+		if got := unfiled(pr, "overwatch:main:alpha:ci-yml@"+headOld[:12]); got != 0 {
+			t.Fatalf("%d lines read the old head as work: %v", got, pr.Lines)
+		}
 	})
 	t.Run("a new head that is red again is a new key", func(t *testing.T) {
 		w := newGHWorld(t, alpha)

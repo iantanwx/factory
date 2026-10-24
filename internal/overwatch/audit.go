@@ -62,16 +62,15 @@ func readAudit(ctx context.Context, w World) (Reading, error) {
 
 // classifyAudit reads the newest completed base-branch run of the audit
 // workflow wf. A red conclusion is work, and so is a run older than
-// AuditStale, or no run at all, since the schedule then stopped.
+// AuditStale, since the schedule then stopped. No completed run at all is
+// neither, so it reads as a note (spec, C25).
 func classifyAudit(p config.Project, wf string, runs []github.RunView, now time.Time) Reading {
 	base := p.BaseBranch()
 	runs = slices.DeleteFunc(slices.Clone(runs), func(run github.RunView) bool {
 		return run.Branch != base || run.Workflow != wf || run.Status != "completed"
 	})
 	if len(runs) == 0 {
-		key := Key("audit", p.ID, Slug(wf)+"@none")
-		return Reading{Findings: []Finding{{Key: key,
-			Line: fmt.Sprintf("%s: %s has no completed run on %s. Read the workflow's schedule and its runner. %s", p.ID, wf, base, key)}}}
+		return Reading{Notes: []string{fmt.Sprintf("%s: %s has no completed run on %s yet", p.ID, wf, base)}}
 	}
 	slices.SortStableFunc(runs, newestFirst)
 	run := runs[0]

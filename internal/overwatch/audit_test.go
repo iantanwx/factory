@@ -81,6 +81,23 @@ func TestC25WhatEndsAFailedAudit(t *testing.T) {
 	})
 }
 
+// C25 states work for a newest run that failed or is stale. A named
+// workflow with no completed base-branch run has no such run, so it reads
+// code 0 with one line, and no key.
+func TestC25AnAuditWithNoCompletedRunIsQuiet(t *testing.T) {
+	w := newGHWorld(t, alpha)
+	w.auditWorkflow("alpha", "audit.yml")
+	w.prs().AddRun(&gt.Run{ID: 9101, Workflow: "audit.yml", HeadSHA: headA, Status: "in_progress", CreatedAt: w.now.Add(-time.Minute)})
+	pr := sweepOne(t, w, partNamed(t, "audit"))
+	expect(t, pr, Quiet, "alpha", "audit.yml", "no completed run")
+	if len(pr.Lines) != 1 {
+		t.Fatalf("lines = %v", pr.Lines)
+	}
+	if strings.Contains(pr.Lines[0], "overwatch:audit:") {
+		t.Fatalf("a workflow with no completed run holds a key: %q", pr.Lines[0])
+	}
+}
+
 // C25: a project that names no audit workflow reads code 0, with one line
 // that says so, and makes no GitHub read.
 func TestC25NoAuditWorkflowIsQuiet(t *testing.T) {
