@@ -24,21 +24,53 @@ Read these first, in this order:
 6. `../loop-sdlc-documents/SKILL.md`, where each project keeps its PRDs, specs and ADRs.
 7. `../loop-sdlc-split/SKILL.md`, when an intake room's decision splits an epic.
 8. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
-   routes, standing authorizations, health limits and report additions.
+   routes, standing authorizations and report additions. A project's health limits live in the
+   `health` block of its project config `.loop/config.yaml`. The policy keeps no limit.
 
 Every rule lives in this runbook, in a check, or in a project policy file. No rule lives in a wake
 prompt or in your memory. A rule there dies with the session, and no other agent can read it.
 
 ## 1. On every wake
 
-Run these reads first. Write no report until they return.
+Run these reads first, in this order. Write no report until they return.
 
 ```bash
-loop inbox wait --since <cursor>
+loop overwatch sweep
 loop inbox list
 loop fault list --status open
 loop status
+loop inbox wait --since <cursor>
 ```
+
+`loop overwatch sweep` runs every part of the sweep once, and it rings nobody. It exits 0. The
+report's `code` is in `data`: 0 when no part holds work, 1 when a part holds a finding that no
+record names, and 2 when a read failed. Act on each part with code 1 by the table below. A part
+with code 2 holds one line that names the failed read. Quote that line, and act on the parts that
+read. A line that says "filed in" names the record that already holds its finding, so that finding
+waits on that record and not on you.
+
+| Part | Section | What you do |
+| --- | --- | --- |
+| `stalls` | 3 | Find why the item or the escalation stands still, and free it |
+| `questions` | 5 | Prepare the question of the escalation's entry |
+| `decisions` | 6 | Read the trigger that each note quotes |
+| `bugs` | 9 | File the fault as a bug, or bring the reported bug to the operator |
+| `backlog` | 3 | Unblock the ticket, or bring it to the operator |
+| `claims` | 3 | Find why the lease outlived its run, and report the cause as a loop fault |
+| `pulls` | 3 | Find why one item and one document hold two open pull requests |
+| `worktrees` | 9 | Report the checkout that the cleanup missed as a loop fault |
+| `main` | 8 | File a bug for the red base branch |
+| `ci` | 8 | File a bug for the build that passed its budget |
+| `flaky` | 8 | File a bug for the job that passed only on a rerun |
+| `audit` | 8 | File a bug for the audit run that failed or went stale |
+| `timer-health` | 9 | Report the timer that did not fire as a loop fault |
+| `inbox` | 9 | Report the missing session or the refused ring as a loop fault |
+| `server` | 9 | Make the failed check pass, or report it as a loop fault |
+
+Each finding has a key, such as `overwatch:main:factorio:ci-yml@1a2b3c4d5e6f`. When you file a bug,
+report a fault, prepare a question or file a decision for a finding, quote the finding's key in its
+body. The sweep then reads the finding as filed, and it stops ringing you for it. When that record
+closes and the finding is still there, the finding rings again.
 
 `loop inbox wait` exits 4 when nothing new arrived before its timeout. Run it again. Keep the
 cursor of the last entry you read.

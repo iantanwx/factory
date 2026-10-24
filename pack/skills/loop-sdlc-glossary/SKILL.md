@@ -86,6 +86,20 @@ names a verb, and the transition table picks the state.
 - **Attempt**: one run on an item. The brief names the attempt number. Two failed attempts with
   unchanged inputs stop the item.
 
+## Overwatch
+
+- **Overwatch**: the server's native job that sweeps on a timer, and rings the coordinator when the
+  sweep holds work or a failed read. It reads, and it never writes. The coordinator acts.
+- **Sweep**: one read of every part at once. `loop overwatch sweep` runs one, and it rings nobody.
+  Its report's code is 0 when no part holds work, 1 when a part holds an unfiled finding, and 2
+  when a read failed.
+- **Part**: one read of the sweep, such as `stalls` or `main`. It returns its findings and its
+  notes. A note holds no work. The coordinator runbook's part table names the section that acts on
+  each part.
+- **Finding key**: the key of one finding, `overwatch:<part>:<subject>`, or a loop fault's id for
+  the `bugs` part. A finding is work until an open bug, decision, fault or prepared question quotes
+  its key.
+
 ## Review
 
 - **Round**: one attempt of the author and one review of it. `loop review rounds <item>` lists
