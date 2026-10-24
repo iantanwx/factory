@@ -359,6 +359,77 @@ func TestBlockedFinishHoldsTheItemAtItsStage(t *testing.T) {
 	})
 }
 
+// Parity 4.9 and 1.23 (admission-input.ts and review-release-inputs.ts,
+// alpha): the head of the item's pull request enters the code review's
+// retry identity. So a push after two failed reviews, or after a blocked
+// one, offers the review again. The implementer's identity keeps no head.
+func TestAPushReadmitsAHeldReview(t *testing.T) {
+	ctx := context.Background()
+	peeks := func(t *testing.T, w *world, want string) {
+		t.Helper()
+		c, r := w.a.Peek(ctx, prj, machine.StageCodeReviewer)
+		if r != nil || want == "" && c != nil || want != "" && (c == nil || c.Item != want) {
+			t.Fatalf("peek = %+v %+v, want %q", c, r, want)
+		}
+	}
+	t.Run("a push after two failed reviews", func(t *testing.T) {
+		w := newWorld(t)
+		id := w.ticket(machine.InReview)
+		w.heads.push(id, "h1")
+		for range 2 {
+			w.settle(w.mustAdmit(machine.StageCodeReviewer, id), Settlement{Finish: "failed"})
+		}
+		_, ref := w.admit(machine.StageCodeReviewer, id)
+		wantRefusal(t, ref, cli.CodeRetryLimit)
+		peeks(t, w, "")
+		w.heads.push(id, "h2")
+		peeks(t, w, id)
+		if ad := w.mustAdmit(machine.StageCodeReviewer, id); ad.Attempt != 1 {
+			t.Fatalf("attempt at the new head = %d, want 1", ad.Attempt)
+		}
+		if w.heads.blocked != 0 {
+			t.Fatalf("%d head reads happened under a lock", w.heads.blocked)
+		}
+	})
+	t.Run("a push after a blocked review", func(t *testing.T) {
+		w := newWorld(t)
+		id := w.ticket(machine.InReview)
+		w.heads.push(id, "h1")
+		out := w.settle(w.mustAdmit(machine.StageCodeReviewer, id), Settlement{Finish: "blocked"})
+		if err := config.StoreAlerter(w.st).Raise(ctx, config.Alert{Project: prj, Kind: AlertBlocked,
+			DedupeKey: BlockedKey(prj, id, machine.StageCodeReviewer, out.Inputs), Subject: "blocked"}); err != nil {
+			t.Fatal(err)
+		}
+		_, ref := w.admit(machine.StageCodeReviewer, id)
+		wantRefusal(t, ref, cli.CodeMutexHeld)
+		peeks(t, w, "")
+		w.heads.push(id, "h2")
+		peeks(t, w, id)
+		w.mustAdmit(machine.StageCodeReviewer, id)
+	})
+	t.Run("a head that does not read refuses the review", func(t *testing.T) {
+		w := newWorld(t)
+		id := w.ticket(machine.InReview)
+		w.heads.err = &cli.Refusal{Code: cli.CodeGitHubUnavailable, Hint: "github is down"}
+		_, ref := w.admit(machine.StageCodeReviewer, id)
+		wantRefusal(t, ref, cli.CodeGitHubUnavailable)
+		if n := w.count(`SELECT count(*) FROM runs`); n != 0 {
+			t.Fatalf("a refused review reserved %d runs", n)
+		}
+	})
+	t.Run("the implementer keeps no head", func(t *testing.T) {
+		w := newWorld(t)
+		id := w.ticket(machine.Todo)
+		w.heads.push(id, "h1")
+		for range 2 {
+			w.settle(w.mustAdmit(machine.StageImplementer, id), Settlement{Finish: "failed"})
+		}
+		w.heads.push(id, "h2")
+		_, ref := w.admit(machine.StageImplementer, id)
+		wantRefusal(t, ref, cli.CodeRetryLimit)
+	})
+}
+
 // A crashed run counts once, even when reconcile replays its settlement.
 // A claimed run with no CLI call and no finish is crashed.
 func TestCrashCountsOnceUnderReplay(t *testing.T) {

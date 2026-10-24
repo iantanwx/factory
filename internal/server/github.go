@@ -92,6 +92,11 @@ func (g *GitHub) Setup(s *Server) error {
 		// request back before the close is recorded.
 		s.Machine.SetSupersedeChecker(svc.SupersedeEvidence)
 	}
+	if s.Admission != nil {
+		// The PR head enters a code review's retry identity, so a push
+		// offers a held review again.
+		s.Admission.SetPRHeadReader(svc.PRHead)
+	}
 	return s.RPC.Handle("doctor-github", g.doctorVerb(s))
 }
 
