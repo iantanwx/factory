@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -11,7 +13,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/brief"
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/pack"
+	"github.com/iantanwx/loop/internal/release"
 )
 
 // fakeGH answers gh calls from a table keyed by the joined arguments and
@@ -88,7 +95,11 @@ func TestRegisterInstallsTheSkills(t *testing.T) {
 	if out, err := exec.Command("git", "init", "-q", clone).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
-	skills, err := installSkills(context.Background(), clone)
+	p, _, err := pack.Brief(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills, err := installSkills(context.Background(), clone, p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,6 +117,72 @@ func TestRegisterInstallsTheSkills(t *testing.T) {
 	out, err := exec.Command("git", "-C", clone, "status", "--porcelain", "--untracked-files=all").Output()
 	if err != nil || len(out) != 0 {
 		t.Fatalf("git sees the skills: %q %v", out, err)
+	}
+}
+
+// tree reads each file under dir with its mode, by slash path.
+func tree(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(dir, path)
+		out[filepath.ToSlash(rel)] = fmt.Sprintf("%o %q", fi.Mode().Perm(), data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// C14: after loop register, the clone's .claude/skills and .agents/skills
+// each hold the trees a run's checkout holds for that harness from the
+// same fetched set, with the same bytes and modes.
+func TestARegisteredCloneHoldsWhatARunHolds(t *testing.T) {
+	instance := t.TempDir()
+	skills := release.Layout{Dir: instance}.Skills(cli.Version)
+	writeSkill(t, skills, "impeccable")
+	src := pinnedSource(t, skills, "impeccable")
+	p, left, err := pack.BriefOf(src, fetchedSkills(instance))
+	if err != nil || len(left) != 0 {
+		t.Fatalf("left out %v, %v", left, err)
+	}
+	clone := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", clone).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	if _, err := installSkills(context.Background(), clone, p); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []agenthost.Harness{agenthost.Claude, agenthost.Codex} {
+		run := t.TempDir()
+		if out, err := exec.Command("git", "init", "-q", run).CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v %s", err, out)
+		}
+		_, err := brief.Inject(context.Background(), brief.Injection{Checkout: run, Harness: h, Pack: p,
+			Brief: brief.Brief{RunID: "r-1", Project: "alpha", Stage: "implementer", Role: "implementer"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		root := brief.SkillRoot(h)
+		got, want := tree(t, filepath.Join(clone, root)), tree(t, filepath.Join(run, root))
+		if !maps.Equal(got, want) {
+			t.Errorf("%s: the clone holds\n%v\nand a run holds\n%v", root, got, want)
+		}
+		if want["loop-impeccable/scripts/impeccable"] == "" {
+			t.Errorf("%s: a run holds no loop-impeccable: %v", root, want)
+		}
 	}
 }
 

@@ -124,7 +124,11 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 	if rep.Ruleset, err = h.ensureRuleset(ctx, rep, appID); err != nil {
 		return fail(err)
 	}
-	if rep.Skills, err = installSkills(ctx, rep.Path); err != nil {
+	p, _, err := pack.Brief(fetchedSkills(dir))
+	if err != nil {
+		return fail(err)
+	}
+	if rep.Skills, err = installSkills(ctx, rep.Path, p); err != nil {
 		return fail(err)
 	}
 	var next []string
@@ -192,14 +196,11 @@ func (h *hostVerbs) remote(ctx context.Context, ctl *serverControl, path string,
 	return res
 }
 
-// installSkills writes the loop skills and agents into the clone for
+// installSkills writes the pack's skills and agents into the clone for
 // Claude Code and Codex, and keeps them out of git through info/exclude,
-// as a run's checkout does.
-func installSkills(ctx context.Context, clone string) ([]string, error) {
-	p, err := pack.Brief()
-	if err != nil {
-		return nil, err
-	}
+// as a run's checkout does. Register passes the pack the server injects,
+// so a clone holds each fetched skill a run holds.
+func installSkills(ctx context.Context, clone string, p brief.Pack) ([]string, error) {
 	skills, err := p.Skills()
 	if err != nil {
 		return nil, err

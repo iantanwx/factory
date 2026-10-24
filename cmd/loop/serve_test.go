@@ -2,23 +2,32 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
 	agentfake "github.com/iantanwx/loop/internal/agenthost/fake"
 	"github.com/iantanwx/loop/internal/beadsx"
 	beadsfake "github.com/iantanwx/loop/internal/beadsx/fake"
+	"github.com/iantanwx/loop/internal/brief"
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/merge"
+	"github.com/iantanwx/loop/internal/pack"
+	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
 )
@@ -170,5 +179,180 @@ func TestReviewProofRunsInTheCallersCheckout(t *testing.T) {
 	code := run(context.Background(), []string{"review", "proof", "--test", "a_test.go"}, strings.NewReader(""), &out, io.Discard)
 	if code != 2 || !strings.Contains(out.String(), `"not_a_checkout"`) {
 		t.Fatalf("review proof = %d %s", code, out.String())
+	}
+}
+
+// writeSkill writes a fetched skill under dir/name, as install places it:
+// a SKILL.md that names it, one executable file and one other file.
+func writeSkill(t *testing.T, dir, name string) {
+	t.Helper()
+	files := map[string]struct {
+		body string
+		mode os.FileMode
+	}{
+		"SKILL.md":         {"---\nname: " + name + "\ndescription: A fixture.\n---\n\nRun `scripts/" + name + "`.\n", 0o644},
+		"scripts/" + name:  {"#!/bin/sh\necho " + name + "\n", 0o755},
+		"reference/one.md": {"# One\n", 0o644},
+	}
+	for rel, f := range files {
+		path := filepath.Join(dir, name, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(f.body), f.mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, f.mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// pinnedSource is a pack source with one runbook and one pin for each
+// name, at the tree hash of that name's directory under skills now.
+func pinnedSource(t *testing.T, skills string, names ...string) fstest.MapFS {
+	t.Helper()
+	var pins []string
+	for _, n := range names {
+		sum, err := pack.TreeHash(os.DirFS(filepath.Join(skills, n)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		pins = append(pins, fmt.Sprintf(`{"name": %q, "repo": "acme/%s", "commit": %q, "path": "", "sha256": %q}`,
+			n, n, strings.Repeat("a", 40), sum))
+	}
+	return fstest.MapFS{
+		"manifest.json":           {Data: []byte(`{"runbooks": {"implementer": {"skills": []}}, "skills": []}`)},
+		"runbooks/implementer.md": {Data: []byte("---\nname: loop-implementer\n---\n")},
+		pack.ThirdPartyFile:       {Data: []byte(`{"skills": [` + strings.Join(pins, ", ") + `]}`)},
+	}
+}
+
+type alertRow struct{ Project, Subject, Body, State string }
+
+// serveSkillAlerts starts the server that productionOptions composes over
+// fakes, reads each alert of kind third_party_skills_missing once it is
+// ready, and stops it. It returns the pack the scheduler received.
+func serveSkillAlerts(t *testing.T, dir string, src fs.FS) (brief.Pack, []alertRow) {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "checkouts")
+	bx := beadsfake.New("tk")
+	if err := bx.ConfigureStatuses(context.Background(), machine.Statuses()); err != nil {
+		t.Fatal(err)
+	}
+	host := agentfake.New(root)
+	w := wiring{
+		beads: func(context.Context, *config.HostConfig) (machine.BeadsResolver, func(context.Context) error, error) {
+			return func(string) (beadsx.Client, error) { return bx, nil }, func(context.Context) error { return nil }, nil
+		},
+		agents: func(*config.HostConfig, *config.Projects) (agenthost.Host, func(string) sched.CheckoutHost, error) {
+			return host, func(string) sched.CheckoutHost { return host }, nil
+		},
+		pack: func(fetched fs.FS) (brief.Pack, []pack.ThirdParty, error) { return pack.BriefOf(src, fetched) },
+	}
+	opts, cleanup, err := productionOptions(context.Background(), dir, w)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	var rows []alertRow
+	opts.Setup = append(opts.Setup, func(s *server.Server) error {
+		return s.Store.Read(context.Background(), func(tx *sql.Tx) error {
+			res, err := tx.Query(`SELECT project, subject, body, state FROM alerts WHERE kind = ? ORDER BY id`, config.AlertThirdPartySkills)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = res.Close() }()
+			for res.Next() {
+				var r alertRow
+				if err := res.Scan(&r.Project, &r.Subject, &r.Body, &r.State); err != nil {
+					return err
+				}
+				rows = append(rows, r)
+			}
+			return res.Err()
+		})
+	})
+	opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	ready := make(chan struct{})
+	opts.Ready = ready
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- server.Run(ctx, opts) }()
+	select {
+	case <-ready:
+	case err := <-done:
+		t.Fatalf("serve stopped: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("serve did not become ready")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	return opts.Sched.Pack, rows
+}
+
+// C13: with one pinned skill missing and one that fails its hash, the
+// server still serves the pack with every other skill, and raises one
+// alert with no project that names both and names loop install. A later
+// start with every skill in place closes it.
+func TestAServerWithAMissingOrWrongSkillSetStillServesAndSaysSo(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.DefaultHost(dir)
+	cfg.Beads = config.BeadsConfig{BD: "/opt/loop/bd", Dolt: "/opt/loop/dolt"}
+	cfg.AgentHost = config.AgentHostConfig{Kind: "orca", Binary: "/opt/orca", CheckoutRoot: filepath.Join(dir, "checkouts")}
+	if err := config.SaveHost(filepath.Join(dir, config.HostConfigFile), cfg); err != nil {
+		t.Fatal(err)
+	}
+	skills := release.Layout{Dir: dir}.Skills(cli.Version)
+	for _, n := range []string{"widget", "gadget", "gizmo"} {
+		writeSkill(t, skills, n)
+	}
+	src := pinnedSource(t, skills, "widget", "gadget", "gizmo")
+	if err := os.WriteFile(filepath.Join(skills, "gadget", "reference", "one.md"), []byte("# Edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(skills, "gizmo")); err != nil {
+		t.Fatal(err)
+	}
+
+	p, rows := serveSkillAlerts(t, dir, src)
+	got, err := p.Skills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"loop-implementer", "loop-widget"}; !slices.Equal(got, want) {
+		t.Fatalf("the served pack holds %v, want %v", got, want)
+	}
+	if len(rows) != 1 || rows[0].State != "open" || rows[0].Project != "" {
+		t.Fatalf("alerts = %+v, want one open alert with no project", rows)
+	}
+	text := rows[0].Subject + "\n" + rows[0].Body
+	for _, want := range []string{"gadget", "gizmo", "loop install"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the alert does not name %s: %q", want, text)
+		}
+	}
+	if strings.Contains(text, "widget") {
+		t.Errorf("the alert names widget, which matches its pin: %q", text)
+	}
+
+	// loop install places the set again.
+	for _, n := range []string{"gadget", "gizmo"} {
+		if err := os.RemoveAll(filepath.Join(skills, n)); err != nil {
+			t.Fatal(err)
+		}
+		writeSkill(t, skills, n)
+	}
+	p, rows = serveSkillAlerts(t, dir, src)
+	if got, _ := p.Skills(); !slices.Equal(got, []string{"loop-gadget", "loop-gizmo", "loop-implementer", "loop-widget"}) {
+		t.Fatalf("the served pack holds %v after the repair", got)
+	}
+	if len(rows) != 1 || rows[0].State != "closed" {
+		t.Fatalf("alerts after the repair = %+v, want the one alert closed", rows)
 	}
 }

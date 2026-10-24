@@ -265,6 +265,57 @@ func TestPackPerHarnessAndHash(t *testing.T) {
 	}
 }
 
+// A fetched skill can hold an executable file. The writer keeps its
+// executable bit, and writes every other file 0644 (C11).
+func TestWriteKeepsTheExecutableBit(t *testing.T) {
+	dir := t.TempDir()
+	p := testPack()
+	p.FS.(fstest.MapFS)["loop-implementer/scripts/run"] = &fstest.MapFile{Data: []byte("#!/bin/sh\n"), Mode: 0o750}
+	p.FS.(fstest.MapFS)["loop-implementer/refs/odd.md"] = &fstest.MapFile{Data: []byte("x\n"), Mode: 0o600}
+	if err := p.Write(dir, agenthost.Claude); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]os.FileMode{
+		"loop-implementer/SKILL.md":          0o644,
+		"loop-implementer/refs/checklist.md": 0o644,
+		"loop-implementer/refs/odd.md":       0o644,
+		"loop-implementer/scripts/run":       0o755,
+		"loop-code-reviewer/SKILL.md":        0o644,
+	}
+	for f, mode := range want {
+		fi, err := os.Stat(filepath.Join(dir, ".claude/skills", f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != mode {
+			t.Errorf("%s: mode %o, want %o", f, got, mode)
+		}
+	}
+}
+
+// The pack hash covers each file's executable bit, and no other mode bit
+// (C12).
+func TestHashCoversEachFilesExecutableBit(t *testing.T) {
+	base, err := testPack().Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exec := testPack()
+	exec.FS.(fstest.MapFS)["loop-implementer/SKILL.md"].Mode = 0o755
+	got, err := exec.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == base {
+		t.Fatalf("an executable bit kept the hash %s", base)
+	}
+	private := testPack()
+	private.FS.(fstest.MapFS)["loop-implementer/SKILL.md"].Mode = 0o600
+	if got, _ := private.Hash(); got != base {
+		t.Fatalf("a mode with no executable bit changed the hash: %s, want %s", got, base)
+	}
+}
+
 // RefreshPack writes a new pack into the checkout of a running session. It
 // leaves the brief as it was and git clean, and a tracked skill directory
 // refuses it with a *ConflictError before it writes.

@@ -15,6 +15,12 @@ import (
 // config or manifest does not load (KTD20).
 const AlertProjectConfigInvalid = "project_config_invalid"
 
+// AlertThirdPartySkills is the alert kind and dedupe key for pinned
+// third-party skills that the host does not hold, or holds in other bytes.
+// It names no project: every run of the host starts without them (ADR
+// 0007).
+const AlertThirdPartySkills = "third_party_skills_missing"
+
 // Alert is one alert a config load raises.
 type Alert struct {
 	Project   string
