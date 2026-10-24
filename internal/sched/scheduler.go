@@ -217,6 +217,12 @@ func randomRunID() string { return "r-" + hexid.Random(6) }
 
 func (s *Scheduler) now() time.Time { return s.cfg.Now() }
 
+// Intervals are the scheduler's tick, liveness and cleanup intervals, with
+// their defaults filled.
+func (s *Scheduler) Intervals() (tick, liveness, cleanup time.Duration) {
+	return s.cfg.TickInterval, s.cfg.LivenessInterval, s.cfg.CleanupInterval
+}
+
 // RegisterJob sets the work of one native job for each project. The job
 // ticks on its throughput schedule, or the project's override (KTD30). The
 // server registers merge-handoff and decision-timers here. New registers

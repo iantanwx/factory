@@ -18,11 +18,12 @@ import (
 )
 
 // fakeWorld serves the reads of the records from maps and a real store.
-// Its host runs the default config and no project holds a config, so the
-// stalls part reads an idle host. Every read a part of a later entry makes
-// answers errFake.
+// Its host runs the default config with an empty temporary checkout root, and
+// no project holds a config, so the stalls part reads an idle host. Every read
+// a part of a later entry makes answers errFake.
 type fakeWorld struct {
 	now      time.Time
+	root     string
 	projects []config.Project
 	items    map[string][]machine.Item    // project -> items, no body
 	bodies   map[string]map[string]string // project -> item -> body
@@ -41,6 +42,7 @@ func newFakeWorld(t *testing.T) *fakeWorld {
 	t.Cleanup(func() { _ = st.Close() })
 	return &fakeWorld{
 		now:      time.Date(2026, 10, 24, 9, 3, 0, 0, time.UTC),
+		root:     t.TempDir(),
 		projects: []config.Project{{ID: "factorio", Repo: "slothware-labs/loop"}, {ID: "alpha", Repo: "iantanwx/alpha"}},
 		items:    map[string][]machine.Item{},
 		bodies:   map[string]map[string]string{},
@@ -63,7 +65,9 @@ func (w *fakeWorld) add(project string, it machine.Item, body string) {
 
 func (w *fakeWorld) Now() time.Time { return w.now }
 func (w *fakeWorld) Host(context.Context) (*config.HostConfig, error) {
-	return config.DefaultHost(""), nil
+	hc := config.DefaultHost("")
+	hc.AgentHost.CheckoutRoot = w.root
+	return hc, nil
 }
 func (w *fakeWorld) Projects(context.Context) ([]config.Project, error) { return w.projects, nil }
 func (w *fakeWorld) ProjectConfig(context.Context, string) (*config.ProjectSnapshot, error) {
@@ -95,7 +99,9 @@ func (w *fakeWorld) Store() *store.Store { return w.st }
 func (w *fakeWorld) Intervals() Intervals {
 	return Intervals{}
 }
-func (w *fakeWorld) CheckoutDirs(context.Context) ([]string, error) { return nil, errFake }
+func (w *fakeWorld) CheckoutDirs(context.Context) ([]string, error) {
+	return ListCheckoutDirs(w.root)
+}
 func (w *fakeWorld) Inventory(context.Context) (agenthost.Inventory, error) {
 	return agenthost.Inventory{}, errFake
 }
