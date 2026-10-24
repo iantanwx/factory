@@ -194,10 +194,6 @@ func (s *Server) clearRingAlert(ctx context.Context, handle string) bool {
 	return true
 }
 
-// errNoPartReads is the answer of a World read that no landed part makes
-// yet. The part entry that first reads it builds it (spec, Work 5 to 10).
-var errNoPartReads = errors.New("overwatch: no part reads this yet")
-
 // serverWorld is the production World: the reads the server already holds.
 type serverWorld struct {
 	s   *Server
@@ -255,12 +251,28 @@ func (w *serverWorld) Dependencies(ctx context.Context, project, item string) ([
 
 func (w *serverWorld) Store() *store.Store { return w.s.Store }
 
-// Intervals belongs to the scheduler parts (spec, Work 6). Until then it is
-// zero.
-func (w *serverWorld) Intervals() overwatch.Intervals { return overwatch.Intervals{} }
+// Intervals are the scheduler's own. A server with no scheduler has none,
+// so they are zero.
+func (w *serverWorld) Intervals() overwatch.Intervals {
+	if w.s.Sched == nil {
+		return overwatch.Intervals{}
+	}
+	tick, liveness, cleanup := w.s.Sched.Intervals()
+	return overwatch.Intervals{Tick: tick, Liveness: liveness, Cleanup: cleanup}
+}
 
-// CheckoutDirs belongs to the worktrees part (spec, Work 6).
-func (w *serverWorld) CheckoutDirs(context.Context) ([]string, error) { return nil, errNoPartReads }
+// CheckoutDirs lists each loop-* directory one level under a directory of
+// agent_host.checkout_root, as absolute paths.
+func (w *serverWorld) CheckoutDirs(context.Context) ([]string, error) {
+	cfg, err := config.LoadHost(w.s.HostPath)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.AgentHost.CheckoutRoot == "" {
+		return nil, errors.New("host config sets no agent_host.checkout_root, so no checkout directory can be listed")
+	}
+	return overwatch.ListCheckoutDirs(cfg.AgentHost.CheckoutRoot)
+}
 
 func (w *serverWorld) Inventory(ctx context.Context) (agenthost.Inventory, error) {
 	if w.s.opts.Agents == nil {
