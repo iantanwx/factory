@@ -121,8 +121,12 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		}
 		return nil, ref
 	}
+	spec, err := BaseCheckout(ctx, s.cfg.BaseHead, ad.Project, checkoutName(ad))
+	if err != nil {
+		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
+	}
 	s.checkoutMu.Lock()
-	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: checkoutName(ad), BaseBranch: DefaultBaseBranch})
+	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, spec)
 	s.checkoutMu.Unlock()
 	if err != nil {
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: create the checkout: %w", err)), false, AlertStartFailed, err)

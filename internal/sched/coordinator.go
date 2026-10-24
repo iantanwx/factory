@@ -211,8 +211,12 @@ func (s *Scheduler) coordinatorHome(project string, cc *CoordinatorConfig) bool 
 
 func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig, cs *CoordinatorState) error {
 	if cs.Checkout == "" {
+		spec, err := BaseCheckout(ctx, s.cfg.BaseHead, cc.Project, coordinatorCheckout)
+		if err != nil {
+			return err
+		}
 		s.checkoutMu.Lock()
-		co, err := s.cfg.Checkouts(cc.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: coordinatorCheckout, BaseBranch: DefaultBaseBranch})
+		co, err := s.cfg.Checkouts(cc.Project).CreateCheckout(ctx, spec)
 		s.checkoutMu.Unlock()
 		if err != nil {
 			return fmt.Errorf("sched: the coordinator's checkout: %w", err)

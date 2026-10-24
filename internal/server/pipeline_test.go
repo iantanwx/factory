@@ -65,6 +65,7 @@ func newDocWorld(t *testing.T) (*humanWorld, *GitHub, *gt.API) {
 			ProjectConfig: func(context.Context, string) (*config.ProjectSnapshot, error) { return snap, nil },
 			Coordinator:   &sched.CoordinatorConfig{Project: "alpha", Harness: agenthost.Claude},
 			TickInterval:  time.Hour,
+			BaseHead:      repoBaseHead(repo),
 		},
 		Human:     HumanOptions{Now: w.clock.Now, PollInterval: 20 * time.Millisecond, WatchInterval: time.Hour},
 		Setup:     []func(*Server) error{gh.Setup, (&Pipeline{GitHub: gh}).Setup},
