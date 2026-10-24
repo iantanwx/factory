@@ -91,6 +91,26 @@ func TestPersonReviewThreadWaitsForTheRunThatHoldsTheEpic(t *testing.T) {
 	}
 }
 
+// The amendment poll reads every amendable epic on every tick, and needs
+// only who spoke last. So it reads REST alone: a review thread whose state
+// GraphQL does not name still wakes the amender, and stops no other epic.
+func TestAmendmentPollNeedsNoThreadState(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	ctx := context.Background()
+	prd := w.Add(&gt.PR{Head: "loop/placeholder", HeadSHA: shaA})
+	id := e.epicInReview(prd.Number)
+	w.Update(prd, func(p *gt.PR) { p.Head = BranchFor(id) })
+	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Actor: machine.Server("test")}))
+	r := e.reactor()
+	root := w.Say(prd.Number, gt.Said{Login: "pat", Association: "COLLABORATOR", Review: true, Body: "US-02 has no label."})
+	w.SetThread(root, false, false, true)
+	e.tick(r)
+	if it := e.status(id); it.Status != machine.PRDAmending {
+		t.Fatalf("after the comment: %s %v", it.Status, it.Facts)
+	}
+}
+
 // Another program's comment is nobody's question: a deployment notice
 // after the loop's own comment leaves the loop with the last word.
 func TestBotCommentWakesNoStage(t *testing.T) {

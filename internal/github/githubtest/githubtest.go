@@ -308,10 +308,13 @@ type World struct {
 	// summaries holds the reviews of each PR: a review's state and the
 	// body a person wrote when they submitted it.
 	summaries map[int][]map[string]any
-	files     int
-	failNext  map[string]int
-	clock     time.Time
-	merge     mergeWorld
+	// threads holds the state GraphQL reads for each review thread, by
+	// the id of its root comment.
+	threads  map[int64]threadState
+	files    int
+	failNext map[string]int
+	clock    time.Time
+	merge    mergeWorld
 	// HeadOf answers the head sha of a new PR's branch. A fixed sha when
 	// nil.
 	HeadOf func(branch string) string
@@ -320,7 +323,8 @@ type World struct {
 // NewWorld returns an empty world.
 func NewWorld() *World {
 	return &World{runs: map[string][]map[string]any{}, failNext: map[string]int{}, comments: map[int][]map[string]any{},
-		reviews: map[int][]map[string]any{}, summaries: map[int][]map[string]any{}, clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
+		reviews: map[int][]map[string]any{}, summaries: map[int][]map[string]any{}, threads: map[int64]threadState{},
+		clock: time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)}
 }
 
 func (w *World) tick() time.Time {
@@ -383,6 +387,26 @@ func (w *World) Comments(n int) []map[string]any {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return slices.Clone(w.comments[n])
+}
+
+// threadState is the state GraphQL reads for one review thread.
+type threadState struct{ resolved, outdated, hidden bool }
+
+// SetThread sets the state of the review thread whose root comment is
+// root. A hidden thread is one GraphQL does not name. A thread nobody
+// set is open and current.
+func (w *World) SetThread(root int64, resolved, outdated, hidden bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.threads[root] = threadState{resolved: resolved, outdated: outdated, hidden: hidden}
+}
+
+// Unsay deletes comment id of PR n, as a person does on GitHub. A reply
+// keeps the in_reply_to_id of a root comment that is gone.
+func (w *World) Unsay(n int, id int64) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.reviews[n] = slices.DeleteFunc(w.reviews[n], func(c map[string]any) bool { return c["id"] == id })
 }
 
 // Said is a comment that somebody other than the loop App wrote on a PR.
