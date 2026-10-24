@@ -96,6 +96,11 @@ func TestUnknownRunWithNoTraceIsReclaimedPastTheAgeBound(t *testing.T) {
 	if w.lease(gone).Owner != g.RunID {
 		gone, traced = traced, gone
 	}
+	// g leaves uncommitted work, so the cleanup pass keeps its checkout
+	// after the reclaim; a clean, pushed one would go.
+	if err := os.WriteFile(filepath.Join(g.Checkout, "work.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	// The terminal of g vanishes. The host restarts, and tr's process
 	// reappears under a new handle with the same incarnation and PTY.
 	if err := w.host.Close(context.Background(), g.Session.ID); err != nil {

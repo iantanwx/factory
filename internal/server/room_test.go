@@ -304,6 +304,59 @@ func TestIntakeRoomOpensOnlyUnderTheIntakeCap(t *testing.T) {
 	}
 }
 
+// C-bug-1: each `room open --kind intake` with no --item under the intake
+// cap opens a new room, and an open room's reason never changes. Only an
+// idle or interrupted room is reopened, and only on its own item.
+func TestEachItemlessIntakeOpenIsANewRoom(t *testing.T) {
+	w := newRoomWorld(t)
+	first := w.openRoom("intake", "", "the operator has an idea about widgets")
+	if first["state"] != room.Live {
+		t.Fatalf("first intake room = %v", first)
+	}
+	env, code := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has an idea about gadgets", "--score", "4")
+	if code != 0 {
+		t.Fatalf("second intake open = %d %v", code, env)
+	}
+	data := env["data"].(map[string]any)
+	second := data["room"].(map[string]any)
+	if data["reopened"] == true || second["room"] == first["room"] {
+		t.Fatalf("the second itemless intake open reopened live room %v: %v", first["room"], env)
+	}
+	if got := w.room(first["room"].(string)); got.Reason != "the operator has an idea about widgets" {
+		t.Fatalf("the live room's reason changed to %q", got.Reason)
+	}
+	if n := w.count(`SELECT count(*) FROM rooms WHERE kind = 'intake' AND item = '' AND closed_at IS NULL`); n != 2 {
+		t.Fatalf("open itemless intake rooms = %d, want 2", n)
+	}
+}
+
+// C-bug-1: a second itemless intake open goes through the intake cap like
+// the first. An open itemless intake room does not wave it past a full cap.
+func TestASecondItemlessIntakeOpenMeetsTheIntakeCap(t *testing.T) {
+	w := newRoomWorld(t)
+	ctx := context.Background()
+	is, err := w.bx.Create(ctx, beadsx.CreateSpec{Title: "Widgets", Type: "epic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.bx.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: is.Status, Status: machine.PRDReview}); err != nil {
+		t.Fatal(err)
+	}
+	w.setIntakeCap(2)
+	first := w.openRoom("intake", "", "the operator has an idea about widgets")
+	w.setIntakeCap(1)
+	env, _ := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has an idea about gadgets", "--score", "4")
+	if env["code"] != cli.CodeCapFull {
+		t.Fatalf("a second itemless intake open at the cap = %v", env)
+	}
+	if n := w.count(`SELECT count(*) FROM rooms`); n != 1 {
+		t.Fatalf("rooms after a refused second intake open = %d, want 1", n)
+	}
+	if got := w.room(first["room"].(string)); got.Reason != "the operator has an idea about widgets" {
+		t.Fatalf("the live room's reason changed to %q", got.Reason)
+	}
+}
+
 // A room receives only the secrets its room's stage receives, each in the
 // .env of the entry's directory (parity 9.3, 11.2). An implementer secret
 // with no stored value does not stop an intake room.

@@ -13,6 +13,7 @@ import (
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/overwatch"
 	"github.com/iantanwx/loop/internal/pipeline"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -56,13 +57,7 @@ type human struct {
 // coordinator.
 func (s *Server) composeHuman() error {
 	o := s.opts.Human
-	now := o.Now
-	if now == nil {
-		now = s.opts.Sched.Now
-	}
-	if now == nil {
-		now = time.Now
-	}
+	now := s.humanClock()
 	h := &human{pokes: make(chan struct{}, 1)}
 	s.human = h
 	link := o.Link
@@ -80,7 +75,9 @@ func (s *Server) composeHuman() error {
 		default:
 		}
 	}
-	s.Notifier = &inbox.Notifier{Inbox: s.Inbox, Ring: s.ringCoordinator}
+	// Each ring of the doorbell writes the ring record that the sweep's
+	// inbox part reads (ADR 0009).
+	s.Notifier = &inbox.Notifier{Inbox: s.Inbox, Ring: s.recordedRing(overwatch.SourceInbox)}
 	// A new fault is an inbox entry, so it rings the coordinator (KTD31).
 	s.Faults.Changed = changed
 	s.Escalations = &escalation.Service{Store: s.Store, Machine: s.Machine, Redactor: s.Redactor, Changed: changed, Logger: s.log}
@@ -89,6 +86,9 @@ func (s *Server) composeHuman() error {
 		if err := reg(s.RPC); err != nil {
 			return err
 		}
+	}
+	if err := s.composeOverwatch(); err != nil {
+		return err
 	}
 	if s.Sched == nil {
 		return nil
