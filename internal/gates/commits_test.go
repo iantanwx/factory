@@ -2,6 +2,7 @@ package gates
 
 import (
 	"context"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -65,6 +66,39 @@ func TestCommitsCannotRunWithoutTheBase(t *testing.T) {
 	r.Base = "origin/nope"
 	if _, err := Commits(context.Background(), r); err == nil {
 		t.Fatal("an unresolvable base passed")
+	}
+}
+
+// The branch merged a newer base that it fetched by URL, so origin/main
+// still names the old base and the base's own commit sits in the range.
+func TestCommitsFetchesTheBaseBeforeTheRangeRead(t *testing.T) {
+	ctx := context.Background()
+	upstream := testRepo(t, nil)
+	r := cloneRepo(t, upstream.Root)
+	commit(t, upstream, "bad subject that the base already holds", nil)
+	git(t, r.Root, "fetch", "-q", upstream.Root, "main")
+	git(t, r.Root, "merge", "-q", "--ff-only", "FETCH_HEAD")
+	commit(t, r, "feat: add the branch's own work", nil)
+	fs, err := Commits(ctx, r)
+	if err != nil || len(fs) != 0 {
+		t.Fatalf("a stale base put its own commit in the range: %v %v", fs, err)
+	}
+}
+
+// The checkout never fetched origin/main, and origin cannot answer, as with
+// no network.
+func TestCommitsFallsBackToTheLocalBase(t *testing.T) {
+	r := testRepo(t, nil)
+	git(t, r.Root, "update-ref", "-d", "refs/remotes/origin/main")
+	git(t, r.Root, "remote", "add", "origin", filepath.Join(t.TempDir(), "gone"))
+	git(t, r.Root, "checkout", "-q", "-b", "work")
+	commit(t, r, "no prefix on the branch", nil)
+	fs, err := Commits(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(rules(fs), []string{"prefix"}) || !strings.Contains(fs[0].Message, "no prefix on the branch") {
+		t.Fatalf("findings = %v", fs)
 	}
 }
 

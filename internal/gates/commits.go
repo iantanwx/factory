@@ -3,9 +3,12 @@ package gates
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Commits refuses a commit on the branch whose message breaks a rule:
@@ -23,10 +26,11 @@ import (
 // every merge message and CI checks out a merge as HEAD. A subject that
 // git revert wrote is exempt from the prefix, the length and the mood.
 func Commits(ctx context.Context, r *Repo) ([]Finding, error) {
-	if _, err := r.Git(ctx, "rev-parse", "--verify", "--quiet", r.Base+"^{commit}"); err != nil {
-		return nil, fmt.Errorf("%s does not resolve, so the gate cannot tell which commits the branch adds; fetch it and run again", r.Base)
+	base, err := commitsBase(ctx, r)
+	if err != nil {
+		return nil, err
 	}
-	out, err := r.Git(ctx, "log", "--format=%H%x1f%P%x1f%B%x1e", r.Base+"..HEAD")
+	out, err := r.Git(ctx, "log", "--format=%H%x1f%P%x1f%B%x1e", base+"..HEAD")
 	if err != nil {
 		return nil, err
 	}
@@ -53,9 +57,62 @@ func Commits(ctx context.Context, r *Repo) ([]Finding, error) {
 		if err != nil {
 			return nil, err
 		}
-		_, _ = fmt.Fprintln(r.Out, remedy(offenders, strings.TrimSpace(head), r.Base))
+		_, _ = fmt.Fprintln(r.Out, remedy(offenders, strings.TrimSpace(head), base))
 	}
 	return findings, nil
+}
+
+// fetchTimeout bounds the fetch, so a remote that never answers costs the
+// gate seconds and not the run.
+const fetchTimeout = 30 * time.Second
+
+// commitsBase is the ref that the range starts at. A stale remote ref puts
+// commits that the base already holds in the range, so the gate fetches
+// the base first. The fetch is an attempt and not a precondition: a run
+// with no network must still gate the branch, so it reads the remote ref
+// it holds, then the local branch of the same name. When neither resolves,
+// the gate cannot decide, and it says so rather than pass an empty range.
+func commitsBase(ctx context.Context, r *Repo) (string, error) {
+	remote, branch := splitRemote(ctx, r)
+	if remote != "" {
+		fctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+		c := exec.CommandContext(fctx, "git", "fetch", "--quiet", remote, "+refs/heads/"+branch+":refs/remotes/"+r.Base)
+		c.Dir = r.Root
+		// A credential prompt would wait on a person that an unattended run has not got.
+		c.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+		c.WaitDelay = time.Second
+		_ = c.Run()
+		cancel()
+	}
+	candidates := []string{r.Base}
+	if branch != "" {
+		candidates = append(candidates, branch)
+	}
+	for _, ref := range candidates {
+		if _, err := r.Git(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err == nil {
+			return ref, nil
+		}
+	}
+	what := r.Base + " does not resolve"
+	if branch != "" {
+		what = "neither " + r.Base + " nor " + branch + " resolves"
+	}
+	return "", fmt.Errorf("%s, so the gate cannot tell which commits the branch adds; fetch the base and run again", what)
+}
+
+// splitRemote splits Base into a configured remote and its branch, such
+// as origin and main. Both are empty when Base names no remote's branch.
+func splitRemote(ctx context.Context, r *Repo) (remote, branch string) {
+	out, err := r.Git(ctx, "remote")
+	if err != nil {
+		return "", ""
+	}
+	for _, name := range strings.Fields(out) {
+		if b, ok := strings.CutPrefix(r.Base, name+"/"); ok && b != "" {
+			return name, b
+		}
+	}
+	return "", ""
 }
 
 type logCommit struct {
