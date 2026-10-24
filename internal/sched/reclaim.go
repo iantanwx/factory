@@ -16,7 +16,8 @@ var errNotOwner = machine.ErrNotOwner
 // its start, and checks every run with a session against the agent host.
 // A run the host shows live is re-adopted and its lease renewed with the
 // same epoch, before anything is reclaimed (AE2). Only a session the host
-// proves ended is settled. Unknown reclaims nothing.
+// proves ended is settled. Unknown reclaims nothing before its age bound
+// (KTD9).
 func (s *Scheduler) Reconcile(ctx context.Context) error {
 	if err := s.recordOutage(ctx); err != nil {
 		return fmt.Errorf("sched: record the outage: %w", err)
