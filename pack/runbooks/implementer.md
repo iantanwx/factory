@@ -35,8 +35,9 @@ each earlier verdict. Each round holds the reviewer's comment in `body`. The las
 Read every handoff note and every earlier failure before you work. A note can hold an answer that
 a person already gave. Never escalate a question that a recorded answer settles.
 
-A pull request that conflicts with its base comes back as rework with no reject. Then
-`loop pr show` reports a conflict. Merge the base as section 2 states, and change nothing else.
+A pull request that conflicts with its base comes back as rework with no reject, or as repair
+with no failed check. Then `loop pr show` reports a conflict. GitHub runs no CI on a conflicting
+pull request. Merge the base as section 2 states, and change nothing else.
 
 When the status says rework, no round holds a reject with a comment, and the pull request has no
 conflict, do not build. A rework without its rejection repeats the rejected work. The state is then
