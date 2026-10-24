@@ -60,7 +60,7 @@ func TestOpenAcceptsNewerDatabaseWhoseMinimumReaderTheBinaryMeets(t *testing.T) 
 	_ = s.Close()
 
 	db := rawDB(t, path)
-	if _, err := db.Exec(`PRAGMA user_version = 9`); err != nil {
+	if _, err := db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, binary+1)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(`CREATE TABLE future_additive (x INTEGER)`); err != nil {
@@ -73,8 +73,8 @@ func TestOpenAcceptsNewerDatabaseWhoseMinimumReaderTheBinaryMeets(t *testing.T) 
 		t.Fatalf("Open of an additive future schema: %v", err)
 	}
 	defer func() { _ = s2.Close() }()
-	if s2.DatabaseSchema() != 9 || s2.SchemaVersion() != binary {
-		t.Fatalf("DatabaseSchema = %d, SchemaVersion = %d; want 9 and %d", s2.DatabaseSchema(), s2.SchemaVersion(), binary)
+	if s2.DatabaseSchema() != binary+1 || s2.SchemaVersion() != binary {
+		t.Fatalf("DatabaseSchema = %d, SchemaVersion = %d; want %d and %d", s2.DatabaseSchema(), s2.SchemaVersion(), binary+1, binary)
 	}
 	if n := countRows(t, s2, "projects"); n != 1 {
 		t.Fatalf("projects = %d, want 1", n)

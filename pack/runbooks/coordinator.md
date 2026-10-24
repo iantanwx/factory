@@ -75,6 +75,11 @@ read with the event you blame. Read the state back after each write you report.
   enters the item's inputs and admits a new attempt. Then answer the alert with what changed.
   At the code-reviewer stage, a push to the pull request also admits a new attempt.
   Never look for a way to reset the count.
+- **An alert stays open after you read its cause.** Record the root cause with
+  `loop inbox note <entry> --body "<finding>"`. The alert stays open, and `loop inbox list` marks it
+  `found` and shows the finding. A repeat of it then rings no one, and its text counts each repeat
+  after the finding. Read that count at each wake. A later note replaces the finding. Answer the
+  alert when the cause is gone.
 - **An item stopped after a blocked run.** Its `run_blocked` alert holds the item at that stage.
   Changed inputs or a move of the item lift the hold. At the code-reviewer stage, a push to the
   pull request lifts it too. When the cause is gone, answer the alert.
@@ -306,7 +311,7 @@ prepared question. You make each write after you read the result.
 | Agent | Dispatch it for |
 | --- | --- |
 | `loop-escalation-prep` | One inbox entry that waits on the operator. It returns one to three questions with costed options |
-| `loop-alert-root-cause` | One open alert that holds no finding. It returns the root cause and the act that ends it |
+| `loop-alert-root-cause` | One open alert with no `found` mark. It returns the root cause and the act that ends it |
 | `loop-doctor` | One stage that starts no run, finishes no run, or keeps failing to start one |
 | `loop-checkout-forensics` | One checkout that stands too long, or one that vanished |
 

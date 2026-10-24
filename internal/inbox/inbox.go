@@ -69,6 +69,9 @@ type Entry struct {
 	Head string `json:"head,omitempty"`
 	// Next names the verb that settles the entry.
 	Next string `json:"next"`
+	// Found marks an open alert whose root cause `inbox note` recorded.
+	// Its text holds the finding, and a repeat of it rings no one.
+	Found bool `json:"found,omitempty"`
 	// At is when the entry entered the inbox, in Unix milliseconds. The
 	// cursor of `inbox wait --since` is the At of the last entry seen.
 	At     int64  `json:"at"`
@@ -136,6 +139,7 @@ func (in *Inbox) Register(srv *rpc.Server) error {
 		"inbox answer":  in.answer,
 		"inbox defer":   in.deferVerb,
 		"inbox prepare": in.prepare,
+		"inbox note":    in.note,
 	} {
 		if err := srv.Handle(path, h); err != nil {
 			return err
