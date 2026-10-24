@@ -21,7 +21,7 @@ func TestDecomposeAcceptsAnArchitectureEpic(t *testing.T) {
 		t.Fatalf("spec author claim: %+v", *res.Refusal)
 	}
 	w.mustApply(machine.Request{Item: epic, Verb: "pr_open", Params: map[string]string{"pr": "99"}, Actor: machine.Server("test")})
-	w.mustApply(machine.Request{Item: epic, Verb: "review_pass", Command: "review submit", Actor: machine.Server("test")})
+	w.mustApply(machine.Request{Item: epic, Verb: "review_pass", Command: "review submit", Params: map[string]string{"head": "h1"}, Actor: machine.Server("test")})
 	w.mustApply(machine.Request{Item: epic, Verb: "doc_merged", Actor: machine.Server("test")})
 	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageDecomposer, RunID: "run-dec"}); res.Refusal != nil {
 		t.Fatalf("decomposer claim: %+v", *res.Refusal)
