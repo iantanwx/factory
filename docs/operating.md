@@ -136,6 +136,15 @@ project config on the default branch. `loop doctor` asks the server for
 them. When the server is down, it reports them as one failed `github` line
 marked unchecked.
 
+The `required_jobs` line fails when the ruleset requires a check that no
+job in `.github/workflows` on the default branch reports. Such a check never
+reports on a pull request, so no review can pass there. It happens when you
+rename a CI job and not the required check. A job reports its `name`, or its
+id when it has no name. A matrix job adds its values in parentheses, and a
+job that calls a reusable workflow reports `<name> / <called job>`. The line
+skips a check whose source is another App, a branch with no workflow, and a
+plan with no rulesets, which requires no check by name.
+
 Every settlement removes the checkout's `.env` files, and so does a room that
 goes idle or interrupted. These are the root `.env` and each `.env` of a
 manifest `dir` that the checkout's `.loop/env-files` record names. `loop
