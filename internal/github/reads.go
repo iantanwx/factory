@@ -359,7 +359,7 @@ func (s *Service) Logs(ctx context.Context, p config.Project, head string, jobID
 	for _, j := range jobs {
 		var text string
 		if _, err := s.repoDo(ctx, p, ScopeRead, Call{Method: http.MethodGet,
-			Path: repoPath(p, fmt.Sprintf("/actions/jobs/%d/logs", j.ID)), Accept: "text/plain", Raw: &text}, nil); err != nil {
+			Path: repoPath(p, fmt.Sprintf("/actions/jobs/%d/logs", j.ID)), Raw: &text}, nil); err != nil {
 			return nil, err
 		}
 		lines := strings.Split(strings.TrimRight(text, "\n"), "\n")
