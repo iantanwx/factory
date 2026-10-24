@@ -166,7 +166,11 @@ is already right, so you can run it again:
 - It writes the loop skills into the clone, under `.claude/skills` and
   `.agents/skills`, and lists them in `.git/info/exclude`.
 - It registers the project with the server, with the repository name as
-  its id. Give another id as `loop register <id>`.
+  its id. Give another id as `loop register <id>`. The registration
+  records the default branch. Every run of the project starts from it:
+  its checkout, its brief, and the base files that admission reads. A
+  registration made before the loop recorded the branch reads as `main`
+  until you run `loop register` again.
 - It finds the loop App of the repository's owner. When the owner has no
   App, it prints a link that opens the App form, as install does. Click
   **Create GitHub App**. For an organisation, you must be an owner of it.
@@ -219,6 +223,28 @@ session up. It sends that session one message that names the new release
 and tells it to read its runbook again. When the session ends, the server
 starts the next one under the new release, in the same worktree.
 
+## Checkout cleanup
+
+The scheduler runs a cleanup pass on each cleanup interval. It judges the
+checkout of each run that ended and of each room that `loop room close`
+ended. That includes a run checkout that the server kept when the run's
+session ended with no finish. A checkout that a lease, a live session or an
+open room uses is never judged.
+
+The pass deletes a checkout through `orca worktree rm` when its tree is
+clean and each of its commits is held. A commit is held when a remote
+holds it, when the base branch holds it, or when the base branch holds its
+patch under another commit id (`git cherry`), as after a rebase. The
+terminal in the checkout closes with it.
+
+A checkout with uncommitted work, or with a commit that no remote and no
+base holds, stays. The pass raises one `checkout_kept` alert that awaits
+a person. It names the checkout's path and the reason. Push the work, or
+remove the checkout with `orca worktree rm --worktree path:<path> --force`.
+The next pass deletes a clean, pushed checkout, and the alert closes with
+it. When you removed the checkout by hand, answer the alert. The pass
+raises it again only when the reason changes.
+
 ## Schedule an agent job
 
 An agent job is an agent run that claims no item and starts on a cron,
@@ -255,14 +281,16 @@ a lock file. `secrets` runs gitleaks, in CI only.
 `loop gates --fast` skips `test` and `build`, `loop gates --docs` runs the
 document gates alone, and `loop gates --only <gate>` runs one.
 
-`loop project add alpha --repo owner/alpha --path /home/me/src/alpha` does
-the registration step alone.
+`loop project add alpha --repo owner/alpha --path /home/me/src/alpha --branch trunk` does
+the registration step alone. With no `--branch`, the project's base is `main`.
 
 When you transfer a repository to another owner on GitHub, update the
 clone's `origin`, install the App on the new owner, and run
 `loop register` again. It finds the project by the clone's path and moves
 it with `loop project move <id> --repo <new owner/name>`. The project keeps
-its id, secrets and history.
+its id, secrets and history. When you rename the default branch on GitHub,
+run `loop register` again. It records the new branch with
+`loop project move <id> --repo <owner/name> --branch <branch>`.
 
 ## Set the default-branch ruleset
 
@@ -323,7 +351,7 @@ At each run start, the server writes each secret the run's stage
 receives into the `.env` of the entry's `dir`, or the checkout's root
 `.env` when the entry names none. An entry with no `stages` reaches every
 stage. A stage is a stage name, such as `implementer`, or a room:
-`intake-room`, `decision-room` or `review-room`. So a key that one app
+`intake-room`, `decision-room`, `review-room` or `architect-room`. So a key that one app
 uses reaches that app's `.env` only, in the runs that need it. Each file
 holds only its own names, and the server deletes each one when the run
 settles. A repository that tracks a file at one of those paths starts no

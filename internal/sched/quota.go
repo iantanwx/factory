@@ -17,6 +17,9 @@ type Profile struct {
 	Harness agenthost.Harness `json:"harness"`
 	Model   string            `json:"model"`
 	Effort  string            `json:"effort,omitempty"`
+	// Escalated marks the stage's escalated profile. Its start waits for a
+	// model receipt that reads Verified.
+	Escalated bool `json:"escalated,omitempty"`
 }
 
 // DefaultModels is the model a harness runs when project config names
@@ -24,6 +27,33 @@ type Profile struct {
 var DefaultModels = map[agenthost.Harness]string{
 	agenthost.Claude: "opus",
 	agenthost.Codex:  "gpt-5-codex",
+}
+
+// DefaultEscalatedModels is the model of a stage's escalated profile when
+// project config names none, ported from IMPLEMENTER_ESCALATED_MODEL in
+// alpha's stage-models.ts: Opus after two code-review rejects. Each is the
+// full id the harness records, because an escalated start compares its
+// receipt with the requested model exactly, and an alias never matches.
+var DefaultEscalatedModels = map[agenthost.Harness]string{
+	agenthost.Claude: "claude-opus-5-5",
+	agenthost.Codex:  "gpt-5-codex",
+}
+
+// DefaultEfforts is the effort a stage runs at when project config names
+// none for it, ported from the effort column of ROW_PINS in alpha's
+// stage-models.ts. The doc-reviewer runs at medium to spare its quota, and
+// each author and the code-reviewer at high. A stage with no row, such as
+// an agent job, runs at the harness's own default.
+var DefaultEfforts = map[string]string{
+	config.StageImplementer:  "high",
+	config.StageCodeReviewer: "high",
+	config.StageDocReviewer:  "medium",
+	config.StageSpecAuthor:   "high",
+	config.StageDecomposer:   "high",
+	config.StageAmender:      "medium",
+	config.StageFixer:        "medium",
+	config.StageReproducer:   "medium",
+	config.StageIntake:       "medium",
 }
 
 // QuotaLimit is the used percent at which the chooser skips a harness,
@@ -37,7 +67,9 @@ const QuotaSpent = 100.0
 
 // profiles lists the profiles a stage may take, in order: the project's
 // stage config (claude when it names no harness), then each other harness
-// that host config lists a login for, at its default model.
+// that host config lists a login for, at its default model. The stage
+// config's effort holds on its own harness only. Each profile else takes
+// the stage's default effort.
 func profiles(stage string, pc *config.ProjectConfig, hc *config.HostConfig) []Profile {
 	sc := pc.Stages[stage]
 	h := agenthost.Harness(sc.Harness)
@@ -48,15 +80,45 @@ func profiles(stage string, pc *config.ProjectConfig, hc *config.HostConfig) []P
 	if m == "" {
 		m = DefaultModels[h]
 	}
-	out := []Profile{{Harness: h, Model: m}}
+	e := sc.Effort
+	if e == "" {
+		e = DefaultEfforts[stage]
+	}
+	out := []Profile{{Harness: h, Model: m, Effort: e}}
 	for _, l := range hc.Harnesses {
 		lh := agenthost.Harness(l.Name)
 		if DefaultModels[lh] == "" || slices.ContainsFunc(out, func(p Profile) bool { return p.Harness == lh }) {
 			continue
 		}
-		out = append(out, Profile{Harness: lh, Model: DefaultModels[lh]})
+		out = append(out, Profile{Harness: lh, Model: DefaultModels[lh], Effort: DefaultEfforts[stage]})
 	}
 	return out
+}
+
+// escalatedProfiles lists the one profile a run takes on an item whose
+// model_tier is escalated, ported from the implementer-escalated row of
+// alpha's ROW_PINS. Each field the stage's escalated config leaves empty
+// takes the stage's own harness, the harness's default escalated model and
+// the stage's own effort. It lists no fallback harness: a run that needs
+// the stronger model waits for it, and never starts on a weaker one.
+func escalatedProfiles(stage string, pc *config.ProjectConfig) []Profile {
+	sc := pc.Stages[stage]
+	own := profiles(stage, pc, &config.HostConfig{})[0]
+	var ec config.EscalatedProfile
+	if sc.Escalated != nil {
+		ec = *sc.Escalated
+	}
+	p := Profile{Harness: agenthost.Harness(ec.Harness), Model: ec.Model, Effort: ec.Effort, Escalated: true}
+	if p.Harness == "" {
+		p.Harness = own.Harness
+	}
+	if p.Model == "" {
+		p.Model = DefaultEscalatedModels[p.Harness]
+	}
+	if p.Effort == "" {
+		p.Effort = own.Effort
+	}
+	return []Profile{p}
 }
 
 // choose returns the first profile whose harness is neither paused nor out

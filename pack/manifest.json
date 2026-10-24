@@ -36,7 +36,7 @@
     },
     "coordinator": {
       "attended": true,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-reflect", "loop-encode-lessons", "loop-sdlc-documents"],
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-reflect", "loop-encode-lessons", "loop-sdlc-documents", "loop-sdlc-split"],
       "agents": ["loop-alert-root-cause", "loop-checkout-forensics", "loop-doctor", "loop-escalation-prep"],
       "policy": "coordinator"
     },
@@ -51,11 +51,16 @@
     "review-room": {
       "attended": true,
       "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-reflect"]
+    },
+    "architect-room": {
+      "attended": true,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-documents", "loop-sdlc-split", "loop-sdlc-glossary", "loop-reflect"]
     }
   },
   "skills": [
     "loop-brainstorm",
     "loop-encode-lessons",
+    "loop-fault",
     "loop-init",
     "loop-reflect",
     "loop-sdlc-documents",

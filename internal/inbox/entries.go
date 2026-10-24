@@ -23,7 +23,7 @@ const DeferKind = "inbox_defer"
 // Alert kinds that wait on a person: only the operator stores a secret or
 // edits the repository's tracked files. Every other alert asks the
 // coordinator to look (KTD9).
-var personAlerts = map[string]bool{sched.AlertMissingSecret: true, sched.AlertConfigConflict: true}
+var personAlerts = map[string]bool{sched.AlertMissingSecret: true, sched.AlertConfigConflict: true, sched.AlertCheckoutKept: true}
 
 // Entry ids. The id names its kind and its source, so an answer finds the
 // source again without a lookup table.

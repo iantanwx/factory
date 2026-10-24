@@ -95,7 +95,12 @@ func (w *humanWorld) docReview(epic, verdict string) {
 	if ref != nil || st == nil || st.Item != epic {
 		w.t.Fatalf("doc-reviewer dispatch = %+v %+v", st, ref)
 	}
-	if env, code := w.as(st.Checkout, "review", "submit", epic, "--verdict", verdict); code != 0 {
+	pr, code := w.as(st.Checkout, "pr", "show")
+	if code != 0 {
+		w.t.Fatalf("pr show = %d %v", code, pr)
+	}
+	head := pr["data"].(map[string]any)["head_sha"].(string)
+	if env, code := w.as(st.Checkout, "review", "submit", epic, "--verdict", verdict, "--head", head); code != 0 {
 		w.t.Fatalf("review submit = %d %v", code, env)
 	}
 	if _, ref := w.srv.Sched.Finish(ctx, st.RunID, "done"); ref != nil {

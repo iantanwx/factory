@@ -50,13 +50,18 @@ func serveQueue(e *env, head string, runs ...map[string]any) {
 }
 
 // serveFailedJob answers the jobs of run with one failed job, and its log.
+// Like GitHub, it answers 415 to a log read without the JSON Accept header.
 func serveFailedJob(e *env, run, job int64, sha, log string) {
 	e.api.Route(fmt.Sprintf("GET /repos/%s/actions/runs/%d/jobs", gt.Repo, run), func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, 200, map[string]any{"total_count": 1, "jobs": []any{map[string]any{"id": job, "run_id": run, "name": "gates",
 			"head_sha": sha, "conclusion": "failure",
 			"html_url": fmt.Sprintf("https://github.com/%s/actions/runs/%d/job/%d", gt.Repo, run, job)}}})
 	})
-	e.api.Route(fmt.Sprintf("GET /repos/%s/actions/jobs/%d/logs", gt.Repo, job), func(w http.ResponseWriter, _ *http.Request) {
+	e.api.Route(fmt.Sprintf("GET /repos/%s/actions/jobs/%d/logs", gt.Repo, job), func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept"), "json") {
+			writeJSON(w, 415, map[string]string{"message": "Unsupported Accept header: " + r.Header.Get("Accept") + ". Must accept application/json."})
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte(log))
 	})

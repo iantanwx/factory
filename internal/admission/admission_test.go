@@ -94,6 +94,44 @@ func TestIntakeMutexHasOneHolder(t *testing.T) {
 	w.mustAdmit(config.StageIntake, "")
 }
 
+// Parity 8.6 (stage-claims.ts and timer-reproducer-row.ts, alpha): one
+// spec-author run and one reproducer run in a project at a time, whatever
+// cap host config holds. The second run is refused on a second item, the
+// peek offers nothing, and settling the holder frees the stage.
+func TestSpecAuthorAndReproducerRunOneAtATime(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		stage  string
+		kind   machine.Kind
+		status string
+	}{
+		{machine.StageSpecAuthor, machine.KindEpic, machine.PRDSignoff},
+		{machine.StageReproducer, machine.KindBug, machine.Reported},
+	}
+	for _, c := range cases {
+		t.Run(c.stage, func(t *testing.T) {
+			w := newWorld(t)
+			w.setCaps(map[string]int{c.stage: 5})
+			item := func() string {
+				id := w.put(c.kind, c.status, "item")
+				if c.kind == machine.KindEpic {
+					w.signOff(id)
+				}
+				return id
+			}
+			first := w.mustAdmit(c.stage, item())
+			second := item()
+			_, ref := w.admit(c.stage, second)
+			wantRefusal(t, ref, cli.CodeMutexHeld)
+			if p, r := w.a.Peek(ctx, prj, c.stage); p != nil || r != nil {
+				t.Fatalf("peek while %s runs = %+v %+v, want nothing", first.RunID, p, r)
+			}
+			w.settle(first, Settlement{Finish: "done"})
+			w.mustAdmit(c.stage, second)
+		})
+	}
+}
+
 // Caps come from host config only, and a changed cap applies on the next
 // load with no restart.
 func TestCapFromHostConfigAppliesWithNoRestart(t *testing.T) {

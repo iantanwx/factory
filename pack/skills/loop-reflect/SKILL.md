@@ -70,8 +70,8 @@ Delete the prose that the mechanism replaces.
 - **A rule of the project:** commit the mechanism and the record, run the project's gates, and open
   one pull request. The operator's approval lands it. In a room, push with `loop branch push`.
   In the coordinator's session, give the change to the operator as a link to the pull request.
-- **A rule of the loop itself:** report a loop fault with `loop fault report`. Name the rule, the
-  correction and what you expected the loop to do.
+- **A rule of the loop itself:** report a loop fault by `../loop-fault/SKILL.md`. Name the rule,
+  the correction and what you expected the loop to do.
 
 Name every finding you did not land in the pull request body, with the reason it waits. A person
 decides what becomes new work.

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -20,6 +21,12 @@ const gitlinkMode = "160000"
 
 // zeroSHA is the object id git prints for a side that does not exist.
 const zeroSHA = "0000000000000000000000000000000000000000"
+
+// MergeConfigPaths are the places Mergify reads its configuration from,
+// relative to the repository root. The queue's conditions live there, so
+// an edit can weaken one, and a broken config leaves every PR queued with
+// no outcome. No item branch changes one: the operator does, by hand.
+var MergeConfigPaths = []string{".mergify.yml", ".mergify/config.yml", ".github/mergify.yml"}
 
 // injectedPrefixes are the pack skill directories the server injects into
 // a checkout (KTD17).
@@ -50,20 +57,24 @@ type change struct {
 	path             string
 }
 
-// Scan checks every commit that head adds over the excluded refs (KTD14).
+// Scan checks every commit that head adds over base and the other excluded
+// refs (KTD14).
 // It reads the tree change and the message of each commit, not the net
 // diff, so a secret that one commit adds and a later commit removes is
 // still found. The first fault refuses the push:
 //
-//   - a change to .gitmodules, a gitlink, or a new filter or LFS line in a
-//     .gitattributes file is UNSAFE_PATH: the operator makes it by hand;
+//   - a change to .gitmodules, a gitlink, a new filter or LFS line in a
+//     .gitattributes file, or a write or a delete of a merge queue config
+//     (MergeConfigPaths) is UNSAFE_PATH: the operator makes it by hand. A
+//     commit whose config matches the base where it forked, such as a merge
+//     of the base, changes no config: it carries the operator's change;
 //   - a change to an injected path, or content that holds a stored secret
 //     value, is SECRET_IN_DIFF;
 //   - a commit message that holds a stored secret value is
 //     SECRET_IN_OUTPUT, because the message is outbound text (KTD27).
-func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, head string, exclude ...string) ([]string, error) {
+func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, head, base string, exclude ...string) ([]string, error) {
 	args := []string{"rev-list", "--reverse", head}
-	for _, e := range exclude {
+	for _, e := range append([]string{base}, exclude...) {
 		if e != "" {
 			args = append(args, "^"+e)
 		}
@@ -77,14 +88,14 @@ func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, head string, e
 		commits = strings.Split(out, "\n")
 	}
 	for _, c := range commits {
-		if err := m.scanCommit(ctx, red, c); err != nil {
+		if err := m.scanCommit(ctx, red, c, base); err != nil {
 			return commits, err
 		}
 	}
 	return commits, nil
 }
 
-func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, commit string) error {
+func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, commit, base string) error {
 	raw, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"cat-file", "commit", commit}})
 	if err != nil {
 		return err
@@ -100,7 +111,7 @@ func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, commit s
 	}
 	var blobs []string
 	for _, ch := range changes {
-		if err := m.checkPath(ctx, commit, ch); err != nil {
+		if err := m.checkPath(ctx, commit, base, ch); err != nil {
 			return err
 		}
 		if ch.status != "D" && ch.newMode != gitlinkMode && ch.newSHA != zeroSHA {
@@ -132,7 +143,7 @@ func (m *Mirror) changes(ctx context.Context, commit string) ([]change, error) {
 	return changes, nil
 }
 
-func (m *Mirror) checkPath(ctx context.Context, commit string, ch change) error {
+func (m *Mirror) checkPath(ctx context.Context, commit, baseRef string, ch change) error {
 	unsafe := func(rule, reason string) error {
 		return &ScanError{Code: cli.CodeUnsafePath, Rule: rule, Commit: commit, Path: ch.path,
 			Reason: reason + "; the operator makes this change by hand"}
@@ -143,6 +154,15 @@ func (m *Mirror) checkPath(ctx context.Context, commit string, ch change) error 
 		return unsafe("gitlink", fmt.Sprintf("%s is a submodule commit (a gitlink)", ch.path))
 	case base == ".gitmodules":
 		return unsafe("gitmodules", fmt.Sprintf("%s changes", ch.path))
+	case slices.Contains(MergeConfigPaths, ch.path):
+		// --no-renames shows a rename away as a delete, so it is refused too.
+		same, err := m.matchesForkPoint(ctx, commit, baseRef, ch.path)
+		if err != nil {
+			return err
+		}
+		if !same {
+			return unsafe("merge_config", fmt.Sprintf("%s is the merge queue's config", ch.path))
+		}
 	case base == ".gitattributes" && ch.status != "D":
 		added, err := m.newAttributeLines(ctx, ch)
 		if err != nil {
@@ -157,6 +177,37 @@ func (m *Mirror) checkPath(ctx context.Context, commit string, ch change) error 
 			Reason: fmt.Sprintf("%s is a path the loop injects into the checkout; remove it from the commit", ch.path)}
 	}
 	return nil
+}
+
+// matchesForkPoint reports whether commit holds the same entry at p, or
+// the same absence, as its merge base with base. That is the test a PR's
+// file list makes: a merge of the base brings in the base's entry, so it
+// matches, while a resolution that writes or drops p against the base
+// does not. A commit with no merge base with base never matches.
+func (m *Mirror) matchesForkPoint(ctx context.Context, commit, base, p string) (bool, error) {
+	if base == "" {
+		return false, nil
+	}
+	fork, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"merge-base", commit, base}})
+	if err != nil {
+		var ge *GitError
+		if errors.As(err, &ge) && fork == "" && ge.Stderr == "" {
+			return false, nil // no merge base: exit 1 with no output
+		}
+		return false, err
+	}
+	entry := func(rev string) (string, error) {
+		return m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"ls-tree", "--full-tree", rev, "--", p}})
+	}
+	own, err := entry(commit)
+	if err != nil {
+		return false, err
+	}
+	theirs, err := entry(fork)
+	if err != nil {
+		return false, err
+	}
+	return own == theirs, nil
 }
 
 // newAttributeLines lists the filter or LFS lines of a .gitattributes

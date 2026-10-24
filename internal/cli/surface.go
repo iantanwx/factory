@@ -132,7 +132,7 @@ var surface = []Verb{
 
 	write(server("review", "submit", "submit a review verdict", []string{"reviewer run"}, []Arg{itemArg},
 		Flag{Name: "verdict", Type: FlagString, Required: true, Enum: []string{"pass", "reject"}, Description: "pass or reject"},
-		Flag{Name: "head", Type: FlagString, Description: "the PR head sha the review read; a ticket's pass needs it"},
+		Flag{Name: "head", Type: FlagString, Description: "the PR head sha the review read; every pass needs it"},
 		Flag{Name: "body", Type: FlagString, Description: "the review comment; the server posts it on the item's pull request and records it with the verdict"})),
 	server("review", "threads", "list the pull request's comments, each review comment with its thread's resolved, outdated and awaiting-us state", []string{"reviewer run"}, []Arg{itemArg}),
 	server("review", "rounds", "list review rounds", []string{"reviewer run"}, []Arg{itemArg}),
@@ -190,6 +190,8 @@ var surface = []Verb{
 		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
 	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
 
+	server("overwatch", "sweep", "run every overwatch part once and print the report; it rings nobody", coordinatorOrHost, nil),
+
 	write(server("fault", "report", "report a fault in the loop itself, not in the project; the answer names its fault id", faultCallers, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report file, at any path, read by the CLI: the command, its envelope and what you expected; 64 KiB at most"})),
 	server("fault", "show", "show one loop fault: its status, its resolution and the release this host runs", faultCallers, []Arg{faultArg}),
@@ -226,9 +228,9 @@ var surface = []Verb{
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the finding: the root cause, its evidence and the act that ends it"})),
 
 	write(server("room", "open", "open a room for a finding the triage rubric routes to a person, or reopen an idle or interrupted one", coordinator, nil,
-		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review"}, Description: "the kind of room"},
+		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review", "architect"}, Description: "the kind of room; an architect room serves one architecture epic"},
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
-		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none"},
+		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none, and an architect room names an epic in architecture"},
 		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"},
 		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},
 		Flag{Name: "choice", Type: FlagString, Enum: []string{"inside", "outside"}, Description: "outside when one answer acts outside the repository; inside when absent"})),
@@ -258,16 +260,18 @@ var surface = []Verb{
 		Flag{Name: "project", Type: FlagString, Description: "the project id, or _host for a platform credential; needed with --scope project"})),
 	write(server("secret", "import", "import secrets from the declared vaults", hostOnly, nil,
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
-		Flag{Name: "branch", Type: FlagString, Description: "the default branch that holds the manifest; main when absent"})),
+		Flag{Name: "branch", Type: FlagString, Description: "the branch that holds the manifest; the project's default branch when absent"})),
 
 	write(server("project", "add", "register a project", hostOnly, []Arg{projectArg},
 		Flag{Name: "repo", Type: FlagString, Required: true, Description: "the GitHub repository, owner/name"},
-		Flag{Name: "path", Type: FlagString, Required: true, Description: "the project's local directory, an absolute path"})),
+		Flag{Name: "path", Type: FlagString, Required: true, Description: "the project's local directory, an absolute path"},
+		Flag{Name: "branch", Type: FlagString, Description: "the default branch, the base of every run; main when absent"})),
 	server("project", "list", "list projects", hostOrCoordinator, nil),
 	server("project", "show", "show one project", hostOrCoordinator, []Arg{projectArg}),
 	write(server("project", "remove", "remove a project", hostOnly, []Arg{projectArg})),
-	write(server("project", "move", "point a project at another repository, as after a transfer on GitHub; it keeps the project's secrets and history", hostOnly, []Arg{projectArg},
-		Flag{Name: "repo", Type: FlagString, Required: true, Description: "the new GitHub repository, owner/name"})),
+	write(server("project", "move", "point a project at another repository or default branch, as after a transfer or a rename on GitHub; it keeps the project's secrets and history", hostOnly, []Arg{projectArg},
+		Flag{Name: "repo", Type: FlagString, Required: true, Description: "the new GitHub repository, owner/name"},
+		Flag{Name: "branch", Type: FlagString, Description: "the new default branch; the recorded one when absent"})),
 
 	topLevel(client("host", "install", "install the service, set up the host and create the loop GitHub App", hostOnly, nil,
 		Flag{Name: "check", Type: FlagBool, Description: "report drift and change nothing"},

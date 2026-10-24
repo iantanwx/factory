@@ -22,7 +22,8 @@ Read these first, in this order:
 4. `../loop-reflect/SKILL.md`, when the operator corrects you a second time.
 5. `../loop-encode-lessons/SKILL.md`, which `loop-reflect` starts.
 6. `../loop-sdlc-documents/SKILL.md`, where each project keeps its PRDs, specs and ADRs.
-7. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
+7. `../loop-sdlc-split/SKILL.md`, when an intake room's decision splits an epic.
+8. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
    routes, standing authorizations, health limits and report additions.
 
 Every rule lives in this runbook, in a check, or in a project policy file. No rule lives in a wake
@@ -197,7 +198,7 @@ rubric routes to a person. Score the finding first. Pass the level with `--score
 `--choice outside` when one answer acts outside the repository:
 
 ```bash
-loop room open --kind intake|decision|review --project <project> --reason "<why>" --score <level> [--choice outside] [--item <item>]
+loop room open --kind intake|decision|review|architect --project <project> --reason "<why>" --score <level> [--choice outside] [--item <item>]
 ```
 
 The server refuses an open with no score. It refuses levels 1 to 3 with `ROUTED_TO_LOOP`, opens no
@@ -210,6 +211,10 @@ decision, or when the operator is done with it. A room never closes itself.
 A new intake room with no `--item` adds an epic. The server refuses it with `CAP_FULL` while the
 project's epics in counted document states fill the intake cap in host config. Tell the operator
 which epics hold the cap. Open the room when the count drops, or when the operator raises the cap.
+
+When an intake room's decision splits an epic, do the steps that `../loop-sdlc-split/SKILL.md`
+gives the coordinator. Retitle the epic that the split keeps, and open one intake room for each
+other part.
 
 ## 8. New work
 
@@ -246,6 +251,11 @@ The server reads each Markdown file under `docs/adr/` on the base branch. The AD
 `docs/adr/NNNN-<slug>.md`, with the next free number, from the template
 `../loop-sdlc-documents/adr.md`. Tell the operator to write the epic id on its `**Ticket:**` line.
 The `adr` gate refuses an ADR with no Ticket line. The spec author then takes the epic.
+
+When the operator wants to write the ADR with an agent, open an architect room on the epic, by
+section 7. The server refuses an architect room on any item but an epic in `architecture`. The
+room writes the ADR with the operator and opens its pull request. When that pull request merges,
+the epic moves.
 
 When the operator asks the loop to write the ADR, file its ticket under the epic. Quote the
 operator's words, and cite no story, since the epic has no PRD:

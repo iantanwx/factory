@@ -1,1 +1,8 @@
-{"skills": []}
+{
+  "skills": [
+    {"name": "asd-ste100", "repo": "danyuchn/asd-ste100-skill", "commit": "cd62d297d5ef7cf9f59718cadc233ab2876ea013", "path": "", "sha256": "04db809a9dc27d79c7f959424cb22c71553d53137f8db915e1ac8b83a9a9caec"},
+    {"name": "impeccable", "repo": "pbakaus/impeccable", "commit": "936867543ac2576920d663cc9803597f6044f3ac", "path": ".agents/skills/impeccable", "sha256": "28c4ba56bc8c1377af6e1a3404f7ab3daa78f491486757f18a74e2d56cdef272"},
+    {"name": "neon", "repo": "neondatabase/agent-skills", "commit": "ccca3334a7542d3133134cc6926f2fafc6edeb1f", "path": "skills/neon", "sha256": "0aa0de4b6aced6c4c740944a83e7da8eee61c891e8d05a337bc60a98c67d4d5a"},
+    {"name": "neon-postgres", "repo": "neondatabase/agent-skills", "commit": "ccca3334a7542d3133134cc6926f2fafc6edeb1f", "path": "skills/neon-postgres", "sha256": "bf5bcf0b4ab192c54027b5df77276f1dafa6ec045fab144c74209b9d535e0230"}
+  ]
+}

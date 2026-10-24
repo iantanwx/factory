@@ -496,10 +496,15 @@ func TestEndWithoutFinishSettlesCrashed(t *testing.T) {
 
 // An agent idle at its prompt with no finish settles as crashed after the
 // quiet period. Its session closes, its checkout stays and its slot frees.
+// The agent leaves uncommitted work, so the cleanup pass of the same tick
+// keeps the checkout too.
 func TestIdleAtPromptSettlesAfterTheQuietPeriod(t *testing.T) {
 	w := newWorld(t)
 	id := w.ticket(machine.Todo)
 	st := w.dispatch(machine.StageImplementer)
+	if err := os.WriteFile(filepath.Join(st.Checkout, "work.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	w.host.EndTurn(st.Session.ID)
 	w.clock.Advance(10 * time.Minute)
 	w.tick()
@@ -763,6 +768,53 @@ func TestBriefCapsTheDirtyFilesOfAKeptCheckout(t *testing.T) {
 	}
 	if k := b.KeptCheckouts[0]; len(k.Dirty) != brief.MaxDirty || k.More != 3 {
 		t.Fatalf("dirty = %d files, more = %d, want %d and 3", len(k.Dirty), k.More, brief.MaxDirty)
+	}
+}
+
+// A repair brief carries the red build of the item's pull request, so the
+// run sees the failure before any read. A read that fails still starts
+// the run, and its brief says why. A brief of other work reads no CI.
+func TestRepairBriefCarriesTheRedBuild(t *testing.T) {
+	w := newWorld(t)
+	red := w.ticket(machine.Repair)
+	broken := w.ticket(machine.Repair)
+	todo := w.ticket(machine.Todo)
+	var read []string
+	w.s.SetRedBuildReader(func(_ context.Context, project, item string) (*brief.RedBuild, error) {
+		read = append(read, project+"/"+item)
+		if item == broken {
+			return nil, fmt.Errorf("github: 502 Bad Gateway\nsecond line")
+		}
+		return &brief.RedBuild{PR: 7, Head: "abc123", Checks: []brief.FailedCheck{{Name: "gates", Gate: "test",
+			Tests: []brief.FailedTest{{Package: "example.com/x", Name: "TestAdd"}}, Excerpt: []string{"--- FAIL: TestAdd (0.00s)"}}}}, nil
+	})
+	briefs := map[string]brief.Brief{}
+	for range 3 {
+		st := w.dispatch(machine.StageImplementer)
+		raw, err := os.ReadFile(filepath.Join(st.Checkout, brief.BriefJSON))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var b brief.Brief
+		if err := json.Unmarshal(raw, &b); err != nil {
+			t.Fatal(err)
+		}
+		briefs[st.Item] = b
+	}
+	if rb := briefs[red].RedBuild; rb == nil || rb.PR != 7 || len(rb.Checks) != 1 || rb.Checks[0].Gate != "test" {
+		t.Fatalf("the repair brief's red build = %+v", rb)
+	}
+	if rb := briefs[broken].RedBuild; rb == nil || rb.Unreadable != "github: 502 Bad Gateway" || len(rb.Checks) != 0 {
+		t.Fatalf("the brief of a failed read = %+v", rb)
+	}
+	if rb := briefs[todo].RedBuild; rb != nil {
+		t.Fatalf("a todo brief carries a red build: %+v", rb)
+	}
+	slices.Sort(read)
+	want := []string{prj + "/" + red, prj + "/" + broken}
+	slices.Sort(want)
+	if !slices.Equal(read, want) {
+		t.Fatalf("CI reads = %v, want %v", read, want)
 	}
 }
 

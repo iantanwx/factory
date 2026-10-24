@@ -24,6 +24,10 @@ stages:
     harness: claude
     run_budget: 90m
     schedule: 5m
+    effort: max
+    escalated:
+      model: claude-opus-5-5
+      effort: xhigh
   code-reviewer:
     enabled: false
 gates:
@@ -53,6 +57,12 @@ func TestParseProjectConfig(t *testing.T) {
 	if got := cfg.Signoff.Readers; len(got) != 2 || got[0] != "octocat" || got[1] != "mona-lisa" {
 		t.Fatalf("sign-off readers = %v", got)
 	}
+	if cfg.Stages["implementer"].Effort != "max" {
+		t.Fatalf("effort = %q", cfg.Stages["implementer"].Effort)
+	}
+	if e := cfg.Stages["implementer"].Escalated; e == nil || *e != (EscalatedProfile{Model: "claude-opus-5-5", Effort: "xhigh"}) {
+		t.Fatalf("escalated profile = %+v", e)
+	}
 	if cfg.Stages["implementer"].RunBudget != 90*time.Minute {
 		t.Fatalf("run budget = %v", cfg.Stages["implementer"].RunBudget)
 	}
@@ -66,16 +76,20 @@ func TestParseProjectConfig(t *testing.T) {
 
 func TestParseProjectConfigRefuses(t *testing.T) {
 	cases := map[string]string{
-		"unknown field":       validProjectConfig + "organisation: acme\n",
-		"unknown stage field": strings.Replace(validProjectConfig, "model: opus", "model: opus\n    modle: sonnet", 1),
-		"unknown mechanism":   strings.Replace(validProjectConfig, "mechanism: mergify", "mechanism: bors", 1),
-		"no mechanism":        strings.Replace(validProjectConfig, "mechanism: mergify", "", 1),
-		"escaping manifest":   validProjectConfig + "manifest: ../secrets.yaml\n",
-		"absolute manifest":   validProjectConfig + "manifest: /etc/secrets.yaml\n",
-		"empty gate command":  strings.Replace(validProjectConfig, "run: make gates", "run: \"\"", 1),
-		"negative budget":     strings.Replace(validProjectConfig, "run_budget: 90m", "run_budget: -5m", 1),
-		"reader not a login":  strings.Replace(validProjectConfig, "mona-lisa", "slothware-labs/loop", 1),
-		"reader twice":        strings.Replace(validProjectConfig, "mona-lisa", "OctoCat", 1),
+		"unknown field":               validProjectConfig + "organisation: acme\n",
+		"unknown stage field":         strings.Replace(validProjectConfig, "model: opus", "model: opus\n    modle: sonnet", 1),
+		"unknown mechanism":           strings.Replace(validProjectConfig, "mechanism: mergify", "mechanism: bors", 1),
+		"no mechanism":                strings.Replace(validProjectConfig, "mechanism: mergify", "", 1),
+		"escaping manifest":           validProjectConfig + "manifest: ../secrets.yaml\n",
+		"absolute manifest":           validProjectConfig + "manifest: /etc/secrets.yaml\n",
+		"empty gate command":          strings.Replace(validProjectConfig, "run: make gates", "run: \"\"", 1),
+		"negative budget":             strings.Replace(validProjectConfig, "run_budget: 90m", "run_budget: -5m", 1),
+		"effort not a word":           strings.Replace(validProjectConfig, "effort: max", "effort: \"high --dangerously-skip-permissions\"", 1),
+		"escalated effort not a word": strings.Replace(validProjectConfig, "effort: xhigh", "effort: \"xhigh --yolo\"", 1),
+		"escalated harness not ident": strings.Replace(validProjectConfig, "effort: xhigh", "effort: xhigh\n      harness: Claude!", 1),
+		"unknown escalated field":     strings.Replace(validProjectConfig, "effort: xhigh", "effort: xhigh\n      modle: opus", 1),
+		"reader not a login":          strings.Replace(validProjectConfig, "mona-lisa", "slothware-labs/loop", 1),
+		"reader twice":                strings.Replace(validProjectConfig, "mona-lisa", "OctoCat", 1),
 	}
 	for name, doc := range cases {
 		t.Run(name, func(t *testing.T) {

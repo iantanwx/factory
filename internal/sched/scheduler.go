@@ -32,9 +32,9 @@ const (
 	DefaultDrainTimeout     = 30 * time.Minute
 	DefaultQuotaPause       = time.Hour
 	DefaultCleanupInterval  = 5 * time.Minute
-	// DefaultBaseBranch is the base of every checkout. A registration names
-	// no base branch in v1.
-	DefaultBaseBranch = "main"
+	// DefaultBaseBranch is the base of a checkout whose project names no
+	// default branch: a registration made before the loop recorded it.
+	DefaultBaseBranch = config.DefaultBranch
 )
 
 // Alert kinds the scheduler raises. The inbox reads the alerts table.
@@ -58,6 +58,10 @@ const (
 	// AlertRunBlocked names an item a run left blocked. While it is open,
 	// it holds the item at that stage (admission.BlockedKey).
 	AlertRunBlocked = admission.AlertBlocked
+	// AlertCheckoutKept names a checkout the cleanup pass keeps because a
+	// content rule holds it. A person pushes or removes the work; the
+	// alert closes when the pass deletes the checkout.
+	AlertCheckoutKept = "checkout_kept"
 )
 
 // HostSource returns the current host config. *config.HostLoader is one.
@@ -147,6 +151,10 @@ type Scheduler struct {
 	// repository race for its config lock.
 	checkoutMu sync.Mutex
 	tickMu     sync.Mutex // one tick at a time
+
+	// redBuild reads the failed CI of a repair's pull request for its
+	// brief. Nil reads none.
+	redBuild RedBuildReader
 
 	wg     sync.WaitGroup // dispatches and jobs in flight
 	loops  sync.WaitGroup
