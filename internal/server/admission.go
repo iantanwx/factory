@@ -27,6 +27,7 @@ func (s *Server) composeAdmission() (*admission.Admission, error) {
 		Beads:   s.opts.Beads,
 		Base:    base,
 		Deps:    s.opts.Dependencies,
+		Pulls:   s.opts.Pulls,
 		Release: cli.Version,
 	})
 }

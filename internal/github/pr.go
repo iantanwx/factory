@@ -183,6 +183,34 @@ func (s *Service) PRFiles(ctx context.Context, p config.Project, number int) ([]
 	return out, nil
 }
 
+// maxOpenPages bounds the read of a project's open pull requests: 1000 of
+// them.
+const maxOpenPages = 10
+
+// OpenPulls lists every open pull request of the project, a page of 100
+// at a time. Admission reads it for the `## Depends on` hold, so a list
+// that stopped early would admit a ticket that a later page holds.
+func (s *Service) OpenPulls(ctx context.Context, project string) ([]PR, error) {
+	p, err := s.project(project)
+	if err != nil {
+		return nil, err
+	}
+	var out []PR
+	for page := 1; page <= maxOpenPages; page++ {
+		q := url.Values{"state": {"open"}, "per_page": {"100"}, "page": {strconv.Itoa(page)}}
+		var batch []PR
+		resp, err := s.repoDo(ctx, p, ScopeRead, Call{Method: http.MethodGet, Path: repoPath(p, "/pulls?"+q.Encode())}, &batch)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, batch...)
+		if len(batch) < 100 && !nextPage(resp.Header) {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("github: %s has more than %d open pull requests", p.Repo, maxOpenPages*100)
+}
+
 // maxDiff bounds the diff `pr diff` prints.
 const maxDiff = 1 << 20
 

@@ -245,6 +245,7 @@ func (w *World) options() server.Options {
 	opts.Setup = append(opts.Setup, gh.Setup, mg.Setup, (&server.Pipeline{GitHub: gh}).Setup)
 	opts.Reconcile = append(opts.Reconcile, gh.Reconcile)
 	opts.BaseFiles = lazyBase{gh}
+	opts.Pulls = lazyPulls{gh}
 	opts.ManifestReader = func(ctx context.Context, p config.Project, branch string) (*config.Manifest, error) {
 		if gh.Service == nil {
 			return nil, errors.New("the GitHub service is not set up")
@@ -325,6 +326,27 @@ func (l lazyBase) Files(ctx context.Context, project string, prefixes []string) 
 }
 
 var _ admission.BaseReader = lazyBase{}
+
+// lazyPulls is admission's reader of open pull requests over the GitHub
+// service, for the `## Depends on` hold, as in cmd/loop.
+type lazyPulls struct{ gh *server.GitHub }
+
+func (l lazyPulls) OpenPulls(ctx context.Context, project string) ([]admission.PullHead, error) {
+	if l.gh.Service == nil {
+		return nil, errors.New("the GitHub service is not set up")
+	}
+	prs, err := l.gh.Service.OpenPulls(ctx, project)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]admission.PullHead, len(prs))
+	for i, pr := range prs {
+		out[i] = admission.PullHead{Number: pr.Number, Branch: pr.Head.Ref}
+	}
+	return out, nil
+}
+
+var _ admission.PullReader = lazyPulls{}
 
 // beads starts the instance's Dolt and resolves the project's workspace on
 // first use, as cmd/loop's realBeads does. Each client carries the world's

@@ -36,6 +36,7 @@ type world struct {
 	hostPath string
 	base     *fakeBase
 	deps     *fakeDeps
+	pulls    *fakePulls
 	m        *machine.Machine
 	a        *Admission
 	runs     atomic.Int64
@@ -58,7 +59,8 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w := &world{t: t, st: st, bx: bx, beads: &editable{Client: bx, body: map[string]string{}},
-		hostPath: filepath.Join(dir, config.HostConfigFile), base: newFakeBase(st), deps: &fakeDeps{open: map[string][]string{}}}
+		hostPath: filepath.Join(dir, config.HostConfigFile), base: newFakeBase(st), deps: &fakeDeps{open: map[string][]string{}},
+		pulls: &fakePulls{}}
 	w.setCaps(nil)
 	w.build("v1")
 	return w
@@ -69,7 +71,7 @@ func (w *world) build(release string) {
 	w.t.Helper()
 	resolver := func(string) (beadsx.Client, error) { return w.beads, nil }
 	a, err := New(Config{Store: w.st, Host: &config.HostLoader{Path: w.hostPath}, Beads: resolver,
-		Base: w.base, Deps: w.deps, Release: release})
+		Base: w.base, Deps: w.deps, Pulls: w.pulls, Release: release})
 	if err != nil {
 		w.t.Fatal(err)
 	}
