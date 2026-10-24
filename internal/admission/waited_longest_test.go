@@ -71,3 +71,37 @@ func TestWaitOrderBreaksTiesByBeadWriteThenID(t *testing.T) {
 		t.Fatalf("order = %v, want %v", got, want)
 	}
 }
+
+// An item's place in its state comes from the transition that moved it
+// there, not from its last bead write. A note writes the bead and keeps the
+// status, so it must not send the item to the back of its state.
+//
+// tk-2 entered todo before tk-1, then got a note. Id order picks tk-1, and
+// last-write order picks tk-1. Only the time an item entered its state
+// picks tk-2.
+func TestPeekDatesEntryByTransitionNotByLastBeadWrite(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	newer := w.ticket(machine.Backlog)
+	oldest := w.ticket(machine.Backlog)
+	if newer != "tk-1" || oldest != "tk-2" {
+		t.Fatalf("made %s and %s, want tk-1 and tk-2", newer, oldest)
+	}
+	for _, id := range []string{oldest, newer} {
+		res := w.m.Apply(ctx, machine.Request{Project: prj, Item: id, Verb: machine.VerbUnblock,
+			Command: "work unblock", Actor: machine.Server("test")})
+		if res.Refusal != nil {
+			t.Fatalf("unblock %s: %+v", id, res.Refusal)
+		}
+		time.Sleep(5 * time.Millisecond) // the history dates in milliseconds
+	}
+	res := w.m.Apply(ctx, machine.Request{Project: prj, Item: oldest, Verb: machine.VerbNote,
+		Command: "work note", Params: map[string]string{"body": "x"}, Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		t.Fatalf("note: %+v", res.Refusal)
+	}
+	c, r := w.a.Peek(ctx, prj, machine.StageImplementer)
+	if r != nil || c == nil || c.Item != oldest || c.Status != machine.Todo {
+		t.Fatalf("peek = %+v %+v, want %s, which entered todo before %s", c, r, oldest, newer)
+	}
+}
