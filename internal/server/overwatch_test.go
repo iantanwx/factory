@@ -110,6 +110,7 @@ func TestC7TheVerbSweepsPrintsAndRingsNobody(t *testing.T) {
 		t.Fatalf("the schema's overwatch sweep = %+v %v", v, ok)
 	}
 	w := newHumanWorld(t, "")
+	w.srv.setOverwatchParts([]overwatch.Part{})
 	if d := w.sweepData(); d["code"] != float64(0) || len(d["parts"].([]any)) != 0 {
 		t.Fatalf("a sweep of no part = %v", d)
 	}

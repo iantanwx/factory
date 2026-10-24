@@ -152,9 +152,17 @@ func (w *serverWorld) Body(ctx context.Context, project, item string) (string, e
 	return it.Body, nil
 }
 
-// Dependencies belongs to the backlog part (spec, Work 5).
-func (w *serverWorld) Dependencies(context.Context, string, string) ([]beadsx.Dependency, error) {
-	return nil, errNoPartReads
+// Dependencies reads the item's beads edges of every kind, each with its
+// status, from the project's beads client.
+func (w *serverWorld) Dependencies(ctx context.Context, project, item string) ([]beadsx.Dependency, error) {
+	if w.s.opts.Beads == nil {
+		return nil, errors.New("overwatch: the server holds no beads")
+	}
+	bc, err := w.s.opts.Beads(project)
+	if err != nil {
+		return nil, fmt.Errorf("beads of %s: %w", project, err)
+	}
+	return bc.Dependencies(ctx, item)
 }
 
 func (w *serverWorld) Store() *store.Store { return w.s.Store }
