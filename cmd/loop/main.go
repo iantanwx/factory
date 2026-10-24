@@ -33,7 +33,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	// The triage panel runs in the fixer's own process, where the harness
 	// logins are (KTD22).
-	if err := r.SetHandler("escalation judge", escalation.JudgeVerb(escalation.Live())); err != nil {
+	// The judges read the operator's decisions recorded on the item, which
+	// the server holds.
+	judging := escalation.Live()
+	judging.Recorded = escalation.ServerRecorded(r, c.Remote)
+	if err := r.SetHandler("escalation judge", escalation.JudgeVerb(judging)); err != nil {
 		panic(err)
 	}
 	// The proof runs the tests in the reviewer's own checkout, so its
