@@ -283,8 +283,9 @@ func (h *Host) Restart(keepHandles bool) {
 // DaemonDeath replays the measured death of the daemon that owns the PTYs
 // (docs/evidence/orca-restart.md): each open session's process dies, and
 // the daemon comes back with the same handle and PTY on a fresh shell. The
-// fresh shell gets a new incarnation, the unmeasured case the real host
-// must never take as the run. The epoch stays, because orca-serve did not
+// fresh shell gets a new incarnation and runs no agent, so Inventory lists
+// it with no Agent. It is the unmeasured case the real host must never
+// take as the run. The epoch stays, because orca-serve did not
 // restart.
 func (h *Host) DaemonDeath() {
 	h.mu.Lock()
@@ -492,9 +493,15 @@ func (h *Host) Inventory(_ context.Context) (agenthost.Inventory, error) {
 		if s.closed || s.exited {
 			continue
 		}
+		// After DaemonDeath the terminal holds a fresh shell, which runs
+		// no agent (docs/evidence/orca-restart.md).
+		agent := string(s.s.Harness)
+		if s.incarnation != s.s.ID.Incarnation {
+			agent = ""
+		}
 		inv.Rows = append(inv.Rows, agenthost.Row{
 			ID: h.current(s), Checkout: s.s.Checkout, Pty: s.s.Pty,
-			Agent: string(s.s.Harness), Connected: true,
+			Agent: agent, Connected: true,
 		})
 	}
 	return inv, nil

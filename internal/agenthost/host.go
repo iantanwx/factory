@@ -307,7 +307,8 @@ func (inv Inventory) Readopted(s Session) (Session, bool) {
 // Only the coordinator reads it: the operator decided on 2026-10-24
 // (escalation 5, option A, loop fault F-17) that a live coordinator whose
 // handle went stale keeps its session under the new handle. A stage run's
-// trace still only keeps it Unknown.
+// trace still only keeps it Unknown. When no row carries the incarnation,
+// ReboundToAgent is the coordinator's other way.
 func (inv Inventory) Rebound(s Session) (Session, bool) {
 	if !inv.Complete || inv.Epoch == "" || s.Checkout == "" {
 		return s, false
@@ -328,6 +329,36 @@ func (inv Inventory) Rebound(s Session) (Session, bool) {
 	if match[0].Pty != "" {
 		s.Pty = match[0].Pty
 	}
+	return s, true
+}
+
+// ReboundToAgent returns the session moved to the one live row in its
+// checkout whose agent is the session's harness, with that row's PTY and
+// this inventory's epoch. It needs a complete inventory that lists no row
+// of the exact identity and no row of the session's incarnation, so it
+// serves only where Rebound finds nothing. A row that names no agent, such
+// as the shell orca opens in each worktree or the fresh shell a daemon
+// death leaves (docs/evidence/orca-restart.md), never counts. Two such
+// agent rows, or the one row disconnected, rebind nothing. Only the
+// coordinator reads it: one coordinator runs in its checkout, so the one
+// agent there is the coordinator (loop fault F-30).
+func (inv Inventory) ReboundToAgent(s Session) (Session, bool) {
+	if !inv.Complete || inv.Epoch == "" || s.Checkout == "" || s.Harness == "" {
+		return s, false
+	}
+	var match []Row
+	for _, r := range inv.Rows {
+		if r.ID == s.ID || r.ID.Incarnation == s.ID.Incarnation {
+			return s, false
+		}
+		if r.Checkout == s.Checkout && r.Agent == string(s.Harness) {
+			match = append(match, r)
+		}
+	}
+	if len(match) != 1 || !match[0].Connected {
+		return s, false
+	}
+	s.ID, s.Pty, s.Epoch = match[0].ID, match[0].Pty, inv.Epoch
 	return s, true
 }
 
