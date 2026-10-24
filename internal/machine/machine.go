@@ -72,6 +72,9 @@ type Machine struct {
 	hook func(point string) bool
 	// reviewComment posts the body of `review submit`. Nil posts nothing.
 	reviewComment ReviewCommenter
+	// prHead reads the live head of an item's pull request, which
+	// `review submit --head` must name. Nil reads nothing.
+	prHead PRHeadReader
 	// passGate reads CI at the head a code review passes. Nil reads
 	// nothing: a server with no GitHub has no CI and posts no status.
 	passGate PassGate
