@@ -144,11 +144,18 @@ func TestCheckCommandsGatesCommandsAndNotThePackVocabulary(t *testing.T) {
 func fixture() fstest.MapFS {
 	return fstest.MapFS{
 		"manifest.json": {Data: []byte(`{"runbooks": {"implementer": {"attended": false, "skills": ["loop-sdlc-turn"], "policy": "implementer"}},
-			"skills": ["loop-sdlc-turn"]}`)},
+			"skills": ["loop-init", "loop-sdlc-turn"]}`)},
 		"runbooks/implementer.md": {Data: []byte("---\nname: loop-implementer\ndescription: Build one ticket.\n---\n\n" +
 			"Read `../loop-sdlc-turn/SKILL.md` first. Read `.loop/policy/implementer.md` when it exists.\n")},
-		"skills/loop-sdlc-turn/SKILL.md": {Data: []byte("---\nname: loop-sdlc-turn\ndescription: One run.\n---\n\nRun `loop run finish --outcome done`.\n")},
+		"skills/loop-sdlc-turn/SKILL.md":         {Data: []byte("---\nname: loop-sdlc-turn\ndescription: One run.\n---\n\nRun `loop run finish --outcome done`.\n")},
+		"skills/loop-init/SKILL.md":              {Data: []byte("---\nname: loop-init\ndescription: Set a project up.\n---\n\nCopy each template in `policy/`.\n")},
+		"skills/loop-init/policy/implementer.md": template("implementer"),
 	}
+}
+
+// template is the policy template of one role, as loop-init copies it.
+func template(role string) *fstest.MapFile {
+	return &fstest.MapFile{Data: []byte("# Policy\n\nCopy this file to `.loop/policy/" + role + ".md` in the project's repository.\n")}
 }
 
 func check(t *testing.T, src fstest.MapFS) []Finding {
@@ -209,6 +216,27 @@ func TestGateRequiresTheRunbookToNameItsPolicyFile(t *testing.T) {
 	wantOne(t, check(t, src), "policy", ".loop/policy/implementer.md")
 }
 
+// A runbook that names its policy file sends the reader to a file that
+// loop-init copies from the pack. With no template, no project receives
+// the policy text the runbook cites.
+func TestGateRequiresATemplateForEachPolicyFile(t *testing.T) {
+	src := fixture()
+	delete(src, "skills/loop-init/policy/implementer.md")
+	wantOne(t, check(t, src), "policy", "skills/loop-init/policy/implementer.md")
+}
+
+func TestGateRequiresEachTemplateToNameItsPolicyFile(t *testing.T) {
+	src := fixture()
+	src["skills/loop-init/policy/implementer.md"] = template("implementor")
+	wantOne(t, check(t, src), "policy", ".loop/policy/implementer.md")
+}
+
+func TestGateRefusesATemplateThatNoRunbookReads(t *testing.T) {
+	src := fixture()
+	src["skills/loop-init/policy/reviewer.md"] = template("reviewer")
+	wantOne(t, check(t, src), "policy", "skills/loop-init/policy/reviewer.md")
+}
+
 func TestGateRefusesAnUnattendedRunbookThatAsksAPerson(t *testing.T) {
 	src := fixture()
 	src["runbooks/implementer.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-implementer\ndescription: Build.\n---\n\n" +
@@ -221,7 +249,7 @@ func TestGateRefusesAnUnattendedRunbookThatAsksAPerson(t *testing.T) {
 func agentFixture() fstest.MapFS {
 	src := fixture()
 	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"attended": false, "skills": ["loop-sdlc-turn"],
-		"agents": ["loop-helper"], "policy": "implementer"}}, "skills": ["loop-sdlc-turn"], "agents": ["loop-helper"]}`)}
+		"agents": ["loop-helper"], "policy": "implementer"}}, "skills": ["loop-init", "loop-sdlc-turn"], "agents": ["loop-helper"]}`)}
 	src["runbooks/implementer.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-implementer\ndescription: Build one ticket.\n---\n\n" +
 		"Read `../loop-sdlc-turn/SKILL.md` first. Read `.loop/policy/implementer.md` when it exists.\n" +
 		"Start the `loop-helper` agent for a read.\n")}
@@ -273,7 +301,7 @@ func TestGateRequiresTheManifestToNameEveryAgent(t *testing.T) {
 	// An agent that no runbook lists never runs.
 	src = agentFixture()
 	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"attended": false, "skills": ["loop-sdlc-turn"],
-		"policy": "implementer"}}, "skills": ["loop-sdlc-turn"], "agents": ["loop-helper"]}`)}
+		"policy": "implementer"}}, "skills": ["loop-init", "loop-sdlc-turn"], "agents": ["loop-helper"]}`)}
 	wantOne(t, check(t, src), "manifest", "loop-helper")
 }
 
@@ -315,7 +343,8 @@ func coordinatorFixture(rule string) fstest.MapFS {
 	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {
 		"implementer": {"attended": false, "skills": ["loop-sdlc-turn"], "policy": "implementer"},
 		"coordinator": {"attended": true, "skills": ["loop-sdlc-turn"], "policy": "coordinator"}},
-		"skills": ["loop-sdlc-turn"]}`)}
+		"skills": ["loop-init", "loop-sdlc-turn"]}`)}
+	src["skills/loop-init/policy/coordinator.md"] = template("coordinator")
 	src["runbooks/coordinator.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-coordinator\ndescription: The coordinator.\n---\n\n" +
 		"Read `../loop-sdlc-turn/SKILL.md` first. Read `.loop/policy/coordinator.md` when it exists.\n\n" +
 		"## 12. Never\n\n- Never decide what the operator must decide.\n" + rule + "\n")}
