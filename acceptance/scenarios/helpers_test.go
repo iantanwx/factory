@@ -124,5 +124,5 @@ func merge(w *acceptance.World, item string) {
 // A pending row is a run's reservation, not a failure.
 func counted(w *acceptance.World) int {
 	w.T.Helper()
-	return w.Count(`SELECT count(*) FROM failures WHERE class IN ('failed', 'crashed')`)
+	return w.Count(`SELECT count(*) FROM failures WHERE class IN ('failed', 'crashed', 'stalled')`)
 }
