@@ -77,11 +77,8 @@ func ParseProjectConfig(data []byte) (*ProjectConfig, error) {
 
 func (c *ProjectConfig) validate() error {
 	ck := &checker{source: ProjectConfigPath}
-	if c.Manifest != "" {
-		clean := path.Clean(c.Manifest)
-		if path.IsAbs(c.Manifest) || clean != c.Manifest || clean == ".." || strings.HasPrefix(clean, "../") || HasControl(c.Manifest) {
-			ck.fail("manifest", "must be a clean path inside the repository")
-		}
+	if c.Manifest != "" && !repoPath(c.Manifest) {
+		ck.fail("manifest", "must be a clean path inside the repository")
 	}
 	if HasControl(strings.ReplaceAll(c.Setup, "\n", "")) {
 		ck.fail("setup", "must not hold a control character")
@@ -130,6 +127,13 @@ func checkCommands(ck *checker, field string, cmds []Command) {
 			ck.fail(f+".run", "must be a nonempty command")
 		}
 	}
+}
+
+// repoPath reports whether p is a clean relative path inside the
+// repository.
+func repoPath(p string) bool {
+	clean := path.Clean(p)
+	return !path.IsAbs(p) && clean == p && clean != ".." && !strings.HasPrefix(clean, "../") && !HasControl(p)
 }
 
 // ManifestPath is the repository path of the secret manifest.
