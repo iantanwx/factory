@@ -13,30 +13,58 @@ jobs:
   # loop from this checkout, so a change to a gate runs in its own pull
   # request. The commits gate reads the branch, and the secrets gate reads
   # every commit.
+  #
+  # A change to documents alone runs `loop gates --docs` and the secrets
+  # gate, and skips the stack gates. tools/ci/docsonly.go names what
+  # counts as a document. A failed decision leaves the output empty, and
+  # an empty output runs every gate. tools/ci/workflow_test.go holds this
+  # job, the acceptance job and the verify job to that rule.
   gates:
     runs-on: depot-ubuntu-24.04-4
+    outputs:
+      docs: ${{ steps.scope.outputs.docs }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - uses: ./
+      - name: Decide whether the change touched documents alone
+        id: scope
+        continue-on-error: true
+        run: go run ./tools/ci/docsonly
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          FORCED: ${{ github.event.forced }}
       - uses: bufbuild/buf-action@v1
+        if: steps.scope.outputs.docs != 'true'
         with:
           version: "1.71.0"
           setup_only: true
       - name: Install golangci-lint
+        if: steps.scope.outputs.docs != 'true'
         run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
-      - run: loop gates
+      - if: steps.scope.outputs.docs != 'true'
+        run: loop gates
+      - if: steps.scope.outputs.docs == 'true'
+        run: loop gates --docs
+      # --docs leaves out the secrets gate, since an agent stage may have
+      # no gitleaks. The local action put it on PATH here.
+      - if: steps.scope.outputs.docs == 'true'
+        run: loop gates --only secrets
 
   # The beads contract and the parity suite (U17) on the real server and
   # real beads. The job provisions the bd and dolt that
   # internal/release/provision.go pins for linux/amd64, and it checks each
   # archive and binary against those sha256 values. The vendor may move a
   # URL, so the hashes decide. Keep the values here in step with the pin
-  # table.
+  # table. The job decides by itself whether the change touched documents
+  # alone, as the gates job does, so neither job waits for the other.
   acceptance:
     runs-on: depot-ubuntu-24.04-4
     timeout-minutes: 30
+    outputs:
+      docs: ${{ steps.scope.outputs.docs }}
     env:
       BD_URL: https://github.com/gastownhall/beads/releases/download/v1.3.1/beads_1.3.1_linux_amd64.tar.gz
       BD_ARCHIVE_SHA256: 3219443a9734b89b93fb16ee8d65844759fa1b3cd3cf139c606b7353cfb0715c
@@ -46,10 +74,21 @@ jobs:
       DOLT_BINARY_SHA256: 72352f1d882472a7a8d6124e9c4dc12f80e2c2359ea95f1424c032e9250e35e6
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
+      - name: Decide whether the change touched documents alone
+        id: scope
+        continue-on-error: true
+        run: go run ./tools/ci/docsonly
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          FORCED: ${{ github.event.forced }}
       - name: Provision the pinned bd and dolt
+        if: steps.scope.outputs.docs != 'true'
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/beads"
@@ -66,15 +105,42 @@ jobs:
           chmod 0755 "$dir/bin/bd" "$dir/bin/dolt"
           echo "LOOP_BD=$dir/bin/bd" >> "$GITHUB_ENV"
           echo "LOOP_DOLT=$dir/bin/dolt" >> "$GITHUB_ENV"
-      - run: make beads-contract
-      - run: make acceptance
+      - if: steps.scope.outputs.docs != 'true'
+        run: make beads-contract
+      - if: steps.scope.outputs.docs != 'true'
+        run: make acceptance
 
-  # Every push to main that passes both jobs becomes a release: the next
+  # The one check that stands for the run. The loop counts a skipped check
+  # as green, and each job above skips its steps on a documents-only
+  # change. So this job runs after every other job, whatever its result,
+  # and passes only when each one passed and both made the same decision.
+  # A new job joins its needs: tools/ci/workflow_test.go fails until it
+  # does.
+  verify:
+    needs: [gates, acceptance]
+    if: always()
+    runs-on: depot-ubuntu-24.04
+    steps:
+      - name: Verify every job and the decision they share
+        env:
+          GATES: ${{ needs.gates.result }}
+          ACCEPTANCE: ${{ needs.acceptance.result }}
+          GATES_DOCS: ${{ needs.gates.outputs.docs }}
+          ACCEPTANCE_DOCS: ${{ needs.acceptance.outputs.docs }}
+        run: |
+          test "$GATES" = success
+          test "$ACCEPTANCE" = success
+          # Only the word true is a documents run. Anything else ran
+          # every step, so an empty output agrees with false.
+          test "$([ "$GATES_DOCS" = true ] && echo docs || echo full)" = \
+            "$([ "$ACCEPTANCE_DOCS" = true ] && echo docs || echo full)"
+
+  # Every push to main that passes verify becomes a release: the next
   # patch version, signed with the LOOP_RELEASE_KEY secret, published with
   # install.sh. Hosts pick it up with install.sh (docs/operating.md).
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [gates, acceptance]
+    needs: [gates, acceptance, verify]
     runs-on: depot-ubuntu-24.04
     permissions:
       contents: write

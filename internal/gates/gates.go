@@ -4,8 +4,8 @@
 // that does not depend on the stack. The project's config names a command
 // for each stack gate.
 //
-// The order is fail-fast and cheapest first. commits runs two git
-// commands and goes first, and test and build go last.
+// The order is fail-fast and cheapest first. commits fetches the base and
+// runs two git commands, and goes first. test and build go last.
 package gates
 
 import (

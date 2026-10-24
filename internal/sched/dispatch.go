@@ -71,6 +71,14 @@ func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Start
 	if ref != nil || cand == nil {
 		return nil, ref
 	}
+	// The second code-review reject sets the ticket's model_tier, and the
+	// next implementer run takes the stage's escalated profile (parity 1.15).
+	if stage == config.StageImplementer && cand.ModelTier == machine.ModelTierEscalated {
+		if prof, why = s.choose(ctx, escalatedProfiles(stage, snap.Config)); prof == nil {
+			return nil, &cli.Refusal{Code: cli.CodeCapFull, Rule: "no_profile", Item: cand.Item,
+				Hint: "the escalated harness of " + cand.Item + " is paused or out of quota: " + reasons(why)}
+		}
+	}
 	ad, ref := s.cfg.Admission.Admit(ctx, admission.Request{Project: project, Stage: stage, Item: cand.Item,
 		RunID: s.cfg.NewRunID(), Harness: string(prof.Harness), Model: prof.Model})
 	if ref != nil {
@@ -123,7 +131,7 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	}
 	title := s.itemTitle(ctx, ad)
 	s.checkoutMu.Lock()
-	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: checkoutName(ad, title), BaseBranch: DefaultBaseBranch})
+	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: checkoutName(ad, title), BaseBranch: snap.BaseBranch()})
 	s.checkoutMu.Unlock()
 	if err != nil {
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: create the checkout: %w", err)), false, AlertStartFailed, err)
@@ -170,7 +178,7 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindStage, Checkout: co.Path, Harness: prof.Harness,
-		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt,
+		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt, RequireVerifiedModel: prof.Escalated,
 		Title: sessionTitle(ad, title)})
 	if err != nil {
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: start the session: %w", err)), false, AlertStartFailed, err)
@@ -301,7 +309,7 @@ func (s *Scheduler) runSetup(ctx context.Context, dir, setup string) error {
 func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, hc *config.HostConfig, prof Profile) brief.Brief {
 	b := brief.Brief{
 		RunID: ad.RunID, Project: ad.Project, Stage: ad.Stage, Role: ad.Stage, Harness: string(prof.Harness), Model: prof.Model,
-		BaseBranch: DefaultBaseBranch, Attempt: ad.Attempt,
+		BaseBranch: snap.BaseBranch(), Attempt: ad.Attempt,
 		Secrets: brief.Secrets{Present: snap.Manifest.ForStage(ad.Stage).Names(), Missing: []string{}},
 	}
 	if j, ok := hc.AgentJob(ad.Stage); ok {
@@ -337,7 +345,34 @@ func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *conf
 	}
 	b.PriorFailures = s.priorFailures(ctx, ad)
 	b.KeptCheckouts = s.keptWork(ctx, ad)
+	if it.Status == machine.Repair {
+		b.RedBuild = s.readRedBuild(ctx, ad)
+	}
 	return b
+}
+
+// RedBuildReader reads the failed CI of an item's open pull request. It
+// returns nil when the pull request has no failed job.
+type RedBuildReader func(ctx context.Context, project, item string) (*brief.RedBuild, error)
+
+// SetRedBuildReader sets the reader of a repair's red build. The GitHub
+// setup sets it before the scheduler ticks.
+func (s *Scheduler) SetRedBuildReader(f RedBuildReader) { s.redBuild = f }
+
+// readRedBuild reads the red build for a repair brief. A failed read
+// still starts the run, and the brief says why it holds no log (alpha
+// implementer-ci.ts: no read blocks the repair).
+func (s *Scheduler) readRedBuild(ctx context.Context, ad admission.Admitted) *brief.RedBuild {
+	if s.redBuild == nil {
+		return nil
+	}
+	rb, err := s.redBuild(ctx, ad.Project, ad.Item)
+	if err != nil {
+		s.log.WarnContext(ctx, "brief: read the red build", "item", ad.Item, "err", err)
+		msg, _, _ := strings.Cut(err.Error(), "\n")
+		return &brief.RedBuild{Unreadable: msg}
+	}
+	return rb
 }
 
 // priorFailures lists the notes of the counted failures with the run's

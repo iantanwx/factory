@@ -282,9 +282,10 @@ func epicTable() *Table {
 		claim(SpecApproved, Decomposing, StageDecomposer),
 
 		// A pass pins the head the reviewer read: the sign-off entry names
-		// it, and the server merges only that head (factorio-8qm).
+		// it, and the server merges only that head (factorio-8qm). A pass
+		// with no head pins nothing, so it is refused (factorio-tf6).
 		{Verb: "review_pass", From: []string{PRDReview}, To: PRDSignoff, Command: "review submit", Lease: LeaseDrop,
-			set: copyParam("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
+			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: PRDAmending, Command: "review submit", Lease: LeaseDrop,
 			When: "first_reject", when: firstPRDReject, set: bumpPRDRejects, Facts: []string{FactPRDRejects}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: Escalated, Command: "review submit",
@@ -307,7 +308,7 @@ func epicTable() *Table {
 		{Verb: "pr_open", From: []string{SpecDrafting}, To: SpecReview, Lease: LeaseDrop,
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
 		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop,
-			set: copyParam("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
+			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_reject", From: []string{SpecReview}, To: SpecNeeded, Command: "review submit", Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{SpecSignoff}, To: SpecApproved},
 		{Verb: VerbDecomposed, From: []string{Decomposing}, To: Execution, Lease: LeaseDrop},

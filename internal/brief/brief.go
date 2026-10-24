@@ -59,8 +59,11 @@ type Brief struct {
 	// KeptCheckouts names the checkouts of the item's earlier attempts
 	// that ended with no finish and still hold uncommitted work.
 	KeptCheckouts []KeptCheckout `json:"kept_checkouts,omitempty"`
-	AllowedNext   []string       `json:"allowed_next"`
-	Secrets       Secrets        `json:"secrets"`
+	// RedBuild is the failed CI of the item's pull request. Only a
+	// repair's brief carries it.
+	RedBuild    *RedBuild `json:"red_build,omitempty"`
+	AllowedNext []string  `json:"allowed_next"`
+	Secrets     Secrets   `json:"secrets"`
 	// Faults lists the loop faults filed from this project and stage that
 	// are open, acknowledged, or fixed in the last FaultWindow (KTD31).
 	Faults []Fault `json:"faults,omitempty"`
@@ -102,6 +105,37 @@ type KeptCheckout struct {
 	// paths. More counts the paths left out.
 	Dirty []string `json:"dirty"`
 	More  int      `json:"more,omitempty"`
+}
+
+// RedBuild is the failed CI of the item's pull request at its head, read
+// when a repair starts, so the run sees the failure before any read
+// (alpha implementer-ci.ts). `loop pr logs` prints the whole tail.
+type RedBuild struct {
+	PR     int           `json:"pr"`
+	Head   string        `json:"head"`
+	Checks []FailedCheck `json:"checks,omitempty"`
+	// Unreadable says why the checks did not read. The run still starts.
+	Unreadable string `json:"unreadable,omitempty"`
+}
+
+// FailedCheck is one failed CI job: the gate that failed, the failing
+// tests and an excerpt of its log, or why the log did not read.
+type FailedCheck struct {
+	Name string `json:"name"`
+	URL  string `json:"url,omitempty"`
+	// Gate is the gate `loop gates` named in `FAIL <gate>`.
+	Gate  string       `json:"gate,omitempty"`
+	Tests []FailedTest `json:"tests,omitempty"`
+	// Excerpt starts at the first failing test, or is the end of the log
+	// when the log names none.
+	Excerpt    []string `json:"excerpt,omitempty"`
+	Unreadable string   `json:"unreadable,omitempty"`
+}
+
+// FailedTest is one failing test and the package or file that holds it.
+type FailedTest struct {
+	Package string `json:"package,omitempty"`
+	Name    string `json:"name"`
 }
 
 // Secrets names the manifest secrets in .env and the ones with no value.
@@ -149,6 +183,52 @@ func (b Brief) Markdown() string {
 	}
 	for _, h := range b.Handoff {
 		line("- Handoff note: %s", h)
+	}
+	if r := b.RedBuild; r != nil {
+		line("")
+		if r.PR != 0 {
+			line("## Red build of PR #%d at %s", r.PR, r.Head)
+		} else {
+			line("## Red build")
+		}
+		line("")
+		line("Read it before `loop pr logs`, which prints the whole tail of each failed job.")
+		if r.Unreadable != "" {
+			line("")
+			line("CI log unreadable: %s", r.Unreadable)
+		}
+		for _, c := range r.Checks {
+			line("")
+			line("Check `%s` failed: %s", c.Name, c.URL)
+			line("")
+			if c.Unreadable != "" {
+				line("CI log unreadable: %s", c.Unreadable)
+				continue
+			}
+			if c.Gate != "" {
+				line("The gate that failed: `%s`.", c.Gate)
+				line("")
+			}
+			shown := "first"
+			if len(c.Tests) == 0 {
+				shown = "last"
+				line("The log names no failing test. The excerpt is the end of the failed job.")
+			} else {
+				line("Failing tests:")
+				line("")
+				for _, t := range c.Tests {
+					line("- `%s` > %s", t.Package, t.Name)
+				}
+			}
+			line("")
+			line("The %s %d lines of the log:", shown, len(c.Excerpt))
+			line("")
+			line("````text")
+			for _, l := range c.Excerpt {
+				line("%s", l)
+			}
+			line("````")
+		}
 	}
 	if len(b.KeptCheckouts) > 0 {
 		line("")

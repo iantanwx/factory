@@ -466,6 +466,9 @@ type Candidate struct {
 	Item    string       `json:"item,omitempty"`
 	Kind    machine.Kind `json:"kind,omitempty"`
 	Status  string       `json:"status,omitempty"`
+	// ModelTier is the item's model_tier fact: escalated after two
+	// code-review rejects.
+	ModelTier string `json:"model_tier,omitempty"`
 }
 
 // Peek runs the stage's work query (R20): the same policy as Admit, with
@@ -571,7 +574,8 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 				return nil, asRefusal(err)
 			}
 			if ok {
-				return &Candidate{Project: project, Stage: stage, Item: it.ID, Kind: it.Kind, Status: it.Status}, nil
+				return &Candidate{Project: project, Stage: stage, Item: it.ID, Kind: it.Kind, Status: it.Status,
+					ModelTier: it.Fact(machine.FactModelTier)}, nil
 			}
 		}
 	}

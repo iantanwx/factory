@@ -459,7 +459,7 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 		return fail(cli.CodeInternal, err)
 	}
 	if r.Checkout == "" {
-		co, err := s.cfg.Checkouts(r.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: "loop-" + r.ID, BaseBranch: sched.DefaultBaseBranch})
+		co, err := s.cfg.Checkouts(r.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: "loop-" + r.ID, BaseBranch: snap.BaseBranch()})
 		if err != nil {
 			return fail(cli.CodeInternal, fmt.Errorf("room: create the checkout: %w", err))
 		}
@@ -496,7 +496,7 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 	}
 	run := fmt.Sprintf("%s-s%d", r.ID, r.Sessions+1)
 	b := brief.Brief{RunID: run, Project: r.Project, Stage: Stage(r.Kind), Role: "room", Harness: string(s.cfg.Harness),
-		Model: s.cfg.Model, BaseBranch: sched.DefaultBaseBranch,
+		Model: s.cfg.Model, BaseBranch: snap.BaseBranch(),
 		Secrets: brief.Secrets{Present: manifest.Names(), Missing: []string{}}}
 	if r.Item != "" {
 		if it, ref := s.cfg.Machine.Show(ctx, r.Project, r.Item); ref == nil {

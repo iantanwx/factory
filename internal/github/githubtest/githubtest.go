@@ -17,6 +17,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/cgi"
 	"net/http/httptest"
@@ -112,7 +113,7 @@ type API struct {
 // and with an empty PR world.
 func NewAPI(t testing.TB) *API {
 	a := &API{routes: map[string]http.HandlerFunc{},
-		install: map[string]any{"id": InstallID, "repository_selection": "selected",
+		install: map[string]any{"id": InstallID, "repository_selection": "selected", "suspended_at": nil,
 			"permissions": map[string]string{"contents": "write", "pull_requests": "write", "statuses": "write",
 				"workflows": "write", "checks": "read", "actions": "read", "metadata": "read"}},
 		rules: GoodRules(), noRulesStatus: 404,
@@ -169,7 +170,25 @@ func (a *API) Mints() []map[string]any {
 func (a *API) SetInstall(selection string, perms map[string]string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.install = map[string]any{"id": InstallID, "repository_selection": selection, "permissions": perms}
+	a.install = map[string]any{"id": InstallID, "repository_selection": selection, "suspended_at": nil, "permissions": perms}
+}
+
+// SetInstallField sets one field of the installation answer.
+func (a *API) SetInstallField(key string, v any) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	in := maps.Clone(a.install)
+	in[key] = v
+	a.install = in
+}
+
+// DropInstallField removes one field from the installation answer.
+func (a *API) DropInstallField(key string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	in := maps.Clone(a.install)
+	delete(in, key)
+	a.install = in
 }
 
 // SetRules changes the rules of the default branch. Nil answers as GitHub

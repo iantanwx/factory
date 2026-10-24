@@ -52,7 +52,7 @@ func TestOnlyTheCurrentDocumentPRMovesTheEpic(t *testing.T) {
 	prd := w.Add(&gt.PR{Head: "loop/placeholder", HeadSHA: shaA})
 	id := e.epicInReview(prd.Number)
 	w.Update(prd, func(p *gt.PR) { p.Head = BranchFor(id) })
-	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Actor: machine.Server("test")}))
+	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Params: map[string]string{"head": shaA}, Actor: machine.Server("test")}))
 	r := e.reactor()
 	w.Update(prd, func(p *gt.PR) { p.State, p.Merged, p.MergeSHA = "closed", true, shaM })
 	e.tick(r)
@@ -65,7 +65,7 @@ func TestOnlyTheCurrentDocumentPRMovesTheEpic(t *testing.T) {
 	spec := w.Add(&gt.PR{Head: SpecBranchFor(id), HeadSHA: shaB})
 	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "pr_open",
 		Params: map[string]string{"pr": strconv.Itoa(spec.Number)}, Actor: machine.Server("test")}))
-	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Actor: machine.Server("test")}))
+	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Params: map[string]string{"head": shaB}, Actor: machine.Server("test")}))
 	// The old PRD PR is read again: the spec is not signed off by it.
 	w.Update(prd, func(p *gt.PR) {})
 	e.tick(r)
@@ -148,7 +148,7 @@ func TestSpecAfterASquashMergedPRDHasItsOwnBranch(t *testing.T) {
 	gitT(t, e.checkout, "checkout", "-q", "-b", "squash", e.base)
 	squash := commit(t, e.checkout, "PRD (#1)", map[string]string{"docs/prd.md": "# PRD\n\nUS-01 final\n"})
 	gitT(t, e.checkout, "push", "-q", e.git.RemoteDir(), squash+":refs/heads/main")
-	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Actor: machine.Server("test")}))
+	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Params: map[string]string{"head": prdHead}, Actor: machine.Server("test")}))
 	r := e.reactor()
 	w.Update(prd, func(p *gt.PR) { p.State, p.Merged, p.MergeSHA = "closed", true, squash })
 	e.tick(r)
@@ -199,7 +199,7 @@ func TestSpecAfterASquashMergedPRDHasItsOwnBranch(t *testing.T) {
 
 	// The operator signs the spec off by merge; the reactor maps the spec
 	// branch to the epic.
-	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Actor: machine.Server("test")}))
+	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Params: map[string]string{"head": specHead}, Actor: machine.Server("test")}))
 	w.Update(spec, func(p *gt.PR) { p.State, p.Merged, p.MergeSHA = "closed", true, shaM })
 	e.tick(r)
 	if got := e.status(id).Status; got != machine.SpecApproved {

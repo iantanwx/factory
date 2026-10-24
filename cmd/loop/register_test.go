@@ -3,12 +3,15 @@ package main
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // fakeGH answers gh calls from a table keyed by the joined arguments and
@@ -111,5 +114,49 @@ func TestProjectID(t *testing.T) {
 		if got := projectID(repo); got != want {
 			t.Errorf("%s: %q, want %q", repo, got, want)
 		}
+	}
+}
+
+// register records the clone's default branch: project add names it for a
+// new clone, and project move records it for a registration that names
+// another branch or a moved repository. A registration that is already
+// right sends nothing, and so does a clone with no commit, which has no
+// default branch yet.
+func TestRegisterRecordsTheDefaultBranch(t *testing.T) {
+	registered := []config.Project{
+		{ID: "app", Repo: "me/app", Path: "/src/app"},
+		{ID: "tool", Repo: "me/tool", Path: "/src/tool", Branch: "trunk"},
+	}
+	for name, tc := range map[string]struct {
+		rep           RegisterReport
+		verb, project string
+		flags         map[string]string
+		movedFrom     string
+	}{
+		"new clone": {RegisterReport{Project: "web", Repo: "me/web", Path: "/src/web", Branch: "develop"},
+			"project add", "web", map[string]string{"repo": "me/web", "path": "/src/web", "branch": "develop"}, ""},
+		"new empty clone": {RegisterReport{Project: "web", Repo: "me/web", Path: "/src/web"},
+			"project add", "web", map[string]string{"repo": "me/web", "path": "/src/web"}, ""},
+		"branch not recorded": {RegisterReport{Project: "app", Repo: "me/app", Path: "/src/app", Branch: "trunk"},
+			"project move", "app", map[string]string{"repo": "me/app", "branch": "trunk"}, ""},
+		"branch renamed": {RegisterReport{Project: "x", Repo: "ME/tool", Path: "/src/tool", Branch: "main"},
+			"project move", "tool", map[string]string{"repo": "ME/tool", "branch": "main"}, ""},
+		"already right": {RegisterReport{Project: "x", Repo: "me/tool", Path: "/src/tool", Branch: "trunk"},
+			"", "tool", nil, ""},
+		"empty repository": {RegisterReport{Project: "x", Repo: "me/app", Path: "/src/app"},
+			"", "app", nil, ""},
+		"moved repository": {RegisterReport{Project: "x", Repo: "acme/tool", Path: "/src/tool", Branch: "trunk"},
+			"project move", "tool", map[string]string{"repo": "acme/tool", "branch": "trunk"}, "me/tool"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rep := tc.rep
+			verb, args, flags := registration(registered, &rep)
+			if verb != tc.verb || rep.Project != tc.project || rep.MovedFrom != tc.movedFrom {
+				t.Fatalf("registration = %q %v, project %q moved from %q", verb, args, rep.Project, rep.MovedFrom)
+			}
+			if verb != "" && (!slices.Equal(args, []string{tc.project}) || !maps.Equal(flags, tc.flags)) {
+				t.Fatalf("registration = %q %v %v; want flags %v", verb, args, flags, tc.flags)
+			}
+		})
 	}
 }
