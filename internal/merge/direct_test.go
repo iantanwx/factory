@@ -180,6 +180,61 @@ func TestDirectChecksCIBeforeItMerges(t *testing.T) {
 	}
 }
 
+// A head with no CI check is never merged: the ruleset's required ci
+// check has not reported, so the PR stays pending in the loop's queue
+// and the next poll reads CI again (alpha premerge.ts "lists no checks").
+func TestDirectLeavesAHeadWithNoCheckPending(t *testing.T) {
+	e := newDirect(t)
+	id, pr := e.reviewed(sha('1'), true)
+	e.world.SetRuns(sha('1'))
+	e.tick()
+	e.wantStatus(id, machine.Queued)
+	r, err := e.mech.Poll(e.ctx, merge.PR{Project: e.project, Item: id, Number: pr.Number, Head: sha('1'), Base: "main"})
+	if err != nil || r.Outcome != merge.Pending {
+		t.Fatalf("poll of a head with no check = %+v, %v; want pending", r, err)
+	}
+	e.tick()
+	e.wantStatus(id, machine.Queued)
+	if got := e.world.Merges(); len(got) != 0 {
+		t.Fatalf("merge calls = %+v; want none", got)
+	}
+}
+
+// The direct merge waits for each check that project config requires,
+// besides the ruleset's: green ci alone does not merge a head whose
+// acceptance check has not reported.
+func TestDirectWaitsForEveryCheckProjectConfigRequires(t *testing.T) {
+	e := newDirect(t)
+	e.baseConfig("merge:\n  mechanism: direct\n  required_checks: [acceptance]\n")
+	id, pr := e.reviewed(sha('1'), true)
+	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
+	e.world.SetRuns(sha('1'), gt.CheckRun("ci", sha('1'), "completed", "success", at))
+	e.tick()
+	e.tick()
+	e.wantStatus(id, machine.Queued)
+	if got := e.world.Merges(); len(got) != 0 {
+		t.Fatalf("merge calls = %+v; want none before acceptance reports", got)
+	}
+	e.world.SetRuns(sha('1'), gt.CheckRun("ci", sha('1'), "completed", "success", at),
+		gt.CheckRun("acceptance", sha('1'), "completed", "success", at))
+	e.tick()
+	e.wantStatus(id, machine.Done)
+	if got := e.world.Merges(); len(got) != 1 || got[0].PR != pr.Number {
+		t.Fatalf("merge calls = %+v; want one merge", got)
+	}
+}
+
+// Classify never reads a head with no check as a dequeue to act on: the
+// PR stays pending, and the next poll reads CI again.
+func TestClassifyHoldsAHeadWithNoCheckPending(t *testing.T) {
+	if r := merge.Classify("clean", github.CINone); r.Outcome != merge.Pending {
+		t.Fatalf("Classify(clean, none) = %+v; want pending", r)
+	}
+	if r := merge.Classify("dirty", github.CINone); r.Outcome != merge.Dequeued || r.Reason != merge.Conflict {
+		t.Fatalf("Classify(dirty, none) = %+v; want a conflict", r)
+	}
+}
+
 // A PR that is a draft, or that merges into a branch other than the
 // project's default, is refused before any merge call, with a reason that
 // names it. The refusal re-queues once at the head, as any other dequeue

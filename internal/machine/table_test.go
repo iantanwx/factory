@@ -208,9 +208,10 @@ func bugEdges() []edge {
 		{Reported, "duplicate", Duplicate}, {Reproducing, "duplicate", Duplicate},
 		{Reported, "escalate", Escalated}, {Reproducing, "escalate", Escalated},
 		{Escalated, "answer", Reported},
+		{Reproducing, "ask", Asked}, {Asked, "answer", Reported},
 		{Escalated, "cancel", Canceled}, {Reproducing, "cancel", Canceled},
-		{Reported, "note", Reported}, {Reproducing, "note", Reproducing}, {Escalated, "note", Escalated},
-		{Reported, "edit", Reported}, {Reproducing, "edit", Reproducing}, {Escalated, "edit", Escalated},
+		{Reported, "note", Reported}, {Reproducing, "note", Reproducing}, {Asked, "note", Asked}, {Escalated, "note", Escalated},
+		{Reported, "edit", Reported}, {Reproducing, "edit", Reproducing}, {Asked, "edit", Asked}, {Escalated, "edit", Escalated},
 	}
 }
 

@@ -21,13 +21,13 @@ func (e *env) specInSignoff(head string) (string, *gt.PR) {
 	apply := func(verb string, params map[string]string) {
 		mustOK(e.t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: verb, Params: params, Actor: machine.Server("test")}))
 	}
-	apply("review_pass", nil)
+	apply("review_pass", map[string]string{"head": shaA})
 	apply("doc_merged", map[string]string{"sha": shaM})
 	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageSpecAuthor, RunID: "run-spec"})
 	mustOK(e.t, res)
 	spec := w.Add(&gt.PR{Head: SpecBranchFor(id), HeadSHA: head})
 	apply("pr_open", map[string]string{"pr": strconv.Itoa(spec.Number)})
-	apply("review_pass", nil)
+	apply("review_pass", map[string]string{"head": head})
 	return id, spec
 }
 
@@ -84,7 +84,7 @@ func TestPersonReviewThreadWaitsForTheRunThatHoldsTheEpic(t *testing.T) {
 	if got := e.status(id).Status; got != machine.PRDReview {
 		t.Fatalf("a held epic moved to %s", got)
 	}
-	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Actor: machine.Server("test")}))
+	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Params: map[string]string{"head": shaA}, Actor: machine.Server("test")}))
 	e.tick(r)
 	if it := e.status(id); it.Status != machine.PRDAmending || it.Fact(machine.FactAmendFrom) != machine.PRDSignoff {
 		t.Fatalf("after the review ended: %s %v", it.Status, it.Facts)
@@ -101,7 +101,7 @@ func TestAmendmentPollNeedsNoThreadState(t *testing.T) {
 	prd := w.Add(&gt.PR{Head: "loop/placeholder", HeadSHA: shaA})
 	id := e.epicInReview(prd.Number)
 	w.Update(prd, func(p *gt.PR) { p.Head = BranchFor(id) })
-	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Actor: machine.Server("test")}))
+	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Params: map[string]string{"head": shaA}, Actor: machine.Server("test")}))
 	r := e.reactor()
 	root := w.Say(prd.Number, gt.Said{Login: "pat", Association: "COLLABORATOR", Review: true, Body: "US-02 has no label."})
 	w.SetThread(root, false, false, true)

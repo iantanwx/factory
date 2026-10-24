@@ -94,7 +94,9 @@ func (s *Scheduler) saveCoordinator(ctx context.Context, cs CoordinatorState) er
 // ensureCoordinator starts the coordinator session when none runs: at the
 // first tick after the service starts, and after the session's process
 // exits. A session whose liveness reads unknown is left alone, unless a
-// complete inventory proves it gone.
+// complete inventory proves it gone, or lists it under a new handle with
+// the same incarnation and checkout (Inventory.Rebound), which the stored
+// session then takes.
 func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 	cc := s.cfg.Coordinator
 	if cc == nil || s.Draining() {
@@ -138,7 +140,21 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 		}
 		if err != nil || st.Liveness != agenthost.Exited {
 			inv, ierr := s.cfg.Agents.Inventory(ctx)
-			if ierr != nil || inv.Lookup(*cs.Session) != agenthost.Absent {
+			if ierr != nil {
+				return
+			}
+			if moved, ok := inv.Rebound(*cs.Session); ok {
+				// The host moved the live session to a new handle (F-17).
+				// The doorbell rings the stored handle, so it follows.
+				s.log.WarnContext(ctx, "the coordinator session moved to a new handle; rebinding",
+					"run", cs.RunID, "from", cs.Session.ID.String(), "to", moved.ID.String())
+				cs.Session = &moved
+				if err := s.saveCoordinator(ctx, cs); err != nil {
+					s.log.ErrorContext(ctx, "store the coordinator", "err", err)
+				}
+				return
+			}
+			if inv.Lookup(*cs.Session) != agenthost.Absent {
 				return
 			}
 		}
@@ -209,10 +225,34 @@ func (s *Scheduler) coordinatorHome(project string, cc *CoordinatorConfig) bool 
 	return slices.ContainsFunc(ps, func(p config.Project) bool { return p.ID == project })
 }
 
+// baseBranch is the recorded default branch of project. Host config can
+// name the coordinator's project before the operator registers it, and
+// that project's base is main.
+func (s *Scheduler) baseBranch(project string) (string, error) {
+	ps, err := s.cfg.Projects()
+	if err != nil {
+		return "", err
+	}
+	for _, p := range ps {
+		if p.ID == project {
+			return p.BaseBranch(), nil
+		}
+	}
+	return DefaultBaseBranch, nil
+}
+
 func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig, cs *CoordinatorState) error {
+	project := cs.Project
+	if cs.Checkout == "" {
+		project = cc.Project
+	}
+	base, err := s.baseBranch(project)
+	if err != nil {
+		return fmt.Errorf("sched: the coordinator's base branch: %w", err)
+	}
 	if cs.Checkout == "" {
 		s.checkoutMu.Lock()
-		co, err := s.cfg.Checkouts(cc.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: coordinatorCheckout, BaseBranch: DefaultBaseBranch})
+		co, err := s.cfg.Checkouts(cc.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: coordinatorCheckout, BaseBranch: base})
 		s.checkoutMu.Unlock()
 		if err != nil {
 			return fmt.Errorf("sched: the coordinator's checkout: %w", err)
@@ -228,7 +268,7 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 	}
 	run := "coordinator-" + s.cfg.NewRunID()
 	b := brief.Brief{RunID: run, Stage: CoordinatorStage, Role: CoordinatorStage, Harness: string(cc.Harness), Model: model,
-		BaseBranch: DefaultBaseBranch, Secrets: brief.Secrets{Present: []string{}, Missing: []string{}}}
+		BaseBranch: base, Secrets: brief.Secrets{Present: []string{}, Missing: []string{}}}
 	res, err := brief.Inject(ctx, brief.Injection{Checkout: cs.Checkout, Harness: cc.Harness, Pack: s.cfg.Pack, Brief: b})
 	if err != nil {
 		return err

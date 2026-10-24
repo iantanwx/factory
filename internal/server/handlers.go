@@ -16,7 +16,6 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/rpc"
-	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/secrets"
 )
 
@@ -59,12 +58,15 @@ func (s *Server) status(context.Context, *rpc.Call) cli.Result {
 
 // projectView is a registration as the CLI prints it.
 type projectView struct {
-	ID   string `json:"id"`
-	Repo string `json:"repo"`
-	Path string `json:"path"`
+	ID     string `json:"id"`
+	Repo   string `json:"repo"`
+	Path   string `json:"path"`
+	Branch string `json:"branch"` // the base branch of the project's runs
 }
 
-func view(p config.Project) projectView { return projectView{ID: p.ID, Repo: p.Repo, Path: p.Path} }
+func view(p config.Project) projectView {
+	return projectView{ID: p.ID, Repo: p.Repo, Path: p.Path, Branch: p.BaseBranch()}
+}
 
 func projectFault(err error) cli.Result {
 	switch {
@@ -81,7 +83,7 @@ func projectFault(err error) cli.Result {
 }
 
 func (s *Server) projectAdd(ctx context.Context, call *rpc.Call) cli.Result {
-	p := config.Project{ID: call.Inv.Arg("project"), Repo: call.Inv.Flags["repo"], Path: call.Inv.Flags["path"]}
+	p := config.Project{ID: call.Inv.Arg("project"), Repo: call.Inv.Flags["repo"], Path: call.Inv.Flags["path"], Branch: call.Inv.Flags["branch"]}
 	if err := s.Projects.Add(ctx, p); err != nil {
 		return projectFault(err)
 	}
@@ -120,9 +122,9 @@ func (s *Server) projectRemove(ctx context.Context, call *rpc.Call) cli.Result {
 }
 
 // projectMove points a project at another repository, as after a transfer
-// on GitHub.
+// on GitHub, or at its renamed default branch.
 func (s *Server) projectMove(ctx context.Context, call *rpc.Call) cli.Result {
-	p, err := s.Projects.Move(ctx, call.Inv.Arg("project"), call.Inv.Flags["repo"])
+	p, err := s.Projects.Move(ctx, call.Inv.Arg("project"), call.Inv.Flags["repo"], call.Inv.Flags["branch"])
 	if err != nil {
 		return projectFault(err)
 	}
@@ -233,7 +235,7 @@ func (s *Server) secretImport(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	branch := call.Inv.Flags["branch"]
 	if branch == "" {
-		branch = sched.DefaultBaseBranch
+		branch = p.BaseBranch()
 	}
 	read := s.opts.ManifestReader
 	if read == nil {

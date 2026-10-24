@@ -321,10 +321,11 @@ code. Each contract exists for a test to prove. A ticket that says "add tests" p
 assert what the code happens to do. A ticket that says "prove C3" produces a test that fails when
 C3 breaks.
 
-Rules:
+### Rules
 
 - **Number them.** C1, C2 and on. Tickets name contracts by number, and every test names the
-  contract it proves. A contract with no test is unproven.
+  contract it proves. A contract with no test is unproven. A test that proves no contract is a
+  contract that you did not write down, or it is noise.
 - **Cite the criterion.** Write which PRD criterion each contract proves, as "C3 proves A2".
 - **Each one must be falsifiable.** When you cannot say what observation would make it false, it is
   a hope, not a contract.
@@ -333,13 +334,19 @@ Rules:
 - **Cover the boundaries between work entries.** Two correct units that disagree about a shape are
   the bug that unit tests miss.
 
+### Kinds, and how each is proven
+
 | Kind | Shape | Proven by |
 | --- | --- | --- |
 | **Invariant** | Always true, for all inputs | A property test over generated inputs |
 | **Behaviour** | Given X, then exactly Y | A hand-computed fixture, or an example test |
-| **Refusal** | Given bad X, fail in a named way | An example test that asserts the error |
+| **Refusal** | Given bad X, fail in a named way | An example test that asserts the error, not only a failure |
 | **Equivalence** | Two paths agree | Run both, and assert identical output |
 | **Boundary** | Holds at the edges | Example tests at empty, one, and the limit |
+
+Prefer the strongest kind the problem allows. An invariant that a test proves over a thousand
+generated cases is worth more than ten examples that you chose. But a hand-computed fixture is
+better than a property test when the value of the answer is the thing in doubt.
 
 > **Good**
 >

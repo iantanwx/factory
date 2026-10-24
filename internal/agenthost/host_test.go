@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/iantanwx/loop/internal/agenthost"
 )
@@ -71,6 +74,35 @@ func TestHarnessArgv(t *testing.T) {
 	}
 }
 
+// C-bug-1: the first message opens with the session's title on one line:
+// newlines and control characters are replaced, and its length is bounded.
+// The prompt file instruction follows on the same line, so a host that
+// types the message into a terminal submits it once. No prompt text joins.
+func TestFirstMessageOpensWithOneTitleLine(t *testing.T) {
+	spec := agenthost.StartSpec{
+		Kind: agenthost.KindStage, Checkout: "/r/c", Harness: agenthost.Claude, Model: "opus", PromptFile: "/p/prompt.txt",
+		Title: "loop alpha implementer tk-1: Fix\nthe\tthing\x1b[31m\r" + strings.Repeat(" long", 200),
+	}
+	argv, err := agenthost.HarnessArgv(spec, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := argv[len(argv)-1]
+	if !strings.HasPrefix(msg, "loop alpha implementer tk-1: Fix the thing") {
+		t.Errorf("first message %q does not open with the title", msg)
+	}
+	if strings.ContainsFunc(msg, unicode.IsControl) {
+		t.Errorf("first message %q is not one line", msg)
+	}
+	title, ok := strings.CutSuffix(msg, agenthost.PromptInstruction("/p/prompt.txt"))
+	if !ok {
+		t.Fatalf("first message %q does not end with the prompt file instruction", msg)
+	}
+	if n := utf8.RuneCountInString(title); n > 200 {
+		t.Errorf("the title holds %d runes", n)
+	}
+}
+
 // C-bug-1 (F-21): past the age bound only a complete inventory, of any
 // epoch, that lists neither the exact identity nor a trace settles a run.
 // The exact-identity row matters: orca reads a disconnected live terminal
@@ -95,5 +127,49 @@ func TestUntracedNeedsACompleteInventoryWithNoExactRowAndNoTrace(t *testing.T) {
 		if got := c.inv.Untraced(s); got != c.want {
 			t.Errorf("%s: Untraced = %v; want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// C-bug-1: only a complete inventory with exactly one row of the same
+// incarnation and the same checkout under another handle rebinds the
+// session, and the session then carries that row's identity and the
+// inventory's epoch.
+func TestReboundNeedsOneRowOfTheSameIncarnationAndCheckout(t *testing.T) {
+	s := agenthost.Session{ID: agenthost.RunID{Host: "h", Terminal: "t1", Incarnation: "i1"}, Checkout: "/c/coord", Pty: "p1", Epoch: "e1"}
+	moved := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t2", Incarnation: "i1"}, Checkout: "/c/coord", Pty: "p1"}
+	twin := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t3", Incarnation: "i1"}, Checkout: "/c/coord", Pty: "p3"}
+	elsewhere := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t2", Incarnation: "i1"}, Checkout: "/c/other", Pty: "p1"}
+	reborn := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t1", Incarnation: "i2"}, Checkout: "/c/coord", Pty: "p1"}
+	other := agenthost.Row{ID: agenthost.RunID{Host: "h", Terminal: "t9", Incarnation: "i9"}, Checkout: "/c/x", Pty: "p9"}
+	cases := []struct {
+		name string
+		inv  agenthost.Inventory
+		want bool
+	}{
+		{"complete, one moved row", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{other, moved}}, true},
+		{"incomplete, one moved row", agenthost.Inventory{Complete: false, Epoch: "e2", Rows: []agenthost.Row{moved}}, false},
+		{"complete, no epoch", agenthost.Inventory{Complete: true, Rows: []agenthost.Row{moved}}, false},
+		{"complete, two moved rows", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{moved, twin}}, false},
+		{"complete, no row of the incarnation", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{other}}, false},
+		{"complete, the incarnation in another checkout", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{elsewhere}}, false},
+		{"complete, same handle under another incarnation", agenthost.Inventory{Complete: true, Epoch: "e1", Rows: []agenthost.Row{reborn}}, false},
+		{"complete, exact row and a moved row", agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{{ID: s.ID, Checkout: "/c/coord"}, moved}}, false},
+	}
+	for _, c := range cases {
+		got, ok := c.inv.Rebound(s)
+		if ok != c.want {
+			t.Errorf("%s: Rebound ok = %v; want %v", c.name, ok, c.want)
+			continue
+		}
+		if !ok && got != s {
+			t.Errorf("%s: a refused rebind changed the session to %+v", c.name, got)
+		}
+	}
+	got, _ := agenthost.Inventory{Complete: true, Epoch: "e2", Rows: []agenthost.Row{other, moved}}.Rebound(s)
+	want := s
+	want.ID = agenthost.RunID{Host: "h", Terminal: "t2", Incarnation: "i1"}
+	want.Epoch = "e2"
+	if got != want {
+		t.Errorf("Rebound = %+v; want %+v", got, want)
 	}
 }

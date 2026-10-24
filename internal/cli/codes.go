@@ -74,6 +74,8 @@ const (
 	CodeCheckoutNotClean     = "CHECKOUT_NOT_CLEAN"
 	CodeProofUndecided       = "PROOF_UNDECIDED"
 	CodeCINotGreen           = "CI_NOT_GREEN"
+	CodeBodyRefused          = "BODY_REFUSED"
+	CodeAskLimit             = "ASK_LIMIT"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -111,7 +113,7 @@ var baseRefusals = []RefusalCode{
 	{CodeProjectBusy, ExitRefused, codes.FailedPrecondition, false, "the project has a live run"},
 	{CodeLeaseHeld, ExitRefused, codes.FailedPrecondition, false, "another run holds the item's lease"},
 	{CodeBeadsUnavailable, ExitWait, codes.Unavailable, true, "the server recorded the write and cannot reach beads yet; run the same command again"},
-	{CodeUnsafePath, ExitRefused, codes.FailedPrecondition, false, "the pushed content changes .gitmodules, a gitlink, or a filter or LFS line in .gitattributes; the operator makes that change by hand"},
+	{CodeUnsafePath, ExitRefused, codes.FailedPrecondition, false, "the pushed content changes .gitmodules, a gitlink, a filter or LFS line in .gitattributes, or the merge queue's config; the operator makes that change by hand"},
 	{CodeRemoteAhead, ExitRefused, codes.FailedPrecondition, false, "the remote branch holds commits that the pushed head lacks; sync the branch first"},
 	{CodeGitHubUnavailable, ExitWait, codes.Unavailable, true, "GitHub did not answer or rate-limited the App; run the same command again after retry_after_seconds"},
 	{CodeGitHubRefused, ExitRefused, codes.FailedPrecondition, false, "GitHub refused the request; the hint holds GitHub's answer"},
@@ -123,6 +125,8 @@ var baseRefusals = []RefusalCode{
 	{CodeCheckoutNotClean, ExitRefused, codes.FailedPrecondition, false, "the reviewed checkout is dirty, moved off its head, or a worktree of the proof is left; the hint names each difference"},
 	{CodeProofUndecided, ExitUndecided, codes.Aborted, false, "the proof decided nothing: the setup failed, or a signal stopped the tests; the hint says which"},
 	{CodeCINotGreen, ExitRefused, codes.FailedPrecondition, false, "a code pass needs every required check green at the head it names; the same call lands once CI is green there"},
+	{CodeBodyRefused, ExitRefused, codes.FailedPrecondition, false, "the body is over its word budget, or breaks a markup or prose rule; the hint names each fault, and GitHub holds nothing"},
+	{CodeAskLimit, ExitRefused, codes.FailedPrecondition, false, "the bug report already holds two asks of its reporter; escalate the missing fact at level 5"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

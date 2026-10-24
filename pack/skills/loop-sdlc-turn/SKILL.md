@@ -60,7 +60,9 @@ codes cannot.
 - `REMOTE_AHEAD`: the remote item branch holds commits that your head does not hold. Run
   `loop branch sync`, and bring the item head in by section 4. Merge it, and push again.
 - `UNSAFE_PATH`: your push changes `.gitmodules`, a gitlink, or a filter or LFS line in
-  `.gitattributes`. Only the operator makes that change. Escalate it with `loop escalation raise`.
+  `.gitattributes`. Or your branch changes the merge queue's config, such as `.mergify.yml`,
+  against the base. Only the operator makes that change. Escalate it with `loop escalation raise`.
+  A merge of the base that brings in the operator's config change is no change of yours.
 - `GITHUB_REFUSED`: GitHub refused the request, and `hint` holds its answer. Never send the same
   request again. Escalate it with `loop escalation raise`.
 - `SERVER_UNAVAILABLE`, `DRAINING`, `BEADS_UNAVAILABLE` and `GITHUB_UNAVAILABLE` exit 4. Run
@@ -134,6 +136,13 @@ open one it writes the title and the body when they differ from what it holds, a
 answer says so. With no `--body`, the body stays as it is. It also hands the item to review, and that move ends your claim on the item. So run it once, after every
 other write of the run, even when the pull request is already open.
 
+The server checks `--body` before it writes anything to GitHub. It refuses with `BODY_REFUSED`
+when the prose outside fenced blocks and table rows holds more than 700 words, or a table row more
+than 60. It also refuses two bold spans in one paragraph, a code span that reopens a bold run, an
+em dash, a semicolon, and the other prose rules the hint names. The hint names every fault at once.
+Repair each one, and run the same command with the new body. Text in a code span or a fenced block
+is outside the prose rules.
+
 Run `loop gates --fast` before you push. It runs the loop's own gates, then each stack gate that
 the project's `.loop/config.yaml` names, except `test` and `build`. CI runs every gate. Commit
 first, because a gate can read commits and not the working tree.
@@ -183,33 +192,20 @@ a good outcome. To guess is a bad outcome. After the escalation lands, finish `b
 
 ## 7. Report a fault in the loop itself
 
-A loop fault is a fault in the loop, not in the project. Report one in three cases:
-
-- The CLI or the server breaks its own contract. For example, an envelope contradicts the schema,
-  or a write that exited 0 did not change the state.
-- A refusal names no verb that works. Each verb in `allowed_next` is refused too, or the list is
-  empty, and the runbook has no other step.
-- Your runbook needs a verb that does not exist in `loop schema`.
+A loop fault is a fault in the loop, not in the project. `../loop-fault/SKILL.md` states what
+counts as one and how to file it. Follow it. A run adds two steps of its own.
 
 Read the faults in your brief first. When an open fault names the same command and the same
 failure, use its id, and report no second fault.
 
-Write the report to a file under `/tmp`, in a directory from `mktemp -d`. Name the command you ran,
-the envelope it printed, and what you expected. Then report it:
-
-```bash
-loop fault report --file <report file>
-```
-
-The answer names a fault id, `F-<n>`, that never changes. `loop fault show F-<n>` reads its status
-later. When the fault stops the run, finish with the fault:
+When the fault stops the run, finish with the fault:
 
 ```bash
 loop run finish --outcome blocked --fault F-<n>
 ```
 
 When the fault does not stop the run, continue. Name the fault id in your pull request body or in
-a note. Never work around a loop fault in silence. The next run meets the same fault.
+a note.
 
 ## 8. Never
 

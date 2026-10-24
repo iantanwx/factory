@@ -167,9 +167,13 @@ func owner(p config.Project) string {
 	return o
 }
 
-// DefaultBranch is the project's base branch: the remote default branch,
-// read once from GitHub and recorded in the mirror.
+// DefaultBranch is the project's base branch: the default branch that
+// `loop register` recorded, or for a registration that names none, the
+// remote default branch, read once from GitHub and recorded in the mirror.
 func (s *Service) DefaultBranch(ctx context.Context, p config.Project) (string, error) {
+	if p.Branch != "" {
+		return p.Branch, nil
+	}
 	s.mu.Lock()
 	b, ok := s.defaults[p.ID]
 	s.mu.Unlock()
