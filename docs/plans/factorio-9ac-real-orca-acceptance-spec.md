@@ -149,6 +149,16 @@ this spec, or one where the code shows that the ADR's stated mechanism cannot ru
   into a package of their own, because each one runs its own package's `TestMain` path. The
   constraint alone does not cover the unit tests, and the run pattern alone would leave a binary
   that builds itself when someone runs it by hand. So we chose both.
+- **The `lint` target gets a third pass, with the tags `beads acceptance`.** It runs
+  `$(GOLANGCI_LINT) run --build-tags '$(LINT_GATE_TAGS)' ./...` and
+  `$(GO) vet -tags '$(LINT_GATE_TAGS)' ./...`, with `LINT_GATE_TAGS := beads acceptance`. The
+  constraint `acceptance && !orca` on `lane_gate_test.go` is false in both of today's passes: the
+  untagged pass has `acceptance` unset, and the `LINT_TAGS` pass has `orca` set. The `Makefile`
+  states the rule that each tagged file is linted and vetted. We rejected the tag `acceptance`
+  alone on `lane_gate_test.go`. The `LINT_TAGS` pass would read it then, but the scenario lane
+  binary would hold a test that builds a lane binary, and only the run pattern would keep it from
+  running. That breaks the decision above for one of its two files. `lane_main_test.go`
+  (`!orca`) needs no new pass, because the untagged pass reads it.
 - **F1 reads no fixture file from a relative path.** F1 embeds its fixture files, such as `check.sh` and
   the project config, with `//go:embed`, or writes them inline. We chose this over files under
   `testdata/`, because the job runs the compiled scenario binary outside the package directory.
@@ -808,8 +818,9 @@ sequenceDiagram
    `createTicket` onto `World.CreateTicket`. Prove the real-mode wiring with a scenario that passes
    a `RealHost` over the fake host, so CI runs it. Add the test `lane_gate_test.go`, first line
    `//go:build acceptance && !orca`, which builds the scenario binary under `acceptance orca` and runs its `TestMain`
-   path (C25).
-   - Files: `acceptance/world.go`, `acceptance/binary.go`, `acceptance/scenarios/main_test.go`,
+   path (C25). Add the third `lint` pass of Decisions, with `LINT_GATE_TAGS := beads acceptance`,
+   so that golangci-lint and `go vet` read `lane_gate_test.go`.
+   - Files: `Makefile`, `acceptance/world.go`, `acceptance/binary.go`, `acceptance/scenarios/main_test.go`,
      `acceptance/scenarios/helpers_test.go`, `acceptance/scenarios/lane_orca_test.go`,
      `acceptance/scenarios/lane_gate_test.go`, `internal/agenthost/orca/fixture.go`, one new
      scenario file with the tag `acceptance`, with tests.
@@ -817,7 +828,10 @@ sequenceDiagram
    - Proves: C11, C12, C25, C26.
    - Done when: `make acceptance` passes, `go vet -tags 'acceptance orca' ./acceptance/...` passes,
      and the new scenario shows no coordinator launch and a token file that names the world's
-     instance and binary.
+     instance and binary. `make lint` passes, `make -n lint` prints both commands with
+     `beads acceptance`, and
+     `go list -tags 'beads acceptance' -f '{{.TestGoFiles}}' ./acceptance/scenarios` names
+     `lane_gate_test.go`.
 5. **F1 with real agents.** Add `acceptance/scenarios/f1_orca_test.go`, first line
    `//go:build acceptance && orca`, with `TestF1RealAgentsTakeATicketFromClaimToMerge` and its
    fixture files, embedded with `//go:embed` or written inline, and never read from a relative
@@ -1070,7 +1084,7 @@ A build with the tag `acceptance` alone still exits 0 on a missing bd or dolt wi
 today.
 *The test `lane_gate_test.go`, with `//go:build acceptance && !orca`, so no lane binary holds it.
 It builds the binary and runs it as C24 does. The suite's own run under `make acceptance` proves
-the last line.*
+the last line. The third `lint` pass, with the tags `beads acceptance`, lints and vets the file.*
 
 **C26. Refusal: a real world never rewrites a repository that is not a lane fixture.** Proves ADR
 decisions 1 and 3. `NewWorld` with `Real.Clone` naming a repository with no
