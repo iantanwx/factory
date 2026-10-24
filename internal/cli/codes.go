@@ -74,6 +74,7 @@ const (
 	CodeCheckoutNotClean     = "CHECKOUT_NOT_CLEAN"
 	CodeProofUndecided       = "PROOF_UNDECIDED"
 	CodeCINotGreen           = "CI_NOT_GREEN"
+	CodeBodyRefused          = "BODY_REFUSED"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -123,6 +124,7 @@ var baseRefusals = []RefusalCode{
 	{CodeCheckoutNotClean, ExitRefused, codes.FailedPrecondition, false, "the reviewed checkout is dirty, moved off its head, or a worktree of the proof is left; the hint names each difference"},
 	{CodeProofUndecided, ExitUndecided, codes.Aborted, false, "the proof decided nothing: the setup failed, or a signal stopped the tests; the hint says which"},
 	{CodeCINotGreen, ExitRefused, codes.FailedPrecondition, false, "a code pass needs every required check green at the head it names; the same call lands once CI is green there"},
+	{CodeBodyRefused, ExitRefused, codes.FailedPrecondition, false, "the body is over its word budget, or breaks a markup or prose rule; the hint names each fault, and GitHub holds nothing"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

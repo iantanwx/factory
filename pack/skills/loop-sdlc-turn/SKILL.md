@@ -134,6 +134,13 @@ open one it writes the title and the body when they differ from what it holds, a
 answer says so. With no `--body`, the body stays as it is. It also hands the item to review, and that move ends your claim on the item. So run it once, after every
 other write of the run, even when the pull request is already open.
 
+The server checks `--body` before it writes anything to GitHub. It refuses with `BODY_REFUSED`
+when the prose outside fenced blocks and table rows holds more than 700 words, or a table row more
+than 60. It also refuses two bold spans in one paragraph, a code span that reopens a bold run, an
+em dash, a semicolon, and the other prose rules the hint names. The hint names every fault at once.
+Repair each one, and run the same command with the new body. Text in a code span or a fenced block
+is outside the prose rules.
+
 Run `loop gates --fast` before you push. It runs the loop's own gates, then each stack gate that
 the project's `.loop/config.yaml` names, except `test` and `build`. CI runs every gate. Commit
 first, because a gate can read commits and not the working tree.

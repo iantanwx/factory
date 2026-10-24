@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/iantanwx/loop/internal/bodygate"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
@@ -135,6 +136,18 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 		return ref.Result()
 	}
 	title := call.Inv.Flags["title"]
+	// The body gate runs before GitHub, so a refused body opens nothing
+	// and keeps the body an open PR holds. With no --body the PR keeps
+	// its body, and there is nothing to check.
+	if body := call.Inv.Flags["body"]; body != "" {
+		why, err := bodygate.CheckPR(ctx, body)
+		if err != nil {
+			return cli.Internal(err)
+		}
+		if why != "" {
+			return cli.Reject(cli.CodeBodyRefused, "pr_body", why)
+		}
+	}
 	branch, ref := s.itemBranch(ctx, prj.ID, item)
 	if ref != nil {
 		return ref.Result()
