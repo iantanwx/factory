@@ -1,6 +1,6 @@
 ---
 name: loop-sdlc-documents
-description: Where a project keeps its PRDs, specs and ADRs, the template of each, the document gates that check them, and the two rules every requirement keeps. Read this before you write, revise or review one of the three.
+description: Where a project keeps its PRDs, specs and ADRs, the template of each, and the document gates that check them. The two rules every requirement keeps. Read this before you write, revise or review one of the three.
 ---
 
 # loop-sdlc-documents
