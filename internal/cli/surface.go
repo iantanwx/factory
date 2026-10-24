@@ -135,9 +135,9 @@ var surface = []Verb{
 	write(server("branch", "push", "push the item's branch through the server", runOrRoom, nil)),
 	write(server("branch", "sync", "fetch the base and the item's branch into the mirror, and name the mirror path, each head sha and the refs a checkout fetches with no credential", runOrRoom, nil)),
 
-	write(server("pr", "open", "open the item's pull request, or show the one open on its branch, and hand the item to review", runOrRoom, nil,
+	write(server("pr", "open", "open the item's pull request, or update the title and body of the one open on its branch, and hand the item to review", runOrRoom, nil,
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the pull request title"},
-		Flag{Name: "body", Type: FlagString, Description: "the pull request body"})),
+		Flag{Name: "body", Type: FlagString, Description: "the pull request body; absent, the open pull request keeps its body"})),
 	server("pr", "show", "show the item's pull request", runOrRoom, nil),
 	server("pr", "files", "list the pull request's changed files", runOrRoom, nil),
 	server("pr", "diff", "print the pull request's diff", runOrRoom, nil),

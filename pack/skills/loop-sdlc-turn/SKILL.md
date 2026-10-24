@@ -118,8 +118,9 @@ loop branch push
 loop pr open --title "<title>" --body "<body>"
 ```
 
-`loop pr open` opens the pull request of the item branch, or shows the one that is open. It also
-hands the item to review, and that move ends your claim on the item. So run it once, after every
+`loop pr open` opens the pull request of the item branch, or shows the one that is open. On the
+open one it writes the title and the body when they differ from what it holds, and `updated` in its
+answer says so. With no `--body`, the body stays as it is. It also hands the item to review, and that move ends your claim on the item. So run it once, after every
 other write of the run, even when the pull request is already open.
 
 Run `loop gates --fast` before you push. It runs the loop's own gates, then each stack gate that

@@ -283,7 +283,7 @@ func (p *PR) json() map[string]any {
 	}
 	out := map[string]any{
 		"number": p.Number, "html_url": fmt.Sprintf("https://example.invalid/pull/%d", p.Number), "state": p.State,
-		"title": p.Title, "draft": p.Draft, "merge_commit_sha": p.MergeSHA, "updated_at": p.UpdatedAt.UTC().Format(time.RFC3339),
+		"title": p.Title, "body": p.Body, "draft": p.Draft, "merge_commit_sha": p.MergeSHA, "updated_at": p.UpdatedAt.UTC().Format(time.RFC3339),
 		"head": map[string]any{"ref": p.Head, "sha": p.HeadSHA, "repo": map[string]any{"full_name": repo}},
 		"base": map[string]any{"ref": p.Base, "sha": strings.Repeat("b", 40)},
 	}
@@ -539,6 +539,22 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 		WriteJSON(rw, 200, w.prs[n-1].json())
+	case r.Method == http.MethodPatch && rePull.MatchString(path):
+		n, _ := strconv.Atoi(rePull.FindStringSubmatch(path)[1])
+		if n < 1 || n > len(w.prs) {
+			return false
+		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		pr := w.prs[n-1]
+		if t, ok := body["title"]; ok {
+			pr.Title = t
+		}
+		if b, ok := body["body"]; ok {
+			pr.Body = b
+		}
+		pr.UpdatedAt = w.tick()
+		WriteJSON(rw, 200, pr.json())
 	case r.Method == http.MethodGet && rePullSub.MatchString(path):
 		m := rePullSub.FindStringSubmatch(path)
 		n, _ := strconv.Atoi(m[2])

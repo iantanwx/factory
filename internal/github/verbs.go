@@ -139,11 +139,11 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 	if ref != nil {
 		return ref.Result()
 	}
-	pr, created, err := s.OpenPR(ctx, prj, branch, title, call.Inv.Flags["body"])
+	pr, created, updated, err := s.OpenPR(ctx, prj, branch, title, call.Inv.Flags["body"])
 	if err != nil {
 		return Refuse(err)
 	}
-	out := map[string]any{"pr": pr.View(), "created": created}
+	out := map[string]any{"pr": pr.View(), "created": created, "updated": updated}
 	if it == nil {
 		return cli.Found(out)
 	}
