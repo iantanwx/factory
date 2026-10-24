@@ -106,6 +106,36 @@ func TestParseProjectConfigRefuses(t *testing.T) {
 	}
 }
 
+// The health block is optional. Its audit_workflow names a workflow file
+// under .github/workflows, and it has no default.
+func TestProjectConfigHealthAuditWorkflow(t *testing.T) {
+	cfg, err := ParseProjectConfig([]byte(validProjectConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Health.AuditWorkflow != "" {
+		t.Fatalf("audit_workflow with no health block = %q, want none", cfg.Health.AuditWorkflow)
+	}
+	for _, file := range []string{"audit.yml", "nightly-audit.yaml", "deps_audit.v2.yml"} {
+		cfg, err := ParseProjectConfig([]byte(validProjectConfig + "health:\n  audit_workflow: " + file + "\n"))
+		if err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		if cfg.Health.AuditWorkflow != file {
+			t.Fatalf("audit_workflow = %q, want %q", cfg.Health.AuditWorkflow, file)
+		}
+	}
+	for _, bad := range []string{"audit", ".github/workflows/audit.yml", "../audit.yml", "audit .yml", "\"audit\\u0007.yml\""} {
+		_, err := ParseProjectConfig([]byte(validProjectConfig + "health:\n  audit_workflow: " + bad + "\n"))
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "health.audit_workflow") {
+			t.Fatalf("audit_workflow %s: err = %v, want a refusal of health.audit_workflow", bad, err)
+		}
+	}
+	if _, err := ParseProjectConfig([]byte(validProjectConfig + "health:\n  audit_wrokflow: audit.yml\n")); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("an unknown health field: err = %v, want ErrInvalid", err)
+	}
+}
+
 // gitRepo is a clone with an origin. Its main branch and a feature branch
 // each hold their own .loop/config.yaml on origin.
 type gitRepo struct {

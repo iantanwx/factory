@@ -315,8 +315,8 @@ func (p *PR) json() map[string]any {
 	return out
 }
 
-// World is the PR side of the API: PRs, check runs, statuses, comments
-// and changed files.
+// World is the PR side of the API: PRs, check runs, statuses, comments,
+// changed files and workflow runs.
 type World struct {
 	mu       sync.Mutex
 	prs      []*PR
@@ -334,6 +334,9 @@ type World struct {
 	failNext map[string]int
 	clock    time.Time
 	merge    mergeWorld
+	// wruns and workflows are the Actions side (runs.go).
+	wruns     []*Run
+	workflows []string
 	// HeadOf answers the head sha of a new PR's branch. A fixed sha when
 	// nil.
 	HeadOf func(branch string) string
@@ -670,6 +673,7 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		w.statuses = append(w.statuses, reStatus.FindStringSubmatch(path)[1]+" "+body["context"]+" "+body["state"])
 		WriteJSON(rw, 201, map[string]any{"state": body["state"]})
+	case w.serveRuns(rw, r):
 	default:
 		return w.serveMerge(rw, r)
 	}

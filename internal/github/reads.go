@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -435,4 +436,96 @@ func (s *Service) Rerun(ctx context.Context, p config.Project, head string) ([]i
 		ids = append(ids, r.ID)
 	}
 	return ids, nil
+}
+
+// RunQuery selects workflow runs. Empty fields select every value.
+type RunQuery struct {
+	Branch   string
+	Event    string // "push", "merge_group", "pull_request"
+	Workflow string // a file name under .github/workflows
+	HeadSHA  string
+	Since    time.Time // created at or after
+}
+
+// RunView is one workflow run, as the GitHub parts of overwatch read it.
+// workflowRun stays the decode type of the existing reads.
+type RunView struct {
+	ID         int64     `json:"id"`
+	Workflow   string    `json:"workflow"` // the file name under .github/workflows
+	Event      string    `json:"event"`
+	Branch     string    `json:"branch"`
+	HeadSHA    string    `json:"head_sha"`
+	Attempt    int       `json:"attempt"`
+	Status     string    `json:"status"`
+	Conclusion string    `json:"conclusion"`
+	CreatedAt  time.Time `json:"created_at"`
+	StartedAt  time.Time `json:"started_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// runJSON is one workflow run as GitHub's REST API reads it.
+type runJSON struct {
+	ID           int64     `json:"id"`
+	Path         string    `json:"path"` // .github/workflows/<file>, with an @<ref> for a called workflow
+	Event        string    `json:"event"`
+	HeadBranch   string    `json:"head_branch"`
+	HeadSHA      string    `json:"head_sha"`
+	RunAttempt   int       `json:"run_attempt"`
+	Status       string    `json:"status"`
+	Conclusion   string    `json:"conclusion"`
+	CreatedAt    time.Time `json:"created_at"`
+	RunStartedAt time.Time `json:"run_started_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+func (r runJSON) view() RunView {
+	file, _, _ := strings.Cut(r.Path, "@")
+	if i := strings.LastIndex(file, "/"); i >= 0 {
+		file = file[i+1:]
+	}
+	return RunView{ID: r.ID, Workflow: file, Event: r.Event, Branch: r.HeadBranch, HeadSHA: r.HeadSHA, Attempt: r.RunAttempt,
+		Status: r.Status, Conclusion: r.Conclusion, CreatedAt: r.CreatedAt, StartedAt: r.RunStartedAt, UpdatedAt: r.UpdatedAt}
+}
+
+// maxRunPages bounds the read of a window of workflow runs: 1000 of them.
+const maxRunPages = 10
+
+// WorkflowRuns lists the workflow runs that q selects, newest first. A
+// query with no Since reads the newest page of 100 only, so a read of a
+// branch's whole history stays one call. A query with Since reads every
+// page of its window, and fails at the page cap rather than answer from
+// part of the window. A Workflow that GitHub does not know answers an
+// *APIError with status 404.
+func (s *Service) WorkflowRuns(ctx context.Context, p config.Project, q RunQuery) ([]RunView, error) {
+	path := "/actions/runs"
+	if q.Workflow != "" {
+		path = "/actions/workflows/" + url.PathEscape(q.Workflow) + "/runs"
+	}
+	v := url.Values{"per_page": {"100"}, "exclude_pull_requests": {"true"}}
+	for k, val := range map[string]string{"branch": q.Branch, "event": q.Event, "head_sha": q.HeadSHA} {
+		if val != "" {
+			v.Set(k, val)
+		}
+	}
+	if !q.Since.IsZero() {
+		v.Set("created", ">="+q.Since.UTC().Format(time.RFC3339))
+	}
+	var out []RunView
+	for page := 1; page <= maxRunPages; page++ {
+		v.Set("page", strconv.Itoa(page))
+		var batch struct {
+			Runs []runJSON `json:"workflow_runs"`
+		}
+		resp, err := s.repoDo(ctx, p, ScopeRead, Call{Method: http.MethodGet, Path: repoPath(p, path+"?"+v.Encode())}, &batch)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range batch.Runs {
+			out = append(out, r.view())
+		}
+		if q.Since.IsZero() || len(batch.Runs) < 100 && !nextPage(resp.Header) {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("github: %s has more than %d workflow runs since %s", p.Repo, maxRunPages*100, q.Since.UTC().Format(time.RFC3339))
 }

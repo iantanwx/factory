@@ -44,7 +44,9 @@ type Finding struct {
 	Line string // quotes Key
 }
 
-// Reading is a part's findings and its notes.
+// Reading is a part's findings and its notes. A note that starts UNREAD
+// is a read that failed for part of the part, such as one project's: the
+// part has code 2, and the rest of its reading stands.
 type Reading struct {
 	Findings []Finding
 	Notes    []string // lines that hold no work
@@ -86,7 +88,7 @@ var PartNames = []string{"stalls", "questions", "decisions", "bugs", "backlog", 
 	"flaky", "audit", "timer-health", "inbox", "server"}
 
 // Parts returns the shipped part list. Each part entry adds its part.
-func Parts() []Part { return nil }
+func Parts() []Part { return []Part{pullsPart, mainPart, auditPart} }
 
 // Intervals are the scheduler's own, from sched.Config.
 type Intervals struct {
@@ -120,11 +122,11 @@ type World interface {
 }
 
 // GitHubReads are the GET reads of the GitHub parts, made with ScopeRead.
-// The entries of the GitHub parts add WorkflowRuns and RunJobs with the
-// types they read (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Work 9
-// and 10).
+// The entry of the ci and flaky parts adds RunJobs with the type it reads
+// (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Work 10).
 type GitHubReads interface {
 	OpenPulls(ctx context.Context, p config.Project) ([]github.PR, error)
+	WorkflowRuns(ctx context.Context, p config.Project, q github.RunQuery) ([]github.RunView, error)
 }
 
 // Key builds overwatch:<part>:<subject>, with the subject's segments joined
@@ -242,6 +244,9 @@ func classify(p Part, res partResult, recs Records, recsOK bool) PartReport {
 		pr.Lines = append(pr.Lines, f.Line)
 	}
 	pr.Lines = append(append(pr.Lines, filed...), res.reading.Notes...)
+	if slices.ContainsFunc(res.reading.Notes, func(n string) bool { return strings.HasPrefix(n, "UNREAD") }) {
+		pr.Code = Unread
+	}
 	return pr
 }
 
