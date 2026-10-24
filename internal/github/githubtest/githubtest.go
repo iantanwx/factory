@@ -274,6 +274,8 @@ type PR struct {
 	// Labels and MergeableState serve the merge fakes (merge.go).
 	Labels         []string
 	MergeableState string
+	// Reviewers lists each login requested for review, in order.
+	Reviewers []string
 }
 
 func (p *PR) json() map[string]any {
@@ -464,6 +466,7 @@ func CheckRun(name, sha, status, conclusion string, started time.Time) map[strin
 
 var (
 	rePull     = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)$`)
+	reRequest  = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)/requested_reviewers$`)
 	rePullSub  = regexp.MustCompile(`^/repos/` + Repo + `/(pulls|issues)/(\d+)/(files|comments|reviews)$`)
 	reReplies  = regexp.MustCompile(`^/repos/` + Repo + `/pulls/(\d+)/comments/(\d+)/replies$`)
 	reChecks   = regexp.MustCompile(`^/repos/` + Repo + `/commits/([0-9a-f]+)/check-runs$`)
@@ -539,6 +542,22 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 		WriteJSON(rw, 200, w.prs[n-1].json())
+	case r.Method == http.MethodPatch && rePull.MatchString(path):
+		n, _ := strconv.Atoi(rePull.FindStringSubmatch(path)[1])
+		if n < 1 || n > len(w.prs) {
+			return false
+		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		pr := w.prs[n-1]
+		if t, ok := body["title"]; ok {
+			pr.Title = t
+		}
+		if b, ok := body["body"]; ok {
+			pr.Body = b
+		}
+		pr.UpdatedAt = w.tick()
+		WriteJSON(rw, 200, pr.json())
 	case r.Method == http.MethodGet && rePullSub.MatchString(path):
 		m := rePullSub.FindStringSubmatch(path)
 		n, _ := strconv.Atoi(m[2])
@@ -563,6 +582,17 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			}
 			WriteJSON(rw, 200, out)
 		}
+	case r.Method == http.MethodPost && reRequest.MatchString(path):
+		p := w.pr(reRequest.FindStringSubmatch(path)[1])
+		if p == nil {
+			return false
+		}
+		var body struct {
+			Reviewers []string `json:"reviewers"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		p.Reviewers = append(p.Reviewers, body.Reviewers...)
+		WriteJSON(rw, 201, p.json())
 	case r.Method == http.MethodPost && (rePullSub.MatchString(path) || reReplies.MatchString(path)):
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)

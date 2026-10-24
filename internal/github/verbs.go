@@ -139,17 +139,24 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 	if ref != nil {
 		return ref.Result()
 	}
-	pr, created, err := s.OpenPR(ctx, prj, branch, title, call.Inv.Flags["body"])
+	pr, created, updated, err := s.OpenPR(ctx, prj, branch, title, call.Inv.Flags["body"])
 	if err != nil {
 		return Refuse(err)
 	}
-	out := map[string]any{"pr": pr.View(), "created": created}
+	out := map[string]any{"pr": pr.View(), "created": created, "updated": updated}
 	if it == nil {
 		return cli.Found(out)
 	}
 	verb := openVerbs[it.Kind][it.Status]
 	if verb == "" {
 		return cli.Found(out)
+	}
+	if it.Kind == machine.KindEpic && it.Status == machine.SpecDrafting {
+		// A spec is a document a person merges. Ask the reader before the
+		// move, so a retry after a crash between the two asks again.
+		if req := s.RequestSignoff(ctx, prj, pr.Number); req != nil {
+			out["signoff"] = req
+		}
 	}
 	head := pr.Head.SHA
 	if it.Status == machine.PRDAmending || it.Status == machine.SpecAmending {

@@ -148,8 +148,9 @@ ends. A push to the pull request lifts the hold too, because the head enters the
   wrong.
 - **The change keeps every promise, and the spec holds a defect.** Pass the work. Then file the
   defect as a decision for the epic, so the work still merges:
-  `loop decision file --title "<the spec defect>" --trigger "<the event that forces the answer>"`.
-  Name the spec, the contract and the line in its body.
+  `loop decision file --title "<the spec defect>" --trigger "<the event that forces the answer>" --now`.
+  Name the epic, the spec, the contract and the line in its body. `--now` sends the decision to a
+  person's inbox at once. Without it, the decision waits for its trigger and pages nobody.
 
 ## 9. Never
 

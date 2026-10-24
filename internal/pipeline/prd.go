@@ -24,6 +24,9 @@ type PRDResult struct {
 	PR      github.PRView     `json:"pr"`
 	Stories []string          `json:"stories"`
 	Push    github.PushResult `json:"push"`
+	// Signoff is the PRD PR's review request to the project's sign-off
+	// readers. Absent when the project names none, or on a replay.
+	Signoff *github.SignoffRequest `json:"signoff,omitempty"`
 }
 
 // prdSubmit is `loop prd submit` (R44, R46): from an intake room, it
@@ -105,11 +108,16 @@ func (p *Pipeline) prdSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	if err != nil {
 		return github.Refuse(err)
 	}
-	ghpr, _, err := p.cfg.GitHub.OpenPR(ctx, prj, github.BranchFor(epic.ID), title, body)
+	ghpr, _, _, err := p.cfg.GitHub.OpenPR(ctx, prj, github.BranchFor(epic.ID), title, body)
 	if err != nil {
 		return github.Refuse(err)
 	}
+	var signoff *github.SignoffRequest
 	if epic.Status == machine.Initial {
+		// The PRD is a document a person merges. Ask the reader before
+		// the submit row, so a retry after a crash between the two asks
+		// again, and a replay after it asks nobody twice.
+		signoff = p.cfg.GitHub.RequestSignoff(ctx, prj, ghpr.Number)
 		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj.ID, Item: epic.ID, Verb: machine.VerbPRDSubmit,
 			Params: map[string]string{"pr": strconv.Itoa(ghpr.Number)}, ExpectedStatus: machine.Initial,
 			Command: inv.Verb.Path, RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
@@ -117,5 +125,6 @@ func (p *Pipeline) prdSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 			return res
 		}
 	}
-	return cli.Found(PRDResult{Epic: epic.ID, Status: machine.PRDReview, PR: ghpr.View(), Stories: stories, Push: push})
+	return cli.Found(PRDResult{Epic: epic.ID, Status: machine.PRDReview, PR: ghpr.View(), Stories: stories, Push: push,
+		Signoff: signoff})
 }

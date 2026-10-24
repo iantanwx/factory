@@ -19,11 +19,11 @@ func TestOpenPRTwiceOpensOnePR(t *testing.T) {
 	e := newEnv(t)
 	w := e.withWorld()
 	ctx := context.Background()
-	first, created, err := e.svc.OpenPR(ctx, e.project, BranchFor("tk-1"), "title", "body")
+	first, created, _, err := e.svc.OpenPR(ctx, e.project, BranchFor("tk-1"), "title", "body")
 	if err != nil || !created {
 		t.Fatalf("first open: %v created=%v", err, created)
 	}
-	second, created, err := e.svc.OpenPR(ctx, e.project, BranchFor("tk-1"), "title", "body")
+	second, created, _, err := e.svc.OpenPR(ctx, e.project, BranchFor("tk-1"), "title", "body")
 	if err != nil || created || second.Number != first.Number {
 		t.Fatalf("second open: %v created=%v #%d", err, created, second.Number)
 	}
