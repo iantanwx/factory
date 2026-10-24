@@ -39,6 +39,10 @@ type PR struct {
 	} `json:"base"`
 }
 
+// MergeableDirty is GitHub's mergeable state of a PR that conflicts with
+// its base. Only the read of one PR carries a mergeable state.
+const MergeableDirty = "dirty"
+
 // Merged reports whether GitHub merged the PR.
 func (pr PR) Merged() bool { return pr.MergedAt != nil }
 

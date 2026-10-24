@@ -260,3 +260,67 @@ func TestCoordinatorShipsItsReadOnlySubagents(t *testing.T) {
 		t.Fatalf("injected agents = %v, want %v", got, want)
 	}
 }
+
+// tickertownCommit is the tickertown commit each ported skill names as its
+// source.
+const tickertownCommit = "64e293f9ae2db7831d12462e76ffe1aa3deacd8c"
+
+// TestWritingSkillsShipWithTheirReaders proves C3 of the tickertown skills
+// spec: the pack holds exactly the listed skills, each writing skill is
+// flagged, carries the Codex file and names its source, and the runbooks
+// that list it are its row of the spec's reader table.
+func TestWritingSkillsShipWithTheirReaders(t *testing.T) {
+	want := []string{
+		"loop-brainstorm", "loop-bro", "loop-commit", "loop-encode-lessons", "loop-fault", "loop-init",
+		"loop-reflect", "loop-sdlc-documents", "loop-sdlc-glossary", "loop-sdlc-review", "loop-sdlc-split",
+		"loop-sdlc-triage", "loop-sdlc-turn", "loop-unslop",
+	}
+	dirs, err := fs.ReadDir(pack.Source(), "skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, d := range dirs {
+		got = append(got, d.Name())
+	}
+	if slices.Sort(got); !slices.Equal(got, want) {
+		t.Errorf("pack skills = %v, want %v", got, want)
+	}
+
+	readers := map[string][]string{
+		"loop-commit": {"amender", "implementer", "intake-room", "review-room", "spec-author"},
+		"loop-bro":    {"decomposer"},
+		"loop-unslop": {"amender", "decomposer", "intake-room", "spec-author"},
+	}
+	m, err := pack.ReadManifest(pack.Source())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for skill, stages := range readers {
+		source := "skills/" + strings.TrimPrefix(skill, "loop-") + "/SKILL.md"
+		text := read(t, "skills/"+skill+"/SKILL.md")
+		head, _, _ := strings.Cut(strings.TrimPrefix(text, "---\n"), "\n---\n")
+		if !slices.Contains(strings.Split(head, "\n"), "disable-model-invocation: true") {
+			t.Errorf("%s front matter holds no disable-model-invocation: true", skill)
+		}
+		if codex := read(t, "skills/"+skill+"/agents/openai.yaml"); codex != "policy:\n  allow_implicit_invocation: false\n" {
+			t.Errorf("%s/agents/openai.yaml = %q", skill, codex)
+		}
+		comment, _, _ := strings.Cut(text, "-->")
+		if !strings.Contains(comment, "<!--") || !strings.Contains(comment, source) || !strings.Contains(comment, tickertownCommit) {
+			t.Errorf("%s holds no comment that names %s at tickertown commit %s", skill, source, tickertownCommit)
+		}
+		if !slices.Contains(m.Skills, skill) {
+			t.Errorf("the manifest skills list does not hold %s", skill)
+		}
+		var listed []string
+		for stage, rb := range m.Runbooks {
+			if slices.Contains(rb.Skills, skill) {
+				listed = append(listed, stage)
+			}
+		}
+		if slices.Sort(listed); !slices.Equal(listed, stages) {
+			t.Errorf("runbooks that list %s = %v, want %v", skill, listed, stages)
+		}
+	}
+}

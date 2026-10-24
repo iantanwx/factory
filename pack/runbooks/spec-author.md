@@ -59,9 +59,11 @@ The spec holds these sections, in this order:
 
 Each work entry that draws a screen names its design references, when the project keeps them.
 
+Then apply `../loop-unslop/SKILL.md` to every section you wrote.
+
 ## 3. Land the spec
 
-1. Run `loop gates --docs`. Commit.
+1. Run `loop gates --docs`. Commit. Write the message by `../loop-commit/SKILL.md`.
 2. Push with `loop branch push`. The spec has its own branch, apart from the PRD's branch, and
    the server picks it. A PRD that merged by squash therefore never blocks the push.
 3. Run `loop pr open --title "<title>" --body "<body>"`. Put Decisions and Open questions first in
