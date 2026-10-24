@@ -38,6 +38,17 @@ project can merge or react faster than another.
 > Chosen: "Native job settings". The option read: "Schedules of merge-handoff,
 > dependency-advance, decision-timers and github-reactor for this project."
 
+The option text named github-reactor, but the reactor is an instance job. It runs once for the
+host and polls every project in one tick, so it has no schedule for one project. This story covers
+the other three jobs.
+
+What holds today: merge-handoff, dependency-advance and decision-timers run for each project, and
+the scheduler already uses a project's `stages.<job>.schedule` in place of the host schedule, for
+that project only. So this story's requirements already hold at the merge base, and A6 is a
+regression criterion. One gap the code shows: the server accepts a misspelled job name under
+`stages`, and the name silently does nothing. Whether the story keeps that gap as its new promise,
+or drops out, is an open question.
+
 ### US-04 Set how many runs one tick starts for one project
 
 As the operator, I can set how many runs of a stage one tick may start for one project, so that a
@@ -87,7 +98,7 @@ before any new setting exists.
 
 **Stories:** 7
 **Estimated total:** 2,100 lines
-**Lands independently?** Yes. US-01 merges alone. US-02 needs US-01's per-project counting and still merges alone after it. US-03 merges alone. US-04 merges alone after factorio-lqo lands. US-05, US-06 and US-07 each merge alone, because each one works on the settings that exist today.
+**Lands independently?** Yes. US-01 merges alone. US-02 needs US-01's per-project counting and still merges alone after it. US-03 already holds at the merge base, so it needs no change unless the operator gives it a new promise. US-04 merges alone after factorio-lqo lands. US-05, US-06 and US-07 each merge alone, because each one works on the settings that exist today.
 **Promises provable alone?** Yes. A per-project cap needs two projects and a fake run count. A server job schedule needs the scheduler and one project. The command needs a project repository fixture and the inbox. The settings view needs only config files. The push refusal needs one push fixture. Runs per tick needs factorio-lqo's multi-start, and it is the last promise to prove.
 **Verdict:** proceed.
 
@@ -102,7 +113,9 @@ each project, every setting in force and where it came from.
 
 In this section, a project's **settings** are its stage entries (enabled, model, harness, run
 budget, schedule, cap and runs per tick), its pool caps, its intake cap, its server job schedules,
-and its merge mechanism. Gates, setup, signoff readers and the secret manifest are not settings.
+and its merge mechanism. Gates, setup, signoff readers, the secret manifest, the tracker, policy
+hooks and the `health` section that factorio-a7r adds are not settings. US-07's option text names
+the settings as "stages, caps, schedules, merge", and none of these is one of them.
 
 - A project may set a cap for each run stage.
   → § US-01
@@ -121,15 +134,13 @@ and its merge mechanism. Gates, setup, signoff readers and the secret manifest a
 - A project may set the intake cap. That cap counts only the project's own epics.
   → § US-02
 - A project may set the schedule of each server job that runs for a project: merge-handoff,
-  dependency-advance, decision-timers and github-reactor.
+  dependency-advance and decision-timers.
   → § US-03
 - A host server job schedule applies to each project that sets none.
   → § US-03
 - A project may set, for each run stage, the most runs that one tick starts.
   → § US-04
 - The coordinator changes a project's settings with one command.
-  → § US-05
-- The operator may run that command too.
   → § US-05
 - The command refuses any caller that is a stage run.
   → § US-07
@@ -161,8 +172,8 @@ and its merge mechanism. Gates, setup, signoff readers and the secret manifest a
 - The server refuses a stage run's push that changes a setting in the project's settings file. The
   refusal code names the coordinator's command.
   → § US-07
-- The server does not refuse a stage run's push for a change to gates or setup in the settings
-  file.
+- The server does not refuse a stage run's push that changes no setting in the settings file, such
+  as a change to gates or setup.
   → § US-07
 
 ## Acceptance criteria
@@ -170,10 +181,14 @@ and its merge mechanism. Gates, setup, signoff readers and the secret manifest a
 - **A1.** A project with an implementer cap of 3 never holds more than 3 live implementer runs.
 - **A2.** A project's live runs never count against another project's cap.
 - **A3.** A project that sets no cap for a stage gets the host cap for that stage.
-- **A4.** A project's reviewers pool cap bounds its code-reviewer and doc-reviewer runs together.
-- **A5.** A project's intake cap bounds that project's epics in counted document states.
+- **A4.** A project that sets its reviewers pool cap to 2 never holds more than 2 live
+  code-reviewer and doc-reviewer runs together, and another project's reviewer runs never count
+  against it.
+- **A5.** A project that sets its intake cap to 1 opens no second intake while it holds 1 epic in a
+  counted document state, though the host intake cap is higher. Per-project counting of epics holds
+  today. The new promise is that the project's own value replaces the host value.
 - **A6.** A project's merge-handoff schedule fires on that schedule, while another project keeps
-  the host schedule.
+  the host schedule. This holds today, and it is a regression criterion.
 - **A7.** With runs per tick set to 3 and room under the cap, one tick starts 3 runs of the stage.
 - **A8.** A settings change by the command is in force at the next tick, and the server does not
   restart.
@@ -190,9 +205,11 @@ and its merge mechanism. Gates, setup, signoff readers and the secret manifest a
 - **A15.** The settings read says when the last good copy is in force, and why.
 - **A16.** The server refuses a stage run's push that changes a setting, and the refusal names the
   coordinator's command.
-- **A17.** The server does not refuse a stage run's push that changes only gates or setup.
+- **A17.** The server does not refuse a stage run's push that changes no setting.
 - **A18.** A cap lowered from 5 to 2 while 5 runs live stops none of the 5, and no new run of that
   stage starts until fewer than 2 runs live.
+- **A19.** A change by the coordinator lands with no approval by the operator. The command waits on
+  no person, and the inbox notice asks no question.
 
 ## Boundaries with other epics
 
@@ -200,6 +217,16 @@ and its merge mechanism. Gates, setup, signoff readers and the secret manifest a
   `schedule` only (R35)". This epic reverses that rule for caps, by the operator's choice "Project
   overrides host" (US-01). The host config file keeps its entries as the defaults. The spec of
   this epic owns the change to the plan's text.
+  → docs/plans/2026-10-21-1328-feat-standalone-sdlc-loop-plan.md
+- **The default branch's ruleset, U10 and U14.** The loop plan makes a blocked direct push a
+  precondition of every project: `project add` and `loop doctor` fail when the default branch
+  allows direct pushes (U10), and the ruleset lists the operator as the only bypass actor (U14).
+  The plan also commits project config because "it is reviewed like code". US-05's write path,
+  "the server commit[s] the change ... on the default branch ... You approve nothing", conflicts
+  with all three. On every project that passes `project add`, GitHub refuses the direct commit, so
+  A8 and A9 cannot hold as written. The room did not have these facts in front of the operator.
+  The open question names the choice, and the spec of this epic owns the change to the plan's
+  text once the operator settles it.
   → docs/plans/2026-10-21-1328-feat-standalone-sdlc-loop-plan.md
 - **Multi-start in one tick.** factorio-lqo ("parity 8.2: Implementer throughput") builds it. This
   epic adds only the project setting, and US-04 waits on factorio-lqo.
@@ -211,16 +238,21 @@ and its merge mechanism. Gates, setup, signoff readers and the secret manifest a
 - **Sign-off and merge.** ADR 0010 makes the operator's approval the sign-off of a PRD or a spec.
   A settings commit is neither, and this epic does not change that rule.
 - **Secrets.** R34 and R53 own the secret store and the manifest. This epic changes neither.
-- **Checked against:** the loop plan (R35, KTD9, KTD20, KTD30), ADR 0010, the factorio-a7r
-  overwatch spec, and the open epics factorio-2u6, factorio-4n0, factorio-9ac, factorio-9wh,
-  factorio-a7r, factorio-cd4, factorio-jiv, factorio-wd0 and factorio-wnl. The project holds no
-  other PRD. The room found one conflict, with R35 and KTD30, and the operator settled it.
+- **Checked against:** the loop plan (R35, KTD9, KTD20, KTD30, U10, U14), ADR 0010, the
+  factorio-a7r overwatch spec, and the open epics factorio-2u6, factorio-4n0, factorio-9ac,
+  factorio-9wh, factorio-a7r, factorio-cd4, factorio-jiv, factorio-wd0 and factorio-wnl. The
+  project holds no other PRD. The room found one conflict, with R35 and KTD30, and the operator
+  settled it. The doc review found a second, with U10, U14 and "reviewed like code", and it is
+  open.
 
 ## Out of scope
 
 - A host-wide total that bounds the sum of every project's caps. Never, by the operator's choice
   "Project overrides host".
 - Per-project settings for agent jobs that host config defines. They keep today's overrides.
+- A per-project schedule for github-reactor. It is an instance job: it runs once for the host, not
+  for a project, and one tick polls every project. A schedule for one project would split the
+  reactor, and nothing the operator said asks for that (US-03).
 - Changes to host config through a command. The operator edits host config as today.
 - A drift view between the repository and a server-held copy. Never, because the server holds no
   copy apart from the last good one (US-05).
@@ -231,6 +263,13 @@ and its merge mechanism. Gates, setup, signoff readers and the secret manifest a
 
 ## Open questions
 
-- The project's default branch may refuse a direct commit, as a protected branch does. The spec
-  must say how the command lands its commit then, or that the command refuses with a code that
-  names the cause. Blocks: A9.
+- How does the command land its commit on a default branch that blocks direct pushes? Two answers
+  fit the operator's words. The loop App becomes a bypass actor of the default-branch ruleset, and
+  the server commits directly. Or the command opens a pull request that the project's merge
+  mechanism merges after CI, with no person's approval. The operator chose "Verb lands a repo
+  commit" without either fact in front of them, so the operator settles it at sign-off, or the
+  spec-author escalates it. Blocks: A8 and A9.
+- Does US-03 keep a story? Its requirements hold today. One new promise the code shows is a
+  refusal of a job name under `stages` that names no job. Today the server accepts such a name,
+  and it does nothing. The operator keeps US-03 with that promise, or drops it, at sign-off. It blocks no
+  criterion, because A6 holds either way.
