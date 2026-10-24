@@ -29,7 +29,7 @@ func TestOpenPRTokenReadsBothRefs(t *testing.T) {
 		gt.WriteJSON(w, 201, map[string]any{"number": 1, "state": "open", "head": map[string]string{"ref": "loop/tk-1"},
 			"base": map[string]string{"ref": "main"}})
 	})
-	pr, created, err := e.svc.OpenPR(context.Background(), e.project, BranchFor("tk-1"), "title", "body")
+	pr, created, _, err := e.svc.OpenPR(context.Background(), e.project, BranchFor("tk-1"), "title", "body")
 	if err != nil || !created || pr.Number != 1 {
 		t.Fatalf("open: %v created=%v #%d", err, created, pr.Number)
 	}

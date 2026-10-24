@@ -115,23 +115,26 @@ func (s *Service) GetPR(ctx context.Context, p config.Project, number int) (PR, 
 // already open on that head branch, so `pr open` twice on one branch opens
 // one PR (KTD6: a PR's natural key is its head branch). branch is the
 // item's branch, BranchOf. Ported from createPullRequest in
-// scripts/sdlc/pr-open.ts:165 (alpha).
-func (s *Service) OpenPR(ctx context.Context, p config.Project, branch, title, body string) (PR, bool, error) {
+// scripts/sdlc/pr-open.ts:165 (alpha). On the PR already open it writes
+// title and body when they differ from what the PR holds, so a rework's
+// revised body reaches the reviewer (F-13); updated says it wrote. An
+// empty title or body leaves that field as it is.
+func (s *Service) OpenPR(ctx context.Context, p config.Project, branch, title, body string) (pr PR, created, updated bool, err error) {
 	if ItemOf(branch) == "" {
-		return PR{}, false, fmt.Errorf("github: %s is no item branch", branch)
+		return PR{}, false, false, fmt.Errorf("github: %s is no item branch", branch)
 	}
 	base, err := s.DefaultBranch(ctx, p)
 	if err != nil {
-		return PR{}, false, err
+		return PR{}, false, false, err
 	}
 	unlock := s.lock(p.ID + "\x00pr\x00" + branch)
 	defer unlock()
-	if pr, err := s.FindPR(ctx, p, branch); err != nil {
-		return PR{}, false, err
-	} else if pr != nil && pr.State == "open" {
-		return *pr, false, nil
+	if found, err := s.FindPR(ctx, p, branch); err != nil {
+		return PR{}, false, false, err
+	} else if found != nil && found.State == "open" {
+		pr, updated, err = s.editPR(ctx, p, *found, title, body)
+		return pr, false, updated, err
 	}
-	var pr PR
 	_, err = s.repoDo(ctx, p, ScopePulls, Call{Method: http.MethodPost, Path: repoPath(p, "/pulls"),
 		Body: map[string]any{"title": title, "body": body, "head": branch, "base": base}}, &pr)
 	var api *APIError
@@ -139,13 +142,36 @@ func (s *Service) OpenPR(ctx context.Context, p config.Project, branch, title, b
 		// Another call opened it first.
 		found, ferr := s.FindPR(ctx, p, branch)
 		if ferr == nil && found != nil {
-			return *found, false, nil
+			pr, updated, err = s.editPR(ctx, p, *found, title, body)
+			return pr, false, updated, err
 		}
 	}
 	if err != nil {
+		return PR{}, false, false, err
+	}
+	return pr, true, false, nil
+}
+
+// editPR writes title and body to an open PR with one PATCH when either
+// differs from what the PR holds. An empty title or body is left out, so
+// the PR keeps its own. It reports whether it wrote.
+func (s *Service) editPR(ctx context.Context, p config.Project, pr PR, title, body string) (PR, bool, error) {
+	patch := map[string]any{}
+	if title != "" && title != pr.Title {
+		patch["title"] = title
+	}
+	if body != "" && body != pr.Body {
+		patch["body"] = body
+	}
+	if len(patch) == 0 {
+		return pr, false, nil
+	}
+	var out PR
+	if _, err := s.repoDo(ctx, p, ScopePulls, Call{Method: http.MethodPatch,
+		Path: repoPath(p, "/pulls/"+strconv.Itoa(pr.Number)), Body: patch}, &out); err != nil {
 		return PR{}, false, err
 	}
-	return pr, true, nil
+	return out, true, nil
 }
 
 // File is one changed file of a PR.

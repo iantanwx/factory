@@ -539,6 +539,22 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 		WriteJSON(rw, 200, w.prs[n-1].json())
+	case r.Method == http.MethodPatch && rePull.MatchString(path):
+		n, _ := strconv.Atoi(rePull.FindStringSubmatch(path)[1])
+		if n < 1 || n > len(w.prs) {
+			return false
+		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		pr := w.prs[n-1]
+		if t, ok := body["title"]; ok {
+			pr.Title = t
+		}
+		if b, ok := body["body"]; ok {
+			pr.Body = b
+		}
+		pr.UpdatedAt = w.tick()
+		WriteJSON(rw, 200, pr.json())
 	case r.Method == http.MethodGet && rePullSub.MatchString(path):
 		m := rePullSub.FindStringSubmatch(path)
 		n, _ := strconv.Atoi(m[2])
