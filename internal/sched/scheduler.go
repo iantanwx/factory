@@ -58,6 +58,10 @@ const (
 	// AlertRunBlocked names an item a run left blocked. While it is open,
 	// it holds the item at that stage (admission.BlockedKey).
 	AlertRunBlocked = admission.AlertBlocked
+	// AlertCheckoutKept names a checkout the cleanup pass keeps because a
+	// content rule holds it. A person pushes or removes the work; the
+	// alert closes when the pass deletes the checkout.
+	AlertCheckoutKept = "checkout_kept"
 )
 
 // HostSource returns the current host config. *config.HostLoader is one.

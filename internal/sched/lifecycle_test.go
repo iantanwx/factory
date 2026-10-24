@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -153,6 +154,117 @@ func TestCheckoutCleanup(t *testing.T) {
 	}
 	if s := w.str(`SELECT state FROM checkouts WHERE path = ?`, unpushed.Checkout); s != CheckoutSettled {
 		t.Fatalf("unpushed checkout state = %s", s)
+	}
+}
+
+// commitIn commits one file in dir and returns the new head.
+func commitIn(t *testing.T, dir, file, body, msg string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "add", file)
+	gitIn(t, dir, "commit", "-q", "-m", msg)
+	return gitIn(t, dir, "rev-parse", "HEAD")
+}
+
+// landOnBase lands the file on the base as the merge queue does: after
+// another commit, with a new commit id and the same patch. The project
+// clone then fetches, so every checkout's origin/main holds it.
+func (w *world) landOnBase(file, body string) {
+	w.t.Helper()
+	clone := filepath.Join(w.t.TempDir(), "landing")
+	gitIn(w.t, w.dir, "clone", "-q", w.origin, clone)
+	commitIn(w.t, clone, "other.txt", "other\n", "another pull request")
+	commitIn(w.t, clone, file, body, "the same patch, rebased by the queue")
+	gitIn(w.t, clone, "push", "-q", "origin", "main")
+	gitIn(w.t, w.repo, "fetch", "-q", "origin")
+}
+
+// settledCheckout finishes a code-reviewer run and returns it.
+func (w *world) settledCheckout() *Started {
+	w.t.Helper()
+	w.ticket(machine.InReview)
+	st := w.dispatch(machine.StageCodeReviewer)
+	if _, ref := w.s.Finish(context.Background(), st.RunID, "done"); ref != nil {
+		w.t.Fatal(ref)
+	}
+	return st
+}
+
+// tickertown reclaim-rules.test.ts, ported: a branch whose every patch the
+// base holds counts as pushed, though a rebase gave each commit a new id
+// and no remote holds the old ones (F-9).
+func TestCleanupCountsARebasedBranchAsPushed(t *testing.T) {
+	w := newWorld(t)
+	st := w.settledCheckout()
+	commitIn(t, st.Checkout, "work.txt", "work\n", "work")
+	if ahead := gitIn(t, st.Checkout, "rev-list", "HEAD", "--not", "--remotes"); ahead == "" {
+		t.Fatal("the commit is on a remote already")
+	}
+	w.landOnBase("work.txt", "work\n")
+	if ahead := gitIn(t, st.Checkout, "rev-list", "HEAD", "--not", "--remotes"); ahead == "" {
+		t.Fatal("the commit id reached a remote; the test proves nothing")
+	}
+	w.tick() // closes the finished session
+	rep := w.s.CleanCheckouts(context.Background())
+	if !slices.Contains(rep.Deleted, st.Checkout) || exists(st.Checkout) {
+		t.Fatalf("cleanup kept a branch the base holds by patch: %+v", rep)
+	}
+}
+
+// tickertown reclaim-rules.test.ts, ported: a commit by a patch no remote
+// and no base holds keeps the checkout, the report names the reason, and
+// an inbox alert for a person names the path and the reason. The alert
+// closes once the work is pushed and the checkout goes (F-9).
+func TestCleanupKeepsANewPatchAndSaysWhy(t *testing.T) {
+	w := newWorld(t)
+	st := w.settledCheckout()
+	head := commitIn(t, st.Checkout, "work.txt", "work\n", "work")
+	w.landOnBase("work.txt", "other work\n")
+	w.tick()
+	rep := w.s.CleanCheckouts(context.Background())
+	why, kept := rep.Kept[st.Checkout]
+	if !kept || !strings.Contains(why, "1 commit that no remote and no base holds") || !exists(st.Checkout) {
+		t.Fatalf("report = %+v", rep)
+	}
+	body := w.str(`SELECT body FROM alerts WHERE kind = ? AND state = 'open'`, AlertCheckoutKept)
+	if !strings.Contains(body, st.Checkout) || !strings.Contains(body, why) {
+		t.Fatalf("alert body = %q", body)
+	}
+	// A second pass raises nothing new.
+	w.s.CleanCheckouts(context.Background())
+	if n := w.alerts(AlertCheckoutKept); n != 1 {
+		t.Fatalf("alerts after a second pass = %d", n)
+	}
+	gitIn(t, st.Checkout, "push", "-q", "origin", head+":refs/heads/kept-work")
+	gitIn(t, st.Checkout, "fetch", "-q", "origin")
+	rep = w.s.CleanCheckouts(context.Background())
+	if !slices.Contains(rep.Deleted, st.Checkout) {
+		t.Fatalf("cleanup kept a pushed checkout: %+v", rep)
+	}
+	if n := w.count(`SELECT count(*) FROM alerts WHERE kind = ? AND state = 'open'`, AlertCheckoutKept); n != 0 {
+		t.Fatal("the alert stays after its checkout went")
+	}
+}
+
+// A run checkout that liveness kept goes on the next pass once it is
+// clean and pushed: the run ended, and nothing holds it (F-9).
+func TestCleanupDeletesALivenessKeptCheckout(t *testing.T) {
+	w := newWorld(t)
+	w.ticket(machine.Todo)
+	st := w.dispatch(machine.StageImplementer)
+	w.host.Exit(st.Session.ID, 1)
+	w.tick()
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutKept {
+		t.Fatalf("checkout state = %s", s)
+	}
+	rep := w.s.CleanCheckouts(context.Background())
+	if !slices.Contains(rep.Deleted, st.Checkout) || exists(st.Checkout) {
+		t.Fatalf("cleanup kept a clean, pushed checkout that liveness kept: %+v", rep)
+	}
+	if s := w.str(`SELECT state FROM checkouts WHERE run_id = ?`, st.RunID); s != CheckoutDeleted {
+		t.Fatalf("checkout state = %s", s)
 	}
 }
 

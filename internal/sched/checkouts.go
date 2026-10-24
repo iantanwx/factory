@@ -3,9 +3,11 @@ package sched
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"strings"
 
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -15,7 +17,7 @@ import (
 const (
 	CheckoutActive  = "active"  // a run is starting or running in it
 	CheckoutSettled = "settled" // its run finished; cleanup may delete it
-	CheckoutKept    = "kept"    // its run ended with no finish; kept for a person
+	CheckoutKept    = "kept"    // its run ended with no finish, or its room closed; cleanup judges its content
 	CheckoutDeleted = "deleted"
 )
 
@@ -27,34 +29,39 @@ func (s *Scheduler) setCheckoutState(ctx context.Context, run, state string) err
 	})
 }
 
-// CleanReport is what one cleanup pass did.
+// CleanReport is what one cleanup pass did. Kept maps each checkout a
+// content rule keeps to its reason.
 type CleanReport struct {
 	Deleted []string          `json:"deleted"`
-	Kept    []string          `json:"kept"`
+	Kept    map[string]string `json:"kept"`
 	Errors  map[string]string `json:"errors"`
 }
 
-// CleanCheckouts deletes each settled checkout whose run ended, whose run
-// holds no lease, that no open room uses, and that is clean and fully
-// pushed. A checkout it cannot read is reported, and the others still go.
+// CleanCheckouts judges each settled or kept checkout whose run ended or
+// whose room closed, whose run holds no lease, and that no open room uses.
+// One that is clean and fully pushed goes, and its alert closes. One that
+// a content rule keeps stays, and an alert for a person names its path and
+// the reason (F-9). A checkout it cannot read is reported, and the others
+// still go.
 func (s *Scheduler) CleanCheckouts(ctx context.Context) CleanReport {
-	rep := CleanReport{Errors: map[string]string{}}
-	type row struct{ run, project, path string }
+	rep := CleanReport{Kept: map[string]string{}, Errors: map[string]string{}}
+	type row struct{ id, run, project, path string }
 	var rows []row
 	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		rs, err := tx.QueryContext(ctx, `SELECT c.run_id, c.project, c.path FROM checkouts c
-			JOIN runs r ON r.run_id = c.run_id
-			WHERE c.state = ? AND r.ended_at IS NOT NULL
+		rs, err := tx.QueryContext(ctx, `SELECT c.id, coalesce(c.run_id, ''), c.project, c.path FROM checkouts c
+			WHERE c.state IN (?, ?)
+			AND (EXISTS (SELECT 1 FROM runs r WHERE r.run_id = c.run_id AND r.ended_at IS NOT NULL)
+				OR EXISTS (SELECT 1 FROM rooms m WHERE m.checkout_id = c.id AND m.closed_at IS NOT NULL))
 			AND NOT EXISTS (SELECT 1 FROM leases l WHERE l.owner_run_id = c.run_id)
 			AND NOT EXISTS (SELECT 1 FROM rooms m WHERE m.checkout_id = c.id AND m.closed_at IS NULL)
-			ORDER BY c.created_at, c.id`, CheckoutSettled)
+			ORDER BY c.created_at, c.id`, CheckoutSettled, CheckoutKept)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = rs.Close() }()
 		for rs.Next() {
 			var r row
-			if err := rs.Scan(&r.run, &r.project, &r.path); err != nil {
+			if err := rs.Scan(&r.id, &r.run, &r.project, &r.path); err != nil {
 				return err
 			}
 			rows = append(rows, r)
@@ -66,27 +73,57 @@ func (s *Scheduler) CleanCheckouts(ctx context.Context) CleanReport {
 		return rep
 	}
 	for _, r := range rows {
-		ok, err := s.deletable(ctx, r.project, r.path)
+		why, err := s.keepReason(ctx, r.project, r.path)
 		if err != nil {
 			rep.Errors[r.path] = err.Error()
 			s.log.WarnContext(ctx, "read a checkout", "path", r.path, "err", err)
 			continue
 		}
-		if !ok {
-			rep.Kept = append(rep.Kept, r.path)
+		if why != "" {
+			rep.Kept[r.path] = why
+			s.alertKept(ctx, r.project, r.id, r.run, r.path, why)
 			continue
 		}
 		if err := s.cfg.Checkouts(r.project).RemoveCheckout(ctx, r.path); err != nil {
 			rep.Errors[r.path] = err.Error()
 			continue
 		}
-		if err := s.setCheckoutState(ctx, r.run, CheckoutDeleted); err != nil {
+		if err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+			_, err := tx.Exec(`UPDATE checkouts SET state = ?, updated_at = ? WHERE id = ?`, CheckoutDeleted, tx.Now().UnixMilli(), r.id)
+			return err
+		}); err != nil {
 			rep.Errors[r.path] = err.Error()
 			continue
+		}
+		if err := s.cfg.Alerts.Clear(ctx, keptKey(r.id)); err != nil {
+			s.log.ErrorContext(ctx, "close the kept checkout's alert", "path", r.path, "err", err)
 		}
 		rep.Deleted = append(rep.Deleted, r.path)
 	}
 	return rep
+}
+
+func keptKey(checkout string) string { return AlertCheckoutKept + ":" + checkout }
+
+// alertKept raises the alert of a kept checkout once for each reason, so a
+// pass that finds the same reason rings nobody again, and an answered alert
+// stays answered until the reason changes.
+func (s *Scheduler) alertKept(ctx context.Context, project, id, owner, path, why string) {
+	body := fmt.Sprintf("The cleanup pass keeps the checkout at %s of %s, because %s. "+
+		"Push the work, or remove it with `orca worktree rm --worktree path:%s --force`. "+
+		"The next pass deletes a clean, fully pushed checkout, and this entry closes with it. "+
+		"Answer this entry when you removed the checkout by hand.", path, owner, why, path)
+	var n int
+	if err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT count(*) FROM alerts WHERE dedupe_key = ? AND body = ?`, keptKey(id), body).Scan(&n)
+	}); err != nil {
+		s.log.ErrorContext(ctx, "read alerts", "err", err)
+		return
+	}
+	if n == 0 {
+		s.raise(ctx, config.Alert{Project: project, Kind: AlertCheckoutKept, DedupeKey: keptKey(id),
+			Subject: "checkout " + path + " stays: " + why, Body: body})
+	}
 }
 
 func checkoutGit(ctx context.Context, dir string, args ...string) (string, error) {
@@ -100,33 +137,79 @@ func checkoutGit(ctx context.Context, dir string, args ...string) (string, error
 	return strings.TrimSpace(string(out)), nil
 }
 
-// deletable reports whether the checkout is clean and fully pushed. Its
-// head is pushed when a remote-tracking ref holds it, or when the server
-// pushed it itself: the server pushes from its mirror (KTD14), so the
-// checkout's own remote refs may lag.
-func (s *Scheduler) deletable(ctx context.Context, project, path string) (bool, error) {
+// keepReason says why a content rule keeps the checkout, or "" when it is
+// clean and fully pushed (tickertown reclaim rule 6). A commit is held
+// when a remote-tracking ref holds it, when the base branch holds its
+// patch (`git cherry`), since a rebase gives each commit a new id, or when
+// the server pushed the head itself: the server pushes from its mirror
+// (KTD14), so the checkout's own remote refs may lag.
+func (s *Scheduler) keepReason(ctx context.Context, project, path string) (string, error) {
 	status, err := checkoutGit(ctx, path, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
-		return false, err
+		return "", err
 	}
 	if status != "" {
-		return false, nil
+		return "it holds uncommitted work", nil
 	}
-	ahead, err := checkoutGit(ctx, path, "rev-list", "HEAD", "--not", "--remotes")
-	if err != nil {
-		return false, err
-	}
-	if ahead == "" {
-		return true, nil
+	n, err := unheld(ctx, path)
+	if err != nil || n == 0 {
+		return "", err
 	}
 	head, err := checkoutGit(ctx, path, "rev-parse", "HEAD")
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	var n int
-	err = s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+	var pushed int
+	if err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx, `SELECT count(*) FROM push_intents WHERE project = ? AND new_sha = ? AND state = 'done'`,
-			project, head).Scan(&n)
-	})
-	return n > 0, err
+			project, head).Scan(&pushed)
+	}); err != nil || pushed > 0 {
+		return "", err
+	}
+	if n == 1 {
+		return "it holds 1 commit that no remote and no base holds", nil
+	}
+	return fmt.Sprintf("it holds %d commits that no remote and no base hold", n), nil
+}
+
+// unheld counts the commits on HEAD that no remote-tracking ref and no
+// base ref holds, less each one whose patch the base, or the branch's own
+// published ref, holds under another id.
+func unheld(ctx context.Context, path string) (int, error) {
+	refs, err := checkoutGit(ctx, path, "for-each-ref", "--format=%(refname)",
+		"refs/heads/"+DefaultBaseBranch, "refs/remotes/*/"+DefaultBaseBranch)
+	if err != nil {
+		return 0, err
+	}
+	bases := strings.Fields(refs)
+	if branch, err := checkoutGit(ctx, path, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil && branch != DefaultBaseBranch {
+		published, err := checkoutGit(ctx, path, "for-each-ref", "--format=%(refname)", "refs/remotes/*/"+branch)
+		if err != nil {
+			return 0, err
+		}
+		bases = append(bases, strings.Fields(published)...)
+	}
+	out, err := checkoutGit(ctx, path, append([]string{"rev-list", "HEAD", "--not", "--remotes"}, bases...)...)
+	if err != nil || out == "" {
+		return 0, err
+	}
+	held := map[string]bool{}
+	for _, ref := range bases {
+		marks, err := checkoutGit(ctx, path, "cherry", ref, "HEAD")
+		if err != nil {
+			return 0, err
+		}
+		for line := range strings.Lines(marks) {
+			if id, ok := strings.CutPrefix(strings.TrimSpace(line), "- "); ok {
+				held[id] = true
+			}
+		}
+	}
+	n := 0
+	for _, id := range strings.Fields(out) {
+		if !held[id] {
+			n++
+		}
+	}
+	return n, nil
 }
