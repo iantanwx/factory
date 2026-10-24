@@ -196,8 +196,9 @@ func dirtyPaths(ctx context.Context, dir string) ([]string, error) {
 			continue
 		}
 		paths = append(paths, e[3:])
-		// A rename or a copy is followed by the path it came from.
-		if e[0] == 'R' || e[0] == 'C' {
+		// A rename or a copy, in the index or the worktree column, is
+		// followed by the path it came from.
+		if strings.ContainsAny(e[:2], "RC") {
 			i++
 		}
 	}

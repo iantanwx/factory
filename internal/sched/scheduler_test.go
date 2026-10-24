@@ -3,6 +3,7 @@ package sched
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -658,5 +659,53 @@ func TestDirtyPathsNamesEachChangedPathOnce(t *testing.T) {
 	want := []string{".loop/config.yaml", ".loop/secrets.yaml", "READ ME.md", "new.txt"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("dirty = %q, want %q", got, want)
+	}
+}
+
+// A rename that git status names in the worktree column, as for a moved
+// file added with intent to add, names its new path once, and not a
+// piece of the path it came from.
+func TestDirtyPathsReadsAWorktreeRename(t *testing.T) {
+	_, repo := makeProjectRepo(t, t.TempDir())
+	if err := os.Rename(filepath.Join(repo, "README.md"), filepath.Join(repo, "NOTES.md")); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repo, "add", "-N", "NOTES.md")
+	got, err := dirtyPaths(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"NOTES.md"}; !slices.Equal(got, want) {
+		t.Fatalf("dirty = %q, want %q", got, want)
+	}
+}
+
+// A kept checkout with more dirty files than a brief names lists the
+// first MaxDirty of them, and counts the rest.
+func TestBriefCapsTheDirtyFilesOfAKeptCheckout(t *testing.T) {
+	w := newWorld(t)
+	w.ticket(machine.Todo)
+	crashed := w.dispatch(machine.StageImplementer)
+	for i := range brief.MaxDirty + 3 {
+		if err := os.WriteFile(filepath.Join(crashed.Checkout, fmt.Sprintf("f%03d.txt", i)), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.host.Exit(crashed.Session.ID, 1)
+	w.tick()
+	st := w.dispatch(machine.StageImplementer)
+	raw, err := os.ReadFile(filepath.Join(st.Checkout, brief.BriefJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b brief.Brief
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.KeptCheckouts) != 1 {
+		t.Fatalf("kept checkouts = %+v", b.KeptCheckouts)
+	}
+	if k := b.KeptCheckouts[0]; len(k.Dirty) != brief.MaxDirty || k.More != 3 {
+		t.Fatalf("dirty = %d files, more = %d, want %d and 3", len(k.Dirty), k.More, brief.MaxDirty)
 	}
 }
