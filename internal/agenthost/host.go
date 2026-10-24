@@ -155,9 +155,14 @@ func ParseRunID(s string) (RunID, error) {
 	return id, nil
 }
 
+// MaxCheckoutName bounds a checkout name, in bytes. The orca host refuses
+// a longer one.
+const MaxCheckoutName = 128
+
 // CheckoutSpec asks the host for a new checkout.
 type CheckoutSpec struct {
-	// Name is the worktree name. The host derives the path from it.
+	// Name is the worktree name. The host derives the path from it. It
+	// holds at most MaxCheckoutName bytes.
 	Name string `json:"name"`
 	// BaseBranch is the ref the checkout starts from. Empty means the repo default.
 	BaseBranch string `json:"base_branch,omitempty"`

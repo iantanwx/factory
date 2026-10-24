@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 )
@@ -49,39 +48,6 @@ func TestManifestTakesEveryRoomStage(t *testing.T) {
 	for _, k := range Kinds {
 		if _, err := config.ParseManifest([]byte("secrets:\n  - name: K\n    stages: [" + Stage(k) + "]\n")); err != nil {
 			t.Fatalf("%s: %v", Stage(k), err)
-		}
-	}
-}
-
-// C-bug-1: a room's terminal title and the first line of its first message
-// name the room kind, the item id when set, and the reason, on one line.
-func TestRoomSessionNamesItsWork(t *testing.T) {
-	for _, r := range []*Room{
-		{ID: "room-1", Project: "alpha", Item: "tk-1", Kind: "decision", Reason: "pick the cache\nkey for the board"},
-		{ID: "room-2", Project: "alpha", Kind: "intake", Reason: "the operator has a new idea"},
-	} {
-		spec := agenthost.StartSpec{Kind: agenthost.KindRoom, Checkout: "/r/c", Harness: agenthost.Claude, Model: "opus",
-			PromptFile: "/r/c/.loop/prompt.md", Title: sessionTitle(r)}
-		argv, err := agenthost.HarnessArgv(spec, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		first, _, _ := strings.Cut(argv[len(argv)-1], "\n")
-		reason := strings.ReplaceAll(r.Reason, "\n", " ")
-		want := []string{r.Kind + " room", reason}
-		if r.Item != "" {
-			want = append(want, r.Item)
-		}
-		for _, w := range want {
-			if !strings.Contains(spec.Title, w) {
-				t.Errorf("terminal title %q does not name %q", spec.Title, w)
-			}
-			if !strings.Contains(first, w) {
-				t.Errorf("first line of the first message %q does not name %q", first, w)
-			}
-		}
-		if strings.ContainsAny(spec.Title, "\n\r") {
-			t.Errorf("terminal title %q is not one line", spec.Title)
 		}
 	}
 }

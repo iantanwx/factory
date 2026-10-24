@@ -191,27 +191,37 @@ const maxSlug = 32
 // checkoutName names a run's checkout after its work:
 // loop-<project>-<stage>-<item>-<title slug>-<run id>. A run id is unique,
 // so the name is, even when two runs of one item keep checkouts at once.
+// The name fits agenthost.MaxCheckoutName: the slug shortens first, then
+// the item goes. The run id always stays.
 func checkoutName(ad admission.Admitted, title string) string {
-	name := "loop-" + ad.Project + "-" + ad.Stage
-	if ad.Item != "" {
-		name += "-" + ad.Item
-		if sl := slug(title); sl != "" {
+	name, tail := clean("loop-"+ad.Project+"-"+ad.Stage), clean("-"+ad.RunID)
+	room := agenthost.MaxCheckoutName - len(name) - len(tail)
+	if item := clean("-" + ad.Item); ad.Item != "" && len(item) <= room {
+		name += item
+		if sl := slug(title, min(maxSlug, room-len(item)-1)); sl != "" {
 			name += "-" + sl
 		}
 	}
-	name += "-" + ad.RunID
+	return name + tail
+}
+
+// clean replaces each rune a checkout name cannot hold with a dash.
+func clean(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-':
 			return r
 		}
 		return '-'
-	}, name)
+	}, s)
 }
 
-// slug makes a title short lowercase [a-z0-9-]. An apostrophe joins its
-// word, and a long slug is cut at a word.
-func slug(title string) string {
+// slug makes a title lowercase [a-z0-9-] of at most limit bytes. An
+// apostrophe joins its word, and a long slug is cut at a word.
+func slug(title string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
 	var b strings.Builder
 	dash := false
 	for _, r := range strings.ToLower(title) {
@@ -228,12 +238,12 @@ func slug(title string) string {
 		}
 	}
 	s := b.String()
-	if len(s) > maxSlug {
-		s = s[:maxSlug+1]
+	if len(s) > limit {
+		s = s[:limit+1]
 		if i := strings.LastIndexByte(s, '-'); i > 0 {
 			s = s[:i]
 		} else {
-			s = s[:maxSlug]
+			s = s[:limit]
 		}
 	}
 	return s

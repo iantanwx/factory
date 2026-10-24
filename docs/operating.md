@@ -207,7 +207,9 @@ project.
 Every other session names its work in Orca. A stage run's terminal title
 and the first line of its first message read
 `loop <project> <stage> <item>: <item title>`, and its worktree is
-`loop-<project>-<stage>-<item>-<title slug>-<run id>`. A room's title and
+`loop-<project>-<stage>-<item>-<title slug>-<run id>`. Orca takes a
+worktree name of at most 128 bytes, so a long project id shortens the
+slug first, then drops the item; the run id always stays. A room's title and
 first line read `loop <kind> room <item>: <reason>`, without the item when
 the room has none.
 
