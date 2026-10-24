@@ -364,6 +364,39 @@ func (s *Service) ReviewComment(ctx context.Context, project, item, body, key st
 	return nil
 }
 
+// PRHead reads the head of the item's open pull request, as the
+// machine's PRHeadReader. The machine calls it after every other check of
+// a `review submit --head` passed (machine.Request.Before), so the verdict
+// is compared with the head GitHub holds at the write, not the head the
+// reviewer read earlier. The PR is read again by number, as prShow does.
+func (s *Service) PRHead(ctx context.Context, project, item string) (string, *cli.Refusal) {
+	prj, err := s.project(project)
+	if err != nil {
+		r := Refusal(err)
+		return "", &r
+	}
+	branch, ref := s.itemBranch(ctx, project, item)
+	if ref != nil {
+		return "", ref
+	}
+	pr, err := s.FindPR(ctx, prj, branch)
+	if err == nil && pr != nil && pr.State == "open" {
+		var cur PR
+		if cur, err = s.GetPR(ctx, prj, pr.Number); err == nil {
+			pr = &cur
+		}
+	}
+	if err != nil {
+		r := Refusal(err)
+		return "", &r
+	}
+	if pr == nil || pr.State != "open" {
+		return "", &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_open_pr", Item: item,
+			Hint: fmt.Sprintf("%s has no open pull request on %s to hold the reviewed head", item, branch)}
+	}
+	return pr.Head.SHA, nil
+}
+
 // SupersedeEvidence reads the evidence of `work supersede` back, as the
 // machine's SupersedeChecker. The machine calls it after every other check
 // of the close passed (machine.Request.Before), so a refused or failed

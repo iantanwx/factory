@@ -72,6 +72,9 @@ type Machine struct {
 	hook func(point string) bool
 	// reviewComment posts the body of `review submit`. Nil posts nothing.
 	reviewComment ReviewCommenter
+	// prHead reads the live head of an item's pull request, which
+	// `review submit --head` must name. Nil reads nothing.
+	prHead PRHeadReader
 	// supersedeCheck reads the evidence of `work supersede` back from
 	// GitHub. Nil refuses every supersede.
 	supersedeCheck SupersedeChecker

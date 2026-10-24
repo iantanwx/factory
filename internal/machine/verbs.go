@@ -143,19 +143,45 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 		verb = "review_reject"
 	}
 	params := map[string]string{}
-	if h := call.Inv.Flags["head"]; h != "" {
-		params["head"] = h
+	head := call.Inv.Flags["head"]
+	if head != "" {
+		params["head"] = head
 	}
 	body := call.Inv.Flags["body"]
 	if body != "" {
 		params["body"] = body
 	}
 	req := request(call, prj, item, verb, params)
-	if body != "" && m.reviewComment != nil {
-		key := commentKey(call)
-		req.Before = func(ctx context.Context) *cli.Refusal { return m.reviewComment(ctx, prj, item, body, key) }
+	key := commentKey(call)
+	req.Before = func(ctx context.Context) *cli.Refusal {
+		if head != "" && m.prHead != nil {
+			if r := m.headHeld(ctx, prj, item, head); r != nil {
+				return r
+			}
+		}
+		if body != "" && m.reviewComment != nil {
+			return m.reviewComment(ctx, prj, item, body, key)
+		}
+		return nil
 	}
 	return m.Apply(ctx, req)
+}
+
+// headHeld refuses a verdict at a head the item's pull request no longer
+// holds. The reviewer read the head before it reviewed, and a push since
+// then puts unread text under the verdict. Ported from candidateFeedback
+// in scripts/sdlc/github-health.ts:46-70 (alpha).
+func (m *Machine) headHeld(ctx context.Context, prj, item, head string) *cli.Refusal {
+	live, r := m.prHead(ctx, prj, item)
+	if r != nil {
+		return r
+	}
+	if live == head {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeStatusChanged, Rule: "head_changed", Item: item,
+		Hint: fmt.Sprintf("the pull request of %s is at %s, not at %s; read the new head with loop pr show and review it",
+			item, live, head)}
 }
 
 // workEdit replaces an item's title or body. Beads keeps the text the item
@@ -386,6 +412,14 @@ type ReviewCommenter func(ctx context.Context, project, item, body, key string) 
 // SetReviewCommenter sets the poster of review comments. The GitHub setup
 // sets it before the socket binds.
 func (m *Machine) SetReviewCommenter(f ReviewCommenter) { m.reviewComment = f }
+
+// PRHeadReader reads the head commit of the item's open pull request. It
+// refuses when the item has no open pull request.
+type PRHeadReader func(ctx context.Context, project, item string) (string, *cli.Refusal)
+
+// SetPRHeadReader sets the reader of live pull request heads. The GitHub
+// setup sets it before the socket binds.
+func (m *Machine) SetPRHeadReader(f PRHeadReader) { m.prHead = f }
 
 // TaskText is the title and the body of an item's task: the text work
 // edit wrote, or the bead's own, and then an answer that amends the task.

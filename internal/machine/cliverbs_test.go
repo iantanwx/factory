@@ -112,6 +112,42 @@ func TestReviewSubmitCarriesItsBody(t *testing.T) {
 	}
 }
 
+// review submit --head compares the head with the pull request's live head
+// at the write, as candidateFeedback in scripts/sdlc/github-health.ts:46-70
+// (alpha) did. A verdict at a head the PR no longer holds records nothing
+// and posts no comment.
+func TestReviewSubmitRefusesAHeadThePRNoLongerHolds(t *testing.T) {
+	const shaB = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	w := newWorld(t)
+	log := &commentLog{}
+	w.m.SetReviewCommenter(log.post)
+	live := shaB
+	var reads []string
+	w.m.SetPRHeadReader(func(_ context.Context, project, item string) (string, *cli.Refusal) {
+		reads = append(reads, project+"|"+item)
+		return live, nil
+	})
+
+	id, rev := w.inReview()
+	res := w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA, "body": "Looks right."})
+	wantCode(t, res, cli.CodeStatusChanged)
+	if res.Refusal.Rule != "head_changed" || !strings.Contains(res.Refusal.Hint, shaB[:7]) {
+		t.Fatalf("refusal: %+v", res.Refusal)
+	}
+	if it := w.show(id); it.Status != InReview || it.Fact(FactReviewedHead) != "" || len(log.calls) != 0 {
+		t.Fatalf("a verdict at a moved head wrote: %s %v %v", it.Status, it.Facts, log.calls)
+	}
+	if len(reads) != 1 || reads[0] != prj+"|"+id {
+		t.Fatalf("head reads: %v", reads)
+	}
+
+	live = shaA
+	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA, "body": "Looks right."}))
+	if it := w.show(id); it.Status != ReadyToMerge || it.Fact(FactReviewedHead) != shaA || len(log.calls) != 1 {
+		t.Fatalf("a verdict at the live head: %s %v %v", it.Status, it.Facts, log.calls)
+	}
+}
+
 // work edit replaces the title or the body. The item shows the new title,
 // and TaskText, which admission reads for the retry identity (R10), holds
 // both.

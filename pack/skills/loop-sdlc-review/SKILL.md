@@ -111,6 +111,10 @@ moved, do not submit. A verdict at an unread head approves text that nobody read
 loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"
 ```
 
+The server reads the pull request's head again at the write. When it is not `--head`, the verdict
+gets `STATUS_CHANGED` with rule `head_changed`, and nothing is recorded or posted. Review the new
+head that the hint names, and submit again.
+
 Before you review, read `loop review rounds <item>`. When a round already holds a verdict at this
 head, do not review again. Finish the run from that verdict. A run that crashed after its comment
 must not post a second review.
