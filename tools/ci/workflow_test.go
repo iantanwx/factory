@@ -118,8 +118,12 @@ func TestWorkflowVerifyJoinsEveryJob(t *testing.T) {
 			t.Errorf("the %s step reads no %s", VerifyJob, ref)
 		}
 	}
-	if got := w.Jobs[ReleaseJob].needs(); !slices.Equal(got, []string{VerifyJob}) {
-		t.Errorf("%s needs %q, want [%s]", ReleaseJob, got, VerifyJob)
+	// Release names each job as well as verify, so it still states that
+	// it waits for gates and acceptance (internal/release/dist_test.go).
+	want = append(want, VerifyJob)
+	slices.Sort(want)
+	if got := slices.Sorted(slices.Values(w.Jobs[ReleaseJob].needs())); !slices.Equal(got, want) {
+		t.Errorf("%s needs %q, want %q", ReleaseJob, got, want)
 	}
 }
 

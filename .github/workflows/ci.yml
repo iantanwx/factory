@@ -136,7 +136,7 @@ jobs:
   # install.sh. Hosts pick it up with install.sh (docs/operating.md).
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [verify]
+    needs: [gates, acceptance, verify]
     runs-on: depot-ubuntu-24.04
     permissions:
       contents: write
