@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
 )
@@ -74,9 +75,12 @@ func TestC13ADatedDecisionIsANoteAndOtherStatesPrintNothing(t *testing.T) {
 
 // C13: a world whose only content is the factorio-jam fixture ticks three
 // times with the shipped parts and rings nobody, and each tick's report
-// holds the note.
+// holds the note. The host around it is healthy: the coordinator session
+// runs, and the doctor passes, so the inbox and server parts read quiet.
 func TestC13TheJamFixtureTicksThreeTimesAndRingsNobody(t *testing.T) {
-	w := jamWorld(t)
+	w := newReachWorld(t)
+	w.fakeWorld = jamWorld(t)
+	w.lines = []github.CheckLine{{Check: "install", OK: true, Detail: "the install matches loop install"}}
 	d := &doorbell{}
 	j := &Job{World: w, Parts: Parts(), Ring: d.ring}
 	for range 3 {
@@ -93,7 +97,7 @@ func TestC13TheJamFixtureTicksThreeTimesAndRingsNobody(t *testing.T) {
 		}
 		w.now = w.now.Add(10 * time.Minute)
 	}
-	if len(d.texts) != 0 || ringRows(t, w) != 0 {
+	if len(d.texts) != 0 || ringRows(t, w.fakeWorld) != 0 {
 		t.Fatalf("the jam fixture rang %q", d.texts)
 	}
 }

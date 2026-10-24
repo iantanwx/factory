@@ -93,6 +93,8 @@ type Config struct {
 	Changed func()
 	NewID   func() string
 	Logger  *slog.Logger
+	// BaseHead reads the remote head that a room's checkout starts from.
+	BaseHead sched.BaseHeadSource
 }
 
 // Service serves the room verbs and watches open rooms.
@@ -103,8 +105,8 @@ type Service struct {
 
 // New returns a Service.
 func New(cfg Config) (*Service, error) {
-	if cfg.Store == nil || cfg.Machine == nil || cfg.Agents == nil || cfg.Secrets == nil || cfg.Tokens == nil || cfg.ProjectConfig == nil {
-		return nil, errors.New("room: rooms need a store, the machine, an agent host, secrets, tokens and project config")
+	if cfg.Store == nil || cfg.Machine == nil || cfg.Agents == nil || cfg.BaseHead == nil || cfg.Secrets == nil || cfg.Tokens == nil || cfg.ProjectConfig == nil {
+		return nil, errors.New("room: rooms need a store, the machine, an agent host, a base head source, secrets, tokens and project config")
 	}
 	if cfg.Checkouts == nil {
 		agents := cfg.Agents
@@ -459,7 +461,11 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 		return fail(cli.CodeInternal, err)
 	}
 	if r.Checkout == "" {
-		co, err := s.cfg.Checkouts(r.Project).CreateCheckout(ctx, agenthost.CheckoutSpec{Name: "loop-" + r.ID, BaseBranch: snap.BaseBranch()})
+		spec, err := sched.BaseCheckout(ctx, s.cfg.BaseHead, r.Project, snap.BaseBranch(), "loop-"+r.ID)
+		if err != nil {
+			return fail(cli.CodeInternal, fmt.Errorf("room: %w", err))
+		}
+		co, err := s.cfg.Checkouts(r.Project).CreateCheckout(ctx, spec)
 		if err != nil {
 			return fail(cli.CodeInternal, fmt.Errorf("room: create the checkout: %w", err))
 		}
