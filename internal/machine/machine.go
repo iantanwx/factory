@@ -53,6 +53,11 @@ type Config struct {
 	// Claims is the admission hook. Every claim the table allows passes
 	// when nil.
 	Claims ClaimGuard
+	// Terminal runs inside the transaction that marks a write applied,
+	// when the write lands its item in a terminal state. An error rolls
+	// the mark back, so a retry of the intent runs it again. Nothing runs
+	// when nil.
+	Terminal func(tx *store.Tx, project, item string) error
 	// Registry seals the answers the machine stores under an intent.
 	// cli.NewRegistry() when nil; it must know every refusal code the
 	// machine answers.

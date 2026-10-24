@@ -359,7 +359,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			claims = s.Admission
 		}
 		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: claims,
-			Registry: cli.Surface(), Logger: srv.Logger()})
+			Terminal: escalation.CloseFor, Registry: cli.Surface(), Logger: srv.Logger()})
 		if err != nil {
 			return nil, err
 		}
