@@ -114,9 +114,24 @@ decide. A job that outlives its run, which ADR 0006 postpones to the tickertown 
   (`internal/admission/policy.go:253`), and a run that dies before it starts would spend the
   recovery. We rejected a lease claim. A claim moves the item out of the state that its stage
   takes, and the stage must take the item again after the edit.
-- **A fixer run takes one unit of work: the oldest waiting escalation, or else the oldest waiting
-  recovery.** We chose escalations first, because an escalation holds its item at every stage,
-  while a held item waits at one stage only. The server refuses a second take in one run.
+- **The server lets a fixer run take at most one recovery. The runbook alone orders the work:
+  one unit for each run, the oldest waiting escalation, or else the oldest waiting recovery.** We
+  chose escalations first, because an escalation holds its item at every stage, while a held item
+  waits at one stage only. The server refuses a second take in one run (`one_recovery_per_run`),
+  because each take spends an item's one recovery (K-3). We rejected a server refusal of a take
+  after the run routed an escalation. The server does not refuse a second route in one run today:
+  the fixer runbook's "only that one" (`pack/runbooks/fixer.md:24`) is the only rule. And a run
+  that both routes and recovers harms neither unit, because the panel settles the escalation and
+  the sweep settles the recovery, each on its own.
+- **A fixer may end a recovery with a note and no other write.** The fixer runbook then has four
+  outcomes: an edit, a supersede, an escalation, or a note with its finding. After the note, the
+  sweep raises the coordinator's `retry_limit` alert, because the item is still held. ADR 0006,
+  Decision 5, names three outcomes. Its Consequences name this fourth one, because the alert
+  "waits for the coordinator only after a recovery left the item held"
+  (`docs/adr/0006-run-integrity.md:160`). We rejected a required escalation when no edit and no
+  supersede fits. The server refuses levels 1 to 3, so the fixer would have to score a finding at
+  4 or 5 that the triage rubric scores lower, or end with no exit. The note path brings that item
+  to the coordinator, the same person that a spent recovery reaches on every other path.
 - **The `retry_limit` alert opens at the first limit, as today, and its subject says that the
   fixer recovers the item first.** The ADR says that the alert waits for the coordinator only after
   a recovery left the item held. We keep that meaning through the alert's text: the coordinator
@@ -127,8 +142,10 @@ decide. A job that outlives its run, which ADR 0006 postpones to the tickertown 
   with no entry in the inbox.
 - **The recovery is spent when a fixer takes it, and not at the limit.** A waiting recovery whose
   item stops being held is dropped, unspent. An item stops being held when a coordinator edit or a
-  new release changes its inputs, or when the item moves. A later limit then opens a new waiting
-  recovery. We rejected a recovery that is spent at the limit, because the item would then lose its
+  new release changes its inputs, or when the item moves. The sweep that drops the row also clears
+  the `retry_limit` alert at the row's inputs. Otherwise the alert stays open with no reader, and
+  overwatch's `stalls` check would skip the item for good (spec of factorio-a7r, C10). A later
+  limit then opens a new waiting recovery. We rejected a recovery that is spent at the limit, because the item would then lose its
   one recovery to an edit that the coordinator made first.
 - **A sweep on the scheduler's tick settles each recovery, and not the fixer's finish.** A fixer
   run that crashes ends with no finish. A panel that routes the fixer's escalation back to the loop
@@ -243,14 +260,15 @@ project:
    - The item is held, and no hold holds it. The sweep raises the `retry_limit` alert at the
      item's current inputs. Its subject says that the recovery is spent and names the fixer run.
      The row becomes `closed`.
-3. A `waiting` row whose item is no longer held is deleted.
+3. A `waiting` row whose item is no longer held is deleted, and the sweep clears the
+   `retry_limit` alert at the row's inputs.
 
 Nothing ever deletes a `taken`, `spent` or `closed` row. So the item's next limit, at any stage,
 finds its row and opens no recovery (K-3). No step writes the `failures` table.
 
 **The runbooks.** `pack/runbooks/fixer.md` gains a recovery section, after the escalation
 sections. When no escalation waits and a recovery does, the fixer runs `loop work recover <item>`,
-reads the item and the failures, and then does one of four things:
+reads the item and the failures, and then does one of four things (Decisions):
 
 1. It edits the item with `loop work edit` to change what failed.
 2. It closes a ticket with `loop work supersede`.
@@ -467,7 +485,7 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> waiting: second counted failure at one input, no row, fixer enabled
-    waiting --> [*]: the item stops being held (sweep deletes the row)
+    waiting --> [*]: the item stops being held (sweep deletes the row, clears the old alert)
     waiting --> taken: loop work recover by a fixer run
     taken --> spent: the fixer run ended, any outcome (sweep)
     spent --> closed: the item is no longer held (sweep clears the old alert)
@@ -569,7 +587,8 @@ sequenceDiagram
    `retry_limit` alert when a spent recovery left the item held.
    - Files: `internal/sched/recovery.go` (new), `internal/sched/scheduler.go` (the tick),
      `acceptance/scenarios/recovery_test.go` (new), and their tests.
-   - Needs: entries 4 and 5. Its acceptance scenario also uses the edit of entry 6.
+   - Needs: entries 4, 5 and 6. C14 needs the fixer's `work edit` on the item, and C15 needs its
+     `escalation raise --item`. Entry 6 admits both.
    - Proves: C14, C15, C16, C17.
    - Done when: `make acceptance` passes a scenario in which a ticket fails twice, a fixer run
      takes the recovery and edits the ticket, the ticket fails twice more, and the inbox then holds
@@ -596,8 +615,9 @@ sequenceDiagram
   decision.
 - Overwatch's `stalls` check and its exclusions. They belong to epic factorio-a7r. This spec keeps
   the open `retry_limit` alert that its C10 reads.
-- Tickertown's recovery waits on a named dependency. ADR 0006 keeps three outcomes and does not
-  port that wait, so it belongs to no epic.
+- Tickertown's recovery waits on a named dependency. ADR 0006 does not port that wait. Its
+  outcomes are an edit, a supersede and an escalation, and this spec adds only a note that hands
+  the item to the coordinator (Decisions). So the wait belongs to no epic.
 
 ## Contracts
 
@@ -705,13 +725,15 @@ changes a row of the `failures` table.
 
 **C17. Boundary: a waiting recovery whose item stops being held is dropped unspent.** Proves D5.
 When the coordinator edits a held item whose row is `waiting`, or a new release changes its inputs,
-or the item moves to another state, the next sweep deletes the row. A later limit then opens a new
+or the item moves to another state, the next sweep deletes the row. After each of the three causes,
+no open `retry_limit` alert names the item at the old inputs. A later limit then opens a new
 `waiting` row.
 *A scheduler test for each of the three causes.*
 
 **C18. Behaviour: the runbooks name the recovery verbs that the schema holds.** Proves D5. The
-fixer runbook names `loop work recover` and `loop escalation raise --item`, and takes a recovery
-only when no escalation waits. The coordinator runbook answers a `retry_limit` alert only when its
+fixer runbook names `loop work recover` and `loop escalation raise --item`. It takes one unit of
+work in each run: it takes a recovery only when no escalation waits at the run's first peek, and
+it finishes after that unit. It names the four recovery outcomes, the note among them. The coordinator runbook answers a `retry_limit` alert only when its
 subject says that the recovery is spent. `make pack-check` refuses a runbook that names a verb or a
 flag that `loop schema` does not list.
 *`make pack-check` as a command, the weak proof. The doc-reviewer reads the two steps.*
