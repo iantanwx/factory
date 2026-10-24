@@ -443,6 +443,46 @@ func TestReopenedIdleRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
 	}
 }
 
+// C-bug-1: a room's session names its work. The terminal title and the
+// first line of the first message the host launched carry the room kind,
+// the item id when the room has one, and the reason, on one line.
+func TestRoomSessionNamesItsWork(t *testing.T) {
+	w := newRoomWorld(t)
+	item := todoTicket(t, w.bx)
+	for _, c := range []struct{ kind, item, reason, want string }{
+		{"review", item, "the reviewer and\nthe author disagree", "the reviewer and the author disagree"},
+		{"intake", "", "the operator has a new idea", "the operator has a new idea"},
+	} {
+		before := len(w.host.Launches())
+		r := w.openRoom(c.kind, c.item, c.reason)
+		if r["state"] != room.Live {
+			t.Fatalf("room = %v", r)
+		}
+		l := w.host.Launches()
+		if len(l) != before+1 {
+			t.Fatalf("launches = %+v", l[before:])
+		}
+		title, msg := l[before].Spec.Title, l[before].Argv[len(l[before].Argv)-1]
+		first, _, _ := strings.Cut(msg, "\n")
+		want := []string{c.kind + " room", c.want}
+		if c.item != "" {
+			want = append(want, c.item)
+		}
+		for _, s := range want {
+			if !strings.Contains(title, s) {
+				t.Errorf("terminal title %q does not name %q", title, s)
+			}
+			if !strings.Contains(first, s) {
+				t.Errorf("first line of the first message %q does not name %q", first, s)
+			}
+		}
+		if strings.ContainsAny(title, "\n\r") {
+			t.Errorf("terminal title %q is not one line", title)
+		}
+		w.coordinator("room", "close", r["room"].(string))
+	}
+}
+
 // Parity 1.32: an architect room serves one architecture epic, so the
 // operator and an agent write its ADR together. It needs the epic, and an
 // item in any other state is refused before any room opens. Its session

@@ -16,6 +16,9 @@ func TestClassify(t *testing.T) {
 		want Class
 	}{
 		{"finish done", Settlement{Finish: "done"}, ClassDone},
+		{"finish done, item still held", Settlement{Finish: "done", Held: true}, "stalled"},
+		{"finish failed, item still held", Settlement{Finish: "failed", Held: true}, ClassFailed},
+		{"finish blocked, item still held", Settlement{Finish: "blocked", Held: true}, ClassBlocked},
 		{"finish failed beats an outage", Settlement{Finish: "failed", Started: at(0), Ended: at(9),
 			Outages: []Outage{{at(2), at(5)}}}, ClassFailed},
 		{"finish blocked", Settlement{Finish: "blocked"}, ClassBlocked},
