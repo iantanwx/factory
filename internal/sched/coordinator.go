@@ -94,7 +94,9 @@ func (s *Scheduler) saveCoordinator(ctx context.Context, cs CoordinatorState) er
 // ensureCoordinator starts the coordinator session when none runs: at the
 // first tick after the service starts, and after the session's process
 // exits. A session whose liveness reads unknown is left alone, unless a
-// complete inventory proves it gone.
+// complete inventory proves it gone, or lists it under a new handle with
+// the same incarnation and checkout (Inventory.Rebound), which the stored
+// session then takes.
 func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 	cc := s.cfg.Coordinator
 	if cc == nil || s.Draining() {
@@ -138,7 +140,21 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 		}
 		if err != nil || st.Liveness != agenthost.Exited {
 			inv, ierr := s.cfg.Agents.Inventory(ctx)
-			if ierr != nil || inv.Lookup(*cs.Session) != agenthost.Absent {
+			if ierr != nil {
+				return
+			}
+			if moved, ok := inv.Rebound(*cs.Session); ok {
+				// The host moved the live session to a new handle (F-17).
+				// The doorbell rings the stored handle, so it follows.
+				s.log.WarnContext(ctx, "the coordinator session moved to a new handle; rebinding",
+					"run", cs.RunID, "from", cs.Session.ID.String(), "to", moved.ID.String())
+				cs.Session = &moved
+				if err := s.saveCoordinator(ctx, cs); err != nil {
+					s.log.ErrorContext(ctx, "store the coordinator", "err", err)
+				}
+				return
+			}
+			if inv.Lookup(*cs.Session) != agenthost.Absent {
 				return
 			}
 		}
