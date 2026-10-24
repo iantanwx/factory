@@ -159,8 +159,8 @@ ledger. A count beside the table is the same rule in two places.
 
 - A rule about the project lives in the project's repository: its gates, its tests and its
   `.loop/policy/` files.
-- A rule about how the loop behaves lives in the loop. Report it as a loop fault with
-  `loop fault report`, and name the rule you expected.
+- A rule about how the loop behaves lives in the loop. Report it as a loop fault by
+  `../loop-fault/SKILL.md`, and name the rule you expected.
 
 ## 6. Failures
 
