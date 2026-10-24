@@ -94,28 +94,95 @@ func (s *Server) humanClock() func() time.Time {
 	return time.Now
 }
 
-// recordedRing is the doorbell of one source. It rings through
-// ringCoordinator and writes the outcome with overwatch.RecordRing. A
+// recordedRing is the doorbell of one source. It rings the stored
+// coordinator session and writes the outcome with overwatch.RecordRing. A
 // failed row write is logged, and the ring's own result stands.
+//
+// After overwatch.RefusalLimit refused rings in a row to one session, both
+// doorbells share one backoff and one open alert that names the session
+// (F-32). Each ring the backoff holds rings no one and writes no row. A new
+// stored session, or a hold that passed, rings again, and an accepted ring
+// closes the alert.
 func (s *Server) recordedRing(source string) inbox.Doorbell {
 	now := s.humanClock()
 	return func(ctx context.Context, text string) error {
-		err := s.ringCoordinator(ctx, text)
-		o := overwatch.RingOutcome{At: now(), Source: source, Result: overwatch.RingAccepted}
+		bg := context.WithoutCancel(ctx)
+		last, _, err := overwatch.LastRing(ctx, s.Store)
+		if err != nil {
+			s.log.WarnContext(ctx, "read the coordinator ring", "source", source, "err", err)
+		}
+		id, ok := s.coordinatorSession()
+		handle := ""
+		if ok {
+			handle = id.String()
+		}
+		at := now()
+		if last.Held(handle, at) {
+			return inbox.ErrRingHeld
+		}
+		err = inbox.ErrNobodyToRing
+		if ok {
+			err = s.opts.Agents.Notify(ctx, id, text)
+		}
+		o := overwatch.RingOutcome{At: at, Source: source, Result: overwatch.RingAccepted, Handle: handle, Alerted: last.Alerted}
 		switch {
 		case errors.Is(err, inbox.ErrNobodyToRing):
-			o.Result = overwatch.RingNobody
+			o.Result, o.Handle = overwatch.RingNobody, ""
 		case err != nil:
-			o.Result, o.Detail = overwatch.RingRefused, err.Error()
+			o.Result, o.Detail, o.Refusals = overwatch.RingRefused, err.Error(), 1
 			if s.Redactor != nil {
 				o.Detail = s.Redactor.Redact(o.Detail)
 			}
+			if last.Result == overwatch.RingRefused && last.Handle == handle {
+				o.Refusals = last.Refusals + 1
+			}
 		}
-		if werr := overwatch.RecordRing(context.WithoutCancel(ctx), s.Store, o); werr != nil {
+		switch {
+		case o.Result == overwatch.RingAccepted && o.Alerted != "":
+			if s.clearRingAlert(bg, o.Alerted) {
+				o.Alerted = ""
+			}
+		case o.Result == overwatch.RingRefused && o.Refusals >= overwatch.RefusalLimit:
+			// The alert of a session the server no longer stores is moot.
+			if o.Alerted != "" && o.Alerted != handle && !s.clearRingAlert(bg, o.Alerted) {
+				break
+			}
+			if s.raiseRingAlert(bg, id, o) {
+				o.Alerted = handle
+			}
+		}
+		if werr := overwatch.RecordRing(bg, s.Store, o); werr != nil {
 			s.log.WarnContext(ctx, "record the coordinator ring", "source", source, "result", o.Result, "err", werr)
 		}
 		return err
 	}
+}
+
+// raiseRingAlert raises, or counts up, the one open alert of a session
+// that refused o.Refusals rings in a row. It names the session's terminal
+// and quotes the last refusal. ok is false when the write failed.
+func (s *Server) raiseRingAlert(ctx context.Context, id agenthost.RunID, o overwatch.RingOutcome) bool {
+	a := config.Alert{Kind: overwatch.AlertRingRefused, DedupeKey: overwatch.RingAlertKey(o.Handle),
+		Subject: fmt.Sprintf("the coordinator session in terminal %s refused %d rings in a row", id.Terminal, o.Refusals),
+		Body: fmt.Sprintf("The agent host refused the last %d rings to the stored coordinator session %s (terminal %s). "+
+			"The last refusal: %q. The server rings that session again after %s, and backs off up to %s each time, "+
+			"until the stored session changes or a ring is accepted. An accepted ring closes this alert.",
+			o.Refusals, id, id.Terminal, o.Detail, o.Hold(), overwatch.HoldMax)}
+	if err := config.StoreAlerter(s.Store).Raise(ctx, a); err != nil {
+		s.log.WarnContext(ctx, "raise the refused ring alert", "session", id.String(), "err", err)
+		return false
+	}
+	return true
+}
+
+// clearRingAlert closes the refused ring alert of handle. ok is false when
+// the write failed, so the next ring tries again.
+func (s *Server) clearRingAlert(ctx context.Context, handle string) bool {
+	if err := config.StoreAlerter(s.Store).Clear(ctx, overwatch.RingAlertKey(handle)); err != nil {
+		s.log.WarnContext(ctx, "clear the refused ring alert", "session", handle, "err", err)
+		return false
+	}
+	return true
 }
 
 // errNoPartReads is the answer of a World read that no landed part makes

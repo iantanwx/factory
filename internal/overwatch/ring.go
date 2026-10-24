@@ -60,13 +60,61 @@ const (
 // RingKind is the one schedule row that holds the last ring's outcome.
 const RingKind = "coordinator_ring"
 
+// RefusalLimit is how many refused rings in a row to one stored
+// coordinator session raise AlertRingRefused and start the backoff (F-32).
+const RefusalLimit = 3
+
+// The backoff after RefusalLimit refusals in a row: HoldBase after the
+// RefusalLimit-th, doubled for each refusal after it, and at most HoldMax.
+const (
+	HoldBase = time.Minute
+	HoldMax  = 30 * time.Minute
+)
+
+// AlertRingRefused names one stored coordinator session that refused
+// RefusalLimit or more rings in a row. Its dedupe key is RingAlertKey of
+// the session's handle, and an accepted ring closes it.
+const AlertRingRefused = "coordinator_ring_refused"
+
+// RingAlertKey is the dedupe key of the AlertRingRefused alert of handle.
+func RingAlertKey(handle string) string { return AlertRingRefused + ":" + handle }
+
 // RingOutcome is the outcome of the last ring that the loop sent. Only a
-// refused ring carries Detail, the refusal's text.
+// refused ring carries Detail, the refusal's text, and Refusals.
 type RingOutcome struct {
 	At     time.Time `json:"at"`
 	Source string    `json:"source"` // SourceInbox or SourceOverwatch
 	Result string    `json:"result"` // RingAccepted, RingRefused or RingNobody
 	Detail string    `json:"detail,omitempty"`
+	// Handle is the stored coordinator session the ring went to, empty for
+	// RingNobody.
+	Handle string `json:"handle,omitempty"`
+	// Refusals counts the refused rings in a row to Handle, this one
+	// included.
+	Refusals int `json:"refusals,omitempty"`
+	// Alerted is the handle whose AlertRingRefused alert is open. Each row
+	// carries it until an accepted ring closes the alert.
+	Alerted string `json:"alerted,omitempty"`
+}
+
+// Hold is how long the backoff holds the next ring to Handle after this
+// one. It is zero below RefusalLimit refusals.
+func (o RingOutcome) Hold() time.Duration {
+	if o.Result != RingRefused || o.Refusals < RefusalLimit {
+		return 0
+	}
+	d := HoldBase
+	for i := RefusalLimit; i < o.Refusals && d < HoldMax; i++ {
+		d *= 2
+	}
+	return min(d, HoldMax)
+}
+
+// Held reports whether the backoff of this ring holds a ring to handle at
+// now. Another handle, a stored session that changed, is never held.
+func (o RingOutcome) Held(handle string, now time.Time) bool {
+	hold := o.Hold()
+	return hold > 0 && handle != "" && o.Handle == handle && now.Before(o.At.Add(hold))
 }
 
 func (o RingOutcome) check() error {
@@ -77,6 +125,9 @@ func (o RingOutcome) check() error {
 	case RingAccepted, RingNobody:
 		if o.Detail != "" {
 			return fmt.Errorf("overwatch: a ring %s carries no text", o.Result)
+		}
+		if o.Refusals != 0 {
+			return fmt.Errorf("overwatch: a ring %s counts no refusals", o.Result)
 		}
 	case RingRefused:
 	default:

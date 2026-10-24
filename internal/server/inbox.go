@@ -136,14 +136,24 @@ func (s *Server) projectSource() sched.ProjectSource {
 // ringCoordinator types one line into the coordinator's session. With no
 // coordinator session it rings nobody, and the inbox stays pull-durable.
 func (s *Server) ringCoordinator(ctx context.Context, text string) error {
-	if s.Sched == nil || s.opts.Agents == nil {
+	id, ok := s.coordinatorSession()
+	if !ok {
 		return inbox.ErrNobodyToRing
+	}
+	return s.opts.Agents.Notify(ctx, id, text)
+}
+
+// coordinatorSession is the stored coordinator session a ring goes to. ok
+// is false with no scheduler, no agent host or no session.
+func (s *Server) coordinatorSession() (agenthost.RunID, bool) {
+	if s.Sched == nil || s.opts.Agents == nil {
+		return agenthost.RunID{}, false
 	}
 	cs := s.Sched.Coordinator()
 	if cs.Session == nil {
-		return inbox.ErrNobodyToRing
+		return agenthost.RunID{}, false
 	}
-	return s.opts.Agents.Notify(ctx, cs.Session.ID, text)
+	return cs.Session.ID, true
 }
 
 // coordinatorSend types the operator's message into the coordinator's

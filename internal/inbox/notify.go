@@ -20,6 +20,11 @@ const NotifyKind = "inbox_notify"
 // entry it missed.
 var ErrNobodyToRing = errors.New("inbox: no coordinator session to ring")
 
+// ErrRingHeld is a Doorbell's answer when it rang no one because the
+// session refused ring after ring and the backoff holds it (F-32). The
+// cursor stays, as with ErrNobodyToRing.
+var ErrRingHeld = errors.New("inbox: the coordinator ring is held after repeated refusals")
+
 // Doorbell types one line into the coordinator's session. The scheduler's
 // agent host does it (agenthost.Host.Notify).
 type Doorbell func(ctx context.Context, text string) error
@@ -59,7 +64,7 @@ func (n *Notifier) Poke(ctx context.Context) error {
 	if err != nil || len(es) == 0 {
 		return err
 	}
-	if err := n.Ring(ctx, RingText(es)); errors.Is(err, ErrNobodyToRing) {
+	if err := n.Ring(ctx, RingText(es)); errors.Is(err, ErrNobodyToRing) || errors.Is(err, ErrRingHeld) {
 		return nil
 	} else if err != nil {
 		return fmt.Errorf("inbox: ring the coordinator: %w", err)
