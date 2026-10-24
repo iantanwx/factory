@@ -194,10 +194,6 @@ func (s *Server) clearRingAlert(ctx context.Context, handle string) bool {
 	return true
 }
 
-// errNoPartReads is the answer of a World read that no landed part makes
-// yet. The part entry that first reads it builds it (spec, Work 5 to 10).
-var errNoPartReads = errors.New("overwatch: no part reads this yet")
-
 // serverWorld is the production World: the reads the server already holds.
 type serverWorld struct {
 	s   *Server
