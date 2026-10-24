@@ -29,7 +29,7 @@ func (w *humanWorld) ringAlerts(terminal string) []ringAlert {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var s, b string
 			var a ringAlert
