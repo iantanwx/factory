@@ -435,6 +435,9 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 		if h := q.Get("head"); h != "" {
 			list = slices.DeleteFunc(list, func(p *PR) bool { return Owner+":"+p.Head != h })
 		}
+		if st := q.Get("state"); st == "open" || st == "closed" {
+			list = slices.DeleteFunc(list, func(p *PR) bool { return p.State != st })
+		}
 		if q.Get("sort") == "updated" {
 			sort.Slice(list, func(i, j int) bool { return list[i].UpdatedAt.After(list[j].UpdatedAt) })
 		}

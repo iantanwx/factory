@@ -19,19 +19,25 @@ type DepReader interface {
 
 // dependencyRefusal refuses an item with an open dependency. A ticket in
 // backlog holds one by the ticket table: create puts it there, and only
-// unblock moves it on.
-func dependencyRefusal(ctx context.Context, deps DepReader, it machine.Item) (*cli.Refusal, error) {
+// unblock moves it on. A ticket whose `## Depends on` names an open pull
+// request holds one too, by pullHolds.
+func (a *Admission) dependencyRefusal(ctx context.Context, it machine.Item) (*cli.Refusal, error) {
 	var open []string
 	if it.Kind == machine.KindTicket && it.Status == machine.Backlog {
 		open = append(open, "a dependency that has not landed")
 	}
-	if deps != nil {
-		ids, err := deps.OpenDependencies(ctx, it.Project, it.ID)
+	if a.cfg.Deps != nil {
+		ids, err := a.cfg.Deps.OpenDependencies(ctx, it.Project, it.ID)
 		if err != nil {
 			return nil, fmt.Errorf("admission: read the dependencies of %s: %w", it.ID, err)
 		}
 		open = append(open, ids...)
 	}
+	pulls, err := a.pullHolds(ctx, it)
+	if err != nil {
+		return nil, err
+	}
+	open = append(open, pulls...)
 	if len(open) == 0 {
 		return nil, nil
 	}

@@ -94,6 +94,10 @@ type Options struct {
 	// Dependencies reports an item's open dependencies to admission.
 	// Optional.
 	Dependencies admission.DepReader
+	// Pulls lists a project's open pull requests for admission's
+	// `## Depends on` hold. Optional. `loop serve` sets the GitHub
+	// service's reader.
+	Pulls admission.PullReader
 	// Agents is the agent host. With Beads set and admission
 	// composed, the server composes the scheduler: it serves run
 	// finish and drain, its reconcile runs last before the socket binds,

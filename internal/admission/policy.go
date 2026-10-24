@@ -50,6 +50,9 @@ type Config struct {
 	Base BaseReader
 	// Deps reports open dependencies. Optional.
 	Deps DepReader
+	// Pulls lists open pull requests for the `## Depends on` hold.
+	// Optional.
+	Pulls PullReader
 	// Release is the loop release version. It enters the retry identity.
 	Release string
 }
@@ -222,7 +225,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		if ref != nil {
 			return Admitted{}, ref
 		}
-		if ref, err := dependencyRefusal(ctx, a.cfg.Deps, it); err != nil || ref != nil {
+		if ref, err := a.dependencyRefusal(ctx, it); err != nil || ref != nil {
 			if err != nil {
 				return Admitted{}, cli.InternalRefusal(err)
 			}
@@ -508,7 +511,7 @@ func (a *Admission) admissible(ctx context.Context, stage string, it machine.Ite
 	if it.Fact(machine.FactOwner) != "" {
 		return false, nil
 	}
-	if ref, err := dependencyRefusal(ctx, a.cfg.Deps, it); err != nil || ref != nil {
+	if ref, err := a.dependencyRefusal(ctx, it); err != nil || ref != nil {
 		return false, err
 	}
 	var held, blocked, holds bool

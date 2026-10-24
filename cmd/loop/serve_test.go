@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -88,6 +89,12 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, ok := opts.Pulls.(lazyPulls); !ok {
+		t.Fatalf("the open pull requests of the Depends on hold are not wired: %+v", opts.Pulls)
+	}
+	if _, err := opts.Pulls.OpenPulls(context.Background(), "alpha"); !errors.Is(err, errNoGitHub) {
+		t.Fatalf("an open pull request read before setup = %v", err)
+	}
 	if _, ok := opts.BaseFiles.(lazyBase); !ok || opts.ManifestReader == nil || opts.Sched.Refs == nil {
 		t.Fatalf("the GitHub readers are not wired: %+v", opts)
 	}
@@ -127,6 +134,9 @@ func TestProductionWiringWithFakes(t *testing.T) {
 		if err := srv.RPC.Handle(verb, nil); err == nil || !strings.Contains(err.Error(), "already has a handler") {
 			t.Fatalf("the pipeline verb %s is not registered: %v", verb, err)
 		}
+	}
+	if _, err := opts.Pulls.OpenPulls(context.Background(), "alpha"); err == nil || errors.Is(err, errNoGitHub) {
+		t.Fatalf("the open pull request reader did not read through the service: %v", err)
 	}
 	if _, err := (lazyBase{w.github}).Files(context.Background(), "alpha", nil); err == nil {
 		t.Fatal("the base reader read a project that is not registered")
