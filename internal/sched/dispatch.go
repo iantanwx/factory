@@ -71,6 +71,14 @@ func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Start
 	if ref != nil || cand == nil {
 		return nil, ref
 	}
+	// The second code-review reject sets the ticket's model_tier, and the
+	// next implementer run takes the stage's escalated profile (parity 1.15).
+	if stage == config.StageImplementer && cand.ModelTier == machine.ModelTierEscalated {
+		if prof, why = s.choose(ctx, escalatedProfiles(stage, snap.Config)); prof == nil {
+			return nil, &cli.Refusal{Code: cli.CodeCapFull, Rule: "no_profile", Item: cand.Item,
+				Hint: "the escalated harness of " + cand.Item + " is paused or out of quota: " + reasons(why)}
+		}
+	}
 	ad, ref := s.cfg.Admission.Admit(ctx, admission.Request{Project: project, Stage: stage, Item: cand.Item,
 		RunID: s.cfg.NewRunID(), Harness: string(prof.Harness), Model: prof.Model})
 	if ref != nil {
@@ -169,7 +177,7 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindStage, Checkout: co.Path, Harness: prof.Harness,
-		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt,
+		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt, RequireVerifiedModel: prof.Escalated,
 		Title: strings.TrimSpace(fmt.Sprintf("loop %s %s %s", ad.Project, ad.Stage, ad.Item))})
 	if err != nil {
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: start the session: %w", err)), false, AlertStartFailed, err)
