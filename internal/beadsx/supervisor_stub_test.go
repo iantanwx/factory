@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -46,6 +47,11 @@ func fakeDolt(args []string) {
 		signal.Ignore(syscall.SIGTERM)
 		_ = os.WriteFile("fake-root-password", []byte(os.Getenv("DOLT_ROOT_PASSWORD")), 0o600)
 		if _, err := os.Stat("fake-hang"); err == nil {
+			// The marker names this server to the test. It goes through a
+			// rename, so a reader never sees a partial PID.
+			tmp := "fake-hang-pid.tmp"
+			_ = os.WriteFile(tmp, []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600)
+			_ = os.Rename(tmp, "fake-hang-pid")
 			select {}
 		}
 		var socket string
@@ -144,14 +150,15 @@ func TestStopDuringARestartDoesNotWaitForTheStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = syscall.Kill(first, syscall.SIGKILL)
-	deadline := time.Now().Add(10 * time.Second)
-	for sup.PID() == 0 || sup.PID() == first {
+	second := waitHangPID(t, layout)
+	deadline := time.Now().Add(5 * time.Second)
+	for sup.PID() != second {
 		if time.Now().After(deadline) {
-			t.Fatal("the supervisor started no new server")
+			t.Fatalf("the supervisor names pid %d, the hanging server is pid %d\n%s",
+				sup.PID(), second, readLog(layout))
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	second := sup.PID()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	begin := time.Now()
@@ -223,6 +230,36 @@ func TestBDReadsThePasswordFile(t *testing.T) {
 		PasswordFile: filepath.Join(dir, "absent")}); err == nil {
 		t.Fatal("NewBD ran with a missing password file")
 	}
+}
+
+// waitHangPID waits for the PID that the fake in hang mode writes just
+// before it hangs.
+func waitHangPID(t *testing.T, layout beadsx.Layout) int {
+	t.Helper()
+	marker := filepath.Join(layout.DoltDir(), "data", "fake-hang-pid")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if b, err := os.ReadFile(marker); err == nil {
+			pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+			if err != nil {
+				t.Fatalf("%s holds no PID: %q", marker, b)
+			}
+			return pid
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the supervisor started no hanging server\n%s", readLog(layout))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// readLog returns dolt.log, so a failure names what the servers printed.
+func readLog(layout beadsx.Layout) string {
+	b, err := os.ReadFile(filepath.Join(layout.DoltDir(), "dolt.log"))
+	if err != nil {
+		return "dolt.log: " + err.Error()
+	}
+	return "dolt.log:\n" + string(b)
 }
 
 func readTrim(t *testing.T, path string) string {
