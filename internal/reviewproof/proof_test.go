@@ -231,18 +231,33 @@ func TestProofRemovesTheWorktreeWhenASignalStopsTheTests(t *testing.T) {
 	assertBack(t, w)
 }
 
-// With no --base, the proof reads the base branch from the run's brief.
+// With no --base, the proof reads the base branch from the run's brief,
+// and it takes the remote ref of that branch. Each other ref here gives
+// another merge base: main and a stale local trunk give the first
+// commit, and origin/main does not exist.
 func TestProofReadsTheBaseBranchFromTheBrief(t *testing.T) {
 	w := newWorld(t, projectConfig("touch ready", "sh check.sh"), "")
-	gitIn(t, w.dir, "update-ref", "refs/remotes/origin/main", "main")
-	write(t, w.dir, ".loop/brief.json", `{"base_branch":"main"}`)
+	gitIn(t, w.dir, "switch", "-q", "-c", "topic", w.base)
+	write(t, w.dir, "mid.txt", "mid\n")
+	gitIn(t, w.dir, "add", "-A")
+	gitIn(t, w.dir, "commit", "-q", "-m", "mid")
+	mid := gitIn(t, w.dir, "rev-parse", "HEAD")
+	gitIn(t, w.dir, "switch", "-q", "--detach", mid)
+	write(t, w.dir, "trunk.txt", "trunk\n")
+	gitIn(t, w.dir, "add", "-A")
+	gitIn(t, w.dir, "commit", "-q", "-m", "trunk")
+	gitIn(t, w.dir, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+	gitIn(t, w.dir, "update-ref", "refs/heads/trunk", w.base)
+	gitIn(t, w.dir, "switch", "-q", "topic")
+	gitIn(t, w.dir, "cherry-pick", w.head)
+	write(t, w.dir, ".loop/brief.json", `{"base_branch":"trunk"}`)
 	write(t, w.dir, ".git/info/exclude", ".loop/brief.json\n")
 	res, _ := proveIt(t, context.Background(), map[string]string{"test": "check.sh"})
 	if res.Refusal != nil {
 		t.Fatalf("refused: %+v", res.Refusal)
 	}
-	if p := res.Data.(Proof); p.Base != w.base || p.Result != "red" {
-		t.Fatalf("proof = %+v, want red at %s", p, w.base)
+	if p := res.Data.(Proof); p.Base != mid || p.Result != "red" {
+		t.Fatalf("proof = %+v, want red at %s, the merge base with origin/trunk", p, mid)
 	}
 }
 
