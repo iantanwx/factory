@@ -107,9 +107,9 @@ moving.
 **Who reads, and who acts.** The server makes every read, and the coordinator acts on the report.
 We reject a list of reads in the runbook, because tickertown's 2026-10-12 wake skipped one of them.
 
-**Which parts port.** The table below sorts all 25 tickertown parts. A part ports when the loop has
-the same fault and no other mechanism reads it. We reject a part that reads Linear or orca's timer
-table, as R22 directs.
+**Which parts port.** The table below sorts all 25 tickertown parts, and the one part the loop
+adds. A part ports when the loop has the same fault and no other mechanism reads it. We reject a
+part that reads Linear or orca's timer table, as R22 directs.
 
 | Part | Verdict | Why |
 | --- | --- | --- |
@@ -118,6 +118,7 @@ table, as R22 directs.
 | `backlog` | Port | Items held by a blocking root, and the root that holds them |
 | `questions` | Port | Escalations and prepared questions, by state |
 | `decisions` | Port | A decision whose trigger is an event. `decision-timers` reads dates only |
+| `reminders` | Added | Each entry of `loop inbox list --awaits person` that waited longer than the project's `health.operator_reminder`. It rings once per limit while the entry waits (F-33) |
 | `claims` | Port | A lease whose run is dead |
 | `pulls` | Port | A ticket that holds two open pull requests |
 | `worktrees` | Port | Each checkout against its run, its stage and its item |
@@ -133,7 +134,7 @@ table, as R22 directs.
 | `frames` | Tickertown policy | The shot harnesses of one product |
 | `handoffs` | Tickertown policy | Frame owners that tickertown's ticket template names |
 | `watchers` | Tickertown policy | Sentry poll units of one product |
-| `board` | Obsolete | `loop inbox list --awaits person` replaces it (KTD21) |
+| `board` | Obsolete | `loop inbox list --awaits person` replaces it (KTD21), and `reminders` reads that list |
 | `checkout` | Obsolete | It is `pnpm refresh`, and R22 drops `refresh` |
 | `dispatch` | Obsolete | R22 drops `dispatch`. The scheduler admits each run |
 | `timers` | Obsolete | KTD30 config load refuses a bad entry. No orca plan can drift |

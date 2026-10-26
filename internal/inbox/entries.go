@@ -72,14 +72,14 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	}
 	var items []sourced
 	var out []Entry
-	if in.cfg.Machine != nil && in.cfg.Projects != nil {
+	if in.cfg.List != nil && in.cfg.Projects != nil {
 		projects, err := in.cfg.Projects()
 		if err != nil {
 			return nil, err
 		}
 		for _, p := range projects {
 			for _, src := range itemSources {
-				got, ref := in.cfg.Machine.List(ctx, p.ID, src.filter)
+				got, ref := in.cfg.List(ctx, p.ID, src.filter)
 				if ref != nil {
 					// At stays zero, so a beads outage rings no doorbell on
 					// every poll. `inbox list` still shows it.

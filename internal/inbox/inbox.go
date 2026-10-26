@@ -11,12 +11,14 @@
 package inbox
 
 import (
+	"context"
 	"log/slog"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -81,8 +83,12 @@ type Entry struct {
 
 // Config configures an Inbox.
 type Config struct {
-	Store    *store.Store
-	Machine  *machine.Machine
+	Store   *store.Store
+	Machine *machine.Machine
+	// List lists the items of one project that the item entries read.
+	// Machine.List when nil, so a reader with no machine, such as the
+	// overwatch sweep's test world, can build the same entries.
+	List     func(ctx context.Context, project string, f machine.ListFilter) ([]machine.Item, *cli.Refusal)
 	Projects func() ([]config.Project, error)
 	Redactor *secrets.Redactor
 	// Link returns the link of a project's item. A `loop work show` line
@@ -117,6 +123,9 @@ func New(cfg Config) *Inbox {
 	}
 	if cfg.PollInterval <= 0 {
 		cfg.PollInterval = DefaultPollInterval
+	}
+	if cfg.List == nil && cfg.Machine != nil {
+		cfg.List = cfg.Machine.List
 	}
 	if cfg.Link == nil {
 		cfg.Link = func(project, item string) string { return "loop work show " + item + " --project " + project }

@@ -152,9 +152,11 @@ func TestSweepPrintsUnfiledThenFiledThenNotes(t *testing.T) {
 	}
 }
 
-func TestPartNamesHoldTheFifteenInTheSpecOrder(t *testing.T) {
-	want := []string{"stalls", "questions", "decisions", "bugs", "backlog", "claims", "pulls", "worktrees", "main", "ci",
-		"flaky", "audit", "timer-health", "inbox", "server"}
+// The fifteen parts of the spec, with reminders (C-bug-1) after decisions,
+// in the order of the runbook's table.
+func TestPartNamesHoldTheSixteenInTheRunbookOrder(t *testing.T) {
+	want := []string{"stalls", "questions", "decisions", "reminders", "bugs", "backlog", "claims", "pulls", "worktrees", "main",
+		"ci", "flaky", "audit", "timer-health", "inbox", "server"}
 	if !reflect.DeepEqual(PartNames, want) {
 		t.Fatalf("PartNames = %q", PartNames)
 	}

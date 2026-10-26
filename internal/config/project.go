@@ -50,6 +50,10 @@ type HealthConfig struct {
 	// CIBudget is the longest a completed run of the base branch or of the
 	// merge queue may take.
 	CIBudget time.Duration `yaml:"ci_budget,omitempty"`
+	// OperatorReminder is the longest an inbox entry may wait on the
+	// operator before the sweep reminds the coordinator of it, and again
+	// once per limit while it waits.
+	OperatorReminder time.Duration `yaml:"operator_reminder,omitempty"`
 }
 
 // workflowFileRe matches the file name of a workflow under
@@ -197,6 +201,9 @@ func (c *ProjectConfig) validate() error {
 	}
 	if c.Health.CIBudget < 0 {
 		ck.fail("health.ci_budget", "must be a positive duration, such as 5m")
+	}
+	if c.Health.OperatorReminder < 0 {
+		ck.fail("health.operator_reminder", "must be a positive duration, such as 12h")
 	}
 	return ck.err()
 }

@@ -165,6 +165,29 @@ func TestProjectConfigHealthCIBudget(t *testing.T) {
 	}
 }
 
+// health.operator_reminder is an optional duration with no default. A
+// negative limit is refused, since every entry passes it (C-bug-1).
+func TestCBug1ProjectConfigHealthOperatorReminder(t *testing.T) {
+	cfg, err := ParseProjectConfig([]byte(validProjectConfig))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Health.OperatorReminder != 0 {
+		t.Fatalf("operator_reminder with no health block = %v, want none", cfg.Health.OperatorReminder)
+	}
+	cfg, err = ParseProjectConfig([]byte(validProjectConfig + "health:\n  operator_reminder: 12h\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Health.OperatorReminder != 12*time.Hour {
+		t.Fatalf("operator_reminder = %v, want 12h", cfg.Health.OperatorReminder)
+	}
+	if _, err := ParseProjectConfig([]byte(validProjectConfig + "health:\n  operator_reminder: -1h\n")); !errors.Is(err, ErrInvalid) ||
+		!strings.Contains(err.Error(), "health.operator_reminder") {
+		t.Fatalf("operator_reminder -1h: err = %v, want a refusal of health.operator_reminder", err)
+	}
+}
+
 // merge.required_checks names the CI checks a ticket's head must pass
 // before it is eligible and before any mechanism merges it. A config
 // that names none leaves the list empty, and the GitHub service then

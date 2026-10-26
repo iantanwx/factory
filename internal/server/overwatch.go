@@ -341,6 +341,15 @@ func (w *serverWorld) LastRing(ctx context.Context) (overwatch.RingOutcome, bool
 	return overwatch.LastRing(ctx, w.s.Store)
 }
 
+// Inbox is every entry of the server's inbox, as `loop inbox list` prints
+// it.
+func (w *serverWorld) Inbox(ctx context.Context) ([]inbox.Entry, error) {
+	if w.s.Inbox == nil {
+		return nil, errors.New("overwatch: the server holds no inbox")
+	}
+	return w.s.Inbox.Entries(ctx)
+}
+
 // githubReads are the GET reads of the GitHub parts, over the service.
 type githubReads struct{ svc *github.Service }
 
