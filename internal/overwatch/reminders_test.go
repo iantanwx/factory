@@ -48,7 +48,8 @@ func TestCBug1NoOperatorReminderHoldsNoWork(t *testing.T) {
 
 // C-bug-1: the finding rings the coordinator once per limit while the
 // entry waits, and not on each 10-minute tick. The coordinator files each
-// ring's key in a prepared question, as its runbook says. A sign-off that
+// ring's key in a prepared question about the sign-off, as its runbook
+// says, and that question waits on the operator too. A sign-off that
 // passed a 12h limit at 13h, swept every 10 minutes until it is 49h old,
 // rings at 13h, 24h, 36h and 48h, and at no other tick.
 func TestCBug1AReminderRingsOncePerLimit(t *testing.T) {
@@ -69,12 +70,15 @@ func TestCBug1AReminderRingsOncePerLimit(t *testing.T) {
 		last, _ := j.Last()
 		var keys []string
 		for _, l := range last.Parts[0].Lines {
-			keys = append(keys, Tokens(l)...)
+			if !strings.Contains(l, "(filed in ") {
+				keys = append(keys, Tokens(l)...)
+			}
 		}
 		filed := false
 		for _, k := range keys {
 			if strings.HasPrefix(k, "overwatch:reminders:") {
-				w.question(t, "The sign-off waits on you. "+k, false)
+				w.exec(t, `INSERT INTO questions (entry, body, run_id, created_at) VALUES ('signoff/factorio/factorio-jiv', ?, '', ?)`,
+					"The sign-off waits on you. "+k, w.now.UnixMilli())
 				filed = true
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,8 +17,9 @@ import (
 // project's health.operator_reminder (C-bug-1). An entry that waited on the
 // operator longer than its project's limit is work. Its key counts the
 // whole limits it waited, so a record that quotes the key files it until
-// the next limit passes, and the finding rings once per limit. A project
-// with no limit reports its entries and holds no work.
+// the next limit passes, and the finding rings once per limit. A prepared
+// question that files a ring is no entry of its own. A project with no
+// limit reports its entries and holds no work.
 func remindersPart() Part {
 	return Part{Name: "reminders", Command: "loop inbox list --awaits person", Read: readReminders}
 }
@@ -30,7 +32,7 @@ func readReminders(ctx context.Context, w World) (Reading, error) {
 	var projects []string
 	byProject := map[string][]inbox.Entry{}
 	for _, e := range entries {
-		if e.Awaits != inbox.AwaitsPerson {
+		if e.Awaits != inbox.AwaitsPerson || filesReminder(e) {
 			continue
 		}
 		p := entryProject(e)
@@ -66,6 +68,17 @@ func reminderLimit(ctx context.Context, w World, project string) (time.Duration,
 		return 0, nil
 	}
 	return snap.Config.Health.OperatorReminder, nil
+}
+
+// filesReminder reports whether e is a prepared question that quotes a
+// reminders key. The coordinator files each ring so, and the entry the
+// question is about carries the reminder. Read as an entry of its own, each
+// filing would ring once it passed the limit, and the rings would grow with
+// each limit.
+func filesReminder(e inbox.Entry) bool {
+	return e.Kind == inbox.KindQuestion && slices.ContainsFunc(Tokens(e.Text), func(t string) bool {
+		return strings.HasPrefix(t, "overwatch:reminders:")
+	})
 }
 
 // entryProject is the project of an entry. A prepared question names none,
