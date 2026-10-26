@@ -116,9 +116,9 @@ func TestC17NoLivenessTickIsWork(t *testing.T) {
 func TestC17ACronThatDoesNotParseIsWork(t *testing.T) {
 	w := newSchedWorld(t)
 	w.tick(t, w.now)
-	w.cronRow(t, "factorio", "flaky", "not a cron", w.now)
+	w.cronRow(t, "factorio", "merge-handoff", "not a cron", w.now)
 	p := readTimers(t, w)
-	if p.Code != Work || !strings.Contains(strings.Join(p.Lines, "\n"), "overwatch:timer-health:factorio/flaky") {
+	if p.Code != Work || !strings.Contains(strings.Join(p.Lines, "\n"), "overwatch:timer-health:factorio/merge-handoff") {
 		t.Fatalf("code %d, lines %q; want work for the bad cron", p.Code, p.Lines)
 	}
 }

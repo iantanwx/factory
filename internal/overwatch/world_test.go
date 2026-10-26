@@ -99,6 +99,7 @@ func (w *fakeWorld) Store() *store.Store { return w.st }
 func (w *fakeWorld) Intervals() Intervals {
 	return Intervals{}
 }
+func (w *fakeWorld) Jobs() sched.Jobs { return sched.Jobs{} }
 func (w *fakeWorld) CheckoutDirs(context.Context) ([]string, error) {
 	return ListCheckoutDirs(w.root)
 }

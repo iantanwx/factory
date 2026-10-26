@@ -15,11 +15,16 @@ import (
 )
 
 // schedWorld is the fake world with the scheduler's reads: its intervals,
-// host config, the coordinator, and a temporary checkout root.
+// host config, project config, its native jobs, the coordinator, and a
+// temporary checkout root. Project factorio enables the implementer and
+// alpha the doc-reviewer. The jobs are those of a server with GitHub and
+// beads.
 type schedWorld struct {
 	*fakeWorld
 	intervals Intervals
 	host      config.HostConfig
+	configs   map[string]*config.ProjectConfig // a project with none has no config
+	jobs      sched.Jobs
 	coord     sched.CoordinatorState
 	root      string
 }
@@ -29,7 +34,12 @@ func newSchedWorld(t *testing.T) *schedWorld {
 	root := t.TempDir()
 	w := &schedWorld{fakeWorld: newFakeWorld(t), root: root,
 		intervals: Intervals{Tick: 15 * time.Second, Liveness: 15 * time.Second, Cleanup: 5 * time.Minute},
-		host:      config.HostConfig{QuietPeriod: 30 * time.Minute, AgentHost: config.AgentHostConfig{CheckoutRoot: root}}}
+		host:      config.HostConfig{QuietPeriod: 30 * time.Minute, AgentHost: config.AgentHostConfig{CheckoutRoot: root}},
+		configs: map[string]*config.ProjectConfig{
+			"factorio": {Stages: map[string]config.StageConfig{config.StageImplementer: {}}},
+			"alpha":    {Stages: map[string]config.StageConfig{config.StageDocReviewer: {}}},
+		},
+		jobs: sched.Jobs{Instance: []string{"github-reactor", "overwatch"}, Project: []string{"decision-timers", "dependency-advance", "merge-handoff"}}}
 	w.coord = sched.CoordinatorState{Checkout: w.mkdir(t, "loop/loop-coordinator")}
 	return w
 }
@@ -39,6 +49,14 @@ func (w *schedWorld) Host(context.Context) (*config.HostConfig, error) {
 	h := w.host
 	return &h, nil
 }
+func (w *schedWorld) ProjectConfig(_ context.Context, project string) (*config.ProjectSnapshot, error) {
+	c, ok := w.configs[project]
+	if !ok {
+		return nil, config.ErrConfigMissing
+	}
+	return &config.ProjectSnapshot{Config: c}, nil
+}
+func (w *schedWorld) Jobs() sched.Jobs                    { return w.jobs }
 func (w *schedWorld) Coordinator() sched.CoordinatorState { return w.coord }
 func (w *schedWorld) CheckoutDirs(context.Context) ([]string, error) {
 	return ListCheckoutDirs(w.root)

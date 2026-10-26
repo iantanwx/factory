@@ -114,6 +114,9 @@ type World interface {
 	Dependencies(ctx context.Context, project, item string) ([]beadsx.Dependency, error)
 	Store() *store.Store // read transactions only
 	Intervals() Intervals
+	// Jobs are the native jobs registered on the scheduler. A server with
+	// no scheduler registers none.
+	Jobs() sched.Jobs
 	// CheckoutDirs lists each directory named loop-* one level under a
 	// directory of agent_host.checkout_root, as absolute paths.
 	CheckoutDirs(ctx context.Context) ([]string, error)

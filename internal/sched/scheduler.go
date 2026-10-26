@@ -426,54 +426,24 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 	if err != nil {
 		return err
 	}
-	for _, name := range config.NativeJobs() {
-		if s.instanceJob(name) == nil {
-			continue
-		}
-		if s.advance(ctx, rows, "", name, hc.ThroughputFor(name).Schedule, now) {
-			s.launch(ctx, "", name, kindInstanceJob, hc)
-		}
-	}
-	projects, err := s.cfg.Projects()
-	if err != nil {
-		return err
-	}
-	for _, p := range projects {
-		snap, err := s.cfg.ProjectConfig(ctx, p.ID)
+	// A failed project list still fires the instance jobs.
+	projects, perr := s.cfg.Projects()
+	snap := func(project string) *config.ProjectSnapshot {
+		sn, err := s.cfg.ProjectConfig(ctx, project)
 		if err != nil {
 			if !errors.Is(err, config.ErrConfigMissing) {
-				s.log.WarnContext(ctx, "project config", "project", p.ID, "err", err)
+				s.log.WarnContext(ctx, "project config", "project", project, "err", err)
 			}
-			snap = nil
+			return nil
 		}
-		// An agent job is a run stage that host config defines, so it fires
-		// as one: only where the project lists it.
-		stages := append(append(config.RunStages(), hc.AgentJobNames()...), config.NativeJobs()...)
-		for _, stage := range stages {
-			kind := kindRun
-			if slices.Contains(config.NativeJobs(), stage) {
-				kind = kindJob
-				if s.job(stage) == nil {
-					continue
-				}
-			} else if snap == nil || !snap.Config.StageEnabled(stage) || stage == config.StageIntake {
-				continue
-			}
-			expr := hc.ThroughputFor(stage).Schedule
-			if j, ok := hc.AgentJob(stage); ok {
-				expr = j.Schedule
-			}
-			if snap != nil {
-				if sc, ok := snap.Config.Stages[stage]; ok && sc.Schedule != "" {
-					expr = sc.Schedule
-				}
-			}
-			if s.advance(ctx, rows, p.ID, stage, expr, now) {
-				s.launch(ctx, p.ID, stage, kind, hc)
-			}
+		return sn
+	}
+	for _, t := range Timers(hc, projects, snap, s.Jobs()) {
+		if s.advance(ctx, rows, t.Project, t.Stage, t.Expr, now) {
+			s.launch(ctx, t.Project, t.Stage, t.kind, hc)
 		}
 	}
-	return nil
+	return perr
 }
 
 // advance moves one deadline and reports whether it fired. A new or

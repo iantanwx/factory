@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/sched"
 )
 
@@ -14,11 +15,16 @@ import (
 const livenessSchedule = "liveness"
 
 // timersPart holds work for each timer that stopped (C17): a cron row of
-// schedule whose last fire is older than two periods of its cron, and a
-// liveness tick older than two liveness intervals.
+// schedule that the scheduler fires and whose last fire is older than two
+// periods of its cron, and a liveness tick older than two liveness
+// intervals.
 func timersPart() Part {
 	return Part{Name: "timer-health", Read: func(ctx context.Context, w World) (Reading, error) {
-		rows, tick, err := readTimerRows(ctx, w)
+		fires, err := firedTimers(ctx, w)
+		if err != nil {
+			return Reading{}, err
+		}
+		rows, tick, err := readTimerRows(ctx, w, fires)
 		if err != nil {
 			return Reading{}, err
 		}
@@ -34,9 +40,45 @@ type cronTimer struct {
 	fired      bool
 }
 
-// readTimerRows reads the cron rows and the liveness tick. A store with no
-// tick returns a nil tick.
-func readTimerRows(ctx context.Context, w World) ([]cronTimer, *time.Time, error) {
+// firedTimers names each timer the scheduler fires, by the selection that
+// fireDue fires by. A row it does not name never fires again, so it cannot
+// stop. A project config that does not read fires no run stage, as in
+// fireDue.
+func firedTimers(ctx context.Context, w World) (map[string]bool, error) {
+	hc, err := w.Host(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read the host config: %w", err)
+	}
+	projects, err := w.Projects(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list the projects: %w", err)
+	}
+	snap := func(project string) *config.ProjectSnapshot {
+		sn, err := w.ProjectConfig(ctx, project)
+		if err != nil {
+			return nil
+		}
+		return sn
+	}
+	fires := map[string]bool{}
+	for _, t := range sched.Timers(hc, projects, snap, w.Jobs()) {
+		fires[timerName(t.Project, t.Stage)] = true
+	}
+	return fires, nil
+}
+
+// timerName names a cron row in its key: the stage alone for an instance
+// job, else project/stage.
+func timerName(project, stage string) string {
+	if project == "" {
+		return stage
+	}
+	return project + "/" + stage
+}
+
+// readTimerRows reads the cron rows that fires names, and the liveness
+// tick. A store with no tick returns a nil tick.
+func readTimerRows(ctx context.Context, w World, fires map[string]bool) ([]cronTimer, *time.Time, error) {
 	var (
 		rows []cronTimer
 		tick *time.Time
@@ -57,11 +99,10 @@ func readTimerRows(ctx context.Context, w World) ([]cronTimer, *time.Time, error
 			if err := rs.Scan(&project, &stage, &r.expr, &since, &r.fired); err != nil {
 				return err
 			}
-			r.name, r.since = stage, time.UnixMilli(since).UTC()
-			if project != "" {
-				r.name = project + "/" + stage
+			r.name, r.since = timerName(project, stage), time.UnixMilli(since).UTC()
+			if fires[r.name] {
+				rows = append(rows, r)
 			}
-			rows = append(rows, r)
 		}
 		if err := rs.Err(); err != nil {
 			return err
@@ -114,7 +155,7 @@ func classifyTimers(now time.Time, liveness time.Duration, rows []cronTimer, tic
 			add(t.name, fmt.Sprintf("schedule %s (cron %q) %s, and missed its fires up to %s", t.name, t.expr, last, second.Format(time.RFC3339)))
 		}
 	}
-	r.Notes = append(r.Notes, fmt.Sprintf("cron rows read: %d", len(rows)))
+	r.Notes = append(r.Notes, fmt.Sprintf("cron rows the scheduler fires: %d", len(rows)))
 	return r
 }
 
