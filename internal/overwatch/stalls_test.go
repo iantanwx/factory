@@ -512,3 +512,117 @@ func TestC11HeldWorkIsNotAStall(t *testing.T) {
 		t.Fatalf("findings = %+v, want none", r.Findings)
 	}
 }
+
+// C10, F-36: the reproducer is a mutex stage and takes one bug per fire,
+// oldest first. A fire that started a run on an older bug of the same
+// queue is the queue draining, not a stall of the youngest bug. The
+// reproducer fires every five minutes in factorio, and the clock reads
+// 09:04.
+func TestC10AFireThatTookAnOlderItemOfTheQueueIsNoStall(t *testing.T) {
+	w := newStallsWorld(t)
+	w.now = at(9, 4)
+	w.configs["factorio"].Stages[config.StageReproducer] = config.StageConfig{Schedule: "*/5 * * * *"}
+	// The coordinator files three bugs at 08:48, 08:49 and 08:50.
+	w.item("factorio-b1", machine.KindBug, machine.Shaped, at(8, 57))
+	w.entered(t, "factorio-b1", "", machine.Reported, at(8, 48))
+	w.entered(t, "factorio-b1", machine.Reported, machine.Reproducing, at(8, 55))
+	w.entered(t, "factorio-b1", machine.Reproducing, machine.Shaped, at(8, 57))
+	w.item("factorio-b2", machine.KindBug, machine.Shaped, at(9, 2))
+	w.entered(t, "factorio-b2", "", machine.Reported, at(8, 49))
+	w.entered(t, "factorio-b2", machine.Reported, machine.Reproducing, at(9, 0))
+	w.entered(t, "factorio-b2", machine.Reproducing, machine.Shaped, at(9, 2))
+	w.item("factorio-b3", machine.KindBug, machine.Reported, at(8, 50))
+	w.entered(t, "factorio-b3", "", machine.Reported, at(8, 50))
+	// The fire at 08:55 takes b1, and the fire at 09:00 takes b2.
+	w.run(t, "r-b1b1b1b1b1b1", config.StageReproducer, "factorio-b1", at(8, 55), at(8, 57))
+	w.run(t, "r-b2b2b2b2b2b2", config.StageReproducer, "factorio-b2", at(9, 0), at(9, 2))
+	r := readStallsPart(t, w)
+	if f, ok := findingOf(r, "overwatch:stalls:factorio-b3@reported"); ok {
+		t.Fatalf("factorio-b3 waits behind two older bugs that each fire took, and is work: %q", f.Line)
+	}
+	mustContain(t, noteOf(t, r, "factorio-b3"), "reproducer")
+}
+
+// queueWorld is the F-36 queue at 09:04 with the reproducer firing every
+// five minutes: factorio-b3 entered reported at 08:50, and factorio-b1
+// entered it at 08:48. The fire at 08:55 takes b1.
+func queueWorld(t *testing.T) *stallsWorld {
+	t.Helper()
+	w := newStallsWorld(t)
+	w.now = at(9, 4)
+	w.configs["factorio"].Stages[config.StageReproducer] = config.StageConfig{Schedule: "*/5 * * * *"}
+	w.item("factorio-b1", machine.KindBug, machine.Shaped, at(8, 57))
+	w.entered(t, "factorio-b1", "", machine.Reported, at(8, 48))
+	w.entered(t, "factorio-b1", machine.Reported, machine.Reproducing, at(8, 55))
+	w.entered(t, "factorio-b1", machine.Reproducing, machine.Shaped, at(8, 57))
+	w.item("factorio-b3", machine.KindBug, machine.Reported, at(8, 50))
+	w.entered(t, "factorio-b3", "", machine.Reported, at(8, 50))
+	w.run(t, "r-b1b1b1b1b1b1", config.StageReproducer, "factorio-b1", at(8, 55), at(8, 57))
+	return w
+}
+
+// C10, F-36: the note of an item that waits behind its queue says that the
+// stage's fires took older items of the queue, and names each run.
+func TestC10TheNoteSaysTheFiresTookOlderItemsOfTheQueue(t *testing.T) {
+	w := queueWorld(t)
+	w.item("factorio-b2", machine.KindBug, machine.Shaped, at(9, 2))
+	w.entered(t, "factorio-b2", "", machine.Reported, at(8, 49))
+	w.entered(t, "factorio-b2", machine.Reported, machine.Reproducing, at(9, 0))
+	w.run(t, "r-b2b2b2b2b2b2", config.StageReproducer, "factorio-b2", at(9, 0), at(9, 2))
+	r := readStallsPart(t, w)
+	if len(r.Findings) != 0 {
+		t.Fatalf("findings = %+v, want none", r.Findings)
+	}
+	mustContain(t, noteOf(t, r, "factorio-b3"), "reproducer", "no fire", "older items of its queue",
+		"r-b1b1b1b1b1b1", "factorio-b1", "r-b2b2b2b2b2b2", "factorio-b2")
+}
+
+// C10, F-36: a fire whose run took an item that entered the queue after
+// this one counts against it. factorio-b4 entered reported at 08:51, after
+// factorio-b3, and the fire at 09:00 takes it.
+func TestC10AFireThatTookAYoungerItemOfTheQueueCounts(t *testing.T) {
+	w := queueWorld(t)
+	w.item("factorio-b4", machine.KindBug, machine.Shaped, at(9, 2))
+	w.entered(t, "factorio-b4", "", machine.Reported, at(8, 51))
+	w.entered(t, "factorio-b4", machine.Reported, machine.Reproducing, at(9, 0))
+	w.run(t, "r-b4b4b4b4b4b4", config.StageReproducer, "factorio-b4", at(9, 0), at(9, 2))
+	r := readStallsPart(t, w)
+	if _, ok := findingOf(r, "overwatch:stalls:factorio-b3@reported"); ok {
+		t.Fatalf("one fire counts against factorio-b3, and it is work: %+v", r.Findings)
+	}
+	mustContain(t, noteOf(t, r, "factorio-b3"), "reproducer", "only one fire")
+
+	// A fire whose runs took an older item and a younger one counts too.
+	w = queueWorld(t)
+	w.item("factorio-b4", machine.KindBug, machine.Shaped, at(8, 58))
+	w.entered(t, "factorio-b4", "", machine.Reported, at(8, 51))
+	w.run(t, "r-b4b4b4b4b4b4", config.StageReproducer, "factorio-b4", at(8, 56), at(8, 58))
+	w.item("factorio-b5", machine.KindBug, machine.Shaped, at(9, 2))
+	w.entered(t, "factorio-b5", "", machine.Reported, at(8, 52))
+	w.run(t, "r-b5b5b5b5b5b5", config.StageReproducer, "factorio-b5", at(9, 0), at(9, 2))
+	r = readStallsPart(t, w)
+	f, ok := findingOf(r, "overwatch:stalls:factorio-b3@reported")
+	if !ok {
+		t.Fatalf("two fires took younger items, and factorio-b3 is not work: %+v", r)
+	}
+	mustContain(t, f.Line, "factorio-b3", "reproducer", "older item of its queue")
+}
+
+// C10, F-36: a fire that started no run still counts after a fire that took
+// an older item. The fire at 08:55 takes factorio-b1, and the fires at 09:00
+// and 09:05 start no run.
+func TestC10AFireWithNoRunCountsAfterTheQueueDrained(t *testing.T) {
+	w := queueWorld(t)
+	r := readStallsPart(t, w)
+	if f, ok := findingOf(r, "overwatch:stalls:factorio-b3@reported"); ok {
+		t.Fatalf("at 09:04 one fire counts against factorio-b3, and it is work: %q", f.Line)
+	}
+	mustContain(t, noteOf(t, r, "factorio-b3"), "only one fire", "r-b1b1b1b1b1b1")
+	w.now = at(9, 6)
+	r = readStallsPart(t, w)
+	f, ok := findingOf(r, "overwatch:stalls:factorio-b3@reported")
+	if !ok {
+		t.Fatalf("at 09:06 two fires count against factorio-b3, and it is not work: %+v", r)
+	}
+	mustContain(t, f.Line, "factorio-b3", "reproducer")
+}
