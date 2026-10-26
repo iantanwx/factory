@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/sched"
 )
@@ -59,7 +60,7 @@ func (w *schedWorld) ProjectConfig(_ context.Context, project string) (*config.P
 func (w *schedWorld) Jobs() sched.Jobs                    { return w.jobs }
 func (w *schedWorld) Coordinator() sched.CoordinatorState { return w.coord }
 func (w *schedWorld) CheckoutDirs(context.Context) ([]string, error) {
-	return ListCheckoutDirs(w.root)
+	return agenthost.ListCheckoutDirs(w.root)
 }
 
 // mkdir makes a directory under the checkout root, and returns its path.
@@ -187,7 +188,7 @@ func TestC16AnOperatorsWorktreeIsNeverRead(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(fx, 0o755) })
 
-	dirs, err := ListCheckoutDirs(w.root)
+	dirs, err := agenthost.ListCheckoutDirs(w.root)
 	if err != nil {
 		t.Fatalf("ListCheckoutDirs = %v; it read feature-x", err)
 	}
@@ -221,14 +222,14 @@ func TestListCheckoutDirsListsOnlyLoopDirectories(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(w.root, "alpha", "loop-file"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dirs, err := ListCheckoutDirs(w.root)
+	dirs, err := agenthost.ListCheckoutDirs(w.root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{a, w.coord.Checkout}; !slices.Equal(dirs, want) {
 		t.Fatalf("ListCheckoutDirs = %q, want %q", dirs, want)
 	}
-	if _, err := ListCheckoutDirs("relative/root"); err == nil {
+	if _, err := agenthost.ListCheckoutDirs("relative/root"); err == nil {
 		t.Fatal("a relative root lists; want an error")
 	}
 }

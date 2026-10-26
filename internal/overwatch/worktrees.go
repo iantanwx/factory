@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -20,7 +19,7 @@ import (
 // loop-<room id> for a room (internal/room/room.go). The part reads no
 // other directory, because the checkout root also holds the operator's own
 // worktrees.
-const checkoutPrefix = "loop-"
+const checkoutPrefix = agenthost.CheckoutPrefix
 
 // coordinatorCheckoutName is the name of the coordinator's checkout
 // (internal/sched/coordinator.go). It is never work: no checkouts row names
@@ -151,35 +150,4 @@ func classifyWorktrees(now time.Time, span time.Duration, rows []checkoutRow, di
 	}
 	r.Notes = append(r.Notes, fmt.Sprintf("checkout rows read: %d; loop directories read: %d", len(rows), len(dirs)))
 	return r
-}
-
-// ListCheckoutDirs lists each directory named loop-* one level under a
-// directory of root, as absolute paths, in order. It opens no directory
-// one level under root whose name does not start loop-, so an operator's
-// own worktree is never read.
-func ListCheckoutDirs(root string) ([]string, error) {
-	if !filepath.IsAbs(root) {
-		return nil, fmt.Errorf("the checkout root %q is not absolute", root)
-	}
-	repos, err := os.ReadDir(root)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, repo := range repos {
-		if !repo.IsDir() {
-			continue
-		}
-		entries, err := os.ReadDir(filepath.Join(root, repo.Name()))
-		if err != nil {
-			return nil, err
-		}
-		for _, e := range entries {
-			if e.IsDir() && strings.HasPrefix(e.Name(), checkoutPrefix) {
-				out = append(out, filepath.Join(root, repo.Name(), e.Name()))
-			}
-		}
-	}
-	slices.Sort(out)
-	return out, nil
 }

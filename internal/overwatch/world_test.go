@@ -103,7 +103,7 @@ func (w *fakeWorld) Intervals() Intervals {
 }
 func (w *fakeWorld) Jobs() sched.Jobs { return sched.Jobs{} }
 func (w *fakeWorld) CheckoutDirs(context.Context) ([]string, error) {
-	return ListCheckoutDirs(w.root)
+	return agenthost.ListCheckoutDirs(w.root)
 }
 func (w *fakeWorld) Inventory(context.Context) (agenthost.Inventory, error) {
 	return agenthost.Inventory{}, errFake

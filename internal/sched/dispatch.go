@@ -134,14 +134,18 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	if err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
+	// The row is recorded under the lock, so the cleanup pass never sees
+	// the new checkout as a stray.
 	s.checkoutMu.Lock()
 	co, err := s.cfg.Checkouts(ad.Project).CreateCheckout(ctx, spec)
-	s.checkoutMu.Unlock()
 	if err != nil {
+		s.checkoutMu.Unlock()
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: create the checkout: %w", err)), false, AlertStartFailed, err)
 	}
 	st.Checkout = co.Path
-	if err := s.recordCheckout(ctx, ad, co); err != nil {
+	err = s.recordCheckout(ctx, ad, co)
+	s.checkoutMu.Unlock()
+	if err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	if setup := snap.Config.Setup; setup != "" {
