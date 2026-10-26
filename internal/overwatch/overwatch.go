@@ -19,6 +19,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
+	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/store"
@@ -84,12 +85,12 @@ var partDeadline = PartDeadline
 
 // PartNames is the order of every part that ports: of a report, of the ring
 // text and of the runbook's table.
-var PartNames = []string{"stalls", "questions", "decisions", "bugs", "backlog", "claims", "pulls", "worktrees", "main", "ci",
-	"flaky", "audit", "timer-health", "inbox", "server"}
+var PartNames = []string{"stalls", "questions", "decisions", "reminders", "bugs", "backlog", "claims", "pulls", "worktrees", "main",
+	"ci", "flaky", "audit", "timer-health", "inbox", "server"}
 
 // Parts returns the shipped part list. Each part entry adds its part.
 func Parts() []Part {
-	return []Part{stallsPart, questionsPart(), decisionsPart(), bugsPart(), backlogPart(), claimsPart(), pullsPart,
+	return []Part{stallsPart, questionsPart(), decisionsPart(), remindersPart(), bugsPart(), backlogPart(), claimsPart(), pullsPart,
 		worktreesPart(), mainPart, ciPart, flakyPart, auditPart, timersPart(), inboxPart(), serverPart()}
 }
 
@@ -122,6 +123,8 @@ type World interface {
 	GitHub() GitHubReads
 	Doctor(ctx context.Context) ([]github.CheckLine, error) // install drift, then GitHub.Doctor
 	LastRing(ctx context.Context) (RingOutcome, bool, error)
+	// Inbox is every entry of the inbox, as `loop inbox list` prints it.
+	Inbox(ctx context.Context) ([]inbox.Entry, error)
 }
 
 // GitHubReads are the GET reads of the GitHub parts, made with ScopeRead.

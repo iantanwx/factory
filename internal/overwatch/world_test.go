@@ -10,8 +10,10 @@ import (
 
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/beadsx"
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
+	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/store"
@@ -110,6 +112,20 @@ func (w *fakeWorld) GitHub() GitHubReads                                { return
 func (w *fakeWorld) Doctor(context.Context) ([]github.CheckLine, error) { return nil, errFake }
 func (w *fakeWorld) LastRing(ctx context.Context) (RingOutcome, bool, error) {
 	return LastRing(ctx, w.st)
+}
+
+// Inbox builds the inbox from the fake's projects, items and store, as the
+// server's inbox builds it from beads and the store.
+func (w *fakeWorld) Inbox(ctx context.Context) ([]inbox.Entry, error) {
+	list := func(ctx context.Context, project string, f machine.ListFilter) ([]machine.Item, *cli.Refusal) {
+		items, err := w.Items(ctx, project, f)
+		if err != nil {
+			return nil, cli.InternalRefusal(err)
+		}
+		return items, nil
+	}
+	return inbox.New(inbox.Config{Store: w.st, List: list, Projects: func() ([]config.Project, error) { return w.projects, nil },
+		Now: func() time.Time { return w.now }}).Entries(ctx)
 }
 
 // fault writes one loop fault row in status.
