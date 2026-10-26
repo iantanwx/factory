@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/machine"
@@ -28,24 +29,49 @@ func Tokens(text string) []string {
 // one: a bug or a decision in any project, an unanswered prepared
 // question, and an open or acknowledged loop fault.
 type Records struct {
-	names map[string]string // token -> record name, such as "factorio-x1y", "F-3" or "question 7"
+	names  map[string]string    // token -> record name, such as "factorio-x1y", "F-3" or "question 7"
+	before map[string]time.Time // token -> the time a bounded record files it before
 }
 
-// Names returns the record that holds key as a token.
+// Names returns the record that holds key as a token, for a finding with
+// no time.
 func (r Records) Names(key string) (record string, ok bool) {
-	record, ok = r.names[key]
+	return r.Files(Finding{Key: key})
+}
+
+// Files returns the record that holds f's key as a token. A bounded
+// record files f only when f is older than the bound.
+func (r Records) Files(f Finding) (record string, ok bool) {
+	record, ok = r.names[f.Key]
+	if until, bounded := r.before[f.Key]; ok && bounded && !f.At.Before(until) {
+		return "", false
+	}
 	return record, ok
 }
 
-// add files each token of text under record. The first record to hold a
-// token keeps it.
-func (r *Records) add(record, text string, keep func(string) bool) {
+// add files each token of text under record. A zero before files it with
+// no bound. The first record to hold a token keeps it, except that a
+// record with no bound takes a token from a bounded one.
+func (r *Records) add(record, text string, keep func(string) bool, before time.Time) {
 	if r.names == nil {
-		r.names = map[string]string{}
+		r.names, r.before = map[string]string{}, map[string]time.Time{}
 	}
 	for _, t := range Tokens(text) {
-		if _, ok := r.names[t]; !ok && (keep == nil || keep(t)) {
-			r.names[t] = record
+		if keep != nil && !keep(t) {
+			continue
+		}
+		_, held := r.names[t]
+		_, bounded := r.before[t]
+		switch {
+		case !held:
+		case bounded && before.IsZero():
+			delete(r.before, t)
+		default:
+			continue
+		}
+		r.names[t] = record
+		if !before.IsZero() {
+			r.before[t] = before
 		}
 	}
 }
@@ -55,6 +81,14 @@ func (r *Records) add(record, text string, keep func(string) bool) {
 //   - a bug or a decision in any project in a state that is not terminal
 //     for its kind, and a bug that `work shape` closed while its ticket is
 //     not terminal: its body, and the title of a decision;
+//   - a bug that `work duplicate` closed while its duplicate_of item is
+//     done or not terminal: its body, for keys that start
+//     "overwatch:flaky:" only. While that item is open, the bug files the
+//     key as a shaped bug does. Once it is done, the bug files a flake
+//     only when the flake's run started before beads last wrote the done
+//     item, which is its merge or later. Such a run is at a head older
+//     than the fix, so it holds no work (C-bug-1). A newer flake rings. A
+//     bug that duplicates a canceled item files nothing;
 //   - a prepared question with no answer: its body;
 //   - a loop fault in open or acknowledged: its text, for keys that start
 //     "overwatch:" only, so a fault that cites another files nothing.
@@ -74,8 +108,14 @@ func ReadRecords(ctx context.Context, w World) (Records, error) {
 			status[it.ID] = it
 		}
 		for _, it := range items {
+			var keep func(string) bool
+			var before time.Time
 			if !openRecord(it, status) {
-				continue
+				var ok bool
+				if before, ok = duplicateOfAFix(it, status); !ok {
+					continue
+				}
+				keep = func(t string) bool { return strings.HasPrefix(t, "overwatch:flaky:") }
 			}
 			body, err := w.Body(ctx, p.ID, it.ID)
 			if err != nil {
@@ -84,7 +124,7 @@ func ReadRecords(ctx context.Context, w World) (Records, error) {
 			if it.Kind == machine.KindDecision {
 				body = it.Title + "\n" + body
 			}
-			r.add(it.ID, body, nil)
+			r.add(it.ID, body, keep, before)
 		}
 	}
 	st := w.Store()
@@ -103,7 +143,7 @@ func ReadRecords(ctx context.Context, w World) (Records, error) {
 			if err := rs.Scan(&id, &body); err != nil {
 				return err
 			}
-			r.add(fmt.Sprintf("question %d", id), body, nil)
+			r.add(fmt.Sprintf("question %d", id), body, nil, time.Time{})
 		}
 		if err := rs.Err(); err != nil {
 			return err
@@ -113,7 +153,7 @@ func ReadRecords(ctx context.Context, w World) (Records, error) {
 			return err
 		}
 		for _, f := range faults {
-			r.add(f.ID, f.Text, func(t string) bool { return strings.HasPrefix(t, "overwatch:") })
+			r.add(f.ID, f.Text, func(t string) bool { return strings.HasPrefix(t, "overwatch:") }, time.Time{})
 		}
 		return nil
 	})
@@ -138,6 +178,24 @@ func openRecord(it machine.Item, items map[string]machine.Item) bool {
 	}
 	ticket, ok := items[it.Fact(machine.FactTicket)]
 	return ok && !terminal(ticket)
+}
+
+// duplicateOfAFix reports whether it is a bug closed as a duplicate of an
+// item, in the same project, that is done or not terminal. before is when
+// beads last wrote the done item, and zero while the item is open. A done
+// item with no write time bounds nothing, so the bug files nothing.
+func duplicateOfAFix(it machine.Item, items map[string]machine.Item) (before time.Time, ok bool) {
+	if it.Kind != machine.KindBug || it.Status != machine.Duplicate {
+		return time.Time{}, false
+	}
+	of, ok := items[it.Fact(machine.FactDuplicateOf)]
+	switch {
+	case !ok:
+		return time.Time{}, false
+	case !terminal(of):
+		return time.Time{}, true
+	}
+	return of.Updated, of.Status == machine.Done && !of.Updated.IsZero()
 }
 
 func terminal(it machine.Item) bool {

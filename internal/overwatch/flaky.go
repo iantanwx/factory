@@ -84,7 +84,7 @@ func classifyFlaky(p config.Project, runs []github.RunView, jobs map[int64][][]g
 						continue
 					}
 					seen[key] = true
-					r.Findings = append(r.Findings, Finding{Key: key,
+					r.Findings = append(r.Findings, Finding{Key: key, At: run.CreatedAt,
 						Line: fmt.Sprintf("%s: job %q of %s failed in attempt %d and passed in attempt %d of run %d at head %s. %s",
 							p.ID, j.Name, run.Workflow, failed, a+1, run.ID, short12(run.HeadSHA), key)})
 				}

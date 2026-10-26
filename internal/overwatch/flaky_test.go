@@ -1,6 +1,7 @@
 package overwatch
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -72,4 +73,81 @@ func TestC28WhatEndsAFlakyJob(t *testing.T) {
 			t.Fatalf("%d unfiled lines quote %s, want 1: %v", got, key, pr.Lines)
 		}
 	})
+}
+
+// factorio-cwax: a flake whose bug closed as a duplicate of a merged fix
+// holds no work. The rerun is at a head older than the fix, so the next
+// sweep reads it as filed and stays quiet.
+func TestFlakeWhoseBugIsADuplicateOfAMergedFixHoldsNoWork(t *testing.T) {
+	key := "overwatch:flaky:alpha:ci-yml/go-tests-race"
+	w := newGHWorld(t, alpha)
+	w.prs().AddRun(rerun(headOld, "failure", "success", w.now.Add(-3*time.Hour)))
+	w.add("alpha", machine.Item{ID: "alpha-t1", Kind: machine.KindTicket, Status: machine.Done, Updated: w.now.Add(-time.Hour),
+		Facts: map[string]string{machine.FactMergedSHA: headA}}, "fix the race in the restart test")
+	w.add("alpha", machine.Item{ID: "alpha-b4", Kind: machine.KindBug, Status: machine.Duplicate,
+		Facts: map[string]string{machine.FactDuplicateOf: "alpha-t1"}}, "flaky race tests ("+key+")")
+	pr := sweepOne(t, w, partNamed(t, "flaky"))
+	if got := unfiled(pr, key); got != 0 {
+		t.Fatalf("%d unfiled lines quote %s, want 0: %v", got, key, pr.Lines)
+	}
+	expect(t, pr, Quiet)
+}
+
+// C-bug-1, out of scope: a flake whose run started after the fix merged
+// is new work. The duplicate of that fix does not file it.
+func TestFlakeNewerThanTheFixItsBugDuplicatesIsWork(t *testing.T) {
+	key := "overwatch:flaky:alpha:ci-yml/go-tests-race"
+	w := newGHWorld(t, alpha)
+	w.prs().AddRun(rerun(headA, "failure", "success", w.now.Add(-time.Hour)))
+	w.add("alpha", machine.Item{ID: "alpha-t1", Kind: machine.KindTicket, Status: machine.Done, Updated: w.now.Add(-2 * time.Hour),
+		Facts: map[string]string{machine.FactMergedSHA: headA}}, "fix the race in the restart test")
+	w.add("alpha", machine.Item{ID: "alpha-b4", Kind: machine.KindBug, Status: machine.Duplicate,
+		Facts: map[string]string{machine.FactDuplicateOf: "alpha-t1"}}, "flaky race tests ("+key+")")
+	pr := sweepOne(t, w, partNamed(t, "flaky"))
+	if got := unfiled(pr, key); got != 1 {
+		t.Fatalf("%d unfiled lines quote %s, want 1: %v", got, key, pr.Lines)
+	}
+	expect(t, pr, Work)
+}
+
+// C-bug-1: a flake's bug that duplicates an open item files the key while
+// that item is open. A duplicate of a canceled item files nothing.
+func TestFlakeWhoseBugIsADuplicateFollowsTheItemItDuplicates(t *testing.T) {
+	key := "overwatch:flaky:alpha:ci-yml/go-tests-race"
+	for _, c := range []struct {
+		status string
+		code   Code
+	}{
+		{machine.InProgress, Quiet},
+		{machine.Canceled, Work},
+	} {
+		t.Run(c.status, func(t *testing.T) {
+			w := newGHWorld(t, alpha)
+			w.prs().AddRun(rerun(headOld, "failure", "success", w.now.Add(-3*time.Hour)))
+			w.add("alpha", machine.Item{ID: "alpha-t1", Kind: machine.KindTicket, Status: c.status}, "fix the race")
+			w.add("alpha", machine.Item{ID: "alpha-b4", Kind: machine.KindBug, Status: machine.Duplicate,
+				Facts: map[string]string{machine.FactDuplicateOf: "alpha-t1"}}, "flaky race tests ("+key+")")
+			pr := sweepOne(t, w, partNamed(t, "flaky"))
+			if pr.Code != c.code {
+				t.Fatalf("code = %d, want %d: %v", pr.Code, c.code, pr.Lines)
+			}
+		})
+	}
+}
+
+// C31: an open bug that names a flaky key files every flake of it, though
+// a bounded duplicate read first names the same key.
+func TestAnOpenBugFilesAFlakeThatADuplicateBoundsOut(t *testing.T) {
+	key := "overwatch:flaky:alpha:ci-yml/go-tests-race"
+	w := newGHWorld(t, alpha)
+	w.prs().AddRun(rerun(headA, "failure", "success", w.now.Add(-time.Hour)))
+	w.add("alpha", machine.Item{ID: "alpha-t1", Kind: machine.KindTicket, Status: machine.Done, Updated: w.now.Add(-2 * time.Hour)}, "fix the race")
+	w.add("alpha", machine.Item{ID: "alpha-b4", Kind: machine.KindBug, Status: machine.Duplicate,
+		Facts: map[string]string{machine.FactDuplicateOf: "alpha-t1"}}, "flaky race tests ("+key+")")
+	w.add("alpha", machine.Item{ID: "alpha-b5", Kind: machine.KindBug, Status: machine.Reported}, "the race again ("+key+")")
+	pr := sweepOne(t, w, partNamed(t, "flaky"))
+	if len(pr.Lines) == 0 || !strings.Contains(pr.Lines[0], "(filed in alpha-b5)") {
+		t.Fatalf("lines = %v, want the flake filed in alpha-b5", pr.Lines)
+	}
+	expect(t, pr, Quiet)
 }

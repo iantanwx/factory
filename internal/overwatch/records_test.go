@@ -83,6 +83,11 @@ func TestC31AClosedRecordOrAPrefixDoesNotName(t *testing.T) {
 		{"a duplicate bug", func(t *testing.T, w *fakeWorld) {
 			w.add("factorio", machine.Item{ID: "factorio-b1", Kind: machine.KindBug, Status: machine.Duplicate}, key)
 		}},
+		{"a duplicate bug of a done ticket, for a key outside the flaky part", func(t *testing.T, w *fakeWorld) {
+			w.add("factorio", machine.Item{ID: "factorio-t1", Kind: machine.KindTicket, Status: machine.Done}, "")
+			w.add("factorio", machine.Item{ID: "factorio-b1", Kind: machine.KindBug, Status: machine.Duplicate,
+				Facts: map[string]string{machine.FactDuplicateOf: "factorio-t1"}}, key)
+		}},
 		{"a canceled bug", func(t *testing.T, w *fakeWorld) {
 			w.add("factorio", machine.Item{ID: "factorio-b1", Kind: machine.KindBug, Status: machine.Canceled}, key)
 		}},
