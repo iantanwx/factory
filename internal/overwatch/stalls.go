@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
@@ -18,9 +19,11 @@ import (
 // (ADR 0009, "Which parts port"): work that stopped moving. An escalation
 // that the fixer's panel passed by is work (C9). An item in a state that a
 // stage takes stalls at the second fire of that stage with no run since it
-// entered the state (C10). A ticket in in_progress that no lease holds and
-// no live run names is lost, and work at once (C11). The stage claim states
-// come from admission, so the part lists no state of its own.
+// entered the state (C10). A fire that took only older items of the
+// stage's queue is the queue draining, and does not count. A ticket in
+// in_progress that no lease holds and no live run names is lost, and work
+// at once (C11). The stage claim states come from admission, so the part
+// lists no state of its own.
 var stallsPart = Part{Name: "stalls", Read: readStalls}
 
 // stallFires is how many fires of the stage that takes it an item or an
@@ -57,8 +60,20 @@ type itemRow struct {
 	// and runAt is when it started. Empty when none did.
 	run   string
 	runAt time.Time
+	// queue is each run of the stage in the project on another item that
+	// started at or after entered, oldest first.
+	queue []queueRun
 	hold  string // the room or escalation that holds the item, such as "room room-r7"
 	alert string // an open retry_limit or run_blocked alert that names the item, such as "alert/7 retry_limit"
+}
+
+// queueRun is one run of a stage on an item of its queue.
+type queueRun struct {
+	run, item string
+	at        time.Time
+	// entered is when the item last entered a state that the stage takes,
+	// at or before the run started. Zero when no transition dates it.
+	entered time.Time
 }
 
 // lostRow is one ticket in in_progress.
@@ -187,10 +202,11 @@ func stageItems(ctx context.Context, w World, hc *config.HostConfig, project str
 }
 
 // readItem reads when the item entered its state, the newest run on it
-// since then, a hold on it and an open alert that names it. The entry is
-// the item's last transition that changed its status, as the work query
-// dates it. When that transition led elsewhere, or none exists, the item's
-// last bead write dates it.
+// since then, the runs of its stage on other items since then, a hold on
+// it and an open alert that names it. The entry is the item's last
+// transition that changed its status, as the work query dates it. When
+// that transition led elsewhere, or none exists, the item's last bead
+// write dates it.
 func readItem(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 	it := row.item
 	row.entered = it.Updated
@@ -211,6 +227,9 @@ func readItem(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 		return err
 	}
 	row.runAt = time.UnixMilli(started)
+	if err := readQueue(ctx, tx, row); err != nil {
+		return err
+	}
 	var kind, holder string
 	err = tx.QueryRowContext(ctx, `SELECT kind, holder FROM holds WHERE project = ? AND item = ? ORDER BY created_at, holder LIMIT 1`,
 		it.Project, it.ID).Scan(&kind, &holder)
@@ -232,6 +251,42 @@ func readItem(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 		return err
 	}
 	return nil
+}
+
+// readQueue reads each run of the row's stage in its project on another
+// item that started at or after the row entered, and when that item last
+// entered a state that the stage takes before the run started.
+func readQueue(ctx context.Context, tx *sql.Tx, row *itemRow) error {
+	var in []string
+	var args []any
+	for _, s := range admission.ClaimStates(row.stage) {
+		in = append(in, "?")
+		args = append(args, s.Status)
+	}
+	args = append(args, row.item.Project, row.stage, row.item.ID, row.entered.UnixMilli())
+	rs, err := tx.QueryContext(ctx, `SELECT r.run_id, r.item, r.started_at,
+		(SELECT t.at FROM transitions t WHERE t.project = r.project AND t.item = r.item AND t.from_status <> t.to_status
+			AND t.at <= r.started_at AND t.to_status IN (`+strings.Join(in, ", ")+`) ORDER BY t.seq DESC LIMIT 1)
+		FROM runs r WHERE r.project = ? AND r.stage = ? AND r.item <> ? AND r.started_at >= ?
+		ORDER BY r.started_at, r.run_id`, args...)
+	if err != nil {
+		return err
+	}
+	for rs.Next() {
+		var q queueRun
+		var started int64
+		var entered sql.NullInt64
+		if err := rs.Scan(&q.run, &q.item, &started, &entered); err != nil {
+			_ = rs.Close()
+			return err
+		}
+		q.at = time.UnixMilli(started)
+		if entered.Valid {
+			q.entered = time.UnixMilli(entered.Int64)
+		}
+		row.queue = append(row.queue, q)
+	}
+	return errors.Join(rs.Err(), rs.Close())
 }
 
 // readLost reads whether a lease holds the ticket, and whether a live run
@@ -310,7 +365,7 @@ func classifyStalls(rows stallRows, now time.Time) Reading {
 		it := row.item
 		key := Key("stalls", it.ID+"@"+it.Status)
 		head := fmt.Sprintf("%s (%s of %s) waits in %s", it.ID, it.Kind, it.Project, it.Status)
-		var why string
+		var why, tookOlder string
 		switch {
 		case row.off != "":
 			why = row.off
@@ -321,16 +376,23 @@ func classifyStalls(rows stallRows, now time.Time) Reading {
 		case row.run != "":
 			why = fmt.Sprintf("run %s started at %s, after it entered at %s", row.run, stamp(row.runAt), stamp(row.entered))
 		default:
-			if n := fires(row.cron, row.entered, now); n < stallFires {
+			n, drained := queueFires(row, now)
+			if len(drained) > 0 {
+				tookOlder = "; the fires that took only older items of its queue started " + tookList(drained)
+			}
+			if n < stallFires {
 				why = fmt.Sprintf("%s of %s since it entered at %s", fireCount(n), row.stage, stamp(row.entered))
+				if tookOlder != "" {
+					why += " counts against it" + tookOlder
+				}
 			}
 		}
 		if why != "" {
 			r.Notes = append(r.Notes, head+": "+why)
 			continue
 		}
-		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s of %s) stalls in %s: %s fired twice since it entered at %s, and no run started since (%s)",
-			it.ID, it.Kind, it.Project, it.Status, row.stage, stamp(row.entered), key)})
+		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s of %s) stalls in %s: two fires of %s since it entered at %s count against it: neither started a run on it, and neither took only older items of its queue%s (%s)",
+			it.ID, it.Kind, it.Project, it.Status, row.stage, stamp(row.entered), tookOlder, key)})
 	}
 	for _, row := range rows.lost {
 		if row.leased || row.live {
@@ -356,6 +418,47 @@ func fires(c *sched.Cron, since, now time.Time) int {
 		t = next
 	}
 	return n
+}
+
+// queueFires counts the fires of the row's stage after it entered and at
+// or before now that count against it, up to stallFires, and returns the
+// runs of the fires that did not count. A fire counts unless the runs that
+// started from it until the next fire all took items that entered the
+// queue before the row did: that is the queue draining. An item that no
+// transition dates counts as younger. A schedule that no date holds never
+// fires.
+func queueFires(row itemRow, now time.Time) (n int, drained []queueRun) {
+	next, err := row.cron.Next(row.entered)
+	for n < stallFires && err == nil && !next.After(now) {
+		fire := next
+		next, err = row.cron.Next(fire)
+		var took []queueRun
+		younger := false
+		for _, q := range row.queue {
+			switch {
+			case q.at.Before(fire) || err == nil && !q.at.Before(next): // another fire started it
+			case q.entered.IsZero() || !q.entered.Before(row.entered):
+				younger = true
+			default:
+				took = append(took, q)
+			}
+		}
+		if len(took) == 0 || younger {
+			n++
+			continue
+		}
+		drained = append(drained, took...)
+	}
+	return n, drained
+}
+
+// tookList names each run and the item it took.
+func tookList(runs []queueRun) string {
+	var out []string
+	for _, q := range runs {
+		out = append(out, fmt.Sprintf("run %s on %s at %s", q.run, q.item, stamp(q.at)))
+	}
+	return strings.Join(out, ", ")
 }
 
 // fireCount says n fires below stallFires in words.
