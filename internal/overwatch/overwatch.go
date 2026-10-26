@@ -40,8 +40,9 @@ const (
 // Finding is one thing the coordinator acts on. It is work until a record
 // names Key.
 type Finding struct {
-	Key  string // overwatch:<part>:<subject>, or a fault id for the bugs part
-	Line string // quotes Key
+	Key  string    // overwatch:<part>:<subject>, or a fault id for the bugs part
+	Line string    // quotes Key
+	At   time.Time // when a flaky finding's run started, and zero for the other parts
 }
 
 // Reading is a part's findings and its notes. A note that starts UNREAD
@@ -238,7 +239,7 @@ func classify(p Part, res partResult, recs Records, recsOK bool) PartReport {
 	}
 	var filed []string
 	for _, f := range res.reading.Findings {
-		if rec, ok := recs.Names(f.Key); recsOK && ok {
+		if rec, ok := recs.Files(f); recsOK && ok {
 			filed = append(filed, fmt.Sprintf("%s (filed in %s)", f.Line, rec))
 			continue
 		}

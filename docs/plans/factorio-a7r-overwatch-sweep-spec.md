@@ -256,8 +256,10 @@ A record is one of these, read once for each sweep:
   `loop work shape` closed counts while its ticket is not terminal. The read takes the body, and
   the title of a decision.
 - A bug that `loop work duplicate` closed, while its `duplicate_of` item is done or not terminal.
-  The read takes its body, for keys that start `overwatch:flaky:` only. A flake at a head older
-  than a merged fix then holds no work. A bug that duplicates a canceled item files nothing.
+  The read takes its body, for keys that start `overwatch:flaky:` only. While that item is open,
+  the bug names the key. Once it is done, the bug names a flake only when the flake's run started
+  before beads last wrote the done item. So a flake at a head older than a merged fix holds no
+  work, and a later flake rings. A bug that duplicates a canceled item files nothing.
 - A question that the coordinator prepared and the operator has not answered. The read takes its
   body.
 - A loop fault in status `open` or `acknowledged`. The read takes its text. A fault's text counts
@@ -1031,8 +1033,10 @@ no budget.*
 attempt at the same head, inside the 48-hour window, makes `flaky` hold work. The line names the
 workflow, the job and the head. The key names the project, the workflow and the job, and not the
 head, so each later flake of that job keeps one key. The work ends when the window holds no such
-rerun of that job, or when an open bug names the key. A job that failed and never passed reads
-code 0 here, because `main` owns a red run.
+rerun of that job, or when a record names the key: an open bug, or a bug closed as a duplicate of
+an item that is open or done. A duplicate of a done item names only a flake whose run started
+before beads last wrote that item. A job that failed and never passed reads code 0 here, because
+`main` owns a red run.
 *Example tests on `githubtest`: a rerun that passed, the same with a bug that names the key, one
 that failed again, one outside the window, and a job name with spaces that `Slug` makes safe.*
 
@@ -1058,10 +1062,16 @@ record. These records name a key that one of their tokens equals:
 - A bug that `work shape` closed, while its ticket is not terminal.
 - An unanswered prepared question.
 - A fault in `open` or `acknowledged`, for a key that starts `overwatch:`.
+- A bug in `duplicate` whose `duplicate_of` item is not terminal, for a key that starts
+  `overwatch:flaky:`. When that item is `done`, the bug names a flaky finding whose run started
+  before beads last wrote the item.
 
 These do not name a key:
 
-- A bug in `duplicate` or `canceled`, and a shaped bug whose ticket is `done`.
+- A bug in `canceled`, and a shaped bug whose ticket is `done`.
+- A bug in `duplicate`, except as the list above states. So it never names a key outside
+  `overwatch:flaky:`, or a flake whose run started after beads last wrote its done item. It names
+  no key when its item is `canceled`.
 - An answered question.
 - A `fixed` fault.
 - A token that holds the key as a prefix only, such as `<key>x`.
