@@ -485,6 +485,9 @@ type World interface {
 	Dependencies(ctx context.Context, project, item string) ([]beadsx.Dependency, error)
 	Store() *store.Store // read transactions only
 	Intervals() Intervals
+	// Jobs are the native jobs registered on the scheduler. A server with
+	// no scheduler registers none.
+	Jobs() sched.Jobs
 	// CheckoutDirs lists each directory named loop-* one level under a
 	// directory of agent_host.checkout_root, as absolute paths.
 	CheckoutDirs(ctx context.Context) ([]string, error)
@@ -936,7 +939,14 @@ checkout, and one for an operator's worktree named `feature-x`.*
 row `timer-health`. A `cron` row of `schedule` whose last fire is older than two periods of its
 cron makes `timer-health` hold work. So does a liveness tick older than two of
 `Intervals().Liveness`. A row that fired on time reads code 0.
-*Example tests with a fake clock, at one and at two periods.*
+`timer-health` judges only the `cron` rows that the scheduler still fires (decision factorio-kbr,
+2026-10-25). It names them with `sched.Timers`, the one selection that `fireDue` also fires by,
+from `World.Host`, `World.Projects`, `World.ProjectConfig` and `World.Jobs`. The scheduler never
+deletes a row. So a row of a project that `Projects` does not return, of a stage the project does
+not enable, or of a native or agent job that no longer exists is never a stopped timer. It adds no
+finding and no `overwatch:timer-health:<project>/<stage>` key.
+*Example tests with a fake clock, at one and at two periods, and one for each kind of row the
+scheduler no longer fires.*
 
 **C18. Behaviour: an unreachable coordinator is work.** Proves ADR 0009 § Decision, "Which parts
 port", row `inbox`. `inbox` holds work when the agent host inventory shows no live coordinator

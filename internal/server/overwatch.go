@@ -261,6 +261,13 @@ func (w *serverWorld) Intervals() overwatch.Intervals {
 	return overwatch.Intervals{Tick: tick, Liveness: liveness, Cleanup: cleanup}
 }
 
+func (w *serverWorld) Jobs() sched.Jobs {
+	if w.s.Sched == nil {
+		return sched.Jobs{}
+	}
+	return w.s.Sched.Jobs()
+}
+
 // CheckoutDirs lists each loop-* directory one level under a directory of
 // agent_host.checkout_root, as absolute paths.
 func (w *serverWorld) CheckoutDirs(context.Context) ([]string, error) {
