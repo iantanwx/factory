@@ -137,7 +137,10 @@ func (s *Scheduler) clearKept(ctx context.Context, id, path string) {
 // goes. One that a rule keeps stays, and an alert names it. The
 // coordinator's checkout and the operator's own worktrees are never read.
 // It holds checkoutMu, so a run's new checkout is never a stray: dispatch
-// records the row before it lets go.
+// records the row before it lets go. A room records its row after it makes
+// its checkout, so the loop-<room id> directory of each room that is not
+// closed is no stray either. A stray the project's host does not know goes
+// by git.
 func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 	hc, err := s.cfg.Host.Load(ctx)
 	if err != nil {
@@ -155,7 +158,7 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 		rep.Errors[root] = err.Error()
 		return
 	}
-	named := map[string]bool{}
+	named, opening := map[string]bool{}, map[string]bool{}
 	err = s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		rs, err := tx.QueryContext(ctx, `SELECT path FROM checkouts WHERE state <> ?`, CheckoutDeleted)
 		if err != nil {
@@ -169,7 +172,22 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 			}
 			named[filepath.Clean(path)] = true
 		}
-		return rs.Err()
+		if err := rs.Err(); err != nil {
+			return err
+		}
+		rooms, err := tx.QueryContext(ctx, `SELECT id FROM rooms WHERE closed_at IS NULL`)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rooms.Close() }()
+		for rooms.Next() {
+			var id string
+			if err := rooms.Scan(&id); err != nil {
+				return err
+			}
+			opening[RoomCheckoutName(id)] = true
+		}
+		return rooms.Err()
 	})
 	if err != nil {
 		rep.Errors[""] = err.Error()
@@ -181,7 +199,7 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 		return
 	}
 	for _, dir := range dirs {
-		if named[dir] || filepath.Base(dir) == coordinatorCheckout {
+		if base := filepath.Base(dir); named[dir] || opening[base] || base == coordinatorCheckout {
 			continue
 		}
 		gitDirs, err := checkoutGit(ctx, dir, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
@@ -211,9 +229,11 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 			s.alertKept(ctx, project, dir, "a run that no checkouts row names", dir, why)
 			continue
 		}
+		err = agenthost.ErrUnknownCheckout
 		if project != "" {
 			err = s.cfg.Checkouts(project).RemoveCheckout(ctx, dir)
-		} else {
+		}
+		if errors.Is(err, agenthost.ErrUnknownCheckout) {
 			_, err = gitx.Run(ctx, common, "worktree", "remove", dir)
 		}
 		if err != nil {
@@ -224,6 +244,9 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 		rep.Deleted = append(rep.Deleted, dir)
 	}
 }
+
+// RoomCheckoutName names the checkout of the room id.
+func RoomCheckoutName(id string) string { return "loop-" + id }
 
 func keptKey(checkout string) string { return AlertCheckoutKept + ":" + checkout }
 

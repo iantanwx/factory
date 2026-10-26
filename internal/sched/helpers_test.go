@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -264,10 +265,12 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 // gitCheckouts makes each fake checkout a real git worktree of the project
 // clone, as orca's worktree create does.
 type gitCheckouts struct {
-	t    *testing.T
-	host *fake.Host
-	repo string
-	fail atomic.Bool
+	t       *testing.T
+	host    *fake.Host
+	repo    string
+	fail    atomic.Bool
+	mu      sync.Mutex
+	removed []string // each path RemoveCheckout was asked for
 }
 
 func (g *gitCheckouts) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec) (agenthost.Checkout, error) {
@@ -284,11 +287,20 @@ func (g *gitCheckouts) CreateCheckout(ctx context.Context, spec agenthost.Checko
 
 // RemoveCheckout forgets the checkout in the fake and removes the worktree.
 func (g *gitCheckouts) RemoveCheckout(ctx context.Context, path string) error {
+	g.mu.Lock()
+	g.removed = append(g.removed, path)
+	g.mu.Unlock()
 	if err := g.host.RemoveCheckout(ctx, path); err != nil {
 		return err
 	}
 	gitIn(g.t, g.repo, "worktree", "remove", "--force", path)
 	return nil
+}
+
+func (g *gitCheckouts) removedPaths() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return slices.Clone(g.removed)
 }
 
 func admissionRequest(item string) admission.Request {

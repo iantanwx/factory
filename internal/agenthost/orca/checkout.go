@@ -3,6 +3,7 @@ package orca
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -63,7 +64,8 @@ func (h *Host) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec) 
 
 // RemoveCheckout runs `orca worktree rm --force`. It refuses a path outside
 // the root without asking orca, and a checkout that a complete inventory
-// does not prove empty, because `worktree rm` also stops its terminals.
+// does not prove empty, because `worktree rm` also stops its terminals. A
+// path orca lists no worktree for is agenthost.ErrUnknownCheckout.
 func (h *Host) RemoveCheckout(ctx context.Context, path string) error {
 	if !agenthost.InsideRoot(h.cfg.CheckoutRoot, path) {
 		return fmt.Errorf("%w: %s", agenthost.ErrOutsideRoot, path)
@@ -91,5 +93,8 @@ func (h *Host) RemoveCheckout(ctx context.Context, path string) error {
 		}
 	}
 	_, err = h.call(ctx, "worktree", "rm", "--worktree", "path:"+clean, "--force", "--json")
+	if oe := (*Error)(nil); errors.As(err, &oe) && oe.Code == CodeNotFound {
+		return fmt.Errorf("%w: orca lists no worktree at %s", agenthost.ErrUnknownCheckout, clean)
+	}
 	return err
 }

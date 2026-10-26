@@ -619,6 +619,9 @@ func (h *Host) RemoveCheckout(_ context.Context, path string) error {
 			return fmt.Errorf("%w: %s holds %s", agenthost.ErrCheckoutBusy, clean, s.s.ID)
 		}
 	}
+	if !h.checkouts[clean] {
+		return fmt.Errorf("%w: %s", agenthost.ErrUnknownCheckout, clean)
+	}
 	delete(h.checkouts, clean)
 	return nil
 }

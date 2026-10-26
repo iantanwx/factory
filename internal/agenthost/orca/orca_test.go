@@ -994,6 +994,13 @@ func TestRemoveCheckout(t *testing.T) {
 			t.Fatalf("worktree rm args = %q", got)
 		}
 	})
+	t.Run("a worktree orca does not know", func(t *testing.T) {
+		w := newWorld(t)
+		w.sim.override["worktree rm"] = func([]string) (orca.Output, error) { return failOut("selector_not_found", nil), nil }
+		if err := w.host.RemoveCheckout(ctx, w.checkout); !errors.Is(err, agenthost.ErrUnknownCheckout) {
+			t.Fatalf("RemoveCheckout = %v", err)
+		}
+	})
 }
 
 // ---- The exec layer ----

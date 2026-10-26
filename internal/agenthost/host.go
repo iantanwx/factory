@@ -116,6 +116,9 @@ var (
 	// ErrCheckoutBusy: a checkout still holds a session, or the host could not
 	// prove that it holds none.
 	ErrCheckoutBusy = errors.New("checkout may hold a live session")
+	// ErrUnknownCheckout: the host lists no checkout at that path, so it
+	// cannot remove it.
+	ErrUnknownCheckout = errors.New("the host knows no checkout at that path")
 	// ErrBadSpec: a start or checkout request is malformed.
 	ErrBadSpec = errors.New("invalid agent host request")
 	// ErrQuotaUnavailable: the host has no quota reading for that harness.

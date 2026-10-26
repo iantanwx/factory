@@ -227,8 +227,12 @@ type envelope struct {
 	} `json:"_meta"`
 }
 
-// CodeStale is orca's error code for a handle it does not resolve.
-const CodeStale = "terminal_handle_stale"
+// Orca's error codes: CodeStale for a handle it does not resolve,
+// CodeNotFound for a selector that matches nothing.
+const (
+	CodeStale    = "terminal_handle_stale"
+	CodeNotFound = "selector_not_found"
+)
 
 // Error is a refusal orca reported in its envelope.
 type Error struct {

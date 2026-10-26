@@ -231,6 +231,16 @@ func TestRemoveCheckoutRefusesBusyCheckout(t *testing.T) {
 	}
 }
 
+// A checkout the host never made is unknown to it, as orca refuses a path
+// it lists no worktree for.
+func TestRemoveCheckoutRefusesAnUnknownCheckout(t *testing.T) {
+	h, s := env(t)
+	unknown := filepath.Join(filepath.Dir(s.Checkout), "other")
+	if err := h.RemoveCheckout(context.Background(), unknown); !errors.Is(err, agenthost.ErrUnknownCheckout) {
+		t.Fatalf("RemoveCheckout(unknown) = %v", err)
+	}
+}
+
 func TestQuota(t *testing.T) {
 	ctx := context.Background()
 	h, _ := env(t)

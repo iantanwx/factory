@@ -90,3 +90,40 @@ func TestCleanupJudgesEachLoopDirectoryNoRowNames(t *testing.T) {
 		t.Fatalf("checkout_kept alerts raised = %d, want 1", n)
 	}
 }
+
+// A clean loop directory of a registered project that no row names goes
+// through that project's host, and it is gone from disk (F-34). The
+// host does not know the directory, so the pass removes it with git.
+func TestCleanupRemovesACleanStrayThroughItsProject(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) { c.AgentHost.CheckoutRoot = w.root })
+	stray := filepath.Join(w.root, "alpha", "loop-alpha-code-reviewer-r-0f1e2d3c4b5a")
+	gitIn(t, w.repo, "worktree", "add", "-q", "-B", "stray", stray, "origin/main")
+	rep := w.s.CleanCheckouts(context.Background())
+	if !slices.Equal(rep.Deleted, []string{stray}) || len(rep.Errors) != 0 || exists(stray) {
+		t.Fatalf("report = %+v, on disk %v", rep, exists(stray))
+	}
+	if !slices.Equal(w.co.removedPaths(), []string{stray}) {
+		t.Fatalf("host removals = %v, want the stray through project %s", w.co.removedPaths(), prj)
+	}
+}
+
+// A loop directory that a row names, or that a room which is not closed
+// will name, is no stray: a run's or a room's new checkout is clean and
+// has no session yet (F-34).
+func TestCleanupLeavesALoopDirectoryARowOrAnOpenRoomNames(t *testing.T) {
+	w := newWorld(t)
+	w.writeHost(nil, nil, func(c *config.HostConfig) { c.AgentHost.CheckoutRoot = w.root })
+	now := w.clock.Now().UnixMilli()
+	run := filepath.Join(w.root, "alpha", "loop-alpha-implementer-r-9a8b7c6d5e4f")
+	gitIn(t, w.repo, "worktree", "add", "-q", "-B", "new-run", run, "origin/main")
+	w.exec(`INSERT INTO checkouts (id, project, item, path, branch, run_id, state, created_at, updated_at)
+		VALUES ('r-9a8b7c6d5e4f', ?, 'tk-9', ?, 'new-run', 'r-9a8b7c6d5e4f', ?, ?, ?)`, prj, run, CheckoutActive, now, now)
+	room := filepath.Join(w.root, "alpha", "loop-room-1a2b3c4d")
+	w.exec(`INSERT INTO rooms (id, project, state, opened_at, kind) VALUES ('room-1a2b3c4d', ?, 'opening', ?, 'intake')`, prj, now)
+	gitIn(t, w.repo, "worktree", "add", "-q", "-B", "new-room", room, "origin/main")
+	rep := w.s.CleanCheckouts(context.Background())
+	if len(rep.Deleted) != 0 || len(rep.Kept) != 0 || len(rep.Errors) != 0 || !exists(run) || !exists(room) {
+		t.Fatalf("report = %+v, run checkout %v, room checkout %v", rep, exists(run), exists(room))
+	}
+}
