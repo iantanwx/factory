@@ -116,6 +116,8 @@ func (r *rig) implementing(run string) string {
 
 // AE4: the CLI is killed after the server commits, and the same command
 // runs again. It exits 0 with replayed: true, and the write landed once.
+// The kill stops the server at the mark too, so the killed CLI never sees
+// the answer, whatever order the scheduler runs the cancel and the reply in.
 func TestAE4KilledAfterCommitReplays(t *testing.T) {
 	r := newRig(t)
 	id := r.implementing("run-1")
@@ -123,6 +125,7 @@ func TestAE4KilledAfterCommitReplays(t *testing.T) {
 	r.w.m.hook = func(p string) bool {
 		if p == pointMarked {
 			kill()
+			return true
 		}
 		return false
 	}
