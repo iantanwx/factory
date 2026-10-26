@@ -365,7 +365,7 @@ func classifyStalls(rows stallRows, now time.Time) Reading {
 		it := row.item
 		key := Key("stalls", it.ID+"@"+it.Status)
 		head := fmt.Sprintf("%s (%s of %s) waits in %s", it.ID, it.Kind, it.Project, it.Status)
-		var why string
+		var why, tookOlder string
 		switch {
 		case row.off != "":
 			why = row.off
@@ -376,10 +376,14 @@ func classifyStalls(rows stallRows, now time.Time) Reading {
 		case row.run != "":
 			why = fmt.Sprintf("run %s started at %s, after it entered at %s", row.run, stamp(row.runAt), stamp(row.entered))
 		default:
-			if n, drained := queueFires(row, now); n < stallFires {
+			n, drained := queueFires(row, now)
+			if len(drained) > 0 {
+				tookOlder = "; the fires that took only older items of its queue started " + tookList(drained)
+			}
+			if n < stallFires {
 				why = fmt.Sprintf("%s of %s since it entered at %s", fireCount(n), row.stage, stamp(row.entered))
-				if len(drained) > 0 {
-					why += fmt.Sprintf(" counts against it; the fires that took older items of its queue started %s", tookList(drained))
+				if tookOlder != "" {
+					why += " counts against it" + tookOlder
 				}
 			}
 		}
@@ -387,8 +391,8 @@ func classifyStalls(rows stallRows, now time.Time) Reading {
 			r.Notes = append(r.Notes, head+": "+why)
 			continue
 		}
-		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s of %s) stalls in %s: %s fired twice since it entered at %s, and no run started since on it or on an older item of its queue (%s)",
-			it.ID, it.Kind, it.Project, it.Status, row.stage, stamp(row.entered), key)})
+		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s of %s) stalls in %s: two fires of %s since it entered at %s count against it: neither started a run on it, and neither took only older items of its queue%s (%s)",
+			it.ID, it.Kind, it.Project, it.Status, row.stage, stamp(row.entered), tookOlder, key)})
 	}
 	for _, row := range rows.lost {
 		if row.leased || row.live {

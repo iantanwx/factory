@@ -605,7 +605,12 @@ func TestC10AFireThatTookAYoungerItemOfTheQueueCounts(t *testing.T) {
 	if !ok {
 		t.Fatalf("two fires took younger items, and factorio-b3 is not work: %+v", r)
 	}
-	mustContain(t, f.Line, "factorio-b3", "reproducer", "older item of its queue")
+	// The fire at 08:55 also took factorio-b1, so the line says what counted.
+	mustContain(t, f.Line, "factorio-b3", "two fires of reproducer", "neither started a run on it",
+		"neither took only older items of its queue")
+	if strings.Contains(f.Line, "r-b1b1b1b1b1b1") {
+		t.Errorf("line %q names a run of a fire that counts", f.Line)
+	}
 }
 
 // C10, F-36: a fire that started no run still counts after a fire that took
@@ -624,5 +629,29 @@ func TestC10AFireWithNoRunCountsAfterTheQueueDrained(t *testing.T) {
 	if !ok {
 		t.Fatalf("at 09:06 two fires count against factorio-b3, and it is not work: %+v", r)
 	}
-	mustContain(t, f.Line, "factorio-b3", "reproducer")
+	// Three fires since 08:50, and the one that took factorio-b1 does not
+	// count, so the line names it and does not say the stage fired twice.
+	mustContain(t, f.Line, "factorio-b3", "two fires of reproducer", "neither started a run on it",
+		"neither took only older items of its queue", "took only older items of its queue started run r-b1b1b1b1b1b1 on factorio-b1")
+	if strings.Contains(f.Line, "fired twice") {
+		t.Errorf("line %q says the stage fired twice, and it fired three times", f.Line)
+	}
+}
+
+// C10, F-36: a run on an item that no transition into reported dates
+// counts as a run on a younger item, so missing data never hides a stall.
+// factorio-b0 holds no transition, and the fires at 08:55 and 09:00 take it.
+func TestC10ARunOnAnUndatedItemOfTheQueueCounts(t *testing.T) {
+	w := newStallsWorld(t)
+	w.now = at(9, 4)
+	w.configs["factorio"].Stages[config.StageReproducer] = config.StageConfig{Schedule: "*/5 * * * *"}
+	w.item("factorio-b0", machine.KindBug, machine.Shaped, at(9, 2))
+	w.item("factorio-b3", machine.KindBug, machine.Reported, at(8, 50))
+	w.entered(t, "factorio-b3", "", machine.Reported, at(8, 50))
+	w.run(t, "r-b0b0b0b0b0b0", config.StageReproducer, "factorio-b0", at(8, 55), at(8, 57))
+	w.run(t, "r-b0b0b0b0b0b1", config.StageReproducer, "factorio-b0", at(9, 0), at(9, 2))
+	r := readStallsPart(t, w)
+	if _, ok := findingOf(r, "overwatch:stalls:factorio-b3@reported"); !ok {
+		t.Fatalf("two fires took an undated item, and factorio-b3 is not work: %+v", r)
+	}
 }
