@@ -3,11 +3,15 @@ package sched
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/admission"
+	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/gitx"
@@ -43,8 +47,10 @@ type CleanReport struct {
 // whose room closed, whose run holds no lease, and that no open room uses.
 // One that is clean and fully pushed goes, and its alert closes. One that
 // a content rule keeps stays, and an alert for a person names its path and
-// the reason (F-9). A checkout it cannot read is reported, and the others
-// still go.
+// the reason (F-9). One whose path is gone, because a person removed it,
+// settles as deleted (F-34). A checkout it cannot read is reported, and
+// the others still go. Then it judges each loop directory that no row
+// names (cleanStrays).
 func (s *Scheduler) CleanCheckouts(ctx context.Context) CleanReport {
 	rep := CleanReport{Kept: map[string]string{}, Errors: map[string]string{}}
 	type row struct{ id, run, project, path string }
@@ -75,6 +81,12 @@ func (s *Scheduler) CleanCheckouts(ctx context.Context) CleanReport {
 		return rep
 	}
 	for _, r := range rows {
+		if _, err := os.Stat(r.path); errors.Is(err, fs.ErrNotExist) {
+			if err := s.settleDeleted(ctx, r.id, r.path); err != nil {
+				rep.Errors[r.path] = err.Error()
+			}
+			continue
+		}
 		why, err := s.keepReason(ctx, r.project, r.path)
 		if err != nil {
 			rep.Errors[r.path] = err.Error()
@@ -90,19 +102,127 @@ func (s *Scheduler) CleanCheckouts(ctx context.Context) CleanReport {
 			rep.Errors[r.path] = err.Error()
 			continue
 		}
-		if err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-			_, err := tx.Exec(`UPDATE checkouts SET state = ?, updated_at = ? WHERE id = ?`, CheckoutDeleted, tx.Now().UnixMilli(), r.id)
-			return err
-		}); err != nil {
+		if err := s.settleDeleted(ctx, r.id, r.path); err != nil {
 			rep.Errors[r.path] = err.Error()
 			continue
 		}
-		if err := s.cfg.Alerts.Clear(ctx, keptKey(r.id)); err != nil {
-			s.log.ErrorContext(ctx, "close the kept checkout's alert", "path", r.path, "err", err)
-		}
 		rep.Deleted = append(rep.Deleted, r.path)
 	}
+	s.cleanStrays(ctx, &rep)
 	return rep
+}
+
+// settleDeleted records the checkout's row as deleted and closes its
+// alert.
+func (s *Scheduler) settleDeleted(ctx context.Context, id, path string) error {
+	if err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`UPDATE checkouts SET state = ?, updated_at = ? WHERE id = ?`, CheckoutDeleted, tx.Now().UnixMilli(), id)
+		return err
+	}); err != nil {
+		return err
+	}
+	s.clearKept(ctx, id, path)
+	return nil
+}
+
+func (s *Scheduler) clearKept(ctx context.Context, id, path string) {
+	if err := s.cfg.Alerts.Clear(ctx, keptKey(id)); err != nil {
+		s.log.ErrorContext(ctx, "close the kept checkout's alert", "path", path, "err", err)
+	}
+}
+
+// cleanStrays judges each loop-* directory one level under a repository
+// directory of agent_host.checkout_root that no checkouts row names, by
+// the content rules of a row's checkout (F-34). A clean, fully pushed one
+// goes. One that a rule keeps stays, and an alert names it. The
+// coordinator's checkout and the operator's own worktrees are never read.
+// It holds checkoutMu, so a run's new checkout is never a stray: dispatch
+// records the row before it lets go.
+func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
+	hc, err := s.cfg.Host.Load(ctx)
+	if err != nil {
+		rep.Errors[""] = err.Error()
+		return
+	}
+	root := hc.AgentHost.CheckoutRoot
+	if root == "" {
+		return
+	}
+	s.checkoutMu.Lock()
+	defer s.checkoutMu.Unlock()
+	dirs, err := agenthost.ListCheckoutDirs(root)
+	if err != nil {
+		rep.Errors[root] = err.Error()
+		return
+	}
+	named := map[string]bool{}
+	err = s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		rs, err := tx.QueryContext(ctx, `SELECT path FROM checkouts WHERE state <> ?`, CheckoutDeleted)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rs.Close() }()
+		for rs.Next() {
+			var path string
+			if err := rs.Scan(&path); err != nil {
+				return err
+			}
+			named[filepath.Clean(path)] = true
+		}
+		return rs.Err()
+	})
+	if err != nil {
+		rep.Errors[""] = err.Error()
+		return
+	}
+	projects, err := s.cfg.Projects()
+	if err != nil {
+		rep.Errors[""] = err.Error()
+		return
+	}
+	for _, dir := range dirs {
+		if named[dir] || filepath.Base(dir) == coordinatorCheckout {
+			continue
+		}
+		gitDirs, err := checkoutGit(ctx, dir, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
+		if err != nil {
+			rep.Errors[dir] = err.Error()
+			continue
+		}
+		gitDir, common, _ := strings.Cut(gitDirs, "\n")
+		if gitDir == common {
+			continue // a clone, not a checkout
+		}
+		// git names the common dir with each link resolved.
+		project := ""
+		for _, p := range projects {
+			if real, err := filepath.EvalSymlinks(p.Path); err == nil && filepath.Join(real, ".git") == common {
+				project = p.ID
+				break
+			}
+		}
+		why, err := s.keepReason(ctx, project, dir)
+		if err != nil {
+			rep.Errors[dir] = err.Error()
+			continue
+		}
+		if why != "" {
+			rep.Kept[dir] = why
+			s.alertKept(ctx, project, dir, "a run that no checkouts row names", dir, why)
+			continue
+		}
+		if project != "" {
+			err = s.cfg.Checkouts(project).RemoveCheckout(ctx, dir)
+		} else {
+			_, err = gitx.Run(ctx, common, "worktree", "remove", dir)
+		}
+		if err != nil {
+			rep.Errors[dir] = err.Error()
+			continue
+		}
+		s.clearKept(ctx, dir, dir)
+		rep.Deleted = append(rep.Deleted, dir)
+	}
 }
 
 func keptKey(checkout string) string { return AlertCheckoutKept + ":" + checkout }

@@ -220,7 +220,11 @@ func TestCheckoutCleanup(t *testing.T) {
 		started = append(started, st)
 	}
 	broken, unpushed, clean := started[0], started[1], started[2]
+	// A directory that is no git worktree exists and cannot be read.
 	if err := os.RemoveAll(broken.Checkout); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(broken.Checkout, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(unpushed.Checkout, "work.txt"), []byte("x\n"), 0o644); err != nil {

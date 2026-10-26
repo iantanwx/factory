@@ -20,8 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -599,6 +601,43 @@ func HarnessArgv(s StartSpec, extra []string) ([]string, error) {
 	}
 	argv = append(argv, extra...)
 	return append(argv, FirstMessage(s)), nil
+}
+
+// CheckoutPrefix starts the name of every checkout the loop makes:
+// loop-<project>-<stage>-<run id> for a run, loop-<room id> for a room.
+// The checkout root also holds the operator's own worktrees, and no
+// listing reads one.
+const CheckoutPrefix = "loop-"
+
+// ListCheckoutDirs lists each directory named loop-* one level under a
+// directory of root, as absolute paths, in order. It opens no directory
+// one level under root whose name does not start loop-, so an operator's
+// own worktree is never read.
+func ListCheckoutDirs(root string) ([]string, error) {
+	if !filepath.IsAbs(root) {
+		return nil, fmt.Errorf("the checkout root %q is not absolute", root)
+	}
+	repos, err := os.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, repo := range repos {
+		if !repo.IsDir() {
+			continue
+		}
+		entries, err := os.ReadDir(filepath.Join(root, repo.Name()))
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if e.IsDir() && strings.HasPrefix(e.Name(), CheckoutPrefix) {
+				out = append(out, filepath.Join(root, repo.Name(), e.Name()))
+			}
+		}
+	}
+	slices.Sort(out)
+	return out, nil
 }
 
 // InsideRoot reports whether path is strictly inside root, after both are

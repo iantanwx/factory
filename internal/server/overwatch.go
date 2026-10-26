@@ -271,7 +271,7 @@ func (w *serverWorld) CheckoutDirs(context.Context) ([]string, error) {
 	if cfg.AgentHost.CheckoutRoot == "" {
 		return nil, errors.New("host config sets no agent_host.checkout_root, so no checkout directory can be listed")
 	}
-	return overwatch.ListCheckoutDirs(cfg.AgentHost.CheckoutRoot)
+	return agenthost.ListCheckoutDirs(cfg.AgentHost.CheckoutRoot)
 }
 
 func (w *serverWorld) Inventory(ctx context.Context) (agenthost.Inventory, error) {
