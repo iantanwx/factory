@@ -55,6 +55,11 @@ func (r *Records) add(record, text string, keep func(string) bool) {
 //   - a bug or a decision in any project in a state that is not terminal
 //     for its kind, and a bug that `work shape` closed while its ticket is
 //     not terminal: its body, and the title of a decision;
+//   - a bug that `work duplicate` closed while its duplicate_of item is
+//     done or not terminal: its body, for keys that start
+//     "overwatch:flaky:" only. A flake at a head older than a merged fix
+//     holds no work, and the duplicate keeps it filed (C-bug-1). A bug
+//     that duplicates a canceled item files nothing;
 //   - a prepared question with no answer: its body;
 //   - a loop fault in open or acknowledged: its text, for keys that start
 //     "overwatch:" only, so a fault that cites another files nothing.
@@ -74,7 +79,12 @@ func ReadRecords(ctx context.Context, w World) (Records, error) {
 			status[it.ID] = it
 		}
 		for _, it := range items {
-			if !openRecord(it, status) {
+			var keep func(string) bool
+			switch {
+			case openRecord(it, status):
+			case duplicateOfAFix(it, status):
+				keep = func(t string) bool { return strings.HasPrefix(t, "overwatch:flaky:") }
+			default:
 				continue
 			}
 			body, err := w.Body(ctx, p.ID, it.ID)
@@ -84,7 +94,7 @@ func ReadRecords(ctx context.Context, w World) (Records, error) {
 			if it.Kind == machine.KindDecision {
 				body = it.Title + "\n" + body
 			}
-			r.add(it.ID, body, nil)
+			r.add(it.ID, body, keep)
 		}
 	}
 	st := w.Store()
@@ -138,6 +148,16 @@ func openRecord(it machine.Item, items map[string]machine.Item) bool {
 	}
 	ticket, ok := items[it.Fact(machine.FactTicket)]
 	return ok && !terminal(ticket)
+}
+
+// duplicateOfAFix reports whether it is a bug closed as a duplicate of an
+// item, in the same project, that is done or not terminal.
+func duplicateOfAFix(it machine.Item, items map[string]machine.Item) bool {
+	if it.Kind != machine.KindBug || it.Status != machine.Duplicate {
+		return false
+	}
+	of, ok := items[it.Fact(machine.FactDuplicateOf)]
+	return ok && (of.Status == machine.Done || !terminal(of))
 }
 
 func terminal(it machine.Item) bool {

@@ -255,6 +255,9 @@ A record is one of these, read once for each sweep:
 - A bug or a decision in any project, in a state that is not terminal for its kind. A bug that
   `loop work shape` closed counts while its ticket is not terminal. The read takes the body, and
   the title of a decision.
+- A bug that `loop work duplicate` closed, while its `duplicate_of` item is done or not terminal.
+  The read takes its body, for keys that start `overwatch:flaky:` only. A flake at a head older
+  than a merged fix then holds no work. A bug that duplicates a canceled item files nothing.
 - A question that the coordinator prepared and the operator has not answered. The read takes its
   body.
 - A loop fault in status `open` or `acknowledged`. The read takes its text. A fault's text counts
