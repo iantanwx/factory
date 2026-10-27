@@ -33,6 +33,11 @@ Read every answer to the spec's open questions before you cut. An answer can add
 Pair each answer with its question. When a question has no answer, escalate. A comment that does
 not answer the question is no answer.
 
+An entry under `## Open questions` is decided only when it holds a bold run that starts with
+`**Answered` or `**Deferred`. The server refuses a batch on a spec with an undecided entry, with
+`SHAPE_REFUSED` and the rule `open_questions`. Never write the answer into the spec yourself.
+Escalate each undecided entry by section 6.
+
 ## 2. Check the spec against itself
 
 - Every contract belongs to a slice.
@@ -55,16 +60,22 @@ lands green and reverts alone.
 - A ticket names its contracts by id and title, and never copies their text. The spec holds the one
   text. When a contract spans two slices, say which part each ticket owns.
 
-Each ticket body holds these sections:
+Each ticket body holds these sections. Write each one as a `## ` heading with this name. The order
+is free, and the server reads no other heading.
 
-1. **Source**: the spec entry, the epic, and the design references of a screen.
-2. **Change**: the behaviour after the change, not the implementation.
-3. **Contracts to prove**: ids and titles. Each one needs a proof that fails before the change.
-4. **Files**: what the ticket may change, and what it must not change.
-5. **Done means**: the project's gates and each contract's proof. A person checks none of it.
-6. **Out of scope**: each part with its owner.
-7. **Stop conditions**: only for an act outside the repository, an act that spends money, or a
-   precondition you can measure.
+1. `## Source`: the spec entry, the epic, and the design references of a screen.
+2. `## Change`: the behaviour after the change, not the implementation. At most 150 words.
+3. `## Contracts to prove`: one list item for each contract, with its id and title. Each one needs a
+   proof that fails before the change. At most 8 contracts, at most 80 words each, and at least one
+   id such as `C1`.
+4. `## Files`: what the ticket may change, and what it must not change.
+5. `## Done means`: the project's gates and each contract's proof. A person checks none of it. At
+   most 60 words.
+6. `## Out of scope`: each part with its owner. At most 60 words.
+7. `## Stop conditions`, optional: only for an act outside the repository, an act that spends
+   money, or a precondition you can measure.
+
+The body holds at most 400 words outside `## Contracts to prove`. Heading lines do not count.
 
 ## 4. Check the graph
 
@@ -73,7 +84,7 @@ Each ticket body holds these sections:
 - Every ticket is reachable from a ticket with no blocker.
 - Every ticket cites at least one story label of the epic's PRD. An architecture epic has an ADR
   and no PRD. Each of its tickets cites no story label, and its body names the spec contracts
-  (C-n) that it builds.
+  (such as `C1`) that it builds.
 
 ## 5. Create the batch
 
@@ -95,6 +106,14 @@ loop epic decompose --file <batch file>
 The server creates every ticket and every dependency, or none. It refuses a ticket whose story
 labels the merged PRD does not hold, with `STORY_UNKNOWN`. It also refuses a ticket of an
 architecture epic that cites a story label. Read the hint, repair the batch, and run it again.
+
+The server reads the spec at the base before it writes. It refuses with `SHAPE_REFUSED` in three
+cases. Each refusal creates no ticket.
+
+- `no_spec`: the base holds no one spec of the epic. Report a loop fault, and finish `blocked`.
+- `open_questions`: the spec holds an undecided entry. The hint names its line. Escalate it.
+- `ticket_shape`: a body misses a section of section 3, or a count is over its limit. The hint
+  names each fault of each ticket, by key. Repair each body, and run the batch again.
 
 The server refuses a batch of more than 25 tickets with the rule `runaway_batch`. That is a runaway
 limit and no sizing rule. Never merge slices to fit under it. Escalate, and name how many slices

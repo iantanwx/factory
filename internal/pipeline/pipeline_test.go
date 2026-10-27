@@ -222,8 +222,16 @@ func TestSpecFollowsTheSameReviewAndSignoff(t *testing.T) {
 }
 
 // decomposing walks a submitted epic to decomposing, held by run-dec, with
-// its PRD on main.
+// its PRD and a spec with no open question on main. Its spec merged before
+// spec_path existed, so the epic holds no spec_path fact.
 func (w *world) decomposing() string {
+	w.t.Helper()
+	return w.decomposingWith(false)
+}
+
+// decomposingWith is decomposing. With recorded, the spec's merge records
+// its path in spec_path.
+func (w *world) decomposingWith(recorded bool) string {
 	w.t.Helper()
 	epic, prd := w.submitted()
 	w.review(epic, "pass")
@@ -236,11 +244,35 @@ func (w *world) decomposing() string {
 	}
 	w.mustApply(machine.Request{Item: epic, Verb: "pr_open", Params: map[string]string{"pr": "99"}, Actor: machine.Server("test")})
 	w.mustApply(machine.Request{Item: epic, Verb: "review_pass", Command: "review submit", Params: map[string]string{"head": "h1"}, Actor: machine.Server("test")})
-	w.mustApply(machine.Request{Item: epic, Verb: "doc_merged", Actor: machine.Server("test")})
+	w.onBase(map[string]string{specPath(epic, "widgets"): specWith("None.\n")})
+	merged := map[string]string{}
+	if recorded {
+		merged["spec_path"] = specPath(epic, "widgets")
+	}
+	w.mustApply(machine.Request{Item: epic, Verb: "doc_merged", Params: merged, Actor: machine.Server("test")})
 	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageDecomposer, RunID: "run-dec"}); res.Refusal != nil {
 		w.t.Fatalf("decomposer claim: %+v", *res.Refusal)
 	}
 	return epic
+}
+
+func specPath(epic, name string) string { return "docs/plans/" + epic + "-" + name + "-spec.md" }
+
+// specWith is a spec whose Open questions section holds questions. Its
+// first entry starts on line 9.
+func specWith(questions string) string {
+	return "# Widgets spec\n\n## Contracts\n\n- C1. A trader sees widgets.\n\n## Open questions\n\n" + questions
+}
+
+// onBase commits files to main, and brings the mirror up to date. An empty
+// text removes its file.
+func (w *world) onBase(files map[string]string) {
+	w.t.Helper()
+	gt.Commit(w.t, w.checkout, "base", files)
+	gt.Git(w.t, w.checkout, "push", "-q", w.git.RemoteDir(), "HEAD:main")
+	if _, _, err := w.svc.SyncBase(w.ctx, w.projects[0]); err != nil {
+		w.t.Fatal(err)
+	}
 }
 
 type ticket struct {
@@ -251,7 +283,20 @@ type ticket struct {
 	BlockedBy []string `json:"blocked_by,omitempty"`
 }
 
-func batch(ts ...ticket) map[string]any { return map[string]any{"tickets": ts} }
+// shapedBody holds every section of the Ticket shape.
+const shapedBody = "## Source\n\nWork entry 1.\n\n## Change\n\nA trader sees widgets.\n\n## Contracts to prove\n\n" +
+	"- C1. A trader sees widgets.\n\n## Files\n\n- May change: `widgets.go`.\n\n## Done means\n\nThe gates pass.\n\n" +
+	"## Out of scope\n\n- Sorting: ticket sort.\n"
+
+// batch is the decomposition of ts. A ticket with no body gets shapedBody.
+func batch(ts ...ticket) map[string]any {
+	for i := range ts {
+		if ts[i].Body == "" {
+			ts[i].Body = shapedBody
+		}
+	}
+	return map[string]any{"tickets": ts}
+}
 
 var threeTickets = batch(
 	ticket{Key: "list", Title: "List widgets", Stories: []string{"US-01"}},

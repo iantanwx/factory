@@ -1,6 +1,7 @@
 package pipeline_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/iantanwx/loop/internal/cli"
@@ -23,14 +24,15 @@ func TestDecomposeAcceptsAnArchitectureEpic(t *testing.T) {
 	w.mustApply(machine.Request{Item: epic, Verb: "pr_open", Params: map[string]string{"pr": "99"}, Actor: machine.Server("test")})
 	w.mustApply(machine.Request{Item: epic, Verb: "review_pass", Command: "review submit", Params: map[string]string{"head": "h1"}, Actor: machine.Server("test")})
 	w.mustApply(machine.Request{Item: epic, Verb: "doc_merged", Actor: machine.Server("test")})
+	w.onBase(map[string]string{specPath(epic, "ratchets"): specWith("None.\n")})
 	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageDecomposer, RunID: "run-dec"}); res.Refusal != nil {
 		t.Fatalf("decomposer claim: %+v", *res.Refusal)
 	}
 
 	dec := w.run("run-dec", epic, machine.StageDecomposer)
 	storied := batch(
-		ticket{Key: "ratchet", Title: "Add the coverage ratchet", Body: "Builds C-1."},
-		ticket{Key: "gate", Title: "Wire the ratchet into the gates", Body: "Builds C-2.", Stories: []string{"US-01"}, BlockedBy: []string{"ratchet"}},
+		ticket{Key: "ratchet", Title: "Add the coverage ratchet", Body: strings.Replace(shapedBody, "C1. A trader sees widgets", "C1. The coverage ratchet", 1)},
+		ticket{Key: "gate", Title: "Wire the ratchet into the gates", Body: strings.Replace(shapedBody, "C1. A trader sees widgets", "C2. The ratchet gate", 1), Stories: []string{"US-01"}, BlockedBy: []string{"ratchet"}},
 	)
 	if ref := wantCode(t, w.call(dec, "", "epic decompose", fileFlag(storied)), cli.CodeStoryUnknown); ref.Rule != "story_without_prd" {
 		t.Fatalf("a story label under an architecture epic: rule %s", ref.Rule)
@@ -43,8 +45,8 @@ func TestDecomposeAcceptsAnArchitectureEpic(t *testing.T) {
 	}
 
 	b := batch(
-		ticket{Key: "ratchet", Title: "Add the coverage ratchet", Body: "Builds C-1."},
-		ticket{Key: "gate", Title: "Wire the ratchet into the gates", Body: "Builds C-2.", BlockedBy: []string{"ratchet"}},
+		ticket{Key: "ratchet", Title: "Add the coverage ratchet", Body: strings.Replace(shapedBody, "C1. A trader sees widgets", "C1. The coverage ratchet", 1)},
+		ticket{Key: "gate", Title: "Wire the ratchet into the gates", Body: strings.Replace(shapedBody, "C1. A trader sees widgets", "C2. The ratchet gate", 1), BlockedBy: []string{"ratchet"}},
 	)
 	ok(t, w.call(dec, "k-dec", "epic decompose", fileFlag(b)))
 	if n := len(w.items(machine.KindTicket)); n != 2 {
