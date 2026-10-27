@@ -29,6 +29,7 @@ import (
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
+	"github.com/iantanwx/loop/internal/server/orcalane"
 )
 
 // serveVerb runs the server until SIGTERM or SIGINT, then stops it
@@ -206,6 +207,9 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 	opts.Sched.Pack = p
 	opts.Setup = append(opts.Setup, skillsAlert(ctx, left))
 	opts.Sched.Coordinator = &sched.CoordinatorConfig{Harness: agenthost.Claude}
+	if cfg.AgentHost.Kind == "orca" {
+		opts.Setup = append(opts.Setup, orcaLane(dir, cfg))
+	}
 	if len(cfg.Projects) > 0 {
 		opts.Sched.Coordinator.Project = cfg.Projects[0].ID
 	}
@@ -226,6 +230,31 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		})
 	}
 	return opts, cleanup, nil
+}
+
+// orcaLane registers the orca-acceptance instance job, which runs the
+// installed release's orca lane against this host's orca (ADR 0008).
+func orcaLane(dir string, cfg *config.HostConfig) func(*server.Server) error {
+	return func(s *server.Server) error {
+		if s.Sched == nil {
+			return nil
+		}
+		keys, err := release.TrustedKeys()
+		if err != nil {
+			return err
+		}
+		layout := release.Layout{Dir: dir}
+		job := &orcalane.Job{
+			Layout:  layout,
+			Host:    func(context.Context) (*config.HostConfig, error) { return config.LoadHost(layout.HostConfig()) },
+			Runner:  orcalane.ExecRunner{Dir: dir},
+			Orca:    orcalane.OrcaCLI{Runner: orca.ExecRunner{Bin: cfg.AgentHost.Binary}},
+			Fetcher: orcalane.ReleaseFetcher{Keys: keys},
+			Faults:  s.Faults,
+			Now:     time.Now,
+		}
+		return s.Sched.RegisterInstanceJob(orcalane.JobName, job.Tick)
+	}
 }
 
 // skillsAlert raises one alert that names each pinned skill the pack left
