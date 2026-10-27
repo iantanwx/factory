@@ -308,6 +308,37 @@ func TestC27EligibleOnlyAtTheWrittenHeadWithEveryCheckGreen(t *testing.T) {
 	}
 }
 
+// C27: a handed change whose head a person moved is no longer eligible.
+// Land takes it back from the mechanism, fails it, closes its pull request
+// and raises one alert. Nothing is posted on the moved head.
+func TestC27HandedChangeWhoseHeadMovedFails(t *testing.T) {
+	f := newLandFixture(t, baseConfig)
+	c := f.open("stages.implementer.cap", strp("5"), "success")
+	f.land()
+	f.wantState(c.ID, Handed)
+	moved := strings.Repeat("d", 40)
+	f.gh.check(moved, github.GatesCheck, "success")
+	f.gh.prs[c.PR].Head.SHA = moved
+	if f.eligible(c) {
+		t.Fatal("eligible at a head the server did not write")
+	}
+
+	f.land()
+	f.wantState(c.ID, Failed)
+	if !f.mech.Withdrawn(c.PR) || f.mech.HandedOff(c.PR) {
+		t.Fatalf("withdrawn %v, handed off %v; want withdrawn", f.mech.Withdrawn(c.PR), f.mech.HandedOff(c.PR))
+	}
+	if !slices.Equal(f.gh.closed, []int{c.PR}) {
+		t.Fatalf("closed %v; want #%d", f.gh.closed, c.PR)
+	}
+	if as := f.alerts(); len(as) != 1 || !strings.Contains(as[0].body, "moved") {
+		t.Fatalf("alerts = %+v; want one that names the moved head", as)
+	}
+	if want := []string{c.Head + " " + github.EligibleContext}; !slices.Equal(f.gh.posted, want) || len(f.notices()) != 0 {
+		t.Fatalf("posted %v, notices %+v; want only the post before the hand-off", f.gh.posted, f.notices())
+	}
+}
+
 // C29: each merged change puts exactly one notice. It names the project,
 // the setting, the old value with its source, the new value, the merge
 // commit and the reason. A tick that reads the same merge again puts no
@@ -353,6 +384,30 @@ func TestC29UnsetNoticeNamesTheValueInForceAfterIt(t *testing.T) {
 	}
 }
 
+// C29: a pull request that a person merged while its change is open makes
+// the change merged with the pull request's merge commit, and puts one
+// notice. No mechanism reported the merge.
+func TestC29ChangeMergedByAPersonPutsOneNotice(t *testing.T) {
+	f := newLandFixture(t, baseConfig)
+	c := f.open("stages.implementer.cap", strp("5"), "")
+	sha := f.commit(string(f.proposed[len(f.proposed)-1].Content), "a person")
+	at := f.now
+	f.gh.prs[c.PR].MergedAt, f.gh.prs[c.PR].MergeCommitSHA, f.gh.prs[c.PR].State = &at, sha, "closed"
+
+	f.land()
+	f.land()
+	if r := f.wantState(c.ID, Merged); r.merge != sha {
+		t.Fatalf("merge commit = %q; want %s", r.merge, sha)
+	}
+	ns := f.notices()
+	if len(ns) != 1 || !strings.Contains(ns[0].body, sha) || ns[0].subject != "alpha: stages.implementer.cap 3 (project) to 5 (project)" {
+		t.Fatalf("notices = %+v; want one that names %s", ns, sha)
+	}
+	if len(f.alerts()) != 0 || len(f.gh.posted) != 0 || f.mech.HandedOff(c.PR) {
+		t.Fatalf("alerts %+v, posted %v, handed off %v", f.alerts(), f.gh.posted, f.mech.HandedOff(c.PR))
+	}
+}
+
 // C30: a change that cannot land fails, closes its pull request when it is
 // open, raises one settings_change_failed alert for the coordinator, and
 // puts no notice. After the failure the command accepts a new change.
@@ -368,6 +423,13 @@ func TestC30ChangeThatCannotLandFails(t *testing.T) {
 		{"red CI", func(f *landFixture) Change { return f.open("stages.implementer.cap", strp("5"), "failure") }, true, "gates"},
 		{"a conflict", func(f *landFixture) Change {
 			c := f.open("stages.implementer.cap", strp("5"), "success")
+			// GitHub has not computed the state yet: the change waits.
+			f.gh.prs[c.PR].MergeableState = merge.MergeableUnknown
+			f.land()
+			f.wantState(c.ID, Open)
+			if len(f.gh.posted) != 0 || f.mech.HandedOff(c.PR) {
+				f.t.Fatalf("posted %v, handed off %v while mergeable is unknown", f.gh.posted, f.mech.HandedOff(c.PR))
+			}
 			f.gh.prs[c.PR].MergeableState = merge.MergeableDirty
 			return c
 		}, true, "conflict"},

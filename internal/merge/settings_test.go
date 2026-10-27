@@ -3,6 +3,7 @@ package merge_test
 import (
 	"context"
 	"database/sql"
+	"net/http"
 	"slices"
 	"strconv"
 	"testing"
@@ -144,5 +145,38 @@ func TestGitHubQueueSweepSkipsTheGroupOfAnOpenSettingsChange(t *testing.T) {
 	e.tick()
 	if state, _ := e.changeState(); state != "open" || posts(e, g) != 0 {
 		t.Fatalf("change is %s, %d posts on the group; want open and none", state, posts(e, g))
+	}
+}
+
+// C27: a handed settings change whose head a person moved gets nothing on
+// its merge group. A tick whose withdrawal fails leaves the change handed,
+// and its sweep still posts nothing. The next tick takes it from the
+// queue, fails it and closes its pull request.
+func TestGitHubQueueSweepSkipsTheGroupOfAMovedSettingsChange(t *testing.T) {
+	e := newQueue(t)
+	e.withSettings()
+	pr := e.settingsChange(sha('5'))
+	e.tick()
+	if state, _ := e.changeState(); state != "handed" {
+		t.Fatalf("change is %s; want handed", state)
+	}
+	moved := sha('6')
+	e.world.Update(pr, func(p *gt.PR) { p.HeadSHA = moved })
+	e.world.SetRuns(moved, gt.CheckRun("ci", moved, "completed", "success", time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)))
+	g := sha('a')
+	e.world.AddGroup(group(strconv.Itoa(pr.Number), gt.BaseSHA), g)
+	e.world.FailNext("POST /graphql", http.StatusUnprocessableEntity)
+	if err := e.job.TickProject(e.ctx, testProject); err == nil {
+		t.Fatal("a tick whose withdrawal failed answered no error")
+	}
+	if state, _ := e.changeState(); state != "handed" || posts(e, g) != 0 {
+		t.Fatalf("change is %s, posts on the group %d; want handed and none", state, posts(e, g))
+	}
+	e.tick()
+	if state, _ := e.changeState(); state != "failed" || posts(e, g) != 0 || posts(e, moved) != 0 {
+		t.Fatalf("change is %s, posts on the group %d, on the moved head %d; want failed and none", state, posts(e, g), posts(e, moved))
+	}
+	if got := e.world.PR(pr.Number); got.State != "closed" || got.Merged || slices.Contains(e.world.Queue(), pr.Number) {
+		t.Fatalf("pull request = %+v, queue %v; want closed and out of the queue", got, e.world.Queue())
 	}
 }
