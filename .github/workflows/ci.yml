@@ -135,9 +135,12 @@ jobs:
           test "$([ "$GATES_DOCS" = true ] && echo docs || echo full)" = \
             "$([ "$ACCEPTANCE_DOCS" = true ] && echo docs || echo full)"
 
-  # Every push to main that passes verify becomes a release: the next
-  # patch version, signed with the LOOP_RELEASE_KEY secret, published with
-  # install.sh. Hosts pick it up with install.sh (docs/operating.md).
+  # Every push to main that passes verify releases the tip of main: the
+  # next patch version, signed with the LOOP_RELEASE_KEY secret, published
+  # with install.sh. Hosts pick it up with install.sh (docs/operating.md).
+  # The group keeps one pending job, so the job of an older commit can
+  # cancel the job of the tip (loop fault F-48). Each job therefore
+  # releases the tip, and the tip's own job then finds it released.
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [gates, acceptance, verify]
@@ -155,10 +158,14 @@ jobs:
       - name: Pick the next version
         run: |
           set -euo pipefail
-          if git describe --tags --exact-match --match 'v*.*.*' HEAD >/dev/null 2>&1; then
-            echo "this commit is already released"
+          git fetch -q --force --tags origin main
+          tip=$(git rev-parse FETCH_HEAD)
+          if git describe --tags --exact-match --match 'v*.*.*' "$tip" >/dev/null 2>&1; then
+            echo "the tip of main, $tip, is already released"
             exit 0
           fi
+          git checkout -q --detach "$tip"
+          echo "TARGET=$tip" >> "$GITHUB_ENV"
           last=$(git tag -l 'v*.*.*' --sort=-v:refname | head -1)
           last=${last:-v0.0.0}
           IFS=. read -r major minor patch <<< "${last#v}"
@@ -180,7 +187,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create "$VERSION" --target "$GITHUB_SHA"
+          gh release create "$VERSION" --target "$TARGET"
           --title "$VERSION"
           --notes "Install or upgrade: gh release download -R $GITHUB_REPOSITORY -p install.sh -O - | sh"
           dist/"$VERSION"/* install.sh
@@ -189,5 +196,5 @@ jobs:
       - name: Move v0
         if: env.VERSION != ''
         run: |
-          git tag -f v0 "$GITHUB_SHA"
+          git tag -f v0 "$TARGET"
           git push -f origin refs/tags/v0
