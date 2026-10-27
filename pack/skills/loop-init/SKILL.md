@@ -140,6 +140,7 @@ stages:
   doc-reviewer: {}
   amender: {}
   spec-author: {}
+  prd-author: {}
   decomposer: {}
   fixer: {}
   reproducer: {}

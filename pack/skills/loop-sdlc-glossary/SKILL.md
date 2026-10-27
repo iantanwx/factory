@@ -29,6 +29,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | --- | --- | --- |
 | `implementer` | Builds one ticket in one pull request, and repairs a red build | ticket `todo`, `repair` |
 | `code-reviewer` | Reviews the pull request of one ticket | ticket `in_review` |
+| `prd-author` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
 | `doc-reviewer` | Reviews one PRD or one spec | epic `prd_review`, `spec_review` |
 | `amender` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
 | `spec-author` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
@@ -45,9 +46,10 @@ eligible pull request to the project's merge mechanism. No agent merges.
 
 - **Ticket**: `backlog`, `todo`, `in_progress`, `in_review`, `repair`, `ready_to_merge`, `queued`,
   `escalated`, `done`, `canceled`.
-- **Epic**: `prd_review`, `prd_amending`, `prd_signoff`, `architecture`, `spec_needed`,
-  `spec_drafting`, `spec_review`, `spec_signoff`, `spec_amending`, `spec_approved`, `decomposing`,
-  `execution`, `escalated`, `done`.
+- **Epic**: `backlog`, `prd_needed`, `prd_drafting`, `prd_review`, `prd_amending`, `prd_signoff`,
+  `architecture`, `spec_needed`, `spec_drafting`, `spec_review`, `spec_signoff`, `spec_amending`,
+  `spec_approved`, `decomposing`, `execution`, `escalated`, `done`. An epic in `backlog` waits on
+  a blocker. No stage claims it.
 - **Bug**: `reported`, `reproducing`, `asked`, `awaiting_build`, `escalated`, `shaped`, `duplicate`,
   `canceled`. A bug in `awaiting_build` waits for the ticket or the epic that builds what it asks
   for. No stage claims it.
@@ -59,7 +61,8 @@ names a verb, and the transition table picks the state.
 ## Documents
 
 - **PRD**: states what a user can do, as user stories with stable labels such as US-01. It names
-  no implementation. An intake room writes it with the operator.
+  no implementation. Either a PRD author or an intake room writes it. The PRD author writes it from
+  the operator's request. An intake room writes it with the operator.
 - **Spec**: states how one epic is built. It is the last document a person reads before the
   decomposer cuts tickets.
 - **Ticket**: the unit that the implementer and the code-reviewer read.
@@ -78,7 +81,7 @@ names a verb, and the transition table picks the state.
   names the contracts it proves.
 - **Proof**: what shows that a contract holds. It fails before the change. A test is the strong
   proof, because it runs again after every merge. A command is the weak proof.
-- **Blocker**: a dependency. A ticket with an open blocker waits in `backlog`.
+- **Blocker**: a dependency. A ticket or an epic with an open blocker waits in `backlog`.
 - **Decision**: a question that no ticket holds. Every decision names its trigger, the event that
   forces the answer.
 - **Escalation**: a finding scored at level 4 or 5, or answered `outside`, that waits on a person

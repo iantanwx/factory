@@ -38,6 +38,8 @@ new epic gets an intake room of its own. Section 7 states why.
 
 - **The doc-reviewer names the seam.** At the PRD stage it rejects the PRD and names the seam in
   its comment. It never creates an epic.
+- **The PRD author never splits.** It writes one PRD for one epic. When the request needs a
+  second epic, it escalates with a score.
 - **The amender never splits.** When the seam needs a second epic, it escalates with a score.
 - **The spec-author never splits.** It names the seam under Open questions, and proposes the
   split.
@@ -141,7 +143,7 @@ loop work list --kind epic --status prd_review          # each sibling appears o
 
 - Never split an epic that the operator has not agreed to split.
 - Never create an epic from a run. Only an intake room creates one, with `loop prd submit`, or the
-  coordinator, with `loop epic create --architecture`.
+  coordinator, with `loop epic create`.
 - Never create an epic before its document passes its gates.
 - Never cancel an epic that a split can keep.
 - Never trust a write that you did not read back.

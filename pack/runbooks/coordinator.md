@@ -279,6 +279,12 @@ note quotes the decision's trigger. Read the trigger of each one.
   The decision moves to `needs_human`.
 - The question no longer exists: `loop decision moot <decision> --note "<why>"`.
 
+The pending decision "The intake cap of `<project>` is full" holds the epics that section 8
+parked. Read the project's epics with `loop work list --project <project> --kind epic`. When the
+epics in counted document states drop below the intake cap, or the operator raises the cap, run
+`loop decision moot <decision> --note "<the count, or the new cap>"`. Each epic that it blocks then
+leaves `backlog` as the cap admits it.
+
 A decision in `needs_human` waits on the operator. Bring it to the operator by section 5. Its
 inbox entry shows why it fired. When it returned from an inbox defer, the entry also shows the
 defer's reason in `defer_reason`.
@@ -325,14 +331,49 @@ Score the operator's request against the triage rubric before you pick its route
 what the work must do.
 
 - **Level 1 to 3.** The repository, a source it ports or an audit already says what the work does.
-  File the work in the loop, and open no room. Quote the operator's words:
+  The loop writes the PRD, and no room opens. Create a PRD epic, and quote the operator's words:
 
   ```bash
-  loop work create --title "<title>" --body "<body>" --request "<the operator's words>"
+  loop epic create --project <project> --title "<title>" --body "<what the epic delivers>" --request "<the operator's words>"
   ```
+
+  The `prd-author` stage writes the PRD from the `request` fact. The doc-reviewer reviews it, and
+  the operator reads it first at sign-off. When the work waits on other work, name each ticket,
+  epic or decision it waits on with `--blocked-by <item>,<item>`. The epic then waits in
+  `backlog`, and `dependency-advance` moves it when each blocker landed.
 
 - **Level 4 or 5, or the Choice outside.** Only the operator can say what the work must do. The
   work starts with a PRD, in an intake room opened with that score by section 7.
+
+When the operator asks for the work with no PRD, file a ticket. Quote the operator's words:
+
+```bash
+loop work create --title "<title>" --body "<body>" --request "<the operator's words>"
+```
+
+When `loop epic create --request` refuses, it created nothing. Act on its rule:
+
+- **`USAGE` with rule `prd_author_disabled`.** The project's `.loop/config.yaml` lists no
+  `prd-author` stage, so no run would write the PRD. File a ticket in the project that adds the
+  line `prd-author: {}` under `stages:` in that file. Put the operator's request in its body. Run the same `loop epic create --request` again when that ticket is `done`.
+- **`CAP_FULL`.** The project's epics in counted document states fill the intake cap. Park the
+  request in the record, never in your chat:
+
+  1. Find the project's pending cap decision, titled "The intake cap of `<project>` is full", with
+     `loop work list --project <project> --kind decision --status pending`. Reuse it. When none
+     exists, file it:
+
+     ```bash
+     loop decision file --project <project> --title "The intake cap of <project> is full" --trigger "the epics in counted document states drop below the intake cap, or the operator raises the cap" --waits-for-a-person "the coordinator"
+     ```
+
+  2. Run the same `loop epic create --request` again, with the same words and
+     `--blocked-by <decision>`. This is a new write, because the first call created nothing. The
+     epic waits in `backlog`, which holds no slot.
+  3. Tell the operator which epics hold the cap.
+
+  Section 6 moots the decision when the cap frees. `dependency-advance` then moves each waiting
+  epic as the cap admits it.
 
 When the operator reports a bug, file the report for the reproducer stage. Quote the operator's
 words:

@@ -6,7 +6,7 @@ This project is the loop's own repository. A fault in the loop is a defect in th
 
 | Kind of decision | Who decides | How it reaches them |
 | --- | --- | --- |
-| Product: a verb, a stage, a runbook rule, the operator's setup steps | the triage rubric first: the loop at level 1 to 3, the operator at level 4 or 5 | `loop work create` at level 1 to 3. An intake room, opened with `--score`, at level 4 or 5 |
+| Product: a verb, a stage, a runbook rule, the operator's setup steps | the triage rubric first: the loop at level 1 to 3, the operator at level 4 or 5 | `loop epic create --request` at level 1 to 3, and the PRD author writes the PRD. An intake room, opened with `--score`, at level 4 or 5 |
 | An act that cannot be undone, spends money or changes production data | the operator | the question tool, in the coordinator's chat |
 
 Score each finding against the triage rubric before you pick a route. A route to the operator
