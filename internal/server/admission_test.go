@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,10 +23,16 @@ import (
 )
 
 // runCall starts a server with opts and calls args as a run of project
-// alpha from inside the run's checkout.
+// alpha from inside the run's checkout. Unless opts names a project config
+// source, alpha has no committed config yet.
 func runCall(t *testing.T, opts Options, args ...string) (map[string]any, *Server) {
 	t.Helper()
 	dir := instanceDir(t)
+	if opts.Sched.ProjectConfig == nil {
+		opts.Sched.ProjectConfig = func(_ context.Context, project string) (*config.ProjectSnapshot, error) {
+			return nil, fmt.Errorf("%s has no config yet: %w", project, config.ErrConfigMissing)
+		}
+	}
 	var srv *Server
 	opts.Setup = []func(*Server) error{func(s *Server) error { srv = s; return nil }}
 	start(t, dir, opts, true)
@@ -83,6 +92,23 @@ func TestServerComposesAdmission(t *testing.T) {
 	cfg, err := config.LoadHost(srv.HostPath)
 	if err != nil || cfg.Throughput["implementer"].Cap != 8 {
 		t.Fatalf("the first start wrote %+v, %v; want the default throughput", cfg, err)
+	}
+}
+
+// The server gives admission the projects' committed config: a config that
+// does not read refuses the peek, because admission cannot know the
+// project's caps.
+func TestServerAdmissionReadsProjectConfig(t *testing.T) {
+	bx := fake.New("tk")
+	todoTicket(t, bx)
+	opts := Options{Beads: func(string) (beadsx.Client, error) { return bx, nil }}
+	opts.Sched.ProjectConfig = func(context.Context, string) (*config.ProjectSnapshot, error) {
+		return nil, errors.New("the mirror does not read")
+	}
+	env, _ := runCall(t, opts, "work", "peek", "--stage", "implementer")
+	hint, _ := env["hint"].(string)
+	if env["code"] != cli.CodeInternal || !strings.Contains(hint, "the config of alpha") {
+		t.Fatalf("work peek with no readable project config = %v, want INTERNAL", env)
 	}
 }
 

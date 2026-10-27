@@ -1,11 +1,12 @@
 // Package admission decides which item a stage may take: the caps
-// from host config's throughput map (KTD30), the retry identity of R10,
+// from host config's throughput map and the project's own caps over it
+// (KTD30), the retry identity of R10,
 // the stage mutexes and the dependency rule. It also classes each run's
 // outcome and keeps the failure records that only counted outcomes create
 // (KTD8).
 //
-// Admission reads its snapshot outside every lock: beads, the base branch
-// and the dependency reader. It then reserves the run in one SQLite write,
+// Admission reads its snapshot outside every lock: beads, the base branch,
+// the project's config and the dependency reader. It then reserves the run in one SQLite write,
 // claims through the machine, and its ClaimGuard revalidates from SQLite
 // alone inside the machine's item lock.
 package admission
@@ -56,6 +57,10 @@ type Config struct {
 	// Pulls lists open pull requests for the `## Depends on` hold.
 	// Optional.
 	Pulls PullReader
+	// Project reads a project's committed config. Its stage and pool caps
+	// replace host config's for that project. Nil, or a project with no
+	// config yet, takes the host caps.
+	Project func(ctx context.Context, project string) (*config.ProjectSnapshot, error)
 	// Release is the loop release version. It enters the retry identity.
 	Release string
 	// Now is the clock of the implementer's rank. time.Now when nil.
@@ -180,13 +185,24 @@ func ClaimStates(stage string) []ClaimState {
 	return out
 }
 
-// limitsFor reads the current host config and returns the stage's limits.
-func (a *Admission) limitsFor(ctx context.Context, stage string) ([]config.Limit, *cli.Refusal) {
+// limitsFor reads the current host config and the project's config, and
+// returns the stage's limits in force for the project.
+func (a *Admission) limitsFor(ctx context.Context, project, stage string) ([]config.Limit, *cli.Refusal) {
 	cfg, err := a.cfg.Host.Load(ctx)
 	if err != nil {
 		return nil, cli.InternalRefusal(fmt.Errorf("admission: load host config: %w", err))
 	}
-	limits := cfg.Limits(stage)
+	var pc *config.ProjectConfig
+	if a.cfg.Project != nil {
+		snap, err := a.cfg.Project(ctx, project)
+		switch {
+		case err == nil:
+			pc = snap.Config
+		case !errors.Is(err, config.ErrConfigMissing):
+			return nil, cli.InternalRefusal(fmt.Errorf("admission: load the config of %s: %w", project, err))
+		}
+	}
+	limits := config.Effective(cfg, pc).Limits(project, stage)
 	if len(limits) == 0 {
 		return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "unknown_stage",
 			Hint: fmt.Sprintf("%q is no stage with a throughput entry in host config", stage)}
@@ -252,7 +268,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		}
 		return Admitted{}, pausedRefusal(r.Project, r.Stage)
 	}
-	limits, ref := a.limitsFor(ctx, r.Stage)
+	limits, ref := a.limitsFor(ctx, r.Project, r.Stage)
 	if ref != nil {
 		return Admitted{}, ref
 	}
@@ -515,7 +531,7 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 		}
 		return nil, nil
 	}
-	limits, ref := a.limitsFor(ctx, stage)
+	limits, ref := a.limitsFor(ctx, project, stage)
 	if ref != nil {
 		return nil, ref
 	}
