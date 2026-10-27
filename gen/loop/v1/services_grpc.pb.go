@@ -3513,6 +3513,108 @@ var StageService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	SettingsService_Show_FullMethodName = "/loop.v1.SettingsService/Show"
+)
+
+// SettingsServiceClient is the client API for SettingsService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type SettingsServiceClient interface {
+	Show(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+}
+
+type settingsServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewSettingsServiceClient(cc grpc.ClientConnInterface) SettingsServiceClient {
+	return &settingsServiceClient{cc}
+}
+
+func (c *settingsServiceClient) Show(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, SettingsService_Show_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SettingsServiceServer is the server API for SettingsService service.
+// All implementations must embed UnimplementedSettingsServiceServer
+// for forward compatibility.
+type SettingsServiceServer interface {
+	Show(context.Context, *VerbRequest) (*Envelope, error)
+	mustEmbedUnimplementedSettingsServiceServer()
+}
+
+// UnimplementedSettingsServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedSettingsServiceServer struct{}
+
+func (UnimplementedSettingsServiceServer) Show(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Show not implemented")
+}
+func (UnimplementedSettingsServiceServer) mustEmbedUnimplementedSettingsServiceServer() {}
+func (UnimplementedSettingsServiceServer) testEmbeddedByValue()                         {}
+
+// UnsafeSettingsServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to SettingsServiceServer will
+// result in compilation errors.
+type UnsafeSettingsServiceServer interface {
+	mustEmbedUnimplementedSettingsServiceServer()
+}
+
+func RegisterSettingsServiceServer(s grpc.ServiceRegistrar, srv SettingsServiceServer) {
+	// If the following call panics, it indicates UnimplementedSettingsServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&SettingsService_ServiceDesc, srv)
+}
+
+func _SettingsService_Show_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SettingsServiceServer).Show(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SettingsService_Show_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SettingsServiceServer).Show(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// SettingsService_ServiceDesc is the grpc.ServiceDesc for SettingsService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var SettingsService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "loop.v1.SettingsService",
+	HandlerType: (*SettingsServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Show",
+			Handler:    _SettingsService_Show_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "loop/v1/services.proto",
+}
+
+const (
 	SecretService_Check_FullMethodName  = "/loop.v1.SecretService/Check"
 	SecretService_Set_FullMethodName    = "/loop.v1.SecretService/Set"
 	SecretService_Import_FullMethodName = "/loop.v1.SecretService/Import"

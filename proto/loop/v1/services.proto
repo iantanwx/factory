@@ -125,6 +125,10 @@ service StageService {
   rpc List(VerbRequest) returns (Envelope);
 }
 
+service SettingsService {
+  rpc Show(VerbRequest) returns (Envelope);
+}
+
 service SecretService {
   rpc Check(VerbRequest) returns (Envelope);
   rpc Set(VerbRequest) returns (Envelope);

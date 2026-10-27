@@ -97,6 +97,24 @@ func profiles(stage string, pc *config.ProjectConfig, hc *config.HostConfig) []P
 	return out
 }
 
+// Defaults gives the settings read the loop's own default of a stage field
+// that pc and host config leave empty: the profile a run starts with, its
+// escalated profile, and DefaultRunBudget.
+func Defaults(pc *config.ProjectConfig) config.Defaults {
+	if pc == nil {
+		pc = &config.ProjectConfig{}
+	}
+	return func(stage, field string) (string, bool) {
+		own, esc := profiles(stage, pc, &config.HostConfig{})[0], escalatedProfiles(stage, pc)[0]
+		v := map[string]string{
+			"harness": string(own.Harness), "model": own.Model, "effort": own.Effort,
+			"escalated.harness": string(esc.Harness), "escalated.model": esc.Model, "escalated.effort": esc.Effort,
+			"run_budget": DefaultRunBudget.String(),
+		}[field]
+		return v, v != ""
+	}
+}
+
 // escalatedProfiles lists the one profile a run takes on an item whose
 // model_tier is escalated, ported from the implementer-escalated row of
 // alpha's ROW_PINS. Each field the stage's escalated config leaves empty

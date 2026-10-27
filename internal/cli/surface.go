@@ -290,6 +290,8 @@ var surface = []Verb{
 	server("stage", "list", "list each run stage, agent job and native job of each project, enabled or not, and each instance job once: its schedule, limits, profiles, pauses, last and next fire and live runs", coordinatorOrHost, nil,
 		Flag{Name: "project", Type: FlagString, Description: "only this project's rows; every project and the instance jobs when absent"}),
 
+	server("settings", "show", "list each setting of a project in force: its value, its source, and for a project value the newest commit that changed it; stale names the problem when the default branch's config does not load", coordinatorOrHost, []Arg{projectArg}),
+
 	server("secret", "check", "say whether a secret is present: the project's own value, or a global one", runOnly, []Arg{secretArg}, projectFlag),
 	write(server("secret", "set", "store a secret; the value comes from stdin only", hostOnly, []Arg{secretArg},
 		scopeFlag,

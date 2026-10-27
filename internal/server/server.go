@@ -352,6 +352,9 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	if err := s.wireStages(); err != nil {
 		return nil, err
 	}
+	if err := s.wireSettings(); err != nil {
+		return nil, err
+	}
 	if err := s.wireRuns(); err != nil {
 		return nil, err
 	}
