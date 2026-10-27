@@ -190,27 +190,49 @@ func childrenTerminal(c *change) *cli.Refusal {
 		return beadsRefusal(c.item.ID, err)
 	}
 	if len(open) > 0 {
+		named := make([]string, len(open))
+		for i, k := range open {
+			named[i] = k.ID + " (" + k.Status + ")"
+		}
 		return &cli.Refusal{Code: cli.CodeDependencyOpen, Rule: "children_open", Item: c.item.ID, CurrentStatus: c.item.Status,
-			Hint: fmt.Sprintf("%s closes only when every child is terminal; open: %s", c.item.ID, strings.Join(open, ", "))}
+			Hint: fmt.Sprintf("%s closes only when every child is terminal; open: %s", c.item.ID, strings.Join(named, ", "))}
 	}
 	return nil
 }
 
-// children counts an epic's children and names each open one with its
-// status.
-func children(ctx context.Context, bc beadsx.Client, epic string) (int, []string, error) {
+// children counts an epic's children and lists each open one.
+func children(ctx context.Context, bc beadsx.Client, epic string) (int, []beadsx.Issue, error) {
 	kids, err := bc.List(ctx, beadsx.Filter{Metadata: map[string]string{factPrefix + FactEpic: epic}})
 	if err != nil {
 		return 0, nil, err
 	}
-	var open []string
+	var open []beadsx.Issue
 	for _, k := range kids {
 		t, ok := kindOfType(k.Type)
 		if !ok || !t.Terminal(k.Status) {
-			open = append(open, k.ID+" ("+k.Status+")")
+			open = append(open, k)
 		}
 	}
 	return len(kids), open, nil
+}
+
+// OpenChildren lists the ids of the epic's children whose status is not
+// terminal, by the rule that refuses complete. The inbox's architecture
+// entry reads it.
+func (m *Machine) OpenChildren(ctx context.Context, project, epic string) ([]string, *cli.Refusal) {
+	bc, err := m.cfg.Beads(project)
+	if err != nil {
+		return nil, cli.InternalRefusal(err)
+	}
+	_, open, err := children(ctx, bc, epic)
+	if err != nil {
+		return nil, beadsRefusal(epic, err)
+	}
+	ids := make([]string, len(open))
+	for i, k := range open {
+		ids[i] = k.ID
+	}
+	return ids, nil
 }
 
 // CompleteEpics applies complete to each epic of the project in execution
