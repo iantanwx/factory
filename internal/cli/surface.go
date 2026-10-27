@@ -139,7 +139,11 @@ var surface = []Verb{
 		Flag{Name: "outcome", Type: FlagString, Required: true, Enum: []string{OutcomeDone, OutcomeFailed, OutcomeBlocked}, Description: "how the run ended"},
 		Flag{Name: "fault", Type: FlagString, Description: "the loop fault that stopped the run, F-<n>; the run's record keeps it"})),
 	server("run", "show", "show one run", coordinator, []Arg{runArg}),
-	server("run", "list", "list runs", coordinator, nil),
+	server("run", "list", "list runs, the newest first", coordinator, nil,
+		Flag{Name: "project", Type: FlagString, Description: "only this project's runs; every project when absent"},
+		Flag{Name: "stage", Type: FlagString, Description: "only runs of this stage"},
+		Flag{Name: "live", Type: FlagBool, Description: "only runs that have not ended"},
+		Flag{Name: "limit", Type: FlagInt, Description: "the most runs to list, 1 to 500; 50 when absent"}),
 	server("run", "events", "list one run's events", coordinator, []Arg{runArg}),
 
 	write(server("review", "submit", "submit a review verdict", []string{"reviewer run"}, []Arg{itemArg},
