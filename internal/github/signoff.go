@@ -2,10 +2,12 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -80,4 +82,31 @@ func (s *Service) baseConfig(ctx context.Context, p config.Project) (*config.Pro
 		return nil, err
 	}
 	return config.ParseProjectConfig(raw)
+}
+
+// ReadAt reads path at commit sha through the contents API. A sign-off
+// reads the spec at the head the operator approves, and the mirror can
+// lack a head that a person pushed on GitHub. A path that the commit
+// lacks matches fs.ErrNotExist.
+func (s *Service) ReadAt(ctx context.Context, p config.Project, sha, path string) ([]byte, error) {
+	var file struct {
+		Encoding string `json:"encoding"`
+		Content  string `json:"content"`
+	}
+	err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/contents/"+pathEscapeBranch(path)+"?ref="+url.QueryEscape(sha)), &file)
+	var api *APIError
+	if errors.As(err, &api) && api.Status == http.StatusNotFound {
+		return nil, fmt.Errorf("github: %s at %s: %w", path, sha, fs.ErrNotExist)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if file.Encoding != "base64" {
+		return nil, fmt.Errorf("github: %s at %s is not a file the contents API serves whole (encoding %q)", path, sha, file.Encoding)
+	}
+	raw, err := base64.StdEncoding.DecodeString(file.Content)
+	if err != nil {
+		return nil, fmt.Errorf("github: read %s at %s: %w", path, sha, err)
+	}
+	return raw, nil
 }

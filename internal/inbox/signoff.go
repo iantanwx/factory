@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/shape"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -17,6 +19,8 @@ import (
 // *github.Service is one.
 type DocGitHub interface {
 	GetPR(ctx context.Context, p config.Project, n int) (github.PR, error)
+	PRFiles(ctx context.Context, p config.Project, n int) ([]github.File, error)
+	ReadAt(ctx context.Context, p config.Project, sha, path string) ([]byte, error)
 	MergePR(ctx context.Context, p config.Project, n int, sha string) (string, error)
 	DefaultBranch(ctx context.Context, p config.Project) (string, error)
 }
@@ -63,6 +67,13 @@ func (in *Inbox) signoff(ctx context.Context, call *rpc.Call, id, project, item,
 	if pr.Head.SHA != pinned {
 		return in.reraise(ctx, it, n, pinned, pr.Head.SHA)
 	}
+	var spec string
+	if it.Status == machine.SpecSignoff {
+		var refused *cli.Refusal
+		if spec, refused = in.decidedSpec(ctx, p, it, n, pinned); refused != nil {
+			return cli.Refuse(*refused)
+		}
+	}
 	actor := machine.Actor{Name: call.Principal.Actor(), RunID: call.Principal.RunID}
 	// The approval is recorded before the merge, so a merge that lands
 	// always has the words that approved it.
@@ -88,7 +99,7 @@ func (in *Inbox) signoff(ctx context.Context, call *rpc.Call, id, project, item,
 	}
 	// The epic moves on at once. The reactor reads the same merge later,
 	// and an epic past sign-off takes it as Nothing.
-	res := in.cfg.Machine.MergeObserved(ctx, machine.MergeEvent{Project: project, Item: item, Base: base, Into: pr.Base.Ref, SHA: merged})
+	res := in.cfg.Machine.MergeObserved(ctx, machine.MergeEvent{Project: project, Item: item, Base: base, Into: pr.Base.Ref, SHA: merged, SpecPath: spec})
 	if err := machine.Settled(res); err != nil {
 		in.log.WarnContext(ctx, "the sign-off merged, and the epic waits for the reactor", "item", item, "pr", n, "err", err)
 	}
@@ -101,6 +112,45 @@ func (in *Inbox) signoff(ctx context.Context, call *rpc.Call, id, project, item,
 		status = now.Status
 	}
 	return cli.Found(map[string]any{"entry": id, "merged": true, "pr": n, "head": pinned, "merge_commit": merged, "status": status})
+}
+
+// decidedSpec returns the path of the epic's spec at the pinned head, or
+// refuses the sign-off when the PR holds no single spec or the spec holds
+// an open question with no decision (ADR 0002, G1). A PRD's open
+// questions pass on to the spec, so a PRD sign-off never reads them.
+func (in *Inbox) decidedSpec(ctx context.Context, p config.Project, it machine.Item, n int, pinned string) (string, *cli.Refusal) {
+	files, err := in.cfg.GitHub.PRFiles(ctx, p, n)
+	if err != nil {
+		ref := github.Refusal(err)
+		return "", &ref
+	}
+	changed := make([]shape.ChangedFile, len(files))
+	for i, f := range files {
+		changed[i] = shape.ChangedFile{Path: f.Path, Removed: f.Status == "removed"}
+	}
+	spec, matches := shape.SpecFile(it.ID, changed)
+	if spec == "" {
+		return "", &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "no_spec", Item: it.ID, CurrentStatus: it.Status,
+			Hint: fmt.Sprintf("PR #%d changes %d files at docs/plans/%s-*-spec.md, and a spec sign-off needs exactly one; nothing merged",
+				n, matches, it.ID)}
+	}
+	raw, err := in.cfg.GitHub.ReadAt(ctx, p, pinned, spec)
+	if err != nil {
+		ref := github.Refusal(err)
+		return "", &ref
+	}
+	open := shape.Undecided(string(raw))
+	if len(open) == 0 {
+		return spec, nil
+	}
+	lines := make([]string, len(open))
+	for i, q := range open {
+		lines[i] = fmt.Sprintf("line %d: %s", q.Line, q.Text)
+	}
+	return "", &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "open_questions", Item: it.ID, CurrentStatus: it.Status,
+		Hint: fmt.Sprintf("%s at %s holds %d open questions with no **Answered or **Deferred run, so nothing merged: %s. "+
+			"The answer belongs in the spec: a review room on PR #%d writes it, or the operator comments on the PR",
+			spec, pinned, len(open), strings.Join(lines, "; "), n)}
 }
 
 // reraise pins the document PR's new head, which raises the sign-off
