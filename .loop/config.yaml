@@ -26,3 +26,5 @@ stages:
   decomposer: {}
   fixer: {}
   reproducer: {}
+health:
+  operator_reminder: 12h
