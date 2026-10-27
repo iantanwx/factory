@@ -57,7 +57,9 @@ func WriteDist(ctx context.Context, dir string, o DistOptions) error {
 }
 
 // WriteDistChecksums writes checksums.txt over release.json,
-// third-party.json and every platform's binary in dir.
+// third-party.json, and every platform's binary and lane binaries in dir.
+// VerifyAssets does not require the lane binaries, so a release from
+// before the lane still verifies.
 func WriteDistChecksums(dir string) error {
 	sums := Checksums{}
 	for _, name := range []string{MetadataFile, ThirdPartyAsset} {
@@ -69,12 +71,13 @@ func WriteDistChecksums(dir string) error {
 	}
 	for _, p := range Platforms {
 		goos, goarch, _ := strings.Cut(p, "/")
-		name := AssetName(goos, goarch)
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			return fmt.Errorf("release: the release lacks the %s binary: %w", p, err)
+		for _, name := range []string{AssetName(goos, goarch), OrcaContractAssetName(goos, goarch), OrcaAcceptanceAssetName(goos, goarch)} {
+			data, err := os.ReadFile(filepath.Join(dir, name))
+			if err != nil {
+				return fmt.Errorf("release: the release lacks the %s binary %s: %w", p, name, err)
+			}
+			sums[name] = hexid.SHA256(data)
 		}
-		sums[name] = hexid.SHA256(data)
 	}
 	return writeFileAtomic(filepath.Join(dir, ChecksumsFile), sums.Bytes(), 0o644)
 }
