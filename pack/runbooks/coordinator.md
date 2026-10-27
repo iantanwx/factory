@@ -225,6 +225,22 @@ that head, and the epic moves on. When the head moved after the entry was raised
 merges nothing. It refuses with `STATUS_CHANGED` and rule `head_moved`, and it raises the entry
 again at the new head. Bring the operator the new head and its diff, and record a new approval.
 
+A spec sign-off also reads the spec at that head. It refuses with `SHAPE_REFUSED` and rule
+`open_questions` when an entry under `## Open questions` holds no bold `**Answered` or `**Deferred`
+run. The hint names the line of each such entry. It refuses with rule `no_spec` when the pull
+request changes no single file at `docs/plans/<epic>-*-spec.md`. Both refusals merge nothing, and
+the entry stays in the inbox. An answer in the inbox or in a note answers no open question. The
+answer must reach the spec, in one of two ways:
+
+- Open a review room on the spec pull request. The room writes the answer under the entry at the
+  operator's word, and pushes it.
+- The operator comments on the pull request. The epic moves to `spec_amending`, and the amender
+  writes the answer.
+
+Either way the head moves, so the entry is raised again at the new head. Record the operator's
+approval of that head. A PRD sign-off reads no open questions, because the spec author settles
+them.
+
 ## 6. Decisions that wait on an event
 
 On each wake, the `decisions` part of the sweep prints one note for each `pending` decision. Each
