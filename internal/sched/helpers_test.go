@@ -96,6 +96,10 @@ func newWorld(t *testing.T) *world {
 	w.co = &gitCheckouts{t: t, host: w.host, repo: w.repo}
 	w.project = &projectSource{snap: snapshot(t, "stages:\n  implementer: {}\n  code-reviewer: {}\nmerge:\n  mechanism: direct\n", "")}
 	w.build()
+	// The server's first tick runs the cleanup pass. A test's own ticks
+	// then fall inside one cleanup interval, and run no pass until the
+	// clock advances it.
+	w.tick()
 	return w
 }
 

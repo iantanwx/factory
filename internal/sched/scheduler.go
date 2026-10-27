@@ -147,7 +147,7 @@ type Scheduler struct {
 	draining  bool
 	drainEnd  time.Time
 	lastCall  map[string]time.Time
-	lastClean time.Time
+	lastClean time.Time // zero at a start, so the first Tick runs the cleanup pass
 
 	settleMu sync.Mutex // one settlement at a time
 	// checkoutMu orders checkout creation: two git worktree adds on one
@@ -203,7 +203,7 @@ func New(cfg Config) (*Scheduler, error) {
 	s := &Scheduler{
 		cfg: cfg, log: cfg.Logger,
 		jobs: map[string]JobFunc{}, instanceJobs: map[string]InstanceJobFunc{},
-		inflight: map[string]int{}, lastCall: map[string]time.Time{}, lastClean: cfg.Now(),
+		inflight: map[string]int{}, lastCall: map[string]time.Time{},
 	}
 	if cfg.Beads != nil {
 		if err := s.RegisterJob(DependencyAdvanceJob, s.advanceDependencies); err != nil {
