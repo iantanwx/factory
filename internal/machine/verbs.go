@@ -39,7 +39,8 @@ func (m *Machine) Handlers() map[string]rpc.Handler {
 		"work note":       m.verb("note", "item"),
 		"work edit":       m.workEdit,
 		"work cancel":     m.workCancel,
-		"work unblock":    m.verb("unblock", "item"),
+		"work block":      m.workBlock,
+		"work unblock":    m.workUnblock,
 		"work shape":      m.workShape,
 		"work ask":        m.workAsk,
 		"work duplicate":  m.workDuplicate,
@@ -371,6 +372,188 @@ func (m *Machine) workCancel(ctx context.Context, call *rpc.Call) cli.Result {
 			Hint: "--reason says why the item closes; a person reads it"})
 	}
 	return m.Apply(ctx, request(call, prj, item, "cancel", map[string]string{"reason": reason}))
+}
+
+// Kill points of work block and work unblock --by, between their two
+// writes.
+const (
+	pointBlockMoved  = "block_moved"
+	pointEdgeRemoved = "edge_removed"
+)
+
+// workBlock parks a todo ticket in backlog on a blocker, or adds a blocker
+// to a backlog ticket. The move records the blocker as pending_block, then
+// the edge goes in, so a crash between the two leaves the ticket held, and
+// a replay adds the edge (spec factorio-9wh Decision 4).
+func (m *Machine) workBlock(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := call.Project(ownProject)
+	if r != nil {
+		return r.Result()
+	}
+	item, by := call.Inv.Arg("item"), strings.TrimSpace(call.Inv.Flags["by"])
+	if r := borrowed(call, item); r != nil {
+		return r.Result()
+	}
+	unlock := m.lock(prj, item)
+	defer unlock()
+	if r := m.CheckBlockers(ctx, prj, item, []string{by}); r != nil {
+		return r.Result()
+	}
+	bc, it, deps, r := m.withEdges(ctx, prj, item)
+	if r != nil {
+		return r.Result()
+	}
+	if r := m.blockPending(ctx, prj, it, deps, by); r != nil {
+		return r.Result()
+	}
+	req := request(call, prj, item, "block", map[string]string{"by": by})
+	res := m.apply(ctx, &req)
+	if res.Refusal != nil {
+		return res
+	}
+	if m.stop(pointBlockMoved) {
+		return cli.Internal(errStopped)
+	}
+	if err := bc.AddDependency(ctx, item, by, beadsx.DepBlocks); err != nil {
+		return beadsRefusal(item, err).Result()
+	}
+	return res
+}
+
+// UnblockResult is what work unblock answers.
+type UnblockResult struct {
+	Item        string `json:"item"`
+	Status      string `json:"status"`
+	EdgeRemoved bool   `json:"edge_removed"`
+}
+
+// workUnblock deletes the blocks edge to --by, then moves a backlog
+// ticket to todo when no open blocker remains, or keeps it in backlog.
+// With no --by it deletes no edge, and frees only a ticket with no open
+// blocker. A todo ticket with --by is free already, so the call deletes
+// its edge to --by, if any, and moves nothing (spec factorio-9wh
+// Decisions 6 and 23). The delete goes before the move, so a crash
+// between the two leaves the ticket in backlog. Any other kind takes its
+// table's unblock row, and keeps its edges.
+func (m *Machine) workUnblock(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := call.Project(ownProject)
+	if r != nil {
+		return r.Result()
+	}
+	item, by := call.Inv.Arg("item"), strings.TrimSpace(call.Inv.Flags["by"])
+	if r := borrowed(call, item); r != nil {
+		return r.Result()
+	}
+	unlock := m.lock(prj, item)
+	defer unlock()
+	bc, it, deps, r := m.withEdges(ctx, prj, item)
+	if r != nil {
+		return r.Result()
+	}
+	req := request(call, prj, item, VerbUnblock, map[string]string{})
+	if it.Kind != KindTicket || it.Status != Backlog && (it.Status != Todo || by == "") {
+		return m.apply(ctx, &req) // an epic's rows, or the table refuses every other state
+	}
+	open, r := m.openBlockers(ctx, prj, it, deps, by)
+	if r != nil {
+		return r.Result()
+	}
+	if by == "" && len(open) > 0 {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "blocker_open", Item: item, CurrentStatus: it.Status,
+			Hint: fmt.Sprintf("%s still waits on %s; name each one with --by to end its block", item, strings.Join(open, ", "))})
+	}
+	if by != "" {
+		if r := m.blockPending(ctx, prj, it, deps, by); r != nil {
+			return r.Result()
+		}
+	}
+	removed := by != "" && hasEdge(deps, by)
+	if removed {
+		if err := bc.RemoveDependency(ctx, item, by, beadsx.DepBlocks); err != nil {
+			return beadsRefusal(item, err).Result()
+		}
+		if m.stop(pointEdgeRemoved) {
+			return cli.Internal(errStopped)
+		}
+	}
+	if it.Status == Todo {
+		return cli.Found(UnblockResult{Item: item, Status: Todo, EdgeRemoved: removed})
+	}
+	status := Todo
+	if len(open) > 0 {
+		status = Backlog
+		req.Params["open"], req.Params["by"] = "true", by
+	}
+	if res := m.apply(ctx, &req); res.Refusal != nil {
+		return res
+	}
+	return cli.Found(UnblockResult{Item: item, Status: status, EdgeRemoved: removed})
+}
+
+// withEdges reads a ticket and its dependencies.
+func (m *Machine) withEdges(ctx context.Context, prj, item string) (beadsx.Client, Item, []beadsx.Dependency, *cli.Refusal) {
+	bc, err := m.cfg.Beads(prj)
+	if err != nil {
+		return nil, Item{}, nil, cli.InternalRefusal(err)
+	}
+	it, r := m.Read(ctx, prj, item)
+	if r != nil {
+		return nil, Item{}, nil, r
+	}
+	deps, err := bc.Dependencies(ctx, item)
+	if err != nil {
+		return nil, Item{}, nil, beadsRefusal(item, err)
+	}
+	return bc, it, deps, nil
+}
+
+func hasEdge(deps []beadsx.Dependency, to string) bool {
+	return slices.ContainsFunc(deps, func(d beadsx.Dependency) bool { return d.Kind == beadsx.DepBlocks && d.ID == to })
+}
+
+// openBlockers lists the open blockers of a ticket other than by: each
+// item that is not done, and that a blocks edge or pending_block names
+// (spec factorio-9wh Decision 22). An edge to a canceled item is open, so
+// a person names it with --by.
+func (m *Machine) openBlockers(ctx context.Context, prj string, it Item, deps []beadsx.Dependency, by string) ([]string, *cli.Refusal) {
+	var open []string
+	for _, d := range deps {
+		if d.Kind == beadsx.DepBlocks && d.ID != by && d.Status != Done {
+			open = append(open, d.ID)
+		}
+	}
+	if p := it.Fact(FactPendingBlock); p != "" && p != by && !hasEdge(deps, p) {
+		pi, r := m.Read(ctx, prj, p)
+		if r != nil {
+			return nil, r
+		}
+		if pi.Status != Done {
+			open = append(open, p)
+		}
+	}
+	return open, nil
+}
+
+// blockPending refuses work block and work unblock --by another blocker
+// while pending_block names an item the ticket holds no edge to: the work
+// block on that item stopped before its edge, and a later call must not
+// lose it. The hint names the call that ends the case.
+func (m *Machine) blockPending(ctx context.Context, prj string, it Item, deps []beadsx.Dependency, by string) *cli.Refusal {
+	p := it.Fact(FactPendingBlock)
+	if p == "" || p == by || hasEdge(deps, p) {
+		return nil
+	}
+	pi, r := m.Read(ctx, prj, p)
+	if r != nil {
+		return r
+	}
+	hint := fmt.Sprintf("the work block of %s on %s stopped before its edge; run `loop work block %s --by %s` again first",
+		it.ID, p, it.ID, p)
+	if t, _ := TableFor(pi.Kind); t.Terminal(pi.Status) {
+		hint = fmt.Sprintf("the work block of %s on %s stopped before its edge, and %s is %s; run `loop work unblock %s --by %s` first",
+			it.ID, p, p, pi.Status, it.ID, p)
+	}
+	return &cli.Refusal{Code: cli.CodeUsage, Rule: "block_pending", Item: it.ID, CurrentStatus: it.Status, Hint: hint}
 }
 
 // SupersedeChecker reads the evidence of `work supersede` back from GitHub

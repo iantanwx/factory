@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/beadsx"
@@ -65,7 +66,7 @@ func (s *Scheduler) advanceDependencies(ctx context.Context, project string) err
 // unblockLanded applies unblock to one backlog item once every blocker
 // landed, and once the intake cap admits a PRD epic.
 func (s *Scheduler) unblockLanded(ctx context.Context, bc beadsx.Client, project string, it machine.Item, pulls openHeads) error {
-	ready, err := blockersLanded(ctx, bc, it.ID, pulls)
+	ready, err := blockersLanded(ctx, bc, it, pulls)
 	if err != nil {
 		return fmt.Errorf("sched: read the dependencies of %s: %w", it.ID, err)
 	}
@@ -167,11 +168,15 @@ func (s *Scheduler) openPulls(project string) openHeads {
 	}
 }
 
-// blockersLanded says whether the item has at least one blocks edge and
-// every blocks edge leads to an item that landed. A blocker is a ticket,
-// an epic or a decision. A done item landed. A moot or dropped decision is
-// canceled, and it landed too: the question no longer applies, and with no
-// branch it holds no pull request, so the read below never holds it.
+// blockersLanded says whether the item has at least one blocker and every
+// blocker landed. A blocker is the target of a blocks edge, or the item
+// that pending_block names: work block writes that fact in its move,
+// before its edge, so a crash between the two still holds the ticket
+// while that item is open (spec factorio-9wh Decision 22). A blocker is a
+// ticket, an epic or a decision. A done item landed. A moot or dropped
+// decision is canceled, and it landed too: the question no longer applies,
+// and with no branch it holds no pull request, so the read below never
+// holds it.
 // A canceled ticket landed when it holds no open pull request, as
 // blocker-landed.ts in tickertown rules for every closed blocker: no code
 // of it can reach the base any more, so nothing is left to wait for. A
@@ -181,21 +186,24 @@ func (s *Scheduler) openPulls(project string) openHeads {
 // a tick that finds a canceled blocker, and no blocker still open, reads.
 //
 // decompose and epic create add every edge before the create that puts
-// the item in backlog, so a backlog item with no blocks edge is a doubt,
-// and a doubt holds the item. A person decides with `work unblock`. Edges of
+// the item in backlog, so a backlog item with no blocker is a doubt, and
+// a doubt holds the item. A person decides with `work unblock`. Edges of
 // another kind block nothing.
-func blockersLanded(ctx context.Context, bc beadsx.Client, item string, pulls openHeads) (bool, error) {
-	deps, err := bc.Dependencies(ctx, item)
+func blockersLanded(ctx context.Context, bc beadsx.Client, it machine.Item, pulls openHeads) (bool, error) {
+	deps, err := bc.Dependencies(ctx, it.ID)
 	if err != nil {
 		return false, err
 	}
-	blockers := 0
+	deps = slices.DeleteFunc(deps, func(d beadsx.Dependency) bool { return d.Kind != beadsx.DepBlocks })
+	if p := it.Fact(machine.FactPendingBlock); p != "" && !slices.ContainsFunc(deps, func(d beadsx.Dependency) bool { return d.ID == p }) {
+		is, err := bc.Get(ctx, p)
+		if err != nil {
+			return false, err
+		}
+		deps = append(deps, beadsx.Dependency{ID: p, Kind: beadsx.DepBlocks, Status: is.Status})
+	}
 	var canceled []string
 	for _, d := range deps {
-		if d.Kind != beadsx.DepBlocks {
-			continue
-		}
-		blockers++
 		switch d.Status {
 		case machine.Done:
 		case machine.Canceled:
@@ -215,5 +223,5 @@ func blockersLanded(ctx context.Context, bc beadsx.Client, item string, pulls op
 			}
 		}
 	}
-	return blockers > 0, nil
+	return len(deps) > 0, nil
 }

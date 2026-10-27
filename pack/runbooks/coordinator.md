@@ -156,7 +156,8 @@ read with the event you blame. Read the state back after each write you report.
 - **A backlog ticket waits on a canceled blocker whose pull request is still open, or on no
   blocking edge.** The server never frees that ticket alone. Read the ticket and each blocker with
   `loop work show <item>`. When the ticket still holds without the canceled work, run
-  `loop work unblock <item>`. When it does not, bring it to the operator.
+  `loop work unblock <item> --by <blocker>` for the canceled blocker. For a ticket with no
+  blocking edge, run `loop work unblock <item>`. When it does not hold, bring it to the operator.
 - **A ticket left backlog because its blocker was canceled.** The server frees the dependants of a
   canceled blocker that holds no open pull request, as if the blocker had landed. Read each freed
   ticket with `loop work show <item>`. When it still needs the canceled work, change it with

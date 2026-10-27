@@ -67,6 +67,15 @@ func enqueueGuard(c *change) *cli.Refusal {
 	return nil
 }
 
+// endBlock clears pending_block when it names the blocker that work
+// unblock --by removed, because that call ends the block on it.
+func endBlock(c *change) *cli.Refusal {
+	if by := c.param("by"); by != "" && c.fact(FactPendingBlock) == by {
+		c.unsetFact(FactPendingBlock)
+	}
+	return nil
+}
+
 // Evidence kinds of work supersede. Each names what already answers a
 // ticket: a commit on the base branch, a done item, or an ADR on the base.
 const (
@@ -150,8 +159,16 @@ func ticketTable() *Table {
 			when: paramIs("blocked", ""), set: setEntry(EntryNew), Facts: []string{FactEntry}},
 		{Verb: VerbCreate, From: []string{Initial}, To: Backlog, When: "open_dependency",
 			when: paramIs("blocked", "true")},
-		{Verb: VerbUnblock, From: []string{Backlog}, To: Todo, Command: "work unblock",
-			set: setEntry(EntryNew), Facts: []string{FactEntry}},
+		// work block writes pending_block in its move, before its edge, so a
+		// crash between the two leaves the ticket held (spec factorio-9wh
+		// Decision 4).
+		{Verb: "block", From: []string{Todo, Backlog}, To: Backlog, Command: "work block",
+			set: needCopy("by", FactPendingBlock), Facts: []string{FactPendingBlock}},
+		{Verb: VerbUnblock, From: []string{Backlog}, To: Todo, When: "no_open_blocker", Command: "work unblock",
+			when: paramIs("open", ""), set: all(setEntry(EntryNew), clearFacts(FactPendingBlock)),
+			Facts: []string{FactEntry, FactPendingBlock}},
+		{Verb: VerbUnblock, From: []string{Backlog}, To: ToSame, When: "open_blocker", Command: "work unblock",
+			when: paramIs("open", "true"), set: endBlock, Facts: []string{FactPendingBlock}},
 
 		{Verb: "claim", From: []string{Todo}, To: InProgress, Stage: StageImplementer, when: stageIs(StageImplementer),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},

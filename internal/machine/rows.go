@@ -50,6 +50,7 @@ const (
 	FactSupersededBy    = "superseded_by"
 	FactSupersedeReason = "supersede_reason" // how that evidence answers the ticket
 	FactCancelReason    = "cancel_reason"    // why work cancel closed the item
+	FactPendingBlock    = "pending_block"    // the blocker of the latest work block, written before its edge
 	FactBuiltBy         = "built_by"         // the ticket or epic a waiting bug waits for
 	FactPriority        = "priority"         // the priority work shape gave the ticket: 1 to 4
 	FactWhy             = "why"              // the reason of a decision's latest fire or defer

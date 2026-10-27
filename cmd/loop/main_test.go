@@ -262,13 +262,13 @@ func TestServeEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Run A moves an item that run B holds.
-	r = loop(t, bin, instance, checkoutA, "", "work", "block", "T-B")
+	r = loop(t, bin, instance, checkoutA, "", "work", "block", "T-B", "--by", "T-X")
 	want(t, r, 3, cli.CodeCapabilityDenied)
 	// Run A calls host verbs.
 	want(t, loop(t, bin, instance, checkoutA, "", "upgrade"), 3, cli.CodeCapabilityDenied)
 	want(t, loop(t, bin, instance, checkoutA, "x-value-123", "secret", "set", "X", "--project", "alpha"), 3, cli.CodeCapabilityDenied)
 	// Run A's own item reaches the verb, which U5 builds.
-	want(t, loop(t, bin, instance, checkoutA, "", "work", "block", "T-A"), 2, cli.CodeNotImplemented)
+	want(t, loop(t, bin, instance, checkoutA, "", "work", "block", "T-A", "--by", "T-X"), 2, cli.CodeNotImplemented)
 	// Run A's token copied into a directory outside its checkout.
 	stolen := t.TempDir()
 	if err := cli.WriteTokenFile(stolen, tfA); err != nil {
