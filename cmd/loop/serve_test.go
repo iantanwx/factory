@@ -566,3 +566,25 @@ func TestServeHostChecksHoldTheRequirementLines(t *testing.T) {
 		t.Fatalf("requires_orca with host config naming %s: %+v", agent, lines)
 	}
 }
+
+// The server part checks only the rows that the server process runs. A
+// host CLI verb runs gh and systemd-run with the operator's own path, so a
+// line on the service's path would ring for a binary the server never runs.
+func TestServeHostChecksSkipTheRowsOnlyHostVerbsRun(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+
+	var got []string
+	for _, l := range hostChecks(dir, nil, home)(context.Background())[1:] {
+		got = append(got, l.Check)
+	}
+	want := []string{"requires_git", "requires_python3", "requires_orca", "requires_op"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("server requirement lines = %v, want %v", got, want)
+	}
+}

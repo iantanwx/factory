@@ -417,14 +417,15 @@ func installCheck(dir string) func(context.Context) github.CheckLine {
 	}
 }
 
-// hostChecks is the host lines of loop doctor: the install line, then
-// one line for each requirement of this host. The service's own path
-// finds each binary, because the server runs them from there.
+// hostChecks is the host lines of loop doctor that the server process
+// can judge: the install line, then one line for each requirement that the
+// server runs. The service's own path finds each binary, because the
+// server runs them from there.
 func hostChecks(dir string, cfg *config.HostConfig, home string) func(context.Context) []github.CheckLine {
 	install := installCheck(dir)
 	return func(ctx context.Context) []github.CheckLine {
 		return append([]github.CheckLine{install(ctx)},
-			release.RequirementLines(release.HostRequirements(runtime.GOOS), release.HostFinder(home, cfg))...)
+			release.RequirementLines(release.ServerRequirements(runtime.GOOS), release.HostFinder(home, cfg))...)
 	}
 }
 

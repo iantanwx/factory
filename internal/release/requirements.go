@@ -38,17 +38,20 @@ type Requirement struct {
 	// Home is where the binary's own installer puts it, under the home
 	// directory and off the path. Empty when it has no such place.
 	Home string
+	// Server is true when the server process runs the binary. Only host
+	// CLI verbs run the others, with the operator's own path.
+	Server bool
 }
 
 // Requirements is every binary that the loop's non-test code runs. Each
 // row names a version only where go.mod or the README states one.
 var Requirements = []Requirement{
-	{Bin: "git", Level: Required, Need: "every checkout, mirror and gate",
+	{Bin: "git", Level: Required, Need: "every checkout, mirror and gate", Server: true,
 		Hint: "install git with the system package manager"},
-	{Bin: "python3", Level: Required, Need: "the prose rules of loop gates and of each body the server checks",
+	{Bin: "python3", Level: Required, Need: "the prose rules of loop gates and of each body the server checks", Server: true,
 		Hint: "install Python 3 with the system package manager"},
 	{Bin: "orca", Level: Required, Need: "the agent host, which runs each run's worktree and terminal",
-		Hint: "install the Orca app; it places its CLI at ~/.config/orca/cli/bin/orca", Home: ".config/orca/cli/bin/orca"},
+		Hint: "install the Orca app; it places its CLI at ~/.config/orca/cli/bin/orca", Home: ".config/orca/cli/bin/orca", Server: true},
 	{Bin: "gh", Level: Required, Need: "loop register, and the release reads of loop upgrade",
 		Hint: "install the GitHub CLI from https://cli.github.com, then run gh auth login"},
 	{Bin: "systemctl", Level: Required, OS: "linux", Need: "the systemd user service of loop install",
@@ -61,7 +64,7 @@ var Requirements = []Requirement{
 		Hint: "run the loop on a Linux host with systemd-logind"},
 	{Bin: "tailscale", Level: Optional, Need: "the tailnet address for the GitHub App flow of loop install, so a browser on another machine reaches it",
 		Hint: "install Tailscale from https://tailscale.com/download"},
-	{Bin: "op", Level: Optional, Need: "loop secret import, which reads each secret from 1Password",
+	{Bin: "op", Level: Optional, Need: "loop secret import, which reads each secret from 1Password", Server: true,
 		Hint: "install the 1Password CLI from https://developer.1password.com/docs/cli"},
 	{Bin: "gitleaks", Level: CIOnly, Need: "the secrets gate of loop gates",
 		Hint: "install gitleaks from https://github.com/gitleaks/gitleaks/releases"},
@@ -85,6 +88,18 @@ func HostRequirements(goos string) []Requirement {
 	var out []Requirement
 	for _, r := range Requirements {
 		if (r.Level == Required || r.Level == Optional) && (r.OS == "" || r.OS == goos) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// ServerRequirements are the host rows of goos that the server process
+// runs. The overwatch part server checks these on the service's path.
+func ServerRequirements(goos string) []Requirement {
+	var out []Requirement
+	for _, r := range HostRequirements(goos) {
+		if r.Server {
 			out = append(out, r)
 		}
 	}
