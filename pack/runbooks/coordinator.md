@@ -37,6 +37,9 @@ Run these reads first, in this order. Write no report until they return.
 ```bash
 loop overwatch sweep
 loop inbox list
+loop stage list
+loop pr pending
+loop version
 loop fault list --status open
 loop status
 loop inbox wait --since <cursor>
@@ -72,6 +75,22 @@ Each finding has a key, such as `overwatch:main:factorio:ci-yml@1a2b3c4d5e6f`. W
 report a fault, prepare a question or file a decision for a finding, quote the finding's key in its
 body. The sweep then reads the finding as filed, and it stops ringing you for it. When that record
 closes and the finding is still there, the finding rings again.
+
+`loop stage list` prints one row for each stage and job of each project, enabled or not. Each row
+shows the schedule, the limits, the profiles, the pauses, the last and the next fire, and the live
+runs. When a stage starts no run, read its row before you read anything else. It shows whether the
+stage is disabled, paused, at its cap, or not yet due. A row with `error` names a project config
+that does not read. That is work in the project, and it starts by section 8. Section 3 states
+when you pause and resume a stage.
+
+`loop pr pending` lists each open item pull request that holds a person's comment the App has not
+answered, oldest first. No stage answers a comment on a ticket's pull request. Read each thread,
+and name each row in the report with its link and the time in `since`. A row with `error` names a
+project whose GitHub read failed. Quote that error.
+
+`loop version` names the release this host runs, the newest release in `latest`, and `behind`.
+When `behind` is true, section 9 states when you upgrade. When the read of the newest release
+fails, `latest` is empty and `latest_error` names the failure. Quote it.
 
 `loop inbox wait` exits 4 when nothing new arrived before its timeout. Run it again. Keep the
 cursor of the last entry you read.
@@ -121,8 +140,17 @@ read with the event you blame. Read the state back after each write you report.
   Changed inputs or a move of the item lift the hold. At the code-reviewer stage, a push to the
   pull request lifts it too. When the cause is gone, answer the alert.
   The answer lifts the hold, and the stage takes the item again.
-- **A stage keeps failing for a loop reason.** Pause it with `loop stage pause <stage>`, and resume
-  it with `loop stage resume <stage>`. Report each one.
+- **A stage keeps failing for a loop reason.** Pause it, and name the reason:
+
+  ```bash
+  loop stage pause <stage> --project <project> --reason "<the failure and the fault that holds it>"
+  ```
+
+  With no `--project`, the pause holds the stage in every project. No new run of the stage starts,
+  and a live run continues. Count the runs still in flight with `loop run list --live`. The pause
+  stays in the inbox as `pause/<project>/<stage>`, or `pause/<stage>` for every project, until
+  `loop stage resume <stage> --project <project>` ends it. An answer does not end it. Resume the
+  stage when the cause is gone. Report each pause and each resume.
 - **The same item stands still wake after wake.** Say so in the report. Never escalate it a second
   time. A duplicate changes nothing.
 - **A backlog ticket waits on a canceled blocker whose pull request is still open, or on no
@@ -332,23 +360,42 @@ loop epic create --architecture --project <project> --title "<title>" --body "<w
 The epic waits until a merge to the base branch adds an ADR whose Ticket line names the epic id.
 The server reads each Markdown file under `docs/adr/` on the base branch. The ADR is
 `docs/adr/NNNN-<slug>.md`, with the next free number, from the template
-`../loop-sdlc-documents/adr.md`. Tell the operator to write the epic id on its `**Ticket:**` line.
-The `adr` gate refuses an ADR with no Ticket line. The spec author then takes the epic.
+`../loop-sdlc-documents/adr.md`. The `adr` gate refuses an ADR with no Ticket line. The spec author
+then takes the epic.
 
-When the operator wants to write the ADR with an agent, open an architect room on the epic, by
-section 7. The server refuses an architect room on any item but an epic in `architecture`. The
-room writes the ADR with the operator and opens its pull request. When that pull request merges,
-the epic moves.
+While the epic is in `architecture` with no open item and no open room on it, the inbox shows the
+entry `architecture/<project>/<epic>`. It waits on you. An answer refuses with `USAGE` and rule
+`architecture_entry`. End the entry in one of three ways, by the operator's choice:
 
-When the operator asks the loop to write the ADR, file its ticket under the epic. Quote the
-operator's words, and cite no story, since the epic has no PRD:
+- **The operator asks the loop to write the ADR.** File its ticket under the epic. Quote the
+  operator's words, and cite no story, since the epic has no PRD:
 
-```bash
-loop work create --project <project> --epic <epic> --title "<title>" --body "<body>" --request "<the operator's words>"
-```
+  ```bash
+  loop work create --project <project> --epic <epic> --title "<title>" --body "<body>" --request "<the operator's words>"
+  ```
 
-The ticket carries the epic in its `epic` fact, so the run that holds it reads the epic with
-`loop work show <epic>`.
+  The ticket carries the epic in its `epic` fact, so the run that holds it reads the epic with
+  `loop work show <epic>`.
+
+- **The operator wants to write the ADR with an agent.** Open an architect room on the epic, by
+  section 7:
+
+  ```bash
+  loop room open --kind architect --project <project> --item <epic> --reason "<why>" --score <level>
+  ```
+
+  The server refuses an architect room on any item but an epic in `architecture`. The room writes
+  the ADR with the operator and opens its pull request. When that pull request merges, the epic
+  moves.
+
+- **The operator writes the ADR by hand.** Tell the operator to write the epic id on its
+  `**Ticket:**` line. Then defer the entry until the operator expects to merge the ADR:
+
+  ```bash
+  loop inbox defer architecture/<project>/<epic> --until <time> --reason "the operator writes the ADR by hand"
+  ```
+
+  The entry returns at that time when the epic is still in `architecture`.
 
 Never file work at level 4 or 5 with no PRD on your own.
 
@@ -369,8 +416,11 @@ A run, a room or you report each loop fault. Triage each open one:
 
 `loop version` names the release this host runs. A fault that a later release ends stays a
 reason to upgrade. A release needs no step: each push to the loop's `main` that passes CI becomes
-the next release. When a published release ends an open fault, upgrade the host yourself, from
-your checkout:
+the next release. Before you upgrade, run `loop version`, and read `latest` and `behind`. `latest`
+names the newest published release. `behind` is true when this host runs an older one. When
+`behind` is false, no release is newer, so no upgrade ends the fault yet. When `latest_error`
+names a failed read, quote it in the report. When `behind` is true and a release up to `latest`
+ends an open fault, upgrade the host yourself, from your checkout:
 
 ```bash
 loop upgrade [<version>]
