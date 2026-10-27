@@ -16,26 +16,6 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 )
 
-// The F1 fixture project. Its one gate fails until greeting.txt holds the
-// greeting, so the code-reviewer can prove the check red at the merge
-// base. The job runs the compiled binary outside this directory, so the
-// files are inline. Each stage fires once a year, so a tick on the real
-// clock starts no run that the scenario does not dispatch.
-const (
-	f1Check  = "#!/bin/sh\ntest \"$(cat greeting.txt 2>/dev/null)\" = \"hello, world\"\n"
-	f1Config = `merge:
-  mechanism: direct
-gates:
-  - name: test
-    run: sh check.sh
-stages:
-  implementer:
-    schedule: "0 0 1 1 *"
-  code-reviewer:
-    schedule: "0 0 1 1 *"
-`
-)
-
 // The waits of F1 on real orca.
 const (
 	f1Poll = 15 * time.Second
