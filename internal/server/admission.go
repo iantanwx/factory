@@ -13,8 +13,9 @@ import (
 	"github.com/iantanwx/loop/internal/rpc"
 )
 
-// composeAdmission builds admission over the host config file and the
-// machine's beads resolver, unless Options.Claims names another guard.
+// composeAdmission builds admission over the host config file, the
+// projects' committed config and the machine's beads resolver, unless
+// Options.Claims names another guard.
 func (s *Server) composeAdmission() (*admission.Admission, error) {
 	base := s.opts.BaseFiles
 	if base == nil {
@@ -27,6 +28,7 @@ func (s *Server) composeAdmission() (*admission.Admission, error) {
 		Base:    base,
 		Deps:    s.opts.Dependencies,
 		Pulls:   s.opts.Pulls,
+		Project: s.projectSource(),
 		Release: cli.Version,
 	})
 }

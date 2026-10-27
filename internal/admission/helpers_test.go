@@ -39,6 +39,7 @@ type world struct {
 	deps     *fakeDeps
 	pulls    *fakePulls
 	heads    *fakeHeads
+	configs  *projectConfigs
 	m        *machine.Machine
 	a        *Admission
 	runs     atomic.Int64
@@ -62,7 +63,8 @@ func newWorld(t *testing.T) *world {
 	}
 	w := &world{t: t, st: st, bx: bx, beads: &editable{Client: bx, body: map[string]string{}},
 		hostPath: filepath.Join(dir, config.HostConfigFile), base: newFakeBase(st), deps: &fakeDeps{open: map[string][]string{}},
-		pulls: &fakePulls{}, heads: &fakeHeads{st: st, head: map[string]string{}}}
+		pulls: &fakePulls{}, heads: &fakeHeads{st: st, head: map[string]string{}},
+		configs: &projectConfigs{byProject: map[string]*config.ProjectConfig{}}}
 	w.setCaps(nil)
 	w.build("v1")
 	return w
@@ -73,7 +75,7 @@ func (w *world) build(release string) {
 	w.t.Helper()
 	resolver := func(string) (beadsx.Client, error) { return w.beads, nil }
 	a, err := New(Config{Store: w.st, Host: &config.HostLoader{Path: w.hostPath}, Beads: resolver,
-		Base: w.base, Deps: w.deps, Pulls: w.pulls, Release: release})
+		Base: w.base, Deps: w.deps, Pulls: w.pulls, Project: w.configs.read, Release: release})
 	if err != nil {
 		w.t.Fatal(err)
 	}
@@ -126,8 +128,43 @@ func (w *world) ticket(status string) string { return w.put(machine.KindTicket, 
 func (w *world) nextRun() string { return fmt.Sprintf("run-%d", w.runs.Add(1)) }
 
 func (w *world) admit(stage, item string) (Admitted, *cli.Refusal) {
-	return w.a.Admit(context.Background(), Request{Project: prj, Stage: stage, Item: item, RunID: w.nextRun(),
+	return w.admitIn(prj, stage, item)
+}
+
+func (w *world) admitIn(project, stage, item string) (Admitted, *cli.Refusal) {
+	return w.a.Admit(context.Background(), Request{Project: project, Stage: stage, Item: item, RunID: w.nextRun(),
 		Harness: "claude", Model: "opus"})
+}
+
+// addProject registers one more project beside alpha.
+func (w *world) addProject(id string) {
+	w.t.Helper()
+	if err := config.StoreProjectRow(w.st)(context.Background(), config.Project{ID: id, Repo: "iantanwx/" + id, Path: "/srv/" + id}); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// projectConfigs is the committed project config that admission reads. A
+// project with no entry has no config yet.
+type projectConfigs struct {
+	mu        sync.Mutex
+	byProject map[string]*config.ProjectConfig
+}
+
+func (c *projectConfigs) set(project string, pc *config.ProjectConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.byProject[project] = pc
+}
+
+func (c *projectConfigs) read(_ context.Context, project string) (*config.ProjectSnapshot, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	pc, ok := c.byProject[project]
+	if !ok {
+		return nil, fmt.Errorf("%s has no config yet: %w", project, config.ErrConfigMissing)
+	}
+	return &config.ProjectSnapshot{Config: pc}, nil
 }
 
 func (w *world) mustAdmit(stage, item string) Admitted {

@@ -22,17 +22,22 @@ var intakeCounted = []string{
 	machine.SpecReview,
 }
 
-// liveRuns counts the runs of the stages that have not ended, on the whole
-// instance, except the run named by except. Host config is instance scope,
-// so its caps are too.
-func liveRuns(q querier, stages []string, except string) (int, error) {
-	marks := strings.TrimSuffix(strings.Repeat("?, ", len(stages)), ", ")
+// liveRuns counts the live runs of the limit's stages, except the run named
+// by except. A limit that names a project counts that project's runs only.
+// An agent job's limit names none, so it counts the whole instance.
+func liveRuns(q querier, l config.Limit, except string) (int, error) {
+	marks := strings.TrimSuffix(strings.Repeat("?, ", len(l.Stages)), ", ")
+	query := `SELECT count(*) FROM runs WHERE ended_at IS NULL AND run_id <> ? AND stage IN (` + marks + `)`
 	args := []any{except}
-	for _, s := range stages {
+	for _, s := range l.Stages {
 		args = append(args, s)
 	}
+	if l.Project != "" {
+		query += ` AND project = ?`
+		args = append(args, l.Project)
+	}
 	var n int
-	err := q.QueryRow(`SELECT count(*) FROM runs WHERE ended_at IS NULL AND run_id <> ? AND stage IN (`+marks+`)`, args...).Scan(&n)
+	err := q.QueryRow(query, args...).Scan(&n)
 	return n, err
 }
 
@@ -41,7 +46,7 @@ func liveRuns(q querier, stages []string, except string) (int, error) {
 // its reservation and in the scheduler's peek.
 func capRefusal(q querier, stage string, limits []config.Limit, caller string) (*cli.Refusal, error) {
 	for _, l := range limits {
-		n, err := liveRuns(q, l.Stages, caller)
+		n, err := liveRuns(q, l, caller)
 		if err != nil {
 			return nil, err
 		}
@@ -57,8 +62,20 @@ func capFull(stage string, l config.Limit, n int) *cli.Refusal {
 	if l.Name != stage {
 		what = fmt.Sprintf("%d live runs in the %s pool (%s)", n, l.Name, strings.Join(l.Stages, ", "))
 	}
+	if l.Project != "" {
+		what += " of " + l.Project
+	}
 	return &cli.Refusal{Code: cli.CodeCapFull, Rule: "cap_full",
-		Hint: fmt.Sprintf("%s fill the cap of %d in host config throughput.%s", what, l.Cap, l.Name)}
+		Hint: fmt.Sprintf("%s fill the cap of %d in %s", what, l.Cap, fieldOf(l))}
+}
+
+// fieldOf names the config field that set the limit's cap, and the file
+// that holds it.
+func fieldOf(l config.Limit) string {
+	if strings.HasPrefix(l.Field, "stages.") || strings.HasPrefix(l.Field, "pools.") {
+		return l.Field + " in " + config.ProjectConfigPath
+	}
+	return l.Field + " in host config"
 }
 
 // countIntakeEpics counts a project's epics in counted states.
@@ -88,19 +105,20 @@ func intakeFull(epics int, l config.Limit) *cli.Refusal {
 		return nil
 	}
 	return &cli.Refusal{Code: cli.CodeCapFull, Rule: "cap_full",
-		Hint: fmt.Sprintf("%d epics in counted document states fill the cap of %d in host config throughput.%s", epics, l.Cap, l.Name)}
+		Hint: fmt.Sprintf("%d epics in counted document states fill the cap of %d in %s", epics, l.Cap, fieldOf(l))}
 }
 
 // IntakeCap refuses a new intake with CAP_FULL while the project's epics
-// in counted document states fill the intake cap (KTD30). It reads host
-// config at each call, so a changed cap applies with no restart. Intake
-// runs in a room, so `room open --kind intake` asks it before the room
-// opens. It checks the cap only: a room holds no run and no stage mutex.
+// in counted document states fill the intake cap in force for the project
+// (KTD30). It reads host config and the project's config at each call, so a
+// changed cap applies with no restart. Intake runs in a room, so `room open
+// --kind intake` asks it before the room opens. It checks the cap only: a
+// room holds no run and no stage mutex.
 func (a *Admission) IntakeCap(ctx context.Context, project string) *cli.Refusal {
 	if a.items == nil {
 		return cli.InternalRefusal(errors.New("admission: no machine attached"))
 	}
-	limits, ref := a.limitsFor(ctx, config.StageIntake)
+	limits, ref := a.limitsFor(ctx, project, config.StageIntake)
 	if ref != nil {
 		return ref
 	}
