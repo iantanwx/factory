@@ -14,6 +14,7 @@ import (
 
 // Epic and document states (the epic diagram of the plan).
 const (
+	PRDNeeded    = "prd_needed"
 	PRDReview    = "prd_review"
 	PRDAmending  = "prd_amending"
 	SpecAmending = "spec_amending"
@@ -35,6 +36,8 @@ const (
 // sends it back to review (AE7). Ported from escalationTargetFor in
 // scripts/sdlc/handoff.ts (alpha).
 var epicResume = map[string]string{
+	Backlog:      Backlog,
+	PRDNeeded:    PRDNeeded,
 	PRDReview:    PRDReview,
 	PRDAmending:  PRDAmending,
 	PRDSignoff:   PRDSignoff,
@@ -50,6 +53,11 @@ var epicResume = map[string]string{
 }
 
 func epicResumeFor(status string) (string, string) { return epicResume[status], "" }
+
+// setEpicEntry records where unblock sends a blocked epic.
+func setEpicEntry(state string) setter {
+	return func(c *change) *cli.Refusal { c.setFact(FactEpicEntry, state); return nil }
+}
 
 // amendingFor is where a person's unanswered comment sends a document in
 // review or in sign-off: the amender answers it, and no stage writes the
@@ -248,6 +256,8 @@ func (m *Machine) CompleteEpics(ctx context.Context, project string) error {
 
 func epicTable() *Table {
 	states := []State{
+		{Name: Backlog, Category: beadsx.CategoryFrozen},
+		{Name: PRDNeeded, Category: beadsx.CategoryActive},
 		{Name: PRDReview, Category: beadsx.CategoryActive},
 		{Name: PRDAmending, Category: beadsx.CategoryActive},
 		{Name: PRDSignoff, Category: beadsx.CategoryActive},
@@ -263,7 +273,7 @@ func epicTable() *Table {
 		{Name: Escalated, Category: beadsx.CategoryFrozen},
 		{Name: Done, Category: beadsx.CategoryDone, Terminal: true},
 	}
-	live := []string{PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+	live := []string{Backlog, PRDNeeded, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 	claim := func(from, to, stage string) Row {
 		return Row{Verb: "claim", From: []string{from}, To: to, Stage: stage, when: stageIs(stage),
@@ -272,7 +282,18 @@ func epicTable() *Table {
 	rows := []Row{
 		{Verb: VerbPRDSubmit, From: []string{Initial}, To: PRDReview, Command: "prd submit",
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
-		{Verb: VerbCreateArchitecture, From: []string{Initial}, To: Architecture},
+		{Verb: VerbCreatePRD, From: []string{Initial}, To: PRDNeeded, When: "no_open_dependency", when: paramIs("blocked", "")},
+		{Verb: VerbCreatePRD, From: []string{Initial}, To: Backlog, When: "open_dependency", when: paramIs("blocked", "true"),
+			set: setEpicEntry(PRDNeeded), Facts: []string{FactEpicEntry}},
+		{Verb: VerbCreateArchitecture, From: []string{Initial}, To: Architecture, When: "no_open_dependency", when: paramIs("blocked", "")},
+		{Verb: VerbCreateArchitecture, From: []string{Initial}, To: Backlog, When: "open_dependency", when: paramIs("blocked", "true"),
+			set: setEpicEntry(Architecture), Facts: []string{FactEpicEntry}},
+		// An epic with no epic_entry matches neither row, so unblock never
+		// lands it on a guessed state.
+		{Verb: VerbUnblock, From: []string{Backlog}, To: PRDNeeded, Command: "work unblock",
+			When: "prd_entry", when: factIs(FactEpicEntry, PRDNeeded)},
+		{Verb: VerbUnblock, From: []string{Backlog}, To: Architecture, Command: "work unblock",
+			When: "architecture_entry", when: factIs(FactEpicEntry, Architecture)},
 
 		claim(PRDReview, ToSame, StageDocReviewer),
 		claim(PRDAmending, ToSame, StageAmender),
@@ -368,6 +389,6 @@ func uniqueValues(m map[string]string) []string {
 }
 
 func epicStateOrder() []string {
-	return []string{PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+	return []string{Backlog, PRDNeeded, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution}
 }
