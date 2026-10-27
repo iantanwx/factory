@@ -193,18 +193,24 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	}); err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
+	// Every stage start waits for the model receipt (ADR 0006 D1).
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindStage, Checkout: co.Path, Harness: prof.Harness,
-		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt, RequireVerifiedModel: prof.Escalated,
+		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt, RequireVerifiedModel: true,
 		Title: sessionTitle(ad, title)})
-	if err != nil {
-		if errors.Is(err, agenthost.ErrNoModelReceipt) {
-			// The host leaves a session with no model receipt running, and
-			// the start fails, so no record would watch it. Close it.
-			_ = s.cfg.Agents.Close(context.WithoutCancel(ctx), sess.ID)
-		}
+	switch {
+	case errors.Is(err, agenthost.ErrModelMismatch):
+		// The host closed the session. A config edit or a release caused
+		// it, not the item, so the run counts nothing.
+		ref := &cli.Refusal{Code: cli.CodeInternal, Rule: "model_mismatch", Item: ad.Item, Hint: err.Error()}
+		return fail(ref, true, AlertModelMismatch, err)
+	case errors.Is(err, agenthost.ErrNoModelReceipt):
+		// The session runs, and only its model is unproven.
+		s.raise(ctx, config.Alert{Project: ad.Project, Kind: AlertModelMissing, DedupeKey: AlertModelMissing + ":" + stageKey(ad.Project, ad.Stage),
+			Subject: fmt.Sprintf("%s runs on %s start with no model receipt", ad.Stage, ad.Project), Body: err.Error()})
+	case err != nil:
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: start the session: %w", err)), false, AlertStartFailed, err)
 	}
-	if err := s.setRun(ctx, ad.RunID, RunRunning, hostRecord{Session: &sess}); err != nil {
+	if err := s.recordStart(ctx, ad.RunID, hostRecord{Session: &sess}); err != nil {
 		// The session runs and the record lacks it. Close it, so nothing
 		// runs that the server cannot watch.
 		_ = s.cfg.Agents.Close(context.WithoutCancel(ctx), sess.ID)

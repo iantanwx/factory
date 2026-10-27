@@ -62,6 +62,12 @@ const (
 	// content rule holds it. A person pushes or removes the work; the
 	// alert closes when the pass deletes the checkout.
 	AlertCheckoutKept = "checkout_kept"
+	// AlertModelMismatch names a project and stage whose harness records
+	// another model than the start requested. The run did not start.
+	AlertModelMismatch = "model_mismatch"
+	// AlertModelMissing names a project and stage whose starts read no
+	// model inside the receipt window. The runs still run.
+	AlertModelMissing = "model_receipt_missing"
 )
 
 // HostSource returns the current host config. *config.HostLoader is one.
