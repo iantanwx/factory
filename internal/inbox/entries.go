@@ -309,9 +309,10 @@ func askCount(it machine.Item) int {
 
 // Decision facts that `decision file` writes (internal/decision).
 const (
-	FactTrigger = "trigger"
-	FactBy      = "by"
-	FactFiledBy = "filed_by"
+	FactTrigger  = "trigger"
+	FactBy       = "by"
+	FactWaitsFor = "waits_for"
+	FactFiledBy  = "filed_by"
 )
 
 func docOf(status string) string {

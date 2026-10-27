@@ -62,7 +62,9 @@ func (s *Service) Register(srv *rpc.Server) error {
 }
 
 // file is `loop decision file`: a question that waits for its trigger. A
-// run files in its own project, and the coordinator names one. --now says
+// run files in its own project, and the coordinator names one. Exactly one
+// of --by and --waits-for-a-person names what notices the trigger: a
+// decision with neither has no reader (ADR 0005, D5). --now says
 // the trigger already fired, so the same write fires the decision to a
 // person: a run may not fire a decision it does not hold, and a spec defect
 // a code-reviewer finds must page a person now (code-reviewer.md:1098-1130,
@@ -83,13 +85,18 @@ func (s *Service) file(ctx context.Context, call *rpc.Call) cli.Result {
 			return cli.Reject(cli.CodeUsage, "bad_by", "--by is a date, YYYY-MM-DD")
 		}
 	}
+	waits := strings.TrimSpace(inv.Flags["waits-for-a-person"])
+	if (by == "") == (waits == "") {
+		return cli.Reject(cli.CodeUsage, "no_notice",
+			`name what notices the trigger, exactly one of --by <YYYY-MM-DD> and --waits-for-a-person "<who or what>"`)
+	}
 	now := inv.Flags["now"] == "true"
 	if now && by != "" {
 		return cli.Reject(cli.CodeUsage, "now_and_by", "--now says the trigger fired, and --by names a day it fires; pass one")
 	}
 	body := inv.Flags["body"]
 	if s.Redactor != nil {
-		for _, t := range []string{title, trigger, body} {
+		for _, t := range []string{title, trigger, waits, body} {
 			if hit, names := s.Redactor.Find(t); hit {
 				return cli.Reject(cli.CodeSecretInOutput, "secret_in_decision",
 					"the decision holds the value of "+strings.Join(names, ", ")+"; remove it and file again")
@@ -99,6 +106,8 @@ func (s *Service) file(ctx context.Context, call *rpc.Call) cli.Result {
 	facts := map[string]string{inbox.FactTrigger: trigger, inbox.FactFiledBy: p.RunID}
 	if by != "" {
 		facts[inbox.FactBy] = by
+	} else {
+		facts[inbox.FactWaitsFor] = waits
 	}
 	actor := machine.Actor{Name: p.Actor(), RunID: p.RunID}
 	id, res := s.Machine.Create(ctx, machine.CreateRequest{Project: project, Kind: machine.KindDecision, Title: title,
