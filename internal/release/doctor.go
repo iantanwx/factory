@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/github"
 )
 
@@ -63,8 +65,27 @@ func (d *Doctor) Run(ctx context.Context) []DoctorLine {
 	lines = append(lines, d.repos(ctx, cfg)...)
 	if len(cfg.Projects) > 0 {
 		lines = append(lines, d.remote(ctx)...)
+		lines = append(lines, judgeBinaries())
 	}
 	return lines
+}
+
+// judgeBinaries checks that each judge of the fixer's panel is on the
+// path. It runs no judge, so it calls no model and no Jev (ADR 0004 D12).
+func judgeBinaries() DoctorLine {
+	line := DoctorLine{Check: "judge_binaries"}
+	var missing []string
+	for _, bin := range escalation.JudgeBins() {
+		if _, err := exec.LookPath(bin); err != nil {
+			missing = append(missing, bin)
+		}
+	}
+	line.OK = len(missing) == 0
+	line.Detail = "each judge of the fixer's panel is on the path: " + strings.Join(escalation.JudgeBins(), ", ")
+	if !line.OK {
+		line.Detail = "put each judge of the fixer's panel on the path: " + strings.Join(missing, ", ")
+	}
+	return line
 }
 
 // Failed lists the failed lines.
