@@ -119,6 +119,9 @@ type World interface {
 	// Jobs are the native jobs registered on the scheduler. A server with
 	// no scheduler registers none.
 	Jobs() sched.Jobs
+	// DrainSince is when the server began to drain, and zero when it does
+	// not drain or has no scheduler.
+	DrainSince() time.Time
 	// CheckoutDirs lists each directory named loop-* one level under a
 	// directory of agent_host.checkout_root, as absolute paths.
 	CheckoutDirs(ctx context.Context) ([]string, error)

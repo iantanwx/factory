@@ -132,8 +132,9 @@ the epic body from the `loop epic create` script in the coordinator's scratch di
    each `LOOP_ORCA_*` value itself. It stops the lane after 120 minutes, and it writes the lane's
    output to a log under the state directory. For each failure and each skip, it adds a fault with
    `fault.Service.Report` as the `host` principal, so the fault reaches the coordinator's inbox.
-   The operator takes no step: `loop upgrade` writes the default entry, as ADR 0009 decides for
-   `overwatch`.
+   The operator takes no step: a host config with no entry reads the default at load time, and
+   nothing writes the entry, as for `overwatch`
+   (`docs/plans/factorio-9ac-real-orca-acceptance-spec.md`, Decisions).
    - I rejected a host timer, such as a systemd user timer or a cron line. KTD30 puts every
      schedule in host config, and the operator would enable the timer by hand on each host.
    - ADR 0006 decision 3 does not reach this job. It rejected a job that a run hands the server: a
@@ -194,8 +195,9 @@ Files, commands and stages that change, for the spec of epic factorio-9ac:
   instance and the binary into each checkout, and the CLI reads them before `LOOP_INSTANCE`, within
   the three bounds of decision 5.
 - `internal/config/throughput.go`: `orca-acceptance` joins `nativeJobs` and `DefaultThroughput`,
-  with cap 1 and schedule `30 17 * * *`. `loop upgrade` writes the entry into a host config that has
-  none.
+  with cap 1 and schedule `30 17 * * *`, and joins the optional set. A host config that has no entry
+  reads the default, and nothing writes the entry
+  (`docs/plans/factorio-9ac-real-orca-acceptance-spec.md`, Decisions).
 - A new package under `internal/server/` holds the job. It makes and registers the fixture
   repository, runs the release's lane binaries with the 120-minute stop, writes the log, and adds
   one fault for each failure and each skip.

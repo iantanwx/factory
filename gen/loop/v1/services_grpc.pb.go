@@ -1120,6 +1120,7 @@ const (
 	PrService_Checks_FullMethodName  = "/loop.v1.PrService/Checks"
 	PrService_Logs_FullMethodName    = "/loop.v1.PrService/Logs"
 	PrService_Rerun_FullMethodName   = "/loop.v1.PrService/Rerun"
+	PrService_Pending_FullMethodName = "/loop.v1.PrService/Pending"
 )
 
 // PrServiceClient is the client API for PrService service.
@@ -1135,6 +1136,7 @@ type PrServiceClient interface {
 	Checks(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Logs(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Rerun(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Pending(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type prServiceClient struct {
@@ -1235,6 +1237,16 @@ func (c *prServiceClient) Rerun(ctx context.Context, in *VerbRequest, opts ...gr
 	return out, nil
 }
 
+func (c *prServiceClient) Pending(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, PrService_Pending_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PrServiceServer is the server API for PrService service.
 // All implementations must embed UnimplementedPrServiceServer
 // for forward compatibility.
@@ -1248,6 +1260,7 @@ type PrServiceServer interface {
 	Checks(context.Context, *VerbRequest) (*Envelope, error)
 	Logs(context.Context, *VerbRequest) (*Envelope, error)
 	Rerun(context.Context, *VerbRequest) (*Envelope, error)
+	Pending(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedPrServiceServer()
 }
 
@@ -1284,6 +1297,9 @@ func (UnimplementedPrServiceServer) Logs(context.Context, *VerbRequest) (*Envelo
 }
 func (UnimplementedPrServiceServer) Rerun(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Rerun not implemented")
+}
+func (UnimplementedPrServiceServer) Pending(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Pending not implemented")
 }
 func (UnimplementedPrServiceServer) mustEmbedUnimplementedPrServiceServer() {}
 func (UnimplementedPrServiceServer) testEmbeddedByValue()                   {}
@@ -1468,6 +1484,24 @@ func _PrService_Rerun_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PrService_Pending_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PrServiceServer).Pending(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PrService_Pending_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PrServiceServer).Pending(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PrService_ServiceDesc is the grpc.ServiceDesc for PrService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1510,6 +1544,10 @@ var PrService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Rerun",
 			Handler:    _PrService_Rerun_Handler,
+		},
+		{
+			MethodName: "Pending",
+			Handler:    _PrService_Pending_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

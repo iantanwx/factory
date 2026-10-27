@@ -23,7 +23,8 @@ import (
 )
 
 // registerRelease plugs in the client-side host verbs: install,
-// upgrade, rollback, restore and doctor. Doctor calls the server verb
+// upgrade, rollback, restore and doctor, and the version verb that names
+// the newest release. Doctor calls the server verb
 // doctor-github for the checks that need GitHub. It replaces the gate that
 // cli.Client.Attach set on upgrade and rollback with handlers that make the
 // same authorization probe whenever the server answers. run calls it after
@@ -70,6 +71,8 @@ type hostVerbs struct {
 	// the caller's session, where the coordinator's upgrade and rollback
 	// run.
 	detach func(ctx context.Context, instance string, args []string) (server.UpgradeStart, error)
+	// latestWithin bounds version's read of the newest release.
+	latestWithin time.Duration
 }
 
 func (h *hostVerbs) out() io.Writer {
@@ -93,10 +96,11 @@ func newHostVerbs(r *cli.Registry, c *cli.Client) *hostVerbs {
 		source: func() release.Source {
 			return release.Source{Base: os.Getenv(release.ReleaseBaseEnv)}
 		},
-		keys:     release.TrustedKeys,
-		self:     os.Executable,
-		home:     os.UserHomeDir,
-		platform: runtime.GOOS + "/" + runtime.GOARCH,
+		keys:         release.TrustedKeys,
+		self:         os.Executable,
+		home:         os.UserHomeDir,
+		platform:     runtime.GOOS + "/" + runtime.GOARCH,
+		latestWithin: 5 * time.Second,
 	}
 	h.setup = h.hostSetup
 	h.cmd = execCmd
@@ -115,12 +119,32 @@ func (h *hostVerbs) register() error {
 	}
 	for path, fn := range map[string]cli.Handler{
 		"install": h.install, "register": h.registerProject, "upgrade": h.upgrade, "rollback": h.rollback, "restore": h.restore, "doctor": h.doctor,
+		"version": h.version,
 	} {
 		if err := h.reg.SetHandler(path, fn); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// version answers what internal/cli's version answers, with the newest
+// release and whether this one is older (ADR D13). It reads the newest
+// release here because internal/cli does not import internal/release. A
+// failed read, or one past the deadline, names latest_error, and still
+// exits 0.
+func (h *hostVerbs) version(ctx context.Context, _ cli.Invocation) cli.Result {
+	data := map[string]any{"version": cli.Version, "go": runtime.Version(), "platform": h.platform, "latest": "", "behind": false}
+	ctx, cancel := context.WithTimeout(ctx, h.latestWithin)
+	defer cancel()
+	latest, err := h.source().LatestVersion(ctx)
+	if err != nil {
+		data["latest_error"] = err.Error()
+		return cli.Found(data)
+	}
+	data["latest"] = latest
+	data["behind"] = release.ValidVersion(cli.Version) && release.CompareVersions(cli.Version, latest) < 0
+	return cli.Found(data)
 }
 
 func (h *hostVerbs) instance() (string, error) {

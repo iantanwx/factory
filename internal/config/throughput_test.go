@@ -312,3 +312,57 @@ func TestC2OverwatchEntryRefusals(t *testing.T) {
 		t.Fatalf("ThroughputFor(overwatch) = %+v, want the file's entry", got)
 	}
 }
+
+// C15: a host config that v0.0.58 wrote holds no orca-acceptance entry. It
+// loads, the job reads cap 1 on 30 17 * * * without writing the entry, and a
+// save writes no orca-acceptance key.
+func TestC15OrcaAcceptanceEntryDefaults(t *testing.T) {
+	if !slices.Contains(NativeJobs(), "orca-acceptance") {
+		t.Fatalf("NativeJobs lacks orca-acceptance: %v", NativeJobs())
+	}
+	cfg, err := LoadHost(filepath.Join("testdata", "host-v0.0.58.yaml"))
+	if err != nil {
+		t.Fatalf("the v0.0.58 host config does not load: %v", err)
+	}
+	want := Throughput{Cap: 1, Schedule: "30 17 * * *"}
+	if got := cfg.ThroughputFor("orca-acceptance"); got != want {
+		t.Fatalf("ThroughputFor(orca-acceptance) = %+v, want %+v", got, want)
+	}
+	if ls := cfg.Limits("orca-acceptance"); len(ls) != 1 || ls[0].Cap != 1 {
+		t.Fatalf("Limits(orca-acceptance) = %+v, want the default cap 1", ls)
+	}
+	if _, ok := cfg.Throughput["orca-acceptance"]; ok {
+		t.Fatal("a read wrote the orca-acceptance entry into the config")
+	}
+	path := filepath.Join(t.TempDir(), HostConfigFile)
+	if err := SaveHost(path, cfg); err != nil {
+		t.Fatalf("SaveHost: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "orca-acceptance") {
+		t.Fatalf("SaveHost wrote an orca-acceptance key:\n%s", data)
+	}
+	if _, err := LoadHost(path); err != nil {
+		t.Fatalf("the saved config does not load: %v", err)
+	}
+}
+
+// C15: config load checks a present orca-acceptance entry as every other
+// entry, and reads a valid one from the file.
+func TestC15OrcaAcceptanceEntryRefusals(t *testing.T) {
+	bad := strings.Replace(validHost, "throughput:\n", "throughput:\n  orca-acceptance: {cap: 0, schedule: \"30 17 * * *\"}\n", 1)
+	if _, err := ParseHost([]byte(bad)); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "throughput.orca-acceptance.cap") {
+		t.Fatalf("err = %v, want a refusal that names throughput.orca-acceptance.cap", err)
+	}
+	good := strings.Replace(validHost, "throughput:\n", "throughput:\n  orca-acceptance: {cap: 2, schedule: \"0 3 * * *\"}\n", 1)
+	cfg, err := ParseHost([]byte(good))
+	if err != nil {
+		t.Fatalf("a valid orca-acceptance entry does not load: %v", err)
+	}
+	if got := cfg.ThroughputFor("orca-acceptance"); got != (Throughput{Cap: 2, Schedule: "0 3 * * *"}) {
+		t.Fatalf("ThroughputFor(orca-acceptance) = %+v, want the file's entry", got)
+	}
+}

@@ -14,10 +14,11 @@ import (
 
 // intakeCounted are the epic states an agent moves on. An epic here holds
 // an intake slot. An epic that waits on a person (a sign-off, an
-// architecture epic, an escalation) holds none, and neither does one past
-// spec review. Ported from CAP_STATES in scripts/sdlc/intake-cap.ts (alpha).
+// architecture epic, an escalation) or on a blocker (backlog) holds none,
+// and neither does one past spec review. Ported from CAP_STATES in
+// scripts/sdlc/intake-cap.ts (alpha).
 var intakeCounted = []string{
-	machine.PRDReview, machine.PRDAmending, machine.SpecNeeded, machine.SpecDrafting, machine.SpecReview,
+	machine.PRDNeeded, machine.PRDReview, machine.PRDAmending, machine.SpecNeeded, machine.SpecDrafting, machine.SpecReview,
 }
 
 // liveRuns counts the runs of the stages that have not ended, on the whole

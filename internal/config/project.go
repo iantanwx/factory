@@ -110,8 +110,9 @@ type EscalatedProfile struct {
 
 // Command is one named shell command, such as a gate or a policy hook.
 type Command struct {
-	Name string `yaml:"name"`
-	Run  string `yaml:"run"`
+	Name     string `yaml:"name"`
+	Run      string `yaml:"run"`
+	Baseline string `yaml:"baseline,omitempty"` // repository path of the gate's ratchet file; gates only
 }
 
 // ParseProjectConfig parses and validates project config.
@@ -185,6 +186,7 @@ func (c *ProjectConfig) validate() error {
 	}
 	checkCommands(ck, "gates", c.Gates)
 	checkCommands(ck, "policy_hooks", c.PolicyHooks)
+	checkBaselines(ck, c.Gates, c.PolicyHooks)
 	seen := map[string]bool{}
 	for i, r := range c.Signoff.Readers {
 		f := fmt.Sprintf("signoff.readers[%d]", i)
@@ -221,6 +223,42 @@ func checkCommands(ck *checker, field string, cmds []Command) {
 		seen[cmd.Name] = true
 		if strings.TrimSpace(cmd.Run) == "" {
 			ck.fail(f+".run", "must be a nonempty command")
+		}
+	}
+}
+
+// SuppressionsPath is the ratchet file of the standards gate. No gate of
+// the config may name it, since two writers of one file would lower each
+// other's keys.
+const SuppressionsPath = ".loop/suppressions.json"
+
+// unratcheted are the stack gates whose commands print no findings to count,
+// so a baseline on one ratchets nothing.
+var unratcheted = []string{"format", "typecheck", "test", "build"}
+
+// checkBaselines gives each ratchet file one gate that writes it.
+func checkBaselines(ck *checker, gates, hooks []Command) {
+	for i, h := range hooks {
+		if h.Baseline != "" {
+			ck.fail(fmt.Sprintf("policy_hooks[%d].baseline", i), "a policy hook holds no baseline; only a gate does")
+		}
+	}
+	owner := map[string]int{}
+	for i, g := range gates {
+		f := fmt.Sprintf("gates[%d].baseline", i)
+		switch {
+		case g.Baseline == "":
+		case slices.Contains(unratcheted, g.Name):
+			ck.fail(f, "the %s gate prints no findings to count; a baseline belongs to lint, audit or an extra gate", g.Name)
+		case !repoPath(g.Baseline) || g.Baseline == ".":
+			ck.fail(f, "must be a clean path inside the repository")
+		case g.Baseline == SuppressionsPath:
+			ck.fail(f, "is the standards gate's own baseline; name a file of this gate's own")
+		default:
+			if j, ok := owner[g.Baseline]; ok {
+				ck.fail(f, "names the baseline of gates[%d]; each gate needs a file of its own", j)
+			}
+			owner[g.Baseline] = i
 		}
 	}
 }
