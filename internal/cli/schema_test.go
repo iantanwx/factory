@@ -268,3 +268,18 @@ func TestC14WorkListHelpListsEpic(t *testing.T) {
 	}
 	t.Fatalf("work list --help lists no epic flag: %v", env["data"])
 }
+
+// C15: loop schema lists settings show, a read of the coordinator and of
+// the operator's shell for one project.
+func TestSchemaListsSettingsShow(t *testing.T) {
+	env, code := runJSON(t, New(), "schema", "--json")
+	if code != 0 {
+		t.Fatalf("schema failed: %v", env)
+	}
+	v := findVerb(t, env["data"].(map[string]any), "settings show")
+	args := v["args"].([]any)
+	if v["rpc"] != "/loop.v1.SettingsService/Show" || v["write"] != false || !slices.Equal(v["callers"].([]any), []any{"coordinator", "host"}) ||
+		len(args) != 1 || args[0].(map[string]any)["name"] != "project" {
+		t.Fatalf("settings show = %v", v)
+	}
+}
