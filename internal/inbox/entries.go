@@ -237,6 +237,13 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 	switch kind {
 	case KindEscalation:
 		e.Next = "loop inbox answer " + e.ID + " --body <the operator's answer> [--amend]"
+		qs, err := openQuestions(ctx, tx, e.ID)
+		if err != nil {
+			return Entry{}, err
+		}
+		if len(qs) > 0 {
+			e.Next = "first answer each open question about it: " + questionCommands(qs) + "; then " + e.Next
+		}
 		rec, err := escalation.Latest(ctx, tx, it.Project, it.ID, escalation.StatePerson)
 		if err != nil {
 			return Entry{}, err
@@ -338,6 +345,33 @@ func (in *Inbox) panels(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 			Next: "the fixer runs `loop escalation judge` and `loop escalation route`", At: at})
 	}
 	return out, rs.Err()
+}
+
+// openQuestions returns the entry ids of the open questions about entry,
+// oldest first.
+func openQuestions(ctx context.Context, tx *sql.Tx, entry string) ([]string, error) {
+	rs, err := tx.QueryContext(ctx, `SELECT id FROM questions WHERE entry = ? AND answered_at IS NULL ORDER BY id`, entry)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rs.Close() }()
+	var out []string
+	for rs.Next() {
+		var id int64
+		if err := rs.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, rowEntry(KindQuestion, id))
+	}
+	return out, rs.Err()
+}
+
+func questionCommands(qs []string) string {
+	cmds := make([]string, len(qs))
+	for i, q := range qs {
+		cmds[i] = "`loop inbox answer " + q + " --body <the operator's answer>`"
+	}
+	return strings.Join(cmds, ", ")
 }
 
 func (in *Inbox) questions(ctx context.Context, tx *sql.Tx) ([]Entry, error) {

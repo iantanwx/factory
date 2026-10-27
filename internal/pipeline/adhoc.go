@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -25,7 +26,9 @@ type CreateResult struct {
 // writes an architecture epic's ADR is such PRD-less work, and it still
 // names its epic. With --kind bug the
 // coordinator files the operator's bug report in reported, the state the
-// reproducer stage claims from, under the same rule.
+// reproducer stage claims from, under the same rule. With --blocked-by
+// the ticket waits in backlog on each blocker, which is checked before any
+// write. A bug takes no blocker.
 func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	prj, ref := call.Project(ownProject)
@@ -35,6 +38,7 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	title, body := strings.TrimSpace(inv.Flags["title"]), inv.Flags["body"]
 	epicID, request := inv.Flags["epic"], strings.TrimSpace(inv.Flags["request"])
 	stories := splitStories(inv.Flags["story"])
+	blockers := machine.ParseBlockers(inv.Flags["blocked-by"])
 	if title == "" {
 		return cli.Reject(cli.CodeUsage, "no_title", "--title names the ticket")
 	}
@@ -46,6 +50,9 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		// does: only the coordinator files one, on the operator's request.
 		kind, verb = machine.KindBug, machine.VerbFile
 		switch {
+		case len(blockers) > 0:
+			return cli.Reject(cli.CodeUsage, "bug_takes_no_blocker",
+				"a bug report waits on nothing; the reproducer shapes it into a ticket, and work shape takes --blocked-by")
 		case pr.Kind != cli.PrincipalCoordinator:
 			return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only",
 				"only the coordinator files a bug, from the operator's report; a run reports a fault in the loop with `loop fault report`")
@@ -111,6 +118,9 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", title, body, request); ref != nil {
 		return ref.Result()
 	}
+	if ref := p.cfg.Machine.CheckBlockers(ctx, prj, "", blockers); ref != nil {
+		return ref.Result()
+	}
 
 	cr := machine.CreateRequest{Project: prj, Kind: kind, Title: title, Description: body, Facts: facts}
 	it, ref := p.create(ctx, call, "work", cr)
@@ -118,17 +128,47 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		return ref.Result()
 	}
 	if it.Status == machine.Initial {
-		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: verb, ExpectedStatus: machine.Initial,
-			RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
+		params := map[string]string{}
+		if len(blockers) > 0 {
+			if ref := p.addBlockers(ctx, prj, it.ID, blockers); ref != nil {
+				return ref.Result()
+			}
+			params["blocked"] = "true"
+		}
+		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: verb, Params: params,
+			ExpectedStatus: machine.Initial, RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
 		if res.Refusal != nil {
 			return res
 		}
-		it.Status = machine.Todo
-		if kind == machine.KindBug {
+		switch {
+		case kind == machine.KindBug:
 			it.Status = machine.Reported
+		case len(blockers) > 0:
+			it.Status = machine.Backlog
+		default:
+			it.Status = machine.Todo
 		}
 	}
 	return cli.Found(CreateResult{Item: it.ID, Status: it.Status, Epic: epicID})
+}
+
+// addBlockers writes one blocks edge from a ticket in Initial to each
+// blocker, before its create move, as decompose does: a crash between
+// leaves the ticket in Initial, in no queue.
+func (p *Pipeline) addBlockers(ctx context.Context, prj, ticket string, blockers []string) *cli.Refusal {
+	bc, err := p.cfg.Beads(prj)
+	if err != nil {
+		return cli.InternalRefusal(err)
+	}
+	for _, b := range blockers {
+		if err := bc.AddDependency(ctx, ticket, b, beadsx.DepBlocks); err != nil {
+			return cli.InternalRefusal(fmt.Errorf("pipeline: record that %s waits on %s: %w", ticket, b, err))
+		}
+	}
+	if p.stop("blockers_added") {
+		return cli.InternalRefusal(errCrash)
+	}
+	return nil
 }
 
 // create makes the item of cr. A run's keyed write records its key, under

@@ -107,7 +107,8 @@ func bugTable() *Table {
 		// The reproducer cancels a report whose symptom is in the loop, after
 		// it reports the loop fault. Released to reported, the report
 		// would only run again.
-		{Verb: "cancel", From: []string{Reproducing, Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop},
+		{Verb: "cancel", From: []string{Reproducing, Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop,
+			set: needCopy("reason", FactCancelReason), Facts: []string{FactCancelReason}},
 		{Verb: VerbNote, From: []string{Reported, Reproducing, Asked, Escalated}, To: ToSame, Command: "work note", set: notePut,
 			Facts: []string{FactNote}},
 		editRow([]string{Reported, Reproducing, Asked, Escalated}),

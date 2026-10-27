@@ -133,8 +133,9 @@ read with the event you blame. Read the state back after each write you report.
   canceled blocker that holds no open pull request, as if the blocker had landed. Read each freed
   ticket with `loop work show <item>`. When it still needs the canceled work, change it with
   `loop work edit <item>` so it no longer does, or bring it to the operator.
-- **The operator drops an escalated item.** Run `loop work cancel <item>`, and quote the
-  operator's words in the report.
+- **The operator drops an escalated item.** Run
+  `loop work cancel <item> --reason "<the operator's words>"`, and quote the operator's words in
+  the report.
 - **A merged change or a ruling leaves a ticket with no work.** Run
   `loop work supersede <item> --reason "<why>"` with one of `--commit <sha>`, `--done <item>` or
   `--adr <path>`. The server checks that evidence before it closes the ticket.
@@ -193,6 +194,10 @@ Record each answer when the operator gives it:
 ```bash
 loop inbox answer <entry> --body "<the operator's words and choice>"
 ```
+
+Answer each open question about an escalation entry first, then the escalation entry. While a
+question about the entry is open, its answer refuses with `TRANSITION_NOT_ALLOWED` and rule
+`question_open`, and the item stays `escalated`. The hint names each open question entry.
 
 Quote the operator's statement and choice, and the reason when the operator gave one. Add
 `--amend` when the answer changes the task. When the answer needs your own work first, do that

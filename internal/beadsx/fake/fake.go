@@ -331,6 +331,30 @@ func (c *Client) AddDependency(ctx context.Context, from, to string, kind beadsx
 	return nil
 }
 
+// RemoveDependency implements beadsx.Client. Like bd 1.3.1, it journals
+// dep_remove only when it deletes an edge.
+func (c *Client) RemoveDependency(ctx context.Context, from, to string, kind beadsx.DepKind) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.check(ctx); err != nil {
+		return err
+	}
+	for _, id := range []string{from, to} {
+		if _, ok := c.issues[id]; !ok {
+			return fmt.Errorf("%w: %s", beadsx.ErrNotFound, id)
+		}
+	}
+	if kind == "" {
+		kind = beadsx.DepBlocks
+	}
+	n := len(c.deps[from])
+	c.deps[from] = slices.DeleteFunc(c.deps[from], func(d dep) bool { return d.to == to && d.kind == kind })
+	if len(c.deps[from]) < n {
+		c.record("dep_remove", c.issues[from])
+	}
+	return nil
+}
+
 // Dependencies implements beadsx.Client.
 func (c *Client) Dependencies(ctx context.Context, id string) ([]beadsx.Dependency, error) {
 	c.mu.Lock()

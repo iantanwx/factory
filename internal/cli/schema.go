@@ -254,6 +254,10 @@ func (r *Registry) SetHandler(path string, h Handler) error {
 	return nil
 }
 
+// Local reports whether the registry answers the verb itself, with no call
+// to the server.
+func (v *Verb) Local() bool { return v.handler != nil }
+
 // SetRemote sets the handler of every server verb that has no handler of
 // its own. The client sets it to the call that sends a VerbRequest to the
 // server.
