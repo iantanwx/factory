@@ -120,6 +120,10 @@ func ticketEdges() []edge {
 	// Added: a ticket escalated from backlog resumes to backlog (ADR 0005
 	// D2, spec factorio-9wh Decision 7).
 	e = append(e, edge{Escalated, "answer", Backlog})
+	// Added: work block parks a todo ticket, or adds a blocker to a backlog
+	// one, and work unblock --by keeps backlog while an open blocker
+	// remains (spec factorio-9wh Decisions 5 and 23).
+	e = append(e, edge{Todo, "block", Backlog}, edge{Backlog, "block", Backlog}, edge{Backlog, "unblock", Backlog})
 	return e
 }
 
@@ -228,13 +232,16 @@ func TestTablesHoldExactlyThePlannedEdges(t *testing.T) {
 // setupFor is the parameters and facts that let one row apply.
 func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	params := map[string]string{"head": "h1", "body": "a note", "run": "r-1", "ticket": "tk-x", "of": "tk-y", "sha": "s1",
-		"evidence": EvidenceCommit, "ref": "abc1234", "reason": "main holds it"}
+		"evidence": EvidenceCommit, "ref": "abc1234", "reason": "main holds it", "by": "tk-z"}
 	facts := map[string]string{FactReviewedHead: "h1"}
 	if r.Stage != "" {
 		params["stage"] = r.Stage
 	}
 	if r.When == "open_dependency" {
 		params["blocked"] = "true"
+	}
+	if r.When == "open_blocker" {
+		params["open"] = "true"
 	}
 	if r.Stage == StageSpecAuthor {
 		facts[FactPRDMerged] = "m1" // the operator signed the PRD off

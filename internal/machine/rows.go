@@ -49,6 +49,7 @@ const (
 	FactSupersededBy    = "superseded_by"
 	FactSupersedeReason = "supersede_reason" // how that evidence answers the ticket
 	FactCancelReason    = "cancel_reason"    // why work cancel closed the item
+	FactPendingBlock    = "pending_block"    // the blocker of the latest work block, written before its edge
 )
 
 // Entry values of a todo ticket (R6).

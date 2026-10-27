@@ -19,7 +19,6 @@ var handlerExemptions = []exemption{
 	{"run show", "factorio-wd0"},
 	{"stage pause", "factorio-wd0"},
 	{"stage resume", "factorio-wd0"},
-	{"work block", "factorio-9wh"},
 }
 
 // inventoryFaults compares the unhandled server verbs with the exemptions.

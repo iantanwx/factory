@@ -177,12 +177,12 @@ func TestRunTokenMovesOnlyItsOwnItem(t *testing.T) {
 	h.start()
 	a := h.issue("run-a", cli.PrincipalRun, "T-A")
 	h.issue("run-b", cli.PrincipalRun, "T-B")
-	env, code := h.run(a, "work", "block", "T-B")
+	env, code := h.run(a, "work", "block", "T-B", "--by", "T-X")
 	wantRefusal(t, env, code, 3, cli.CodeCapabilityDenied, "item_not_held")
 	if env["item"] != "T-B" {
 		t.Fatalf("refusal item = %v", env["item"])
 	}
-	if env, code := h.run(a, "work", "block", "T-A"); code != 0 {
+	if env, code := h.run(a, "work", "block", "T-A", "--by", "T-X"); code != 0 {
 		t.Fatalf("run A moves its own item: %v", env)
 	}
 }
@@ -196,10 +196,10 @@ func TestHoldsItemHookDecides(t *testing.T) {
 	h.handle("work block", found)
 	h.start()
 	a := h.issue("run-a", cli.PrincipalRun, "T-A")
-	if env, code := h.run(a, "work", "block", "T-LEASED"); code != 0 {
+	if env, code := h.run(a, "work", "block", "T-LEASED", "--by", "T-X"); code != 0 {
 		t.Fatalf("the hook grants T-LEASED: %v", env)
 	}
-	env, code := h.run(a, "work", "block", "T-A")
+	env, code := h.run(a, "work", "block", "T-A", "--by", "T-X")
 	wantRefusal(t, env, code, 3, cli.CodeCapabilityDenied, "item_not_held")
 }
 
@@ -218,7 +218,7 @@ func TestReadsItemHookOpensReadsOnly(t *testing.T) {
 	if env, code := h.run(a, "work", "show", "E-1"); code != 0 {
 		t.Fatalf("the hook opens work show of E-1: %v", env)
 	}
-	env, code := h.run(a, "work", "block", "E-1")
+	env, code := h.run(a, "work", "block", "E-1", "--by", "T-X")
 	wantRefusal(t, env, code, 3, cli.CodeCapabilityDenied, "item_not_held")
 	env, code = h.run(a, "work", "show", "E-2")
 	wantRefusal(t, env, code, 3, cli.CodeCapabilityDenied, "item_not_held")
