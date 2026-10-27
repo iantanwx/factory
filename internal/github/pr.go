@@ -512,14 +512,19 @@ func (s *Service) threadStates(ctx context.Context, p config.Project, number int
 }
 
 // awaitsAnswer reports whether a person's comment on a PR waits for the
-// loop's answer: a person has the last word in a review thread, or in the
-// conversation. The loop App's comment answers. Another program's comment
-// is neither a question nor an answer, so a deployment notice after a
+// loop's answer. unanswered holds the rule, so the reactor and `pr
+// pending` agree on what is owed.
+func awaitsAnswer(cs []Comment) bool { return len(unanswered(cs)) > 0 }
+
+// unanswered returns, for each thread, the last comment when a person
+// wrote it: a review thread by its root, and the conversation as one
+// thread. The loop App's comment answers. Another program's comment is
+// neither a question nor an answer, so a deployment notice after a
 // person's comment answers nobody. A reply answers its thread alone. The
 // REST API does not say whether a person resolved a thread, so only a
 // reply settles one. Ported from unanswered in scripts/sdlc/pr-queues.ts
 // and awaitingUs in scripts/sdlc/github-pull.ts (alpha).
-func awaitsAnswer(cs []Comment) bool {
+func unanswered(cs []Comment) []Comment {
 	last := map[string]Comment{}
 	for _, c := range cs {
 		if c.bot && c.AuthorClass != AuthorApp {
@@ -537,12 +542,13 @@ func awaitsAnswer(cs []Comment) bool {
 			last[key] = c
 		}
 	}
+	var out []Comment
 	for _, c := range last {
 		if c.AuthorClass != AuthorApp {
-			return true
+			out = append(out, c)
 		}
 	}
-	return false
+	return out
 }
 
 // marker is the natural key of one comment the server posts (KTD6). It

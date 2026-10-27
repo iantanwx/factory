@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
@@ -107,7 +108,42 @@ func (g *GitHub) Setup(s *Server) error {
 		// offers a held review again.
 		s.Admission.SetPRHeadReader(svc.PRHead)
 	}
+	if err := s.RPC.Handle("pr pending", g.prPending(s)); err != nil {
+		return fmt.Errorf("server: github: %w", err)
+	}
 	return s.RPC.Handle("doctor-github", g.doctorVerb(s))
+}
+
+// prPending answers `loop pr pending`: the item pull requests of each
+// project, or of the one --project names, that owe a person a reply,
+// oldest first. A project whose GitHub read fails answers one row with
+// its error, and the others still answer.
+func (g *GitHub) prPending(s *Server) rpc.Handler {
+	return func(ctx context.Context, call *rpc.Call) cli.Result {
+		var projects []config.Project
+		if id := call.Inv.Flags["project"]; id != "" {
+			p, err := s.Projects.Show(id)
+			if err != nil {
+				return projectFault(err)
+			}
+			projects = []config.Project{p}
+		} else {
+			var err error
+			if projects, err = s.Projects.List(); err != nil {
+				return cli.Internal(err)
+			}
+		}
+		var out []github.Pending
+		for _, p := range projects {
+			rows, err := g.Service.Pending(ctx, p)
+			if err != nil {
+				rows = []github.Pending{{Project: p.ID, Error: err.Error()}}
+			}
+			out = append(out, rows...)
+		}
+		slices.SortStableFunc(out, func(a, b github.Pending) int { return a.Since.Compare(b.Since) })
+		return cli.List(out)
+	}
 }
 
 // doctorVerb answers `loop doctor-github`: the checks of `loop doctor`
