@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
@@ -104,6 +105,13 @@ func (w *fakeWorld) Intervals() Intervals {
 }
 func (w *fakeWorld) Jobs() sched.Jobs      { return sched.Jobs{} }
 func (w *fakeWorld) DrainSince() time.Time { return w.drain }
+func (w *fakeWorld) Pauses(ctx context.Context) (pauses []admission.StagePause, err error) {
+	err = w.st.Read(ctx, func(tx *sql.Tx) error {
+		pauses, err = admission.Pauses(ctx, tx)
+		return err
+	})
+	return pauses, err
+}
 func (w *fakeWorld) CheckoutDirs(context.Context) ([]string, error) {
 	return agenthost.ListCheckoutDirs(w.root)
 }

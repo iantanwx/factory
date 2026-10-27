@@ -22,6 +22,10 @@ var requiredFlags = []struct {
 	{"loop decision file", []string{"--by", "--waits-for-a-person"}},
 	{"loop inbox defer", []string{"--reason"}},
 	{"loop work shape", []string{"--priority"}},
+	{"loop decision fire", []string{"--why"}},
+	{"loop decision defer", []string{"--why"}},
+	{"loop decision settle", []string{"--note"}},
+	{"loop decision moot", []string{"--note"}},
 }
 
 // codeSpan is one inline code span of a markdown line.

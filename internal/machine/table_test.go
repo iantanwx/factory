@@ -128,7 +128,7 @@ func ticketEdges() []edge {
 	return e
 }
 
-var epicLive = []string{Backlog, PRDNeeded, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+var epicLive = []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 	SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 
 func epicEdges() []edge {
@@ -141,6 +141,10 @@ func epicEdges() []edge {
 		{Initial, "create_prd", PRDNeeded}, {Initial, "create_prd", Backlog},
 		{Initial, "create_architecture", Backlog},
 		{Backlog, "unblock", PRDNeeded}, {Backlog, "unblock", Architecture},
+		// factorio-4n0: only a prd-author run claims a PRD epic, and its
+		// settlement returns the epic to the queue.
+		{PRDNeeded, "claim", PRDDrafting},
+		{PRDDrafting, "release", PRDNeeded}, {PRDDrafting, "reclaim", PRDNeeded},
 		{PRDReview, "review_reject", PRDAmending},
 		{PRDAmending, "prd_amended", PRDReview},
 		{PRDReview, "review_reject", Escalated},
@@ -244,7 +248,8 @@ func TestTablesHoldExactlyThePlannedEdges(t *testing.T) {
 // setupFor is the parameters and facts that let one row apply.
 func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	params := map[string]string{"head": "h1", "body": "a note", "run": "r-1", "ticket": "tk-x", "of": "tk-y", "sha": "s1",
-		"evidence": EvidenceCommit, "ref": "abc1234", "reason": "main holds it", "by": "tk-z"}
+		"evidence": EvidenceCommit, "ref": "abc1234", "reason": "main holds it", "why": "the trigger fired", "note": "no question left",
+		"answer": "yes", "by": "tk-z"}
 	facts := map[string]string{FactReviewedHead: "h1"}
 	if r.Stage != "" {
 		params["stage"] = r.Stage

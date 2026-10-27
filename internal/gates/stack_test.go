@@ -3,7 +3,10 @@ package gates
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -163,5 +166,109 @@ func TestC5GateWithNoBaselineKeepsTheExitCodeRule(t *testing.T) {
 				t.Fatalf("with a baseline, rules = %q, want %q", rules(fs), c.ratcheted)
 			}
 		})
+	}
+}
+
+// auditGate runs the audit gate with run as its command. A non-empty
+// baseline names audit.json, written from accepted, as the gate's baseline.
+// lock commits a change to go.sum first. It returns the findings and the
+// checkout's root.
+func auditGate(t *testing.T, run, baseline, accepted string, lock bool) ([]Finding, string) {
+	t.Helper()
+	r := testRepo(t, map[string]string{"audit.json": accepted})
+	if lock {
+		commit(t, r, "build: add a dependency", map[string]string{"go.sum": "x\n"})
+	}
+	r.Config = &config.ProjectConfig{Gates: []config.Command{{Name: "audit", Run: run, Baseline: baseline}}}
+	fs, err := stackGate("audit")(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fs, r.Root
+}
+
+// strs prints each finding as the gate's log prints it.
+func strs(fs []Finding) []string {
+	out := []string{}
+	for _, f := range fs {
+		out = append(out, f.String())
+	}
+	return out
+}
+
+// C6: the audit gate counts each advisory id once, and holds the set of
+// ids to the accepted set in both directions.
+func TestC6AuditGateRatchetsEachAdvisoryIDOnce(t *testing.T) {
+	const accepted = `{"accepted": {"GHSA-1": {"reason": "no fix upstream", "date": "2026-10-24"}}}`
+	cases := []struct {
+		name, print string
+		want        []string
+	}{
+		{"one id printed three times", `GHSA-1\nGHSA-1\nGHSA-1\n`, []string{}},
+		{"an id outside the set", `GHSA-1\nGHSA-2\nGHSA-2\n`, []string{"audit.json: new_advisory: GHSA-2 is not accepted. Upgrade the package, or accept the advisory in audit.json with a reason and a date"}},
+		{"an accepted id no longer printed", ``, []string{"audit.json: stale_advisory: audit.json accepts GHSA-1, and the audit no longer prints it. Delete its entry"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fs, _ := auditGate(t, `printf '`+c.print+`loop:end\n'; exit 1`, "audit.json", accepted, true)
+			if got := strs(fs); !slices.Equal(got, c.want) {
+				t.Fatalf("findings =\n%q\nwant\n%q", got, c.want)
+			}
+		})
+	}
+}
+
+// C7: an accepted advisory with a blank reason or a date that is no
+// calendar day fails the gate. Each finding names the id, and the gate
+// drops no invalid entry.
+func TestC7AcceptedAdvisoryNeedsAReasonAndADate(t *testing.T) {
+	cases := []struct {
+		reason, date string
+		want         []string
+	}{
+		{"no fix upstream", "2026-10-24", []string{}},
+		{"", "2026-10-24", []string{"audit.json: no_reason: GHSA-1 is accepted with no reason. Write why the project accepts it"}},
+		{" \t", "2026-10-24", []string{"audit.json: no_reason: GHSA-1 is accepted with no reason. Write why the project accepts it"}},
+		{"no fix upstream", "2026-13-01", []string{`audit.json: bad_date: GHSA-1 is accepted on "2026-13-01", which is no calendar day in the form YYYY-MM-DD`}},
+		{"no fix upstream", "2026-02-29", []string{`audit.json: bad_date: GHSA-1 is accepted on "2026-02-29", which is no calendar day in the form YYYY-MM-DD`}},
+		{"no fix upstream", "24 Oct", []string{`audit.json: bad_date: GHSA-1 is accepted on "24 Oct", which is no calendar day in the form YYYY-MM-DD`}},
+		{"no fix upstream", "", []string{`audit.json: bad_date: GHSA-1 is accepted on "", which is no calendar day in the form YYYY-MM-DD`}},
+	}
+	for _, c := range cases {
+		t.Run(c.reason+" "+c.date, func(t *testing.T) {
+			accepted := fmt.Sprintf(`{"accepted": {"GHSA-1": {"reason": %q, "date": %q}}}`, c.reason, c.date)
+			fs, _ := auditGate(t, `printf 'GHSA-1\nloop:end\n'`, "audit.json", accepted, true)
+			if got := strs(fs); !slices.Equal(got, c.want) {
+				t.Fatalf("findings =\n%q\nwant\n%q", got, c.want)
+			}
+		})
+	}
+	t.Run("two invalid entries", func(t *testing.T) {
+		const accepted = `{"accepted": {"GHSA-1": {"reason": "", "date": "2026-10-24"}, "GHSA-2": {"reason": "dev only", "date": "24 Oct"}}}`
+		fs, _ := auditGate(t, `printf 'GHSA-1\nGHSA-2\nloop:end\n'`, "audit.json", accepted, true)
+		want := []string{"no_reason", "bad_date"}
+		if got := rules(fs); !slices.Equal(got, want) {
+			t.Fatalf("rules = %q, want %q: %v", got, want, fs)
+		}
+	})
+}
+
+// C8: with no changed lock file, the audit gate passes and runs no
+// command, with or without a baseline. A changed lock file runs it, and a
+// baseline then holds its ids to the accepted set.
+func TestC8NoLockFileRunsNoAudit(t *testing.T) {
+	const accepted = `{"accepted": {"GHSA-1": {"reason": "no fix upstream", "date": "2026-10-24"}}}`
+	for _, baseline := range []string{"", "audit.json"} {
+		for _, lock := range []bool{false, true} {
+			t.Run(fmt.Sprintf("baseline %q, lock file changed %v", baseline, lock), func(t *testing.T) {
+				fs, root := auditGate(t, `touch ran; printf 'GHSA-1\nloop:end\n'`, baseline, accepted, lock)
+				if len(fs) != 0 {
+					t.Fatalf("findings = %v, want none", fs)
+				}
+				if _, err := os.Stat(filepath.Join(root, "ran")); (err == nil) != lock {
+					t.Fatalf("the command ran: %v, want %v", err == nil, lock)
+				}
+			})
+		}
 	}
 }

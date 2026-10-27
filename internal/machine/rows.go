@@ -53,6 +53,9 @@ const (
 	FactPendingBlock    = "pending_block"    // the blocker of the latest work block, written before its edge
 	FactBuiltBy         = "built_by"         // the ticket or epic a waiting bug waits for
 	FactPriority        = "priority"         // the priority work shape gave the ticket: 1 to 4
+	FactWhy             = "why"              // the reason of a decision's latest fire or defer
+	FactDeferReason     = "defer_reason"     // the --reason of the inbox defer that the latest fire ended
+	FactCloseNote       = "close_note"       // why a decision was dropped or became moot
 	FactSpecPath        = "spec_path"        // the spec's path in the repository, set when the spec merges
 	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
 )

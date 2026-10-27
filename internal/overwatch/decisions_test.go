@@ -18,7 +18,7 @@ const jamTrigger = "a loop release that holds the fix of factorio-88t ships"
 
 // jamNote is the note the decisions part prints for factorio-jam.
 const jamNote = "decision factorio-jam waits on its trigger \"" + jamTrigger +
-	"\"; no by date, so only a wake reads the trigger. If the event happened, run `loop decision fire factorio-jam`"
+	"\"; no by date, so only a wake reads the trigger. If the event happened, run `loop decision fire factorio-jam --why \"<the event>\"`"
 
 // jamWorld is the factorio-jam fixture: a world whose only content is one
 // decision that waits on an event, with no by date (spec, Decisions, "A
@@ -52,7 +52,7 @@ func TestC13ADatedDecisionIsANoteAndOtherStatesPrintNothing(t *testing.T) {
 	w.add("alpha", machine.Item{ID: "alpha-d1", Kind: machine.KindDecision, Status: machine.DecisionPending,
 		Facts: map[string]string{inbox.FactTrigger: "the trial ends", inbox.FactBy: "2026-11-01"}}, "")
 	want := []string{"decision alpha-d1 waits on its trigger \"the trial ends\"; by 2026-11-01, when decision-timers fires it. " +
-		"If the event happened, run `loop decision fire alpha-d1`"}
+		"If the event happened, run `loop decision fire alpha-d1 --why \"<the event>\"`"}
 	if pr := sweepWorkItemPart(t, w, "decisions"); pr.Code != Quiet || !slices.Equal(pr.Lines, want) {
 		t.Fatalf("a dated decision: %+v", pr)
 	}

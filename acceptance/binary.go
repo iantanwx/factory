@@ -3,6 +3,7 @@
 package acceptance
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,8 +14,12 @@ import (
 )
 
 // Binary is the loop binary every CLI process runs. The scenarios'
-// TestMain builds it with BuildBinary.
+// TestMain builds it with BuildBinary, or takes the one LoopBinaryEnv names.
 var Binary string
+
+// LoopBinaryEnv names the loop binary a compiled scenario binary runs. A
+// compiled binary on the host has no module and no toolchain to build one.
+const LoopBinaryEnv = "LOOP_ACCEPTANCE_LOOP"
 
 // SkipMessage says why a world skips.
 const SkipMessage = "acceptance: the pinned bd and dolt were not found; set LOOP_BD and LOOP_DOLT, " +
@@ -63,6 +68,28 @@ func BuildVersion(dir, version string) (string, error) {
 		return "", fmt.Errorf("build loop: %w\n%s", err, b)
 	}
 	return out, nil
+}
+
+// CheckLoop refuses a loop binary whose `loop version` is not the version
+// this test process serves, because the CLI and the server would then fail
+// the handshake.
+func CheckLoop(bin string) error {
+	out, err := exec.Command(bin, "version").Output()
+	if err != nil {
+		return fmt.Errorf("acceptance: %s version: %w", bin, err)
+	}
+	var env struct {
+		Data struct {
+			Version string `json:"version"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &env); err != nil {
+		return fmt.Errorf("acceptance: %s version printed no envelope: %w", bin, err)
+	}
+	if env.Data.Version != cli.Version {
+		return fmt.Errorf("acceptance: %s is loop %s, and this scenario binary is %s", bin, env.Data.Version, cli.Version)
+	}
+	return nil
 }
 
 func moduleRoot() (string, error) {

@@ -17,8 +17,8 @@ type Profile struct {
 	Harness agenthost.Harness `json:"harness"`
 	Model   string            `json:"model"`
 	Effort  string            `json:"effort,omitempty"`
-	// Escalated marks the stage's escalated profile. Its start waits for a
-	// model receipt that reads Verified.
+	// Escalated marks the stage's escalated profile. Its start, like every
+	// stage start, waits for a model receipt.
 	Escalated bool `json:"escalated,omitempty"`
 }
 
@@ -49,6 +49,7 @@ var DefaultEfforts = map[string]string{
 	config.StageImplementer:  "high",
 	config.StageCodeReviewer: "high",
 	config.StageDocReviewer:  "medium",
+	config.StagePRDAuthor:    "high",
 	config.StageSpecAuthor:   "high",
 	config.StageDecomposer:   "high",
 	config.StageAmender:      "medium",

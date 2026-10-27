@@ -2,11 +2,13 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
@@ -273,6 +275,14 @@ func (w *serverWorld) DrainSince() time.Time {
 		return time.Time{}
 	}
 	return w.s.Sched.DrainSince()
+}
+
+func (w *serverWorld) Pauses(ctx context.Context) (pauses []admission.StagePause, err error) {
+	err = w.s.Store.Read(ctx, func(tx *sql.Tx) error {
+		pauses, err = admission.Pauses(ctx, tx)
+		return err
+	})
+	return pauses, err
 }
 
 // CheckoutDirs lists each loop-* directory one level under a directory of

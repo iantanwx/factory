@@ -84,11 +84,19 @@ func TestSignoffAnswerMergesTheDocumentAtItsPinnedHead(t *testing.T) {
 	head = docPass(w, epic)
 	wantStatus(w, epic, machine.SpecSignoff)
 	spec := docPR(w, epic)
+	// The sign-off reads the spec at the pinned head through the contents
+	// API, so the fake PR names its spec file and serves it at that head.
+	specPath := "docs/plans/" + epic + "-widgets-spec.md"
+	w.API.World.Update(spec, func(p *gt.PR) { p.Files = []string{specPath} })
+	w.API.World.SetFile(head, specPath, "# Widgets spec\n\n## Open questions\n\nNone.\n")
 	w.Must(w.Coordinator("inbox", "answer", "signoff/"+acceptance.Project+"/"+epic, "--body", `The operator: "both PRs LGTM"`))
 	if calls := mergesOf(w, spec.Number); len(calls) != 1 || calls[0].SHA != head {
 		t.Fatalf("the merges of spec #%d = %+v, want one at %s", spec.Number, calls, head)
 	}
 	wantStatus(w, epic, machine.SpecApproved)
+	if got := w.Show(epic).Facts[machine.FactSpecPath]; got != specPath {
+		t.Fatalf("spec_path = %q, want %s", got, specPath)
+	}
 	if e := w.Entry("signoff/" + acceptance.Project + "/" + epic); e != nil {
 		t.Fatalf("the sign-off entry stays after the merge: %v", e)
 	}

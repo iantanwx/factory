@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every stage and native job has an entry, and the shipped defaults carry
@@ -313,6 +314,41 @@ func TestC2OverwatchEntryRefusals(t *testing.T) {
 	}
 }
 
+// C13: a host config that an older release wrote holds no prd-author
+// entry. It loads, ThroughputFor reads the default without writing it,
+// and the stage runs among the run stages.
+func TestC13OldHostConfigLoadsWithNoPRDAuthorEntry(t *testing.T) {
+	cfg, err := LoadHost(filepath.Join("testdata", "host-v0.0.22.yaml"))
+	if err != nil {
+		t.Fatalf("the v0.0.22 host config does not load: %v", err)
+	}
+	want := Throughput{Cap: 2, Schedule: "5,35 * * * *"}
+	if got := cfg.ThroughputFor("prd-author"); got != want {
+		t.Fatalf("ThroughputFor(prd-author) = %+v, want %+v", got, want)
+	}
+	if _, ok := cfg.Throughput["prd-author"]; ok {
+		t.Fatal("ThroughputFor wrote the prd-author entry into the config")
+	}
+	if ls := cfg.Limits("prd-author"); len(ls) != 1 || ls[0].Cap != 2 {
+		t.Fatalf("Limits(prd-author) = %+v, want the default cap 2", ls)
+	}
+	if !slices.Contains(RunStages(), "prd-author") {
+		t.Fatalf("RunStages lacks prd-author: %v", RunStages())
+	}
+}
+
+// C13: a present prd-author entry is read as the file holds it.
+func TestC13PRDAuthorEntryReadsItsValues(t *testing.T) {
+	good := strings.Replace(validHost, "throughput:\n", "throughput:\n  prd-author: {cap: 3, schedule: \"*/15 * * * *\"}\n", 1)
+	cfg, err := ParseHost([]byte(good))
+	if err != nil {
+		t.Fatalf("a valid prd-author entry does not load: %v", err)
+	}
+	if got := cfg.ThroughputFor("prd-author"); got != (Throughput{Cap: 3, Schedule: "*/15 * * * *"}) {
+		t.Fatalf("ThroughputFor(prd-author) = %+v, want the file's entry", got)
+	}
+}
+
 // C15: a host config that v0.0.58 wrote holds no orca-acceptance entry. It
 // loads, the job reads cap 1 on 30 17 * * * without writing the entry, and a
 // save writes no orca-acceptance key.
@@ -364,5 +400,48 @@ func TestC15OrcaAcceptanceEntryRefusals(t *testing.T) {
 	}
 	if got := cfg.ThroughputFor("orca-acceptance"); got != (Throughput{Cap: 2, Schedule: "0 3 * * *"}) {
 		t.Fatalf("ThroughputFor(orca-acceptance) = %+v, want the file's entry", got)
+	}
+}
+
+// C23: with no overdue key, the implementer's overdue wait is 90 minutes. A
+// key on the implementer entry sets it.
+func TestC23OverdueDefaultsTo90Minutes(t *testing.T) {
+	cfg, err := ParseHost([]byte(validHost))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Overdue(); got != 90*time.Minute {
+		t.Fatalf("Overdue() = %v with no overdue key, want 90m", got)
+	}
+	doc := strings.Replace(validHost, "  implementer: {cap: 4, ", "  implementer: {overdue: 45m, cap: 4, ", 1)
+	if cfg, err = ParseHost([]byte(doc)); err != nil {
+		t.Fatalf("an implementer overdue of 45m does not load: %v", err)
+	}
+	if got := cfg.Overdue(); got != 45*time.Minute {
+		t.Fatalf("Overdue() = %v, want the file's 45m", got)
+	}
+}
+
+// C23: host config validation refuses a negative overdue, and an overdue on
+// any entry but the implementer's.
+func TestC23OverdueRefusals(t *testing.T) {
+	cases := map[string]struct{ from, to, names string }{
+		"negative": {"  implementer: {cap: 4, ", "  implementer: {overdue: -1m, cap: 4, ", "throughput.implementer.overdue"},
+		"another stage": {"  code-reviewer: {cap: 8, ", "  code-reviewer: {overdue: 90m, cap: 8, ",
+			"throughput.code-reviewer.overdue"},
+		"a pool":       {"  reviewers: {cap: 10}", "  reviewers: {cap: 10, overdue: 90m}", "throughput.reviewers.overdue"},
+		"a native job": {"  merge-handoff: {cap: 1, ", "  merge-handoff: {overdue: 90m, cap: 1, ", "throughput.merge-handoff.overdue"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			doc := strings.Replace(validHost, c.from, c.to, 1)
+			if doc == validHost {
+				t.Fatal("the edit changed nothing")
+			}
+			_, err := ParseHost([]byte(doc))
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("err = %v, want a refusal that names %s", err, c.names)
+			}
+		})
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/shape"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -46,9 +47,9 @@ func (m *Machine) Handlers() map[string]rpc.Handler {
 		"work supersede":  m.workSupersede,
 		"review submit":   m.reviewSubmit,
 		"review rounds":   m.reviewRounds,
-		"decision fire":   m.verb("fire", "decision"),
-		"decision defer":  m.verb("defer", "decision"),
-		"decision moot":   m.verb("moot", "decision"),
+		"decision fire":   m.decisionMove("fire", "why", "why"),
+		"decision defer":  m.decisionMove("defer", "why", "why"),
+		"decision moot":   m.decisionMove("moot", "note", "note"),
 		"decision settle": m.decisionSettle,
 	}
 }
@@ -174,12 +175,33 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 				return refusedAt(r, item, it)
 			}
 		}
+		if r := contractsNamed(it, body); r != nil {
+			return refusedAt(r, item, it)
+		}
 		if body != "" && m.reviewComment != nil {
 			return m.reviewComment(ctx, prj, item, body, key)
 		}
 		return nil
 	}
 	return m.Apply(ctx, req)
+}
+
+// contractsNamed refuses a review of a shaped ticket whose body omits a
+// contract id of the ticket's task text (spec factorio-wnl, C13). A ticket
+// with no shape fact was never checked at its creation, so its review is
+// not checked either.
+func contractsNamed(it Item, review string) *cli.Refusal {
+	s, ok := shape.ByName(it.Fact(FactShape))
+	if it.Kind != KindTicket || !ok {
+		return nil
+	}
+	missing := shape.Unnamed(shape.ContractIDs(s, it.Body), review)
+	if len(missing) == 0 {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "contract_unnamed",
+		Hint: fmt.Sprintf("the review does not name %s; write one line for each contract id of the ticket, and submit again",
+			strings.Join(missing, ", "))}
 }
 
 // refusedAt names the item, its status and its next moves in a refusal
@@ -211,7 +233,9 @@ func (m *Machine) headHeld(ctx context.Context, prj, item, head string) *cli.Ref
 
 // workEdit replaces an item's title or body. Beads keeps the text the item
 // was created with, and the edit is a fact that replaces it: the item's
-// title, TaskText and so the retry identity (R10) read the edit.
+// title, TaskText and so the retry identity (R10) read the edit. A new
+// body holds the shape that the item's shape fact names, so an item keeps
+// the shape it was checked against at its creation.
 func (m *Machine) workEdit(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -234,7 +258,35 @@ func (m *Machine) workEdit(ctx context.Context, call *rpc.Call) cli.Result {
 	if len(params) == 0 {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "nothing_to_edit", Item: item, Hint: "name the new text with --title, --body or both"})
 	}
-	return m.Apply(ctx, request(call, prj, item, "edit", params))
+	req := request(call, prj, item, "edit", params)
+	if body, ok := params["body"]; ok {
+		req.Before = func(_ context.Context, it Item) *cli.Refusal {
+			if s, ok := shape.ByName(it.Fact(FactShape)); ok {
+				if r := BodyRefusal(s, item, body); r != nil {
+					return refusedAt(r, item, it)
+				}
+			}
+			return nil
+		}
+	}
+	return m.Apply(ctx, req)
+}
+
+// BodyRefusal refuses a body that does not hold s, with SHAPE_REFUSED,
+// the rule <shape>_shape and every fault. It is nil for a body that holds
+// s.
+func BodyRefusal(s shape.Shape, item, body string) *cli.Refusal {
+	faults := shape.CheckBody(s, body)
+	if len(faults) == 0 {
+		return nil
+	}
+	text := make([]string, len(faults))
+	for i, f := range faults {
+		text[i] = f.String()
+	}
+	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: s.Name + "_shape", Item: item,
+		Hint: fmt.Sprintf("the body does not hold the %s shape: %s. Write each section as a `## ` heading, and send the body again",
+			s.Name, strings.Join(text, "; "))}
 }
 
 // askQuestion is one top-level list item of an ask's body. An indented
@@ -571,8 +623,9 @@ type ShapeResult struct {
 // names the bug, then closes the bug as shaped with the ticket's id. The
 // ticket's create key is the bug, so a retry after a crash between the
 // two writes finds the ticket it made. The ticket keeps --priority as a
-// fact. With --blocked-by the ticket waits in backlog on each blocker,
-// which is checked before any write.
+// fact. The body holds the Bug shape, and the ticket records it as its
+// shape fact. With --blocked-by the ticket waits in backlog on each
+// blocker, which is checked before any write.
 func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -605,6 +658,9 @@ func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 	case !t.Allows("shape", it.Status):
 		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", Item: bug, CurrentStatus: it.Status,
 			AllowedNext: it.AllowedNext, Hint: fmt.Sprintf("a bug in %s has no shape move", it.Status)})
+	}
+	if r := BodyRefusal(shape.Bug, bug, body); r != nil {
+		return refusedAt(r, bug, it).Result()
 	}
 	if r := m.CheckBlockers(ctx, prj, "", blockers); r != nil {
 		return r.Result()
@@ -639,7 +695,7 @@ func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body, prior
 		tk = found[0]
 	} else {
 		id, r := m.CreateBead(ctx, CreateRequest{Project: prj, Kind: KindTicket, Title: title, Description: body,
-			Facts: map[string]string{FactCreateKey: key, FactBug: bug, FactPriority: priority}})
+			Facts: map[string]string{FactCreateKey: key, FactBug: bug, FactPriority: priority, FactShape: shape.Bug.Name}})
 		if r != nil {
 			return "", r
 		}
@@ -665,16 +721,40 @@ func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body, prior
 	return tk.ID, nil
 }
 
+// decisionMove is the handler of a decision verb that records one text:
+// the flag's value goes to the row as param.
+func (m *Machine) decisionMove(verb, flag, param string) rpc.Handler {
+	return func(ctx context.Context, call *rpc.Call) cli.Result {
+		if r := borrowed(call, call.Inv.Arg("decision")); r != nil {
+			return r.Result()
+		}
+		return m.decisionText(ctx, call, verb, flag, param)
+	}
+}
+
+// decisionSettle stores the note as the answer, or as the close note of a
+// drop.
 func (m *Machine) decisionSettle(ctx context.Context, call *rpc.Call) cli.Result {
+	if call.Inv.Flags["dropped"] == "true" {
+		return m.decisionText(ctx, call, "drop", "note", "note")
+	}
+	return m.decisionText(ctx, call, VerbAnswer, "note", "answer")
+}
+
+// decisionText refuses a decision move with no text before it reaches the
+// table, so the hint names the flag and not the row's parameter.
+func (m *Machine) decisionText(ctx context.Context, call *rpc.Call, verb, flag, param string) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
 		return r.Result()
 	}
-	verb := "answer"
-	if call.Inv.Flags["dropped"] == "true" {
-		verb = "drop"
+	target := call.Inv.Arg("decision")
+	text := strings.TrimSpace(call.Inv.Flags[flag])
+	if text == "" {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "no_" + flag, Item: target,
+			Hint: fmt.Sprintf("%s needs --%s, the text the decision keeps; a person reads it", call.Inv.Verb.Path, flag)})
 	}
-	return m.Apply(ctx, request(call, prj, call.Inv.Arg("decision"), verb, nil))
+	return m.Apply(ctx, request(call, prj, target, verb, map[string]string{param: text}))
 }
 
 func (m *Machine) workShow(ctx context.Context, call *rpc.Call) cli.Result {

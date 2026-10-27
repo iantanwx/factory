@@ -20,6 +20,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
@@ -57,6 +58,8 @@ type Config struct {
 	Pulls PullReader
 	// Release is the loop release version. It enters the retry identity.
 	Release string
+	// Now is the clock of the implementer's rank. time.Now when nil.
+	Now func() time.Time
 }
 
 // Admission is the admission policy. It implements machine.ClaimGuard.
@@ -136,15 +139,9 @@ func asRefusal(err error) *cli.Refusal {
 	return cli.InternalRefusal(err)
 }
 
-// claimFirst names the states a stage's work query walks before its other
-// claim states. A ticket in repair holds work in flight: its pull request
-// ages against the base while it waits, so the implementer takes it before
-// any ticket in todo (F-19). The order lives here and not in the machine's
-// row order, so a later edit of the table cannot undo it in silence.
-var claimFirst = []stateOf{{machine.KindTicket, machine.Repair}}
-
-// claimStates returns each kind and state a stage claims from, in claim
-// order: the states of claimFirst, then the rest in table order.
+// claimStates returns each kind and state a stage claims from, in machine
+// table order. The implementer's work query ranks its tickets by
+// rankImplementer, so no state of a stage goes first.
 func claimStates(stage string) []stateOf {
 	var out []stateOf
 	for _, t := range machine.Tables() {
@@ -157,19 +154,7 @@ func claimStates(stage string) []stateOf {
 			}
 		}
 	}
-	slices.SortStableFunc(out, func(a, b stateOf) int {
-		return cmp.Compare(claimRank(a), claimRank(b))
-	})
 	return out
-}
-
-// claimRank ranks a state of claimFirst by its place there, and every other
-// state after them all.
-func claimRank(s stateOf) int {
-	if i := slices.Index(claimFirst, s); i >= 0 {
-		return i
-	}
-	return len(claimFirst)
 }
 
 type stateOf struct {
@@ -508,12 +493,12 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 // it was started for, such as the fixer's waiting escalations. Every other
 // live run still counts.
 //
-// The query walks the stage's claim states in claim order, and returns the
-// first admissible item. Work in flight comes first: the implementer takes
-// an admissible ticket in repair before any ticket in todo, and a repair
-// ticket that admission would refuse never stops it from taking a todo
-// ticket. Past that rank, the states of a stage queue as one: it takes the
-// item that entered its state first, whichever state that is, so the
+// The query lists the items of every claim state of the stage, orders
+// them, and returns the first admissible item. An item that admission would
+// refuse never stops it from taking the next. The implementer orders its
+// tickets by rankImplementer (D10), so a ticket in repair comes before a
+// new ticket. Every other stage queues its states as one: it takes the item
+// that entered its state first, whichever state that is, so the
 // doc-reviewer takes a spec review that waited longer than a PRD review
 // (parity 2.15). It never takes the item whose bead id sorts first (F-20).
 // waitOrder states the order, and how it breaks a tie.
@@ -577,36 +562,33 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 	if len(states) == 0 {
 		return &Candidate{Project: project, Stage: stage}, nil
 	}
-	for len(states) > 0 {
-		// One tier is the run of states that share a claim rank. Its items
-		// queue as one, so no state of the tier starves another.
-		n := 1
-		for n < len(states) && claimRank(states[n]) == claimRank(states[0]) {
-			n++
+	var items []machine.Item
+	for _, st := range states {
+		got, ref := a.items.List(ctx, project, machine.ListFilter{Kind: st.kind, Status: st.status})
+		if ref != nil {
+			return nil, ref
 		}
-		var items []machine.Item
-		for _, s := range states[:n] {
-			got, ref := a.items.List(ctx, project, machine.ListFilter{Kind: s.kind, Status: s.status})
-			if ref != nil {
-				return nil, ref
-			}
-			items = append(items, got...)
+		items = append(items, got...)
+	}
+	if stage == config.StageImplementer {
+		if items, err = a.rankImplementer(ctx, project, items, a.now()); err != nil {
+			return nil, asRefusal(err)
 		}
-		states = states[n:]
+	} else {
 		entered, err := a.enteredAt(ctx, project, items)
 		if err != nil {
 			return nil, cli.InternalRefusal(err)
 		}
 		waitOrder(items, entered)
-		for _, it := range items {
-			ok, err := a.admissible(ctx, stage, it)
-			if err != nil {
-				return nil, asRefusal(err)
-			}
-			if ok {
-				return &Candidate{Project: project, Stage: stage, Item: it.ID, Kind: it.Kind, Status: it.Status,
-					ModelTier: it.Fact(machine.FactModelTier)}, nil
-			}
+	}
+	for _, it := range items {
+		ok, err := a.admissible(ctx, stage, it)
+		if err != nil {
+			return nil, asRefusal(err)
+		}
+		if ok {
+			return &Candidate{Project: project, Stage: stage, Item: it.ID, Kind: it.Kind, Status: it.Status,
+				ModelTier: it.Fact(machine.FactModelTier)}, nil
 		}
 	}
 	return nil, nil
@@ -715,6 +697,14 @@ func (a *Admission) admissible(ctx context.Context, stage string, it machine.Ite
 		return err
 	})
 	return err == nil && n < FailureLimit && ref == nil, err
+}
+
+// now reads the clock of the implementer's rank.
+func (a *Admission) now() time.Time {
+	if a.cfg.Now != nil {
+		return a.cfg.Now()
+	}
+	return time.Now()
 }
 
 // Takes reports whether the stage claims an item of its kind in its status.

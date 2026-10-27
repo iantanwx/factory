@@ -180,7 +180,7 @@ func TestParityDoneHasOneWriter(t *testing.T) {
 // claims from, and escalate stores a target answer can land on.
 func TestParityResumeTargets(t *testing.T) {
 	inFlight := map[Kind][]string{
-		KindTicket: {InProgress}, KindEpic: {SpecDrafting, Decomposing}, KindBug: {Reproducing},
+		KindTicket: {InProgress}, KindEpic: {PRDDrafting, SpecDrafting, Decomposing}, KindBug: {Reproducing},
 	}
 	for _, tbl := range Tables() {
 		claimable := map[string]bool{}
@@ -286,7 +286,7 @@ func TestParityDecisionMoves(t *testing.T) {
 	}
 	w := newWorld(t)
 	d := w.create(KindDecision, "file", nil)
-	w.must(d, "moot", nil)
+	w.must(d, "moot", map[string]string{"note": "the question went away"})
 	if h := w.history(d); h[len(h)-1].Says != "It stopped being a question." {
 		t.Fatalf("the history does not record the claim: %+v", h)
 	}

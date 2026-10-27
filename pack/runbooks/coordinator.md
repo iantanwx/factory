@@ -226,20 +226,42 @@ that head, and the epic moves on. When the head moved after the entry was raised
 merges nothing. It refuses with `STATUS_CHANGED` and rule `head_moved`, and it raises the entry
 again at the new head. Bring the operator the new head and its diff, and record a new approval.
 
+A spec sign-off also reads the spec at that head. It refuses with `SHAPE_REFUSED` and rule
+`open_questions` when an entry under `## Open questions` holds no bold `**Answered` or `**Deferred`
+run. The hint names the line of each such entry. It refuses with rule `no_spec` when the pull
+request changes no single file at `docs/plans/<epic>-*-spec.md`. Both refusals merge nothing, and
+the entry stays in the inbox. An answer in the inbox or in a note answers no open question. The
+answer must reach the spec, in one of two ways:
+
+- Open a review room on the spec pull request. The room writes the answer under the entry at the
+  operator's word, and pushes it.
+- The operator comments on the pull request. The epic moves to `spec_amending`, and the amender
+  writes the answer.
+
+Either way the head moves, so the entry is raised again at the new head. Record the operator's
+approval of that head. A PRD sign-off reads no open questions, because the spec author settles
+them.
+
 ## 6. Decisions that wait on an event
 
 On each wake, the `decisions` part of the sweep prints one note for each `pending` decision. Each
 note quotes the decision's trigger. Read the trigger of each one.
 
-- The event happened: `loop decision fire <decision>`. The decision moves to `needs_human`.
-- The question no longer exists: `loop decision moot <decision>`.
+- The event happened: `loop decision fire <decision> --why "<the event and where you saw it>"`.
+  The decision moves to `needs_human`.
+- The question no longer exists: `loop decision moot <decision> --note "<why>"`.
 
-A decision in `needs_human` waits on the operator. Bring it to the operator by section 5.
+A decision in `needs_human` waits on the operator. Bring it to the operator by section 5. Its
+inbox entry shows why it fired. When it returned from an inbox defer, the entry also shows the
+defer's reason in `defer_reason`.
 
-- The operator answered it: `loop decision settle <decision>`.
-- The operator dropped the question: `loop decision settle <decision> --dropped`.
-- The question no longer exists: `loop decision moot <decision>`.
-- The trigger did not really fire: `loop decision defer <decision>` moves it from `needs_human` back to `pending`.
+- The operator answered it: `loop decision settle <decision> --note "<the operator's answer>"`.
+- The operator dropped the question: `loop decision settle <decision> --dropped --note "<why>"`.
+- The question no longer exists: `loop decision moot <decision> --note "<why>"`.
+- The trigger did not really fire: `loop decision defer <decision> --why "<why>"` moves it from `needs_human` to `pending`.
+
+Each of these commands refuses with `USAGE` without its `--why` or `--note`, and moves nothing. The
+decision keeps the text, and a person reads it.
 
 A date is the one trigger a machine reads alone. Nothing else tells the operator that a decision
 is due.

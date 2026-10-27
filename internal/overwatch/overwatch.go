@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/config"
@@ -122,6 +123,8 @@ type World interface {
 	// DrainSince is when the server began to drain, and zero when it does
 	// not drain or has no scheduler.
 	DrainSince() time.Time
+	// Pauses are the stage pauses that hold, oldest first.
+	Pauses(ctx context.Context) ([]admission.StagePause, error)
 	// CheckoutDirs lists each directory named loop-* one level under a
 	// directory of agent_host.checkout_root, as absolute paths.
 	CheckoutDirs(ctx context.Context) ([]string, error)

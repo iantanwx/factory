@@ -136,6 +136,18 @@ func (s *Scheduler) setRun(ctx context.Context, id, state string, rec hostRecord
 	})
 }
 
+// recordStart writes a started run's session record, and sets the state
+// running only while the run has not ended. A run can finish while Start
+// waits for the model receipt, and its record must still name the session
+// so the next tick closes it.
+func (s *Scheduler) recordStart(ctx context.Context, id string, rec hostRecord) error {
+	return s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`UPDATE runs SET host_identity = ?, state = CASE WHEN ended_at IS NULL THEN ? ELSE state END WHERE run_id = ?`,
+			rec.encode(), RunRunning, id)
+		return err
+	})
+}
+
 // setRecord writes a run's session record, ended or not.
 func (s *Scheduler) setRecord(ctx context.Context, id string, rec hostRecord) error {
 	return s.cfg.Store.Write(ctx, func(tx *store.Tx) error {

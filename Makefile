@@ -32,13 +32,19 @@ race:
 	CGO_ENABLED=1 $(GO) test -race ./...
 
 # Tagged files are skipped by an untagged run, so lint and vet them too.
-LINT_TAGS := beads orca acceptance
+# Each tagged file is linted and vetted. A file under `acceptance && !orca`,
+# such as lane_gate_test.go, is false in both of the first two passes, so
+# LINT_GATE_TAGS reads it.
+LINT_TAGS      := beads orca acceptance
+LINT_GATE_TAGS := beads acceptance
 
 lint:
 	$(GOLANGCI_LINT) run ./...
 	$(GOLANGCI_LINT) run --build-tags '$(LINT_TAGS)' ./...
+	$(GOLANGCI_LINT) run --build-tags '$(LINT_GATE_TAGS)' ./...
 	$(GO) vet ./...
 	$(GO) vet -tags '$(LINT_TAGS)' ./...
+	$(GO) vet -tags '$(LINT_GATE_TAGS)' ./...
 
 # The beads contract runs the pinned bd and dolt (LOOP_BD, LOOP_DOLT). CI
 # runs it in the acceptance job, which provisions both.
@@ -115,7 +121,10 @@ release-dist:
 	@case "$(VERSION)" in v*.*.*) ;; *) echo "VERSION=$(VERSION) is not a release version vMAJOR.MINOR.PATCH" >&2; exit 1;; esac
 	rm -rf $(DIST) && mkdir -p $(DIST)
 	for p in $(PLATFORMS); do \
-		GOOS=$${p%/*} GOARCH=$${p#*/} $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-$${p%/*}-$${p#*/} ./cmd/loop || exit 1; \
+		os=$${p%/*} arch=$${p#*/}; \
+		GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-$$os-$$arch ./cmd/loop && \
+		GOOS=$$os GOARCH=$$arch $(GO) test -c -tags orca -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-orca-contract-$$os-$$arch ./internal/agenthost/orca/ && \
+		GOOS=$$os GOARCH=$$arch $(GO) test -c -tags 'acceptance orca' -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-orca-acceptance-$$os-$$arch ./acceptance/scenarios/ || exit 1; \
 	done
 	$(RELEASE_TOOL) dist -dir $(DIST) -version $(VERSION) $(if $(MIN_FROM),-min-from $(MIN_FROM)) $(if $(NO_ROLLBACK),-no-rollback)
 
