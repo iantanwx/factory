@@ -109,6 +109,7 @@ var surface = []Verb{
 	write(server("work", "shape", "shape a bug into a ticket and close the bug as shaped; the answer names the ticket", runOrCoordinator, []Arg{itemArg},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the ticket title"},
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the shaped ticket body"},
+		Flag{Name: "priority", Type: FlagString, Required: true, Enum: []string{"1", "2", "3", "4"}, Description: "the ticket's priority by the reproducer runbook, section 4; the ticket keeps it as the fact priority"},
 		blockedByFlag,
 		projectFlag)),
 	write(server("work", "ask", "ask a bug's reporter for a fact only the reporter holds; the report waits in asked, the inbox relays the question, and the answer returns it to reported; a report asks at most twice", runOrCoordinator, []Arg{itemArg},
