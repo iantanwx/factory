@@ -194,6 +194,10 @@ Record each answer when the operator gives it:
 loop inbox answer <entry> --body "<the operator's words and choice>"
 ```
 
+Answer each open question about an escalation entry first, then the escalation entry. While a
+question about the entry is open, its answer refuses with `TRANSITION_NOT_ALLOWED` and rule
+`question_open`, and the item stays `escalated`. The hint names each open question entry.
+
 Quote the operator's statement and choice, and the reason when the operator gave one. Add
 `--amend` when the answer changes the task. When the answer needs your own work first, do that
 work before the item can resume. When it needs an act of the operator outside the repository,
