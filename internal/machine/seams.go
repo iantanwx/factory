@@ -214,6 +214,9 @@ type MergeEvent struct {
 	Base    string // the project's base branch
 	Into    string // the branch the PR merged into
 	SHA     string
+	// SpecPath is the merged spec's path. It is "" for a PRD, a ticket,
+	// or a spec PR with no single spec file.
+	SpecPath string
 }
 
 // mergeRetries bounds the re-reads after a status miss. Under the item's
@@ -240,7 +243,7 @@ func (m *Machine) MergeObserved(ctx context.Context, ev MergeEvent) cli.Result {
 	}
 	var res cli.Result
 	for range mergeRetries {
-		res = m.Apply(ctx, Request{Project: ev.Project, Item: ev.Item, Verb: verb, Params: map[string]string{"sha": ev.SHA},
+		res = m.Apply(ctx, Request{Project: ev.Project, Item: ev.Item, Verb: verb, Params: map[string]string{"sha": ev.SHA, "spec_path": ev.SpecPath},
 			Actor: Server("reactor")})
 		if res.Refusal == nil || res.Refusal.Code != cli.CodeStatusChanged {
 			break
