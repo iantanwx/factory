@@ -141,6 +141,8 @@ func epicEdges() []edge {
 		// settlement returns the epic to the queue.
 		{PRDNeeded, "claim", PRDDrafting},
 		{PRDDrafting, "release", PRDNeeded}, {PRDDrafting, "reclaim", PRDNeeded},
+		// factorio-4n0: the prd-author run submits the PRD it wrote.
+		{PRDDrafting, "prd_submit", PRDReview},
 		{PRDReview, "review_reject", PRDAmending},
 		{PRDAmending, "prd_amended", PRDReview},
 		{PRDReview, "review_reject", Escalated},
@@ -261,6 +263,9 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.When == "second_reject" {
 		facts[FactPRDRejects] = "1"
+	}
+	if r.Verb == VerbPRDSubmit {
+		params["pr"], params["path"] = "7", "docs/prd/x.md" // a run's submit records both
 	}
 	if r.Verb == VerbADRMisjoined {
 		params["path"] = "docs/adr/0001-x.md"

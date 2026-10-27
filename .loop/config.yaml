@@ -26,5 +26,6 @@ stages:
   decomposer: {}
   fixer: {}
   reproducer: {}
+  prd-author: {}
 health:
   operator_reminder: 12h

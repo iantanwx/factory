@@ -31,6 +31,10 @@ var tableOnly = map[string]string{
 	"epic claim prd_needed":     "TestOnlyAPRDAuthorClaimsAPRDEpic",
 	"epic release prd_drafting": "TestASettledPRDAuthorReturnsTheEpicToPRDNeeded",
 	"epic reclaim prd_drafting": "TestASettledPRDAuthorReturnsTheEpicToPRDNeeded",
+	// No scenario starts a prd-author run yet, so no run submits the PRD of
+	// the epic it holds. The key names the state, so a room's submit from
+	// initial stays checked end to end.
+	"epic prd_submit prd_drafting": "TestC10ARunSubmitsThePRDOfTheEpicItHolds",
 }
 
 // rowName names one row: its kind, verb and selector, and its edge.
