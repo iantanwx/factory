@@ -475,8 +475,10 @@ is true for a PRD merged from `prd_review` or `prd_amending`, and for a spec mer
 merged from sign-off after its PRD outran its own review. When two epics record one commit as
 `adr_merged`, `MergeOf` returns the epic whose row has the lower `intent_id`.
 *Example tests on a store with history rows, one for each of the six `Outran` cases, and one with
-two `adr_landed` rows for one commit. The two rows hold the same `seq`, and the test inserts the
-row with the higher `intent_id` first, so it fails on a `seq` order and on a store order.*
+two `adr_landed` rows for one commit. Epic `ep-b` holds the row at `intent_id` 10 and `seq` 2,
+epic `ep-a` holds the row at `intent_id` 11 and `seq` 1, and the test expects `ep-b`. A `seq`
+order returns `ep-a`, and a read through the `transitions_item` index returns `ep-a` by item
+name, so each one fails the test.*
 
 **C5. Behaviour: a commit with no merge record raises one alert, once.** Proves A1. A
 first-parent commit on the base that no item records raises one `unreviewed_merge` alert, with
