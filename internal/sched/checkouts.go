@@ -133,7 +133,9 @@ func (s *Scheduler) clearKept(ctx context.Context, id, path string) {
 
 // cleanStrays judges each loop-* directory one level under a repository
 // directory of agent_host.checkout_root that no checkouts row names, by
-// the content rules of a row's checkout (F-34). A clean, fully pushed one
+// the content rules of a row's checkout (F-34). A deleted row names its
+// directory for two passes, so only a directory that stands a full pass
+// after its row says it is gone reaches a person (F-42). A clean, fully pushed one
 // goes. One that a rule keeps stays, and an alert names it. The
 // coordinator's checkout and the operator's own worktrees are never read.
 // It holds checkoutMu, so a run's new checkout is never a stray: dispatch
@@ -160,7 +162,11 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 	}
 	named, opening := map[string]bool{}, map[string]bool{}
 	err = s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		rs, err := tx.QueryContext(ctx, `SELECT path FROM checkouts WHERE state <> ?`, CheckoutDeleted)
+		// A row turned deleted on this pass or the one before still names
+		// its directory: the removal can leave it standing, half gone, for
+		// a while (F-42).
+		gone := s.now().Add(-2 * s.cfg.CleanupInterval).UnixMilli()
+		rs, err := tx.QueryContext(ctx, `SELECT path FROM checkouts WHERE state <> ? OR updated_at > ?`, CheckoutDeleted, gone)
 		if err != nil {
 			return err
 		}
