@@ -10,6 +10,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/gitx"
+	"github.com/iantanwx/loop/internal/sched"
 )
 
 // fixture is a repository whose main holds .loop/config.yaml, and a
@@ -168,6 +169,26 @@ func TestC15SettingsReadNamesTheBranchCommitOfAMerge(t *testing.T) {
 	wantRow(t, f.show(), "stages.implementer.cap", "3", config.SourceProject, change)
 }
 
+// C15: a field that the project and host config leave empty lists the
+// loop's own default, the one the scheduler starts a run with. An
+// escalated default follows the harness the project names.
+func TestC15SettingsReadListsTheLoopDefaults(t *testing.T) {
+	f := newFixture(t)
+	f.svc.Defaults = sched.Defaults
+	harness := f.commit("merge:\n  mechanism: direct\nstages:\n  implementer: {}\n  code-reviewer: {harness: codex}\n", "coordinator")
+	v := f.show()
+	wantRow(t, v, "stages.implementer.harness", "claude", config.SourceDefault, "")
+	wantRow(t, v, "stages.implementer.model", "claude-opus-5-5", config.SourceDefault, "")
+	wantRow(t, v, "stages.implementer.effort", "high", config.SourceDefault, "")
+	wantRow(t, v, "stages.implementer.escalated.model", "claude-opus-5-5", config.SourceDefault, "")
+	wantRow(t, v, "stages.implementer.run_budget", "2h0m0s", config.SourceDefault, "")
+	wantRow(t, v, "stages.doc-reviewer.effort", "medium", config.SourceDefault, "")
+	wantRow(t, v, "stages.code-reviewer.harness", "codex", config.SourceProject, harness)
+	wantRow(t, v, "stages.code-reviewer.model", "gpt-5-codex", config.SourceDefault, "")
+	wantRow(t, v, "stages.code-reviewer.escalated.harness", "codex", config.SourceDefault, "")
+	wantRow(t, v, "stages.code-reviewer.escalated.model", "gpt-5-codex", config.SourceDefault, "")
+}
+
 // C17: when the head does not load, the read says stale, names the failing
 // field, and lists the last good copy's rows with commits from that copy's
 // history.
@@ -185,6 +206,24 @@ func TestC17SettingsReadSaysTheLastGoodCopyIsInForce(t *testing.T) {
 	}
 	wantRow(t, v, "stages.implementer.cap", "3", config.SourceProject, good)
 	wantRow(t, v, "merge.mechanism", "direct", config.SourceProject, mech)
+}
+
+// C17: a stale read names the commits of the last good copy's history,
+// not the newer commits of the head that does not load, even when the head
+// holds the same value.
+func TestC17SettingsReadNamesCommitsFromTheLastGoodCopy(t *testing.T) {
+	f := newFixture(t)
+	good := f.commit("merge:\n  mechanism: direct\nstages:\n  implementer: {cap: 3}\n", "coordinator")
+	if v := f.show(); v.Stale {
+		t.Fatalf("a valid head reads stale: %+v", v)
+	}
+	f.commit("merge:\n  mechanism: direct\nstages:\n  implementer: {cap: 4}\n  bogus: {}\n", "a person")
+	bad := f.commit("merge:\n  mechanism: direct\nstages:\n  implementer: {cap: 3}\n  bogus: {}\n", "a person")
+	v := f.show()
+	if !v.Stale || v.Head != bad || !strings.Contains(v.Problem, "bogus") {
+		t.Fatalf("view = stale %v head %s problem %q, want stale at %s naming bogus", v.Stale, v.Head, v.Problem, bad)
+	}
+	wantRow(t, v, "stages.implementer.cap", "3", config.SourceProject, good)
 }
 
 // A project with no config yet lists the host values, and is not stale.
