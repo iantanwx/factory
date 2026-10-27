@@ -485,3 +485,111 @@ func (e *env) baseMoves(t *testing.T, files map[string]string) {
 	gitT(t, e.checkout, "push", "-q", e.git.RemoteDir(), "main")
 	gitT(t, e.checkout, "checkout", "-q", "work")
 }
+
+// settingsBase is the project config the base holds in the settings tests.
+const settingsBase = `merge:
+  mechanism: github
+stages:
+  implementer:
+    model: claude-opus-5-5
+gates:
+  - name: lint
+    run: make lint
+`
+
+// A stage run's commit that changes stages, pools or merge of the project
+// config against its merge base is refused with SETTINGS_CHANGE, and so is
+// a file that does not parse. The hint names loop settings set and the
+// commit, and the remote branch does not move (C12).
+func TestC12RunPushThatChangesASettingIsRefused(t *testing.T) {
+	cases := map[string]string{
+		"stages":          strings.Replace(settingsBase, "    model: claude-opus-5-5\n", "    model: claude-opus-5-5\n    cap: 3\n", 1),
+		"pools":           settingsBase + "pools:\n  reviewers:\n    cap: 2\n",
+		"merge":           strings.Replace(settingsBase, "  mechanism: github\n", "  mechanism: github\n  required_checks: [ci]\n", 1),
+		"unparsable file": settingsBase + "stages: [\n",
+	}
+	for name, file := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.onBase(t, map[string]string{".loop/config.yaml": settingsBase})
+			head := commit(t, e.checkout, "change a setting", map[string]string{".loop/config.yaml": file})
+			err := firstErr(e.pushAs(cli.PrincipalRun, "tk-1", head))
+			if got := refusalCode(t, err); got != cli.CodeSettingsChange {
+				t.Fatalf("code %s, want %s: %v", got, cli.CodeSettingsChange, err)
+			}
+			hint := Refusal(err).Hint
+			if !strings.Contains(hint, "loop settings set") || !strings.Contains(hint, head[:12]) {
+				t.Fatalf("hint %q names no loop settings set or no commit %s", hint, head[:12])
+			}
+			if got := e.remoteSHA("loop/tk-1"); got != "" {
+				t.Fatalf("remote loop/tk-1 = %q; want no branch", got)
+			}
+		})
+	}
+}
+
+// A stage run's push that changes only fields outside the settings lands
+// (C13).
+func TestC13RunPushThatChangesNoSettingLands(t *testing.T) {
+	cases := map[string]string{
+		"gates":        strings.Replace(settingsBase, "make lint", "make vet", 1),
+		"setup":        settingsBase + "setup: make deps\n",
+		"policy_hooks": settingsBase + "policy_hooks:\n  - name: hook\n    run: make hook\n",
+		"signoff":      settingsBase + "signoff:\n  readers: [octocat]\n",
+		"tracker":      settingsBase + "tracker:\n  adapter: beads\n",
+		"manifest":     settingsBase + "manifest: .loop/secrets.yaml\n",
+		"health":       settingsBase + "health:\n  ci_budget: 2h\n",
+	}
+	for name, file := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.onBase(t, map[string]string{".loop/config.yaml": settingsBase})
+			head := commit(t, e.checkout, "change "+name, map[string]string{".loop/config.yaml": file})
+			if _, err := e.pushAs(cli.PrincipalRun, "tk-1", head); err != nil {
+				t.Fatalf("push: %+v", Refusal(err))
+			}
+			if got := e.remoteSHA("loop/tk-1"); got != head {
+				t.Fatalf("remote loop/tk-1 = %q, want %s", got, head)
+			}
+		})
+	}
+}
+
+// A stage run's merge of the base brings in a settings change that the
+// base made since the fork. The branch changes no setting, so the push
+// lands (C13).
+func TestC13RunMergeOfABaseSettingsChangeLands(t *testing.T) {
+	e := newEnv(t)
+	e.onBase(t, map[string]string{".loop/config.yaml": settingsBase})
+	work := commit(t, e.checkout, "work", map[string]string{".loop/config.yaml": settingsBase + "setup: make deps\n"})
+	if _, err := e.pushAs(cli.PrincipalRun, "tk-1", work); err != nil {
+		t.Fatalf("push of the work: %+v", Refusal(err))
+	}
+	e.baseMoves(t, map[string]string{".loop/config.yaml": strings.Replace(settingsBase, "    model: claude-opus-5-5\n",
+		"    model: claude-opus-5-5\n    cap: 3\n", 1)})
+	gitT(t, e.checkout, "merge", "-q", "--no-ff", "-m", "merge the base", "main")
+	head := gitT(t, e.checkout, "rev-parse", "HEAD")
+	if _, err := e.pushAs(cli.PrincipalRun, "tk-1", head); err != nil {
+		t.Fatalf("push of the merge of the base: %+v", Refusal(err))
+	}
+	if got := e.remoteSHA("loop/tk-1"); got != head {
+		t.Fatalf("remote loop/tk-1 = %q, want %s", got, head)
+	}
+}
+
+// The commit that C12 refuses from a stage run lands from a room (C14).
+func TestC14RoomPushThatChangesASettingLands(t *testing.T) {
+	e := newEnv(t)
+	e.onBase(t, map[string]string{".loop/config.yaml": settingsBase})
+	head := commit(t, e.checkout, "set the implementer cap", map[string]string{".loop/config.yaml": strings.Replace(settingsBase,
+		"    model: claude-opus-5-5\n", "    model: claude-opus-5-5\n    cap: 3\n", 1)})
+	if got := refusalCode(t, firstErr(e.pushAs(cli.PrincipalRun, "tk-1", head))); got != cli.CodeSettingsChange {
+		t.Fatalf("run push: code %s, want %s", got, cli.CodeSettingsChange)
+	}
+	if _, err := e.pushAs(cli.PrincipalRoom, "tk-1", head); err != nil {
+		t.Fatalf("room push: %+v", Refusal(err))
+	}
+	if got := e.remoteSHA("loop/tk-1"); got != head {
+		t.Fatalf("remote loop/tk-1 = %q, want %s", got, head)
+	}
+}

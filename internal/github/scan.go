@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/secrets"
 )
 
@@ -71,8 +72,11 @@ type change struct {
 //   - a change to an injected path, or content that holds a stored secret
 //     value, is SECRET_IN_DIFF;
 //   - a commit message that holds a stored secret value is
-//     SECRET_IN_OUTPUT, because the message is outbound text (KTD27).
-func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, head, base string, exclude ...string) ([]string, error) {
+//     SECRET_IN_OUTPUT, because the message is outbound text (KTD27);
+//   - with settings set, a commit whose .loop/config.yaml differs in a
+//     setting from its merge base with base, or does not parse, is
+//     SETTINGS_CHANGE: only the coordinator changes a setting.
+func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, settings bool, head, base string, exclude ...string) ([]string, error) {
 	args := []string{"rev-list", "--reverse", head}
 	for _, e := range append([]string{base}, exclude...) {
 		if e != "" {
@@ -88,14 +92,14 @@ func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, head, base str
 		commits = strings.Split(out, "\n")
 	}
 	for _, c := range commits {
-		if err := m.scanCommit(ctx, red, c, base); err != nil {
+		if err := m.scanCommit(ctx, red, settings, c, base); err != nil {
 			return commits, err
 		}
 	}
 	return commits, nil
 }
 
-func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, commit, base string) error {
+func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, settings bool, commit, base string) error {
 	raw, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"cat-file", "commit", commit}})
 	if err != nil {
 		return err
@@ -113,6 +117,11 @@ func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, commit, 
 	for _, ch := range changes {
 		if err := m.checkPath(ctx, commit, base, ch); err != nil {
 			return err
+		}
+		if settings && ch.path == config.ProjectConfigPath {
+			if err := m.checkSettings(ctx, commit, base, ch); err != nil {
+				return err
+			}
 		}
 		if ch.status != "D" && ch.newMode != gitlinkMode && ch.newSHA != zeroSHA {
 			blobs = append(blobs, ch.newSHA)
@@ -208,6 +217,57 @@ func (m *Mirror) matchesForkPoint(ctx context.Context, commit, base, p string) (
 		return false, err
 	}
 	return own == theirs, nil
+}
+
+// checkSettings refuses a commit whose project config differs in a setting
+// from the config at its merge base with base, as a PR's file list would
+// show it. A merge of the base that brings in the coordinator's change
+// matches. A commit with no merge base compares with no config.
+func (m *Mirror) checkSettings(ctx context.Context, commit, base string, ch change) error {
+	refuse := func(rule, reason string) error {
+		return &ScanError{Code: cli.CodeSettingsChange, Rule: rule, Commit: commit, Path: ch.path,
+			Reason: reason + "; only the coordinator changes settings, with `loop settings set`"}
+	}
+	fork, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"merge-base", commit, base}})
+	if err != nil {
+		var ge *GitError
+		if !errors.As(err, &ge) || fork != "" || ge.Stderr != "" {
+			return err
+		}
+	}
+	var old []byte
+	if fork != "" {
+		if old, err = m.blobAt(ctx, fork, ch.path); err != nil {
+			return err
+		}
+	}
+	var own []byte
+	if ch.newSHA != zeroSHA {
+		if own, err = m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"cat-file", "blob", ch.newSHA}}); err != nil {
+			return err
+		}
+	}
+	changed, err := config.SettingsChanged(old, own)
+	if err != nil {
+		return refuse("settings_unparsable", fmt.Sprintf("the server cannot show that %s changes no setting: %v", ch.path, err))
+	}
+	if changed {
+		return refuse("settings_change", fmt.Sprintf("%s changes stages, pools or merge against the merge base", ch.path))
+	}
+	return nil
+}
+
+// blobAt reads the file at p in rev, or nil when rev holds no such file.
+func (m *Mirror) blobAt(ctx context.Context, rev, p string) ([]byte, error) {
+	entry, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"ls-tree", "--full-tree", rev, "--", p}})
+	if err != nil || entry == "" {
+		return nil, err
+	}
+	fields := strings.Fields(entry)
+	if len(fields) < 3 || fields[1] != "blob" {
+		return nil, nil
+	}
+	return m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"cat-file", "blob", fields[2]}})
 }
 
 // newAttributeLines lists the filter or LFS lines of a .gitattributes

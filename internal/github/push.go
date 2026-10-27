@@ -24,6 +24,9 @@ type PushRequest struct {
 	Checkout string // the run's or the room's checkout, from its token
 	Head     string // the full sha the checkout holds
 	RunID    string
+	// Caller is the principal kind of the pusher. Only a cli.PrincipalRun
+	// push takes the settings check: a room acts with the operator.
+	Caller string
 }
 
 // PushResult is what `branch push` answers.
@@ -122,7 +125,7 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 				Hint: fmt.Sprintf("%s holds %d commit(s) that HEAD lacks; run `loop branch sync`, merge, and push again", req.Branch, len(lacking))}
 		}
 	}
-	commits, err := m.Scan(ctx, s.cfg.Redactor, req.Head, remoteRef(base), remote)
+	commits, err := m.Scan(ctx, s.cfg.Redactor, req.Caller == cli.PrincipalRun, req.Head, remoteRef(base), remote)
 	if err != nil {
 		return res, err
 	}

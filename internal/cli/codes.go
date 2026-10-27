@@ -77,6 +77,7 @@ const (
 	CodeBodyRefused          = "BODY_REFUSED"
 	CodeAskLimit             = "ASK_LIMIT"
 	CodeShapeRefused         = "SHAPE_REFUSED"
+	CodeSettingsChange       = "SETTINGS_CHANGE"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -129,6 +130,7 @@ var baseRefusals = []RefusalCode{
 	{CodeBodyRefused, ExitRefused, codes.FailedPrecondition, false, "the body is over its word budget, or breaks a markup or prose rule; the hint names each fault, and GitHub holds nothing"},
 	{CodeAskLimit, ExitRefused, codes.FailedPrecondition, false, "the bug report already holds two asks of its reporter; escalate the missing fact at level 5"},
 	{CodeShapeRefused, ExitRefused, codes.FailedPrecondition, false, "the text does not hold the shape that the rule names; the hint names the rule and each fault, and the verb wrote nothing"},
+	{CodeSettingsChange, ExitRefused, codes.FailedPrecondition, false, "the push changes a setting in .loop/config.yaml; only the coordinator changes settings, with loop settings set"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

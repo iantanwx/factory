@@ -92,7 +92,7 @@ func (s *Service) branchPush(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	p := call.Principal
 	res, err := s.Push(ctx, PushRequest{Project: prj.ID, Item: item, Branch: branch, Checkout: p.Checkout,
-		Head: head, RunID: p.RunID})
+		Head: head, RunID: p.RunID, Caller: p.Kind})
 	if err != nil {
 		return Refuse(err)
 	}
