@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every stage and native job has an entry, and the shipped defaults carry
@@ -364,5 +365,48 @@ func TestC15OrcaAcceptanceEntryRefusals(t *testing.T) {
 	}
 	if got := cfg.ThroughputFor("orca-acceptance"); got != (Throughput{Cap: 2, Schedule: "0 3 * * *"}) {
 		t.Fatalf("ThroughputFor(orca-acceptance) = %+v, want the file's entry", got)
+	}
+}
+
+// C23: with no overdue key, the implementer's overdue wait is 90 minutes. A
+// key on the implementer entry sets it.
+func TestC23OverdueDefaultsTo90Minutes(t *testing.T) {
+	cfg, err := ParseHost([]byte(validHost))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Overdue(); got != 90*time.Minute {
+		t.Fatalf("Overdue() = %v with no overdue key, want 90m", got)
+	}
+	doc := strings.Replace(validHost, "  implementer: {cap: 4, ", "  implementer: {overdue: 45m, cap: 4, ", 1)
+	if cfg, err = ParseHost([]byte(doc)); err != nil {
+		t.Fatalf("an implementer overdue of 45m does not load: %v", err)
+	}
+	if got := cfg.Overdue(); got != 45*time.Minute {
+		t.Fatalf("Overdue() = %v, want the file's 45m", got)
+	}
+}
+
+// C23: host config validation refuses a negative overdue, and an overdue on
+// any entry but the implementer's.
+func TestC23OverdueRefusals(t *testing.T) {
+	cases := map[string]struct{ from, to, names string }{
+		"negative": {"  implementer: {cap: 4, ", "  implementer: {overdue: -1m, cap: 4, ", "throughput.implementer.overdue"},
+		"another stage": {"  code-reviewer: {cap: 8, ", "  code-reviewer: {overdue: 90m, cap: 8, ",
+			"throughput.code-reviewer.overdue"},
+		"a pool":       {"  reviewers: {cap: 10}", "  reviewers: {cap: 10, overdue: 90m}", "throughput.reviewers.overdue"},
+		"a native job": {"  merge-handoff: {cap: 1, ", "  merge-handoff: {overdue: 90m, cap: 1, ", "throughput.merge-handoff.overdue"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			doc := strings.Replace(validHost, c.from, c.to, 1)
+			if doc == validHost {
+				t.Fatal("the edit changed nothing")
+			}
+			_, err := ParseHost([]byte(doc))
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.names) {
+				t.Fatalf("err = %v, want a refusal that names %s", err, c.names)
+			}
+		})
 	}
 }

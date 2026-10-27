@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 )
 
 // Throughput is one entry of host config's throughput map (KTD30). Cap is
@@ -17,6 +18,10 @@ import (
 type Throughput struct {
 	Cap      int    `yaml:"cap"`
 	Schedule string `yaml:"schedule,omitempty"`
+	// Overdue is how long a ticket waits in todo before the implementer's
+	// work query ranks it overdue. Only the implementer entry takes it.
+	// 90 minutes when absent.
+	Overdue time.Duration `yaml:"overdue,omitempty"`
 }
 
 // The run stages (R13). The machine's claim rows use these names. Intake
@@ -154,6 +159,12 @@ func (c *HostConfig) validateThroughput(ck *checker) {
 		case !isPool(key) && (e.Schedule == "" || HasControl(e.Schedule)):
 			ck.fail(f+".schedule", "must be a nonempty schedule")
 		}
+		switch {
+		case e.Overdue != 0 && key != StageImplementer:
+			ck.fail(f+".overdue", "must be absent; only the implementer ranks overdue tickets")
+		case e.Overdue < 0:
+			ck.fail(f+".overdue", "must not be negative")
+		}
 	}
 	for _, key := range slices.Sorted(maps.Keys(c.Throughput)) {
 		if !slices.Contains(ThroughputKeys(), key) {
@@ -282,4 +293,17 @@ func (l *HostLoader) Load(ctx context.Context) (*HostConfig, error) {
 		l.raised = true
 	}
 	return l.good, nil
+}
+
+// DefaultOverdue is the implementer's overdue wait when host config sets
+// none: tickertown's 9 ticks of 10 minutes (implementer-rank.ts:133-158).
+const DefaultOverdue = 90 * time.Minute
+
+// Overdue returns how long a ticket waits in todo before the implementer's
+// work query ranks it overdue.
+func (c *HostConfig) Overdue() time.Duration {
+	if d := c.ThroughputFor(StageImplementer).Overdue; d != 0 {
+		return d
+	}
+	return DefaultOverdue
 }
