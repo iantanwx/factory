@@ -66,7 +66,7 @@ func TestAE3AMoveTheTableRefusesExits3(t *testing.T) {
 	implement(w, id, map[string]string{"a.txt": "a\n"})
 	rev := w.Dispatch(machine.StageCodeReviewer)
 	before := w.Show(id)
-	for _, args := range [][]string{{"work", "cancel", id}, {"work", "unblock", id}} {
+	for _, args := range [][]string{{"work", "cancel", id, "--reason", "dropped"}, {"work", "unblock", id}} {
 		r := w.In(rev.Checkout, args...)
 		if r.Code != 3 || r.RefusalCode() != cli.CodeTransitionNotAllowed || r.Env["current_status"] != machine.InReview {
 			t.Fatalf("%s", r)

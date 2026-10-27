@@ -215,7 +215,7 @@ func TestEpicInExecutionWithAnOpenChildRefusesDone(t *testing.T) {
 	}
 	w.force(child, Escalated, nil)
 	// The last child's cancel applies the epic's complete row.
-	w.must(child, "cancel", nil)
+	w.must(child, "cancel", map[string]string{"reason": "dropped"})
 	if w.show(ep).Status != Done {
 		t.Fatal("the epic did not close")
 	}

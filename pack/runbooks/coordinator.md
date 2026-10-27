@@ -133,8 +133,9 @@ read with the event you blame. Read the state back after each write you report.
   canceled blocker that holds no open pull request, as if the blocker had landed. Read each freed
   ticket with `loop work show <item>`. When it still needs the canceled work, change it with
   `loop work edit <item>` so it no longer does, or bring it to the operator.
-- **The operator drops an escalated item.** Run `loop work cancel <item>`, and quote the
-  operator's words in the report.
+- **The operator drops an escalated item.** Run
+  `loop work cancel <item> --reason "<the operator's words>"`, and quote the operator's words in
+  the report.
 - **A merged change or a ruling leaves a ticket with no work.** Run
   `loop work supersede <item> --reason "<why>"` with one of `--commit <sha>`, `--done <item>` or
   `--adr <path>`. The server checks that evidence before it closes the ticket.
