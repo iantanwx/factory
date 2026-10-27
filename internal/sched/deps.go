@@ -12,11 +12,13 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 )
 
-// DependencyAdvanceJob is the native job that moves a ticket out of
-// backlog once every ticket it waits on landed (R24).
+// DependencyAdvanceJob is the native job that moves a ticket or an epic
+// out of backlog once every item it waits on landed (R24).
 //
 // The ticket table holds a blocked ticket in backlog: decompose creates a
-// ticket with a blocker there, and only unblock moves it to todo.
+// ticket with a blocker there, and only unblock moves it to todo. The epic
+// table holds a blocked epic there too, and unblock sends it to the state
+// its epic_entry fact names.
 // Admission refuses a backlog ticket with DEPENDENCY_OPEN and never reads
 // beads edges itself. So a merged blocker alone admits nothing, and this
 // job makes the state change. The scheduler registers it when it can read
@@ -24,48 +26,70 @@ import (
 const DependencyAdvanceJob = "dependency-advance"
 
 // advanceDependencies is one tick of dependency-advance for one project. It
-// applies unblock, as the server, to each backlog ticket whose every
-// blocks edge leads to a ticket that landed (blockersLanded). A ticket
-// that another writer moved meanwhile is left alone. It then completes
-// each epic in execution whose children are all terminal, because a
-// child's terminal write and its epic's complete write are two writes
-// (machine.CompleteEpics). Any other refusal or read error is reported,
-// and the next tick tries again.
+// applies unblock, as the server, to each backlog ticket and epic whose
+// every blocks edge leads to an item that landed (blockersLanded). A ready
+// epic that enters on prd_needed first asks the intake cap, and a full cap
+// leaves it in backlog for the next tick: the cap bounds the PRD epics in
+// flight (D6). An item that another writer moved meanwhile is left alone.
+// It then completes each epic in execution whose children are all
+// terminal, because a child's terminal write and its epic's complete write
+// are two writes (machine.CompleteEpics). Any other refusal or read error
+// is reported, and the next tick tries again.
 func (s *Scheduler) advanceDependencies(ctx context.Context, project string) error {
 	bc, err := s.cfg.Beads(project)
 	if err != nil {
 		return fmt.Errorf("sched: beads of %s: %w", project, err)
 	}
-	held, ref := s.cfg.Machine.List(ctx, project, machine.ListFilter{Kind: machine.KindTicket, Status: machine.Backlog})
-	if ref != nil {
-		return fmt.Errorf("sched: list the backlog of %s: %s: %s", project, ref.Code, ref.Hint)
-	}
 	pulls := s.openPulls(project)
 	var errs []error
-	for _, it := range held {
-		ready, err := blockersLanded(ctx, bc, it.ID, pulls)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("sched: read the dependencies of %s: %w", it.ID, err))
+	for _, kind := range []machine.Kind{machine.KindTicket, machine.KindEpic} {
+		held, ref := s.cfg.Machine.List(ctx, project, machine.ListFilter{Kind: kind, Status: machine.Backlog})
+		if ref != nil {
+			errs = append(errs, fmt.Errorf("sched: list the %s backlog of %s: %s: %s", kind, project, ref.Code, ref.Hint))
 			continue
 		}
-		if !ready {
-			continue
-		}
-		res := s.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: it.ID, Verb: machine.VerbUnblock,
-			ExpectedStatus: machine.Backlog, Actor: machine.Server(DependencyAdvanceJob)})
-		switch r := res.Refusal; {
-		case r == nil:
-			s.log.InfoContext(ctx, "dependencies done", "project", project, "item", it.ID)
-		case r.Code == cli.CodeStatusChanged || r.Code == cli.CodeTransitionNotAllowed || r.Code == cli.CodeNotFound:
-			// Another writer moved the ticket. Nothing waits.
-		default:
-			errs = append(errs, fmt.Errorf("sched: unblock %s: %s: %s", it.ID, r.Code, r.Hint))
+		for _, it := range held {
+			if err := s.unblockLanded(ctx, bc, project, it, pulls); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 	if err := s.cfg.Machine.CompleteEpics(ctx, project); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// unblockLanded applies unblock to one backlog item once every blocker
+// landed, and once the intake cap admits a PRD epic.
+func (s *Scheduler) unblockLanded(ctx context.Context, bc beadsx.Client, project string, it machine.Item, pulls openHeads) error {
+	ready, err := blockersLanded(ctx, bc, it.ID, pulls)
+	if err != nil {
+		return fmt.Errorf("sched: read the dependencies of %s: %w", it.ID, err)
+	}
+	if !ready {
+		return nil
+	}
+	if it.Kind == machine.KindEpic && it.Fact(machine.FactEpicEntry) == machine.PRDNeeded {
+		switch r := s.cfg.Admission.IntakeCap(ctx, project); {
+		case r == nil:
+		case r.Code == cli.CodeCapFull:
+			return nil
+		default:
+			return fmt.Errorf("sched: the intake cap for %s: %s: %s", it.ID, r.Code, r.Hint)
+		}
+	}
+	res := s.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: it.ID, Verb: machine.VerbUnblock,
+		ExpectedStatus: machine.Backlog, Actor: machine.Server(DependencyAdvanceJob)})
+	switch r := res.Refusal; {
+	case r == nil:
+		s.log.InfoContext(ctx, "dependencies done", "project", project, "item", it.ID)
+	case r.Code == cli.CodeStatusChanged || r.Code == cli.CodeTransitionNotAllowed || r.Code == cli.CodeNotFound:
+		// Another writer moved the item. Nothing waits.
+	default:
+		return fmt.Errorf("sched: unblock %s: %s: %s", it.ID, r.Code, r.Hint)
+	}
+	return nil
 }
 
 // openHeads answers the head branches of a project's open pull requests.
@@ -102,7 +126,10 @@ func (s *Scheduler) openPulls(project string) openHeads {
 }
 
 // blockersLanded says whether the item has at least one blocks edge and
-// every blocks edge leads to a ticket that landed. A done ticket landed.
+// every blocks edge leads to an item that landed. A blocker is a ticket,
+// an epic or a decision. A done item landed. A moot or dropped decision is
+// canceled, and it landed too: the question no longer applies, and with no
+// branch it holds no pull request, so the read below never holds it.
 // A canceled ticket landed when it holds no open pull request, as
 // blocker-landed.ts in tickertown rules for every closed blocker: no code
 // of it can reach the base any more, so nothing is left to wait for. A
@@ -111,9 +138,9 @@ func (s *Scheduler) openPulls(project string) openHeads {
 // canceled ticket holds too: a gap never reads as "no pull request". Only
 // a tick that finds a canceled blocker, and no blocker still open, reads.
 //
-// decompose adds every edge before the create that puts the ticket in
-// backlog, so a backlog ticket with no blocks edge is a doubt, and a
-// doubt holds the ticket. A person decides with `work unblock`. Edges of
+// decompose and epic create add every edge before the create that puts
+// the item in backlog, so a backlog item with no blocks edge is a doubt,
+// and a doubt holds the item. A person decides with `work unblock`. Edges of
 // another kind block nothing.
 func blockersLanded(ctx context.Context, bc beadsx.Client, item string, pulls openHeads) (bool, error) {
 	deps, err := bc.Dependencies(ctx, item)
