@@ -439,3 +439,29 @@ func TestAServerWithAMissingOrWrongSkillSetStillServesAndSaysSo(t *testing.T) {
 		t.Fatalf("alerts after the repair = %+v, want the one alert closed", rows)
 	}
 }
+
+// The production server names <instance>/current/loop as each run's
+// binary when that path exists, and names none when it does not.
+func TestC10TheProductionLoopBinaryIsTheCurrentLink(t *testing.T) {
+	dir := t.TempDir()
+	opts, cleanup, err := productionOptions(context.Background(), dir, wiring{})
+	defer cleanup()
+	if err != nil || opts.LoopBinary != "" {
+		t.Fatalf("no current link: LoopBinary %q, %v", opts.LoopBinary, err)
+	}
+	version := filepath.Join(dir, release.VersionsDir, "v9.9.9")
+	if err := os.MkdirAll(version, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(version, release.BinaryName), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(release.VersionsDir, "v9.9.9"), filepath.Join(dir, release.CurrentLink)); err != nil {
+		t.Fatal(err)
+	}
+	opts, cleanup, err = productionOptions(context.Background(), dir, wiring{})
+	defer cleanup()
+	if want := filepath.Join(dir, release.CurrentLink, release.BinaryName); err != nil || opts.LoopBinary != want {
+		t.Fatalf("with a current link: LoopBinary %q, want %s, %v", opts.LoopBinary, want, err)
+	}
+}
