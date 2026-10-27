@@ -54,7 +54,8 @@ func TestC1FirstRetryLimitGetsTheCoordinatorsOwnEdit(t *testing.T) {
 func TestC2RecoveryEditWritesTheRecord(t *testing.T) {
 	assertSays(t, "C2", retryLimitBullet(t),
 		"The new body ends with a `## Recovery` section",
-		"the date", "the alert entry", "the stage", "what changed")
+		"names the date, the alert entry, the stage and what changed",
+		"on <date>", "after <entry>", "at stage <stage>", "Changed: <what changed>")
 }
 
 // C3 of factorio-1okx: the coordinator reads the body before any edit, and a
