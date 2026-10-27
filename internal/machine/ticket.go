@@ -28,11 +28,15 @@ const (
 // resumes as rework.
 var prOpenStates = []string{InReview, Repair, ReadyToMerge, Queued}
 
-// ticketResume is where answer returns a ticket. The diagram has one
-// edge out of escalated, to todo, and the entry says why the next run
-// starts: rework when a PR existed, resume otherwise.
+// ticketResume is where answer returns a ticket. A ticket escalated from
+// backlog returns to backlog, where it waits on its blockers again, and
+// no run starts. Every other ticket returns to todo, and the entry says
+// why the next run starts: rework when a PR existed, resume otherwise.
 func ticketResume(status string) (string, string) {
-	if slices.Contains(prOpenStates, status) {
+	switch {
+	case status == Backlog:
+		return Backlog, ""
+	case slices.Contains(prOpenStates, status):
 		return Todo, EntryRework
 	}
 	return Todo, EntryResume
@@ -178,7 +182,7 @@ func ticketTable() *Table {
 			set: escalateTo(ticketResume), Facts: []string{FactResume, FactResumeEntry, FactEscalation}},
 		{Verb: VerbEscalate, From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
 			set: escalateTo(ticketResume), Facts: []string{FactResume, FactResumeEntry, FactEscalation}},
-		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: []string{Todo},
+		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: []string{Backlog, Todo},
 			set: answerResume, Facts: []string{FactEntry, FactResume, FactResumeEntry, FactEscalation, FactAnswer, FactAmendment}},
 		{Verb: "cancel", From: []string{Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop,
 			set: needCopy("reason", FactCancelReason), Facts: []string{FactCancelReason}},

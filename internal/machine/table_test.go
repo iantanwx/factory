@@ -117,6 +117,9 @@ func ticketEdges() []edge {
 	// closes from each state that holds no pull request (H5, alpha
 	// 4fc932ebd).
 	e = append(e, each([]string{Backlog, Todo, InProgress}, "supersede", Canceled)...)
+	// Added: a ticket escalated from backlog resumes to backlog (ADR 0005
+	// D2, spec factorio-9wh Decision 7).
+	e = append(e, edge{Escalated, "answer", Backlog})
 	return e
 }
 
