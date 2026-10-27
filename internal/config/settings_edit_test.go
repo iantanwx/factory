@@ -224,17 +224,64 @@ func TestSetSettingRoundTripKeepsTheShippedConfigs(t *testing.T) {
 	}
 	for name, raw := range map[string]string{".loop/config.yaml": string(repo), "loop-init template": tmpl} {
 		t.Run(name, func(t *testing.T) {
-			const old, new = "  implementer: {}\n", "  implementer: {cap: 2}\n"
-			if !strings.Contains(raw, old) {
-				t.Fatalf("the file holds no %q", old)
-			}
-			set := editFile(t, raw, "stages.implementer.cap", strp("2"))
-			if want := strings.Replace(raw, old, new, 1); set != want {
-				t.Fatalf("set: got\n%s\nwant\n%s", set, want)
-			}
-			if got := editFile(t, set, "stages.implementer.cap", nil); got != raw {
-				t.Fatalf("unset: got\n%s\nwant\n%s", got, raw)
-			}
+			set := roundTrip(t, raw)
+			// The file that a settings pull request writes holds the same
+			// proof, so the test stays green after that edit.
+			roundTrip(t, set)
 		})
 	}
+}
+
+// roundTrip sets a field that raw does not hold, and checks that every
+// comment stays in order and that the unset gives raw back. It returns the
+// file after the set.
+func roundTrip(t *testing.T, raw string) string {
+	t.Helper()
+	key := absentStageField(t, raw)
+	set := editFile(t, raw, key, strp("2"))
+	if set == raw {
+		t.Fatalf("set %s: the file did not change", key)
+	}
+	if a, b := comments(raw), comments(set); !slices.Equal(a, b) {
+		t.Fatalf("set %s: comments\n%q\nwant\n%q", key, b, a)
+	}
+	if got := editFile(t, set, key, nil); got != raw {
+		t.Fatalf("unset %s: got\n%s\nwant\n%s", key, got, raw)
+	}
+	return set
+}
+
+// absentStageField returns the key of the first field, in file order,
+// that a mapping entry under stages does not hold.
+func absentStageField(t *testing.T, raw string) string {
+	t.Helper()
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil || doc.Kind == 0 {
+		t.Fatalf("the file does not decode: %v", err)
+	}
+	if j := keyIndex(doc.Content[0], "stages"); j >= 0 {
+		stages := doc.Content[0].Content[j+1]
+		for i := 0; i < len(stages.Content); i += 2 {
+			name, entry := stages.Content[i].Value, stages.Content[i+1]
+			kind, _ := KindOf(name, codeKnown())
+			for _, f := range stageFields[kind] {
+				if entry.Kind == yaml.MappingNode && !strings.Contains(f, ".") && keyIndex(entry, f) < 0 {
+					return "stages." + name + "." + f
+				}
+			}
+		}
+	}
+	t.Fatal("no mapping entry under stages lacks a field")
+	return ""
+}
+
+// comments returns the text of each comment in s, in order.
+func comments(s string) []string {
+	var cs []string
+	for line := range strings.Lines(s) {
+		if i := strings.Index(line, "#"); i == 0 || i > 0 && line[i-1] == ' ' {
+			cs = append(cs, strings.TrimSpace(line[i:]))
+		}
+	}
+	return cs
 }
