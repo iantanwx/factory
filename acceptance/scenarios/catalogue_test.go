@@ -15,7 +15,8 @@ import (
 
 // tableOnly names each ticket or epic row that no CLI verb, reactor path
 // or scheduler path performs in v1, with the unit test that applies it.
-// A key is "kind verb", or "kind verb[selector]" for one row of a verb.
+// A key is "kind verb", "kind verb[selector]" for one row of a verb, or
+// "kind verb from" for the row of a verb from one state.
 // Every other row of the two tables must be applied end to end by a
 // scenario of a full run.
 var tableOnly = map[string]string{
@@ -25,6 +26,11 @@ var tableOnly = map[string]string{
 	"epic create_prd": "TestEpicEntersByItsBlockers",
 	"epic create_architecture[open_dependency]": "TestEpicEntersByItsBlockers",
 	"epic unblock": "TestUnblockLandsOnTheRecordedEntry",
+	// No epic reaches prd_needed until `epic create --request` lands, so no
+	// prd-author run claims one.
+	"epic claim prd_needed":     "TestOnlyAPRDAuthorClaimsAPRDEpic",
+	"epic release prd_drafting": "TestASettledPRDAuthorReturnsTheEpicToPRDNeeded",
+	"epic reclaim prd_drafting": "TestASettledPRDAuthorReturnsTheEpicToPRDNeeded",
 }
 
 // rowName names one row: its kind, verb and selector, and its edge.
@@ -70,6 +76,9 @@ func checkCatalogue() int {
 				continue
 			}
 			if _, ok := tableOnly[key+"["+r.When+"]"]; ok && r.When != "" {
+				continue
+			}
+			if _, ok := tableOnly[key+" "+strings.Join(r.From, ",")]; ok {
 				continue
 			}
 			hit := slices.ContainsFunc(observed, func(t acceptance.Transition) bool {

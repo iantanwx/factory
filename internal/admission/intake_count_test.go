@@ -11,11 +11,12 @@ import (
 )
 
 // C7: the intake count. Over one epic in each epic state, only the states
-// an agent moves on hold a slot: prd_needed, prd_review, prd_amending,
-// spec_needed, spec_drafting and spec_review. backlog, architecture,
-// sign-off, escalated and every state past spec review hold none.
+// an agent moves on hold a slot: prd_needed, prd_drafting, prd_review,
+// prd_amending, spec_needed, spec_drafting and spec_review. backlog,
+// architecture, sign-off, escalated and every state past spec review hold
+// none.
 func TestIntakeCountHoldsOnlyTheStatesAnAgentMovesOn(t *testing.T) {
-	states := []string{"backlog", "prd_needed", "prd_review", "prd_amending", "prd_signoff", "architecture",
+	states := []string{"backlog", "prd_needed", "prd_drafting", "prd_review", "prd_amending", "prd_signoff", "architecture",
 		"spec_needed", "spec_drafting", "spec_review", "spec_signoff", "spec_amending", "spec_approved",
 		"decomposing", "execution", "escalated", "done"}
 	tbl, _ := machine.TableFor(machine.KindEpic)
@@ -31,10 +32,10 @@ func TestIntakeCountHoldsOnlyTheStatesAnAgentMovesOn(t *testing.T) {
 		w.put(machine.KindEpic, s, "epic")
 	}
 	ctx := context.Background()
-	w.setCaps(map[string]int{config.StageIntake: 6})
-	wantRefusal(t, w.a.IntakeCap(ctx, prj), cli.CodeCapFull)
 	w.setCaps(map[string]int{config.StageIntake: 7})
+	wantRefusal(t, w.a.IntakeCap(ctx, prj), cli.CodeCapFull)
+	w.setCaps(map[string]int{config.StageIntake: 8})
 	if ref := w.a.IntakeCap(ctx, prj); ref != nil {
-		t.Fatalf("6 counted epics under a cap of 7: %+v", ref)
+		t.Fatalf("7 counted epics under a cap of 8: %+v", ref)
 	}
 }
