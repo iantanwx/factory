@@ -3,7 +3,9 @@ package gates
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -270,5 +272,127 @@ func TestC8NoLockFileRunsNoAudit(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// updateLint runs the lint gate with --update in root, with lint.json as
+// its baseline, and returns the findings and the bytes of lint.json after
+// the run.
+func updateLint(t *testing.T, root, run string) ([]Finding, string) {
+	t.Helper()
+	lint := config.Command{Name: "lint", Run: run, Baseline: "lint.json"}
+	r := &Repo{Root: root, Config: &config.ProjectConfig{Gates: []config.Command{lint}}, Out: io.Discard, Update: true}
+	fs, err := stackGate("lint")(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "lint.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fs, string(raw)
+}
+
+// C9: --update lowers each count to what the gate found and deletes each
+// key it no longer found. It keeps the old count of a raised key and adds
+// no found key, and the gate fails on both.
+func TestC9UpdateLowersAndNeverRaises(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{"lint.json": `{"allowed": {"a::r": 3, "b::r": 1, "c::r": 1}}`})
+	fs, got := updateLint(t, root, `printf 'a::r\nc::r\nd::r\nc::r\na::r\nloop:end\n'`)
+	want := "{\n  \"allowed\": {\n    \"a::r\": 2,\n    \"c::r\": 1\n  }\n}\n"
+	if got != want {
+		t.Fatalf("lint.json =\n%s\nwant\n%s", got, want)
+	}
+	if got, want := strs(fs), []string{
+		"c: new_finding: 2 findings of r, and the baseline allows 1. Fix the code, or raise the count in lint.json with a reason",
+		"d: new_finding: 1 findings of r, and the baseline allows 0. Fix the code, or raise the count in lint.json with a reason",
+	}; !slices.Equal(got, want) {
+		t.Fatalf("findings =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// C10: with no baseline file, --update adopts the found counts with sorted
+// keys, and the gate passes. A second --update writes the same bytes. Zero
+// keys found writes an empty set.
+func TestC10UpdateAdoptsOnceAndRepeats(t *testing.T) {
+	cases := []struct{ print, want string }{
+		{`b::r\na::r\na::r\n`, "{\n  \"allowed\": {\n    \"a::r\": 2,\n    \"b::r\": 1\n  }\n}\n"},
+		{``, "{\n  \"allowed\": {}\n}\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.print, func(t *testing.T) {
+			root := t.TempDir()
+			run := `printf '` + c.print + `loop:end\n'`
+			for i := range 2 {
+				fs, got := updateLint(t, root, run)
+				if len(fs) != 0 || got != c.want {
+					t.Fatalf("run %d: findings = %v, lint.json =\n%s\nwant none, and\n%s", i+1, fs, got, c.want)
+				}
+			}
+		})
+	}
+}
+
+// updateAudit runs the audit gate with --update on a change to go.sum,
+// with audit.json written from accepted when it is not empty. It returns
+// the findings, the gate's log and the checkout's root.
+func updateAudit(t *testing.T, run, accepted string) ([]Finding, string, string) {
+	t.Helper()
+	files := map[string]string{}
+	if accepted != "" {
+		files["audit.json"] = accepted
+	}
+	r := testRepo(t, files)
+	commit(t, r, "build: add a dependency", map[string]string{"go.sum": "x\n"})
+	var log strings.Builder
+	r.Config = &config.ProjectConfig{Gates: []config.Command{{Name: "audit", Run: run, Baseline: "audit.json"}}}
+	r.Out, r.Update = &log, true
+	fs, err := stackGate("audit")(context.Background(), r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fs, log.String(), r.Root
+}
+
+// C12: --only audit --update deletes each accepted id that the audit no
+// longer prints, and keeps every other entry byte for byte. A new id is not
+// written, and fails.
+func TestC12AuditUpdateOnlyDeletes(t *testing.T) {
+	const accepted = `{"accepted": {"GHSA-1": {"reason": "no fix <upstream> & \"x\"", "date": "2026-10-24"}, "GHSA-2": {"reason": "dev only", "date": "2026-10-25"}}}`
+	fs, _, root := updateAudit(t, `printf 'GHSA-1\nGHSA-3\nloop:end\n'`, accepted)
+	if got, want := strs(fs), []string{"audit.json: new_advisory: GHSA-3 is not accepted. Upgrade the package, or accept the advisory in audit.json with a reason and a date"}; !slices.Equal(got, want) {
+		t.Fatalf("findings =\n%q\nwant\n%q", got, want)
+	}
+	raw, err := os.ReadFile(filepath.Join(root, "audit.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  \"accepted\": {\n    \"GHSA-1\": {\n      \"reason\": \"no fix <upstream> & \\\"x\\\"\",\n      \"date\": \"2026-10-24\"\n    }\n  }\n}\n"
+	if string(raw) != want {
+		t.Fatalf("audit.json =\n%s\nwant\n%s", raw, want)
+	}
+
+	t.Run("nothing stale", func(t *testing.T) {
+		fs, _, root := updateAudit(t, `printf 'GHSA-1\nGHSA-2\nloop:end\n'`, accepted)
+		raw, err := os.ReadFile(filepath.Join(root, "audit.json"))
+		if err != nil || len(fs) != 0 || string(raw) != accepted {
+			t.Fatalf("findings = %v, audit.json = %s, %v; want none, and the file as written", fs, raw, err)
+		}
+	})
+}
+
+// C12: with no audit baseline file, --update writes no file, and says that
+// a person writes each accepted id with a reason.
+func TestC12AuditUpdateWritesNoFile(t *testing.T) {
+	fs, log, root := updateAudit(t, `printf 'GHSA-1\nloop:end\n'`, "")
+	if !slices.Equal(rules(fs), []string{"new_advisory"}) {
+		t.Fatalf("rules = %q, want new_advisory: %v", rules(fs), fs)
+	}
+	if _, err := os.Stat(filepath.Join(root, "audit.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("audit.json: %v, want no file", err)
+	}
+	if !strings.Contains(log, "audit.json does not exist, and --update writes no accepted advisory") {
+		t.Fatalf("log = %q, want the hand-written reason rule", log)
 	}
 }

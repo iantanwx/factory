@@ -1,6 +1,7 @@
 package gates
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +25,38 @@ func readCounts(root, rel string) (c Counts, exists bool, err error) {
 	}
 	exists, err = readBaseline(root, rel, &b)
 	return b.Allowed, exists, err
+}
+
+// writeCounts writes c as a count baseline at rel under root.
+func writeCounts(root, rel string, c Counts) error {
+	if c == nil {
+		c = Counts{}
+	}
+	return writeBaseline(root, rel, struct {
+		Allowed Counts `json:"allowed"`
+	}{c})
+}
+
+// lower returns baseline with each count cut to the found count and each key
+// that found lacks deleted. It never raises a count and never adds a key.
+func lower(found, baseline Counts) Counts {
+	out := Counts{}
+	for k, n := range baseline {
+		if m := min(n, found[k]); m > 0 {
+			out[k] = m
+		}
+	}
+	return out
+}
+
+// updateCounts writes the count baseline that --update leaves at rel, and
+// returns it: the found counts when no file exists, else lower(found,
+// baseline).
+func updateCounts(root, rel string, found, baseline Counts, exists bool) (Counts, error) {
+	if exists {
+		found = lower(found, baseline)
+	}
+	return found, writeCounts(root, rel, found)
 }
 
 // Advisory is one accepted advisory of an audit baseline. A valid entry has
@@ -56,6 +89,13 @@ func readAccepted(root, rel string) (a map[string]Advisory, exists bool, err err
 	return b.Accepted, exists, err
 }
 
+// writeAccepted writes a as an audit baseline at rel under root.
+func writeAccepted(root, rel string, a map[string]Advisory) error {
+	return writeBaseline(root, rel, struct {
+		Accepted map[string]Advisory `json:"accepted"`
+	}{a})
+}
+
 // readBaseline reads the JSON file at rel under root into v. An absent file
 // leaves v as it is, and exists says which.
 func readBaseline(root, rel string, v any) (exists bool, err error) {
@@ -70,6 +110,24 @@ func readBaseline(root, rel string, v any) (exists bool, err error) {
 		return true, fmt.Errorf("%s: %w", rel, err)
 	}
 	return true, nil
+}
+
+// writeBaseline writes v as JSON at rel under root: sorted keys, two-space
+// indent and a final newline, so two writes of one set give the same bytes.
+// It escapes no HTML, so a reason a person wrote keeps its bytes.
+func writeBaseline(root, rel string, v any) error {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(v); err != nil {
+		return err
+	}
+	path := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
 }
 
 // ratchet holds found to baseline in both directions. over names the rule of

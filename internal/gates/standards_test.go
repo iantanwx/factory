@@ -259,3 +259,45 @@ func TestCitedCommit(t *testing.T) {
 		}
 	}
 }
+
+// C11: --only standards --update lowers .loop/suppressions.json by the rule
+// of a lint baseline, and a raised key still fails with new_suppression.
+// With no file, it adopts the found set, and the gate passes.
+func TestC11StandardsUpdateLowersTheSuppressions(t *testing.T) {
+	cases := []struct {
+		name, baseline, want string
+		rules                []string
+	}{
+		{
+			"lower", `{"allowed": {"x/a.go::SA4006": 2, "x/a.go::errcheck": 1, "y/b.go::r": 1}}`,
+			"{\n  \"allowed\": {\n    \"x/a.go::SA4006\": 1,\n    \"x/a.go::errcheck\": 1\n  }\n}\n",
+			[]string{"new_suppression"},
+		},
+		{
+			"adopt", "",
+			"{\n  \"allowed\": {\n    \"x/a.go::SA4006\": 1,\n    \"x/a.go::all\": 1,\n    \"x/a.go::errcheck\": 1\n  }\n}\n",
+			nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			files := map[string]string{"x/a.go": goFixture(t)}
+			if c.baseline != "" {
+				files[suppressionsPath] = c.baseline
+			}
+			r := testRepo(t, files)
+			r.Update = true
+			fs, err := Standards(context.Background(), r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(rules(fs), c.rules) {
+				t.Fatalf("rules = %q, want %q: %v", rules(fs), c.rules, fs)
+			}
+			raw, err := os.ReadFile(r.Root + "/" + suppressionsPath)
+			if err != nil || string(raw) != c.want {
+				t.Fatalf("%s = %s, %v; want\n%s", suppressionsPath, raw, err, c.want)
+			}
+		})
+	}
+}

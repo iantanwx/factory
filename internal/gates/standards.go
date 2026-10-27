@@ -61,9 +61,14 @@ func Standards(ctx context.Context, r *Repo) ([]Finding, error) {
 			found[k] += n
 		}
 	}
-	baseline, _, err := readCounts(r.Root, suppressionsPath)
+	baseline, exists, err := readCounts(r.Root, suppressionsPath)
 	if err != nil {
 		return nil, err
+	}
+	if r.Update {
+		if baseline, err = updateCounts(r.Root, suppressionsPath, found, baseline, exists); err != nil {
+			return nil, err
+		}
 	}
 	findings = append(findings, ratchet(found, baseline, suppressionsPath, "new_suppression", "suppressions")...)
 	anchors, err := staleAnchors(ctx, r, files)
