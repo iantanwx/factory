@@ -110,6 +110,26 @@ func TestTwoRejectsStartTheNextImplementerRunOnTheEscalatedModel(t *testing.T) {
 	}
 }
 
+// An escalated start whose harness records no model fails as before, and
+// the scheduler closes the session the host left running. Ticket c of
+// factorio-jiv replaces this guard.
+func TestEscalatedStartWithNoReceiptClosesTheSession(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.InReview)
+	w.rejectTwice(id)
+	w.host.SetSilentModel(true)
+	if st, ref := w.s.Dispatch(context.Background(), prj, machine.StageImplementer); ref == nil || st != nil {
+		t.Fatalf("dispatch = %+v, %+v; want a refusal", st, ref)
+	}
+	l := w.host.Launches()
+	if len(l) != 1 || !l[0].Spec.RequireVerifiedModel {
+		t.Fatalf("launches = %+v", l)
+	}
+	if st, _ := w.host.Settle(context.Background(), l[0].ID); st.Liveness == agenthost.Live {
+		t.Fatal("the session with no model receipt still runs")
+	}
+}
+
 // A stage's escalated profile in project config wins over the default
 // escalated model, and its effort reaches the start.
 func TestStageConfigNamesTheEscalatedProfile(t *testing.T) {
