@@ -369,6 +369,8 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		if err := s.Machine.Register(srv); err != nil {
 			return nil, err
 		}
+		// work show answers why the item waits.
+		s.Machine.SetWaitReader(admission.WaitOf(st))
 		if s.Admission != nil {
 			s.Admission.Attach(s.Machine)
 			if err := srv.Handle("work peek", s.peek); err != nil {

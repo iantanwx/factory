@@ -488,6 +488,13 @@ func (m *Machine) workShow(ctx context.Context, call *rpc.Call) cli.Result {
 	if r != nil {
 		return r.Result()
 	}
+	if m.wait != nil {
+		if w, err := m.wait(ctx, prj, it.ID); err != nil {
+			it.WaitError = err.Error()
+		} else {
+			it.Wait = &w
+		}
+	}
 	return cli.Found(it)
 }
 
@@ -522,6 +529,14 @@ type PRHeadReader func(ctx context.Context, project, item string) (string, *cli.
 // SetPRHeadReader sets the reader of live pull request heads. The GitHub
 // setup sets it before the socket binds.
 func (m *Machine) SetPRHeadReader(f PRHeadReader) { m.prHead = f }
+
+// WaitReader reads why an item waits: its lease, its holds, its counted
+// failures and the open alerts that name it.
+type WaitReader func(ctx context.Context, project, item string) (Wait, error)
+
+// SetWaitReader sets the reader of work show's wait. The server sets it
+// before the socket binds.
+func (m *Machine) SetWaitReader(f WaitReader) { m.wait = f }
 
 // PassGate reads CI at head, the head a code review passes. It refuses
 // unless every required check is green there.
