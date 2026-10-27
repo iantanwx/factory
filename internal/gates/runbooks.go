@@ -24,6 +24,8 @@ import (
 //   - each `loop` command against the schema of this binary: verb, flag,
 //     enum value, and a refusal code on a line that runs loop
 //   - each `loop gates --only <name>` names a loop gate or a config gate
+//   - each `make` target and package script that a command names is in
+//     the root Makefile or the root package.json
 //   - each repository path that a code span or a fenced line names is
 //     tracked by git, so an agent's worktree has it
 //   - each stated count of runbooks or policies
@@ -53,6 +55,10 @@ func Runbooks(ctx context.Context, r *Repo) ([]Finding, error) {
 		counts[n.noun] = len(matchFiles(r.Root, files, []string{n.glob}))
 	}
 	agents := agentForms(docs)
+	proj, err := readProject(r.Root)
+	if err != nil {
+		return nil, err
+	}
 	var out []Finding
 	var claims []agentClaim
 	for _, file := range docs {
@@ -70,6 +76,7 @@ func Runbooks(ctx context.Context, r *Repo) ([]Finding, error) {
 			out = append(out, Finding{File: file, Line: f.Line, Rule: f.Kind, Message: f.Detail})
 		}
 		out = append(out, onlyFindings(file, shell, gateNames)...)
+		out = append(out, projectFindings(file, shell, proj)...)
 		out = append(out, pathFindings(file, text, tracked)...)
 		out = append(out, countFindings(file, text, counts)...)
 		claims = append(claims, claimsIn(file, text, agents)...)

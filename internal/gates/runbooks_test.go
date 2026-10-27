@@ -2,6 +2,8 @@ package gates
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -303,4 +305,113 @@ func TestRepairFindings(t *testing.T) {
 	}
 	got = runbooks(t, map[string]string{"docs/plans/a/b.md": "Never rerun the job, so the evidence stays clean.\n"})
 	wantRules(t, got, "repair")
+}
+
+// fixture reads one file of testdata/runbooks.
+func fixture(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("testdata", "runbooks", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// wantAt checks that each finding has rule and sits on the line at the same
+// index of lines.
+func wantAt(t *testing.T, got []Finding, rule string, lines ...int) {
+	t.Helper()
+	var at []int
+	for _, f := range got {
+		if f.Rule != rule || f.File != "AGENTS.md" {
+			t.Fatalf("want only %s findings in AGENTS.md, got %v", rule, got)
+		}
+		at = append(at, f.Line)
+	}
+	if !slices.Equal(at, lines) {
+		t.Fatalf("want %s on lines %v, got %v", rule, lines, got)
+	}
+}
+
+func TestRunbooksMakeTargetMustExist(t *testing.T) {
+	got := runbooks(t, map[string]string{
+		"Makefile": fixture(t, "Makefile"),
+		"AGENTS.md": strings.Join([]string{
+			"Run `make nosuch` first.",
+			"```bash",
+			"make build",
+			"make proto-check",
+			"make linux/amd64",
+			"make dist/loop.tar",
+			"make test GO=go1.26",
+			"$ make -k test race",
+			"make -j 4 build",
+			"make build && make gone",
+			"make <target>",
+			"make build > out.log 2>&1 # quiet",
+			"```",
+		}, "\n"),
+	})
+	wantAt(t, got, "make_target", 1, 10)
+	if !strings.Contains(got[0].Message, "`make nosuch`") || !strings.Contains(got[1].Message, "`make gone`") {
+		t.Fatalf("want nosuch and gone named, got %v", got)
+	}
+
+	got = runbooks(t, map[string]string{"AGENTS.md": "Run `make build`.\n"})
+	wantAt(t, got, "make_target", 1)
+}
+
+func TestRunbooksPackageScriptMustExist(t *testing.T) {
+	got := runbooks(t, map[string]string{
+		"package.json": fixture(t, "package.json"),
+		"AGENTS.md": strings.Join([]string{
+			"```bash",
+			"pnpm run nosuch",
+			"npm run nosuch",
+			"yarn run nosuch",
+			"bun run nosuch",
+			"pnpm nosuch",
+			"yarn nosuch",
+			"pnpm install",
+			"pnpm exec nosuch",
+			"npm test",
+			"npm nosuch",
+			"pnpm --filter web nosuch",
+			"pnpm -C web nosuch",
+			"pnpm -r nosuch",
+			"pnpm run build --prod",
+			"yarn lint",
+			"```",
+		}, "\n"),
+	})
+	wantAt(t, got, "package_script", 2, 3, 4, 5, 6, 7)
+
+	got = runbooks(t, map[string]string{"AGENTS.md": "Run `pnpm run build`.\n"})
+	wantAt(t, got, "package_script", 1)
+}
+
+func TestRunbooksReportsNoCommandThatIsNotOne(t *testing.T) {
+	doc := strings.Join([]string{
+		"The operator wrote `... by yourself. make sure this is part ...`.",
+		"Run `make nosuch` and `echo make gone`.",
+		"```go",
+		"m := make(map[string]int)",
+		"```",
+		"Run `pnpm run nosuch`.",
+	}, "\n")
+	for name, makefile := range map[string]string{
+		"an include line":         "include extra.mk\nbuild:\n\ttrue\n",
+		"a target that keeps a $": "OUT ?= bin\nbuild:\n\ttrue\n$(OUT)/loop:\n\ttrue\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := runbooks(t, map[string]string{"Makefile": makefile, "AGENTS.md": doc})
+			// The script call on line 6 is the one command the gate can
+			// check, so it shows that the gate read the document.
+			wantAt(t, got, "package_script", 6)
+		})
+	}
+
+	// A closed Makefile shows that position alone keeps the words out.
+	got := runbooks(t, map[string]string{"Makefile": "build:\n\ttrue\n", "AGENTS.md": strings.Replace(doc, "`make nosuch` and ", "", 1)})
+	wantAt(t, got, "package_script", 6)
 }
