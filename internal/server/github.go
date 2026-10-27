@@ -12,6 +12,8 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/sched"
+	"github.com/iantanwx/loop/internal/secrets"
 )
 
 // MirrorDir holds one bare mirror for each project in the instance
@@ -37,9 +39,14 @@ type GitHub struct {
 	HTTP      *http.Client
 	Sleep     func(ctx context.Context, d time.Duration) error
 
-	// Service and Reactor are set by Setup.
+	// ProjectConfig reads each project's config for `loop doctor`. Setup
+	// sets the scheduler's source when it is nil.
+	ProjectConfig sched.ProjectSource
+
+	// Service, Reactor and Secrets are set by Setup.
 	Service *github.Service
 	Reactor *github.Reactor
+	Secrets *secrets.Store
 }
 
 // Setup composes the service over the server's store, redactor, secret
@@ -79,7 +86,10 @@ func (g *GitHub) Setup(s *Server) error {
 		}
 	}
 	s.Projects.AddHooks = append(s.Projects.AddHooks, svc.AddHook)
-	g.Service, g.Reactor = svc, github.NewReactor(svc)
+	g.Service, g.Reactor, g.Secrets = svc, github.NewReactor(svc), s.Secrets
+	if g.ProjectConfig == nil {
+		g.ProjectConfig = s.projectSource()
+	}
 	// The overwatch parts pulls, main and audit read through it.
 	s.setOverwatchGitHub(svc)
 	if s.Inbox != nil {

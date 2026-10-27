@@ -317,6 +317,9 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 		WriteJSON(w, 401, map[string]string{"message": "Bad credentials"})
 	case key == "GET /repos/"+Repo:
 		WriteJSON(w, 200, map[string]any{"full_name": Repo, "default_branch": "main"})
+	case key == "GET /rate_limit":
+		full := map[string]any{"limit": 5000, "remaining": 5000, "reset": time.Now().Add(time.Hour).Unix()}
+		WriteJSON(w, 200, map[string]any{"resources": map[string]any{"core": full, "graphql": full}})
 	case key == "GET /repos/"+Repo+"/rules/branches/main":
 		a.mu.Lock()
 		rules, status := a.rules, a.noRulesStatus
