@@ -57,7 +57,7 @@ func (s *Scheduler) FinishFault(ctx context.Context, runID, outcome, faultID str
 	s.settleMu.Lock()
 	defer s.settleMu.Unlock()
 	r, err := s.runByID(ctx, runID)
-	if errors.Is(err, errNoRun) {
+	if errors.Is(err, ErrNoRun) {
 		return FinishResult{}, &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_run", Hint: "the server has no run " + runID}
 	}
 	if err != nil {
