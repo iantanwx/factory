@@ -50,6 +50,7 @@ const (
 	FactSupersededBy    = "superseded_by"
 	FactSupersedeReason = "supersede_reason" // how that evidence answers the ticket
 	FactCancelReason    = "cancel_reason"    // why work cancel closed the item
+	FactPriority        = "priority"         // the priority work shape gave the ticket: 1 to 4
 )
 
 // Entry values of a todo ticket (R6).
