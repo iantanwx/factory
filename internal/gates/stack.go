@@ -3,6 +3,7 @@ package gates
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os/exec"
 	"path"
 	"slices"
@@ -84,6 +85,10 @@ func ratchetStack(root string, gate config.Command, stdout string, exit error) (
 		}
 		return []Finding{{Rule: "no_end_line", Message: msg}}, nil
 	}
+	if gate.Name == "audit" {
+		findings, err := ratchetAudit(root, gate.Baseline, keys)
+		return append(bad, findings...), err
+	}
 	baseline, exists, err := readCounts(root, gate.Baseline)
 	if err != nil {
 		return nil, err
@@ -99,4 +104,35 @@ func ratchetStack(root string, gate config.Command, stdout string, exit error) (
 		}
 	}
 	return append(bad, findings...), nil
+}
+
+// ratchetAudit holds the advisory ids that an audit printed to the accepted
+// set in file. An audit tool prints one advisory once for each path to the
+// package, and that count follows the dependency graph, not the risk. So
+// each id counts once.
+func ratchetAudit(root, file string, ids []string) ([]Finding, error) {
+	accepted, _, err := readAccepted(root, file)
+	if err != nil {
+		return nil, err
+	}
+	var findings []Finding
+	found, baseline := Counts{}, Counts{}
+	for _, id := range ids {
+		found[id] = 1
+	}
+	for _, id := range slices.Sorted(maps.Keys(accepted)) {
+		baseline[id] = 1
+		findings = append(findings, accepted[id].faults(id, file)...)
+	}
+	for _, f := range ratchet(found, baseline, file, "new_advisory", "advisories") {
+		id := f.File // an advisory id holds no "::", so ratchet puts all of it in File
+		f.File = file
+		if f.Rule == "new_advisory" {
+			f.Message = fmt.Sprintf("%s is not accepted. Upgrade the package, or accept the advisory in %s with a reason and a date", id, file)
+		} else {
+			f.Rule, f.Message = "stale_advisory", fmt.Sprintf("%s accepts %s, and the audit no longer prints it. Delete its entry", file, id)
+		}
+		findings = append(findings, f)
+	}
+	return findings, nil
 }
