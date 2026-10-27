@@ -30,6 +30,9 @@ Run `loop gates --docs` before you commit a document. Each gate below names the 
 - **`prd`** reads each PRD. The scope check holds the five lines Stories, Estimated total, Lands
   independently?, Promises provable alone? and Verdict. No line holds a placeholder. The verdict
   starts with proceed.
+- **`spec`** reads each spec, `docs/plans/*-spec.md`. The 14 headings of the template are there,
+  once each and in their order. No section is empty. No line of the template's instruction block,
+  placeholders or example markers is left. The filename starts with the `**Epic:**` id and a dash.
 - **`citations`** reads each PRD. Each top-level bullet under `## Requirements` has a `→` citation
   on a line under it, and each citation resolves. The PRD names a story label US-n. No two
   headings define one label. A label that the PRD held on the base branch is still there.
@@ -39,8 +42,8 @@ Run `loop gates --docs` before you commit a document. Each gate below names the 
   share a number, and each `docs/adr/NNNN` that an ADR cites exists.
 - **`prose`** lints the agent-facing documents, the ADRs and the PRDs.
 
-The spec has no gate of its own. The doc-reviewer checks it against its template,
-`../loop-sdlc-documents/spec.md`.
+The `spec` gate reads the shape of a spec, and not what it says. The doc-reviewer checks each
+section against its template, `../loop-sdlc-documents/spec.md`.
 
 ## 3. Citations
 

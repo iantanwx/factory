@@ -346,6 +346,58 @@ func TestWorkDuplicateClosesTheBug(t *testing.T) {
 	}
 }
 
+// TestC19DuplicateUnbuiltWaitsForTheBuild proves C19: a report that a
+// build answers moves from reported or reproducing to awaiting_build, with
+// built_by naming the build. The build is a ticket or an epic that is not
+// terminal. Any other item refuses with USAGE, and the report stays.
+func TestC19DuplicateUnbuiltWaitsForTheBuild(t *testing.T) {
+	w := newWorld(t)
+	unbuilt := func(of string) map[string]string { return map[string]string{"of": of, "unbuilt": "true"} }
+	ticket := w.create(KindTicket, "create", nil)
+	epic := w.create(KindEpic, "create_architecture", nil)
+
+	reported := w.create(KindBug, "file", nil)
+	mustOK(t, w.call("work duplicate", coord(), []string{reported}, unbuilt(ticket)))
+	bug := w.create(KindBug, "file", nil)
+	run := w.claimAs(bug, StageReproducer, "repro")
+	mustOK(t, w.call("work duplicate", run, []string{bug}, unbuilt(epic)))
+	for id, build := range map[string]string{reported: ticket, bug: epic} {
+		if it := w.show(id); it.Status != "awaiting_build" || it.Fact("built_by") != build || it.Fact(FactDuplicateOf) != "" || it.Owner != "" {
+			t.Fatalf("%s after --unbuilt: %s, owner %q, facts %v; want awaiting_build, built_by %s", id, it.Status, it.Owner, it.Facts, build)
+		}
+	}
+
+	done, canceled := w.create(KindTicket, "create", nil), w.create(KindTicket, "create", nil)
+	w.force(done, Done, nil)
+	w.force(canceled, Canceled, nil)
+	other := w.create(KindBug, "file", nil)
+	decision := w.create(KindDecision, "file", nil)
+	g := w.create(KindBug, "file", nil)
+	before := w.show(g)
+	for _, of := range []string{done, canceled, other, decision} {
+		if ref := wantCode(t, w.call("work duplicate", coord(), []string{g}, unbuilt(of)), cli.CodeUsage); ref.Item != of {
+			t.Fatalf("the refusal of %s names %q", of, ref.Item)
+		}
+	}
+	if after := w.show(g); after.Status != Reported || after.Seq != before.Seq {
+		t.Fatalf("a refused --unbuilt changed the report: %+v", after)
+	}
+}
+
+// TestC12WaitingBugRefusesCancel proves the awaiting_build part of C12:
+// no cancel row starts from the waiting state (Decision 24), so a reasoned
+// cancel refuses with TRANSITION_NOT_ALLOWED and the report keeps waiting.
+func TestC12WaitingBugRefusesCancel(t *testing.T) {
+	w := newWorld(t)
+	build := w.create(KindTicket, "create", nil)
+	bug := w.create(KindBug, "file", nil)
+	mustOK(t, w.call("work duplicate", coord(), []string{bug}, map[string]string{"of": build, "unbuilt": "true"}))
+	wantCode(t, w.call("work cancel", coord(), []string{bug}, map[string]string{"reason": "dropped"}), cli.CodeTransitionNotAllowed)
+	if it := w.show(bug); it.Status != "awaiting_build" || it.Fact("built_by") != build {
+		t.Fatalf("after the refused cancel: %s, built_by %q", it.Status, it.Fact("built_by"))
+	}
+}
+
 type evidenceLog struct {
 	calls []string
 	fail  *cli.Refusal

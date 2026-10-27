@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 // fileDecision files a decision as the coordinator and returns its id.
@@ -155,7 +156,7 @@ func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	q := env["data"].(map[string]any)["entry"].(string)
 	until := w.clock.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	for _, id := range []string{"decision/alpha/" + d, q} {
-		if env, code := w.coordinator("inbox", "defer", id, "--until", until); code != 0 {
+		if env, code := w.coordinator("inbox", "defer", id, "--until", until, "--reason", "the operator decides on Friday"); code != 0 {
 			t.Fatalf("defer %s = %d %v", id, code, env)
 		}
 	}
@@ -165,7 +166,7 @@ func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	if es := w.entries(""); entryByID(es, q) != nil || entryByID(es, "decision/alpha/"+d) != nil {
 		t.Fatalf("deferred entries show: %v", es)
 	}
-	if env, _ := w.coordinator("inbox", "defer", q, "--until", "2000-01-01T00:00:00Z"); env["code"] != cli.CodeUsage {
+	if env, _ := w.coordinator("inbox", "defer", q, "--until", "2000-01-01T00:00:00Z", "--reason", "the past"); env["code"] != cli.CodeUsage {
 		t.Fatalf("a past --until = %v", env)
 	}
 
@@ -187,6 +188,52 @@ func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	}
 	if body, answer, err := w.srv.Inbox.Question(ctx, 1); err != nil || answer != "yes" || !strings.Contains(body, "Friday") {
 		t.Fatalf("question = %q %q %v", body, answer, err)
+	}
+}
+
+// C16, spec Work 7: `inbox defer` requires --reason. An entry that is no
+// decision is absent until --until, then returns with defer_reason equal
+// to the reason. A reason that holds the value of a secret is refused, and
+// each refusal defers nothing. A defer row written before the reason
+// existed holds {}, and its entry returns with no defer_reason.
+func TestC16ADeferredEscalationReturnsWithItsReason(t *testing.T) {
+	w := newHumanWorld(t, "")
+	w.srv.Redactor.SetLive("test/value", humanSecret)
+	id, old := "escalation/alpha/"+w.ticketIn(machine.Escalated), "escalation/alpha/"+w.ticketIn(machine.Escalated)
+	until := w.clock.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	if env, code := w.coordinator("inbox", "defer", id, "--until", until); code != 2 || env["code"] != cli.CodeUsage {
+		t.Fatalf("a defer with no --reason = %d %v", code, env)
+	}
+	if env, code := w.coordinator("inbox", "defer", id, "--until", until, "--reason", "the key is "+humanSecret); code != 3 ||
+		env["code"] != cli.CodeSecretInOutput {
+		t.Fatalf("a reason that holds a secret = %d %v", code, env)
+	}
+	if entryByID(w.entries(""), id) == nil || w.count(`SELECT count(*) FROM schedule WHERE kind = 'inbox_defer'`) != 0 {
+		t.Fatal("a refused defer deferred the entry")
+	}
+	const reason = "the operator rotates the deploy key on Friday"
+	for _, e := range []string{id, old} {
+		if env, code := w.coordinator("inbox", "defer", e, "--until", until, "--reason", reason); code != 0 {
+			t.Fatalf("defer %s = %d %v", e, code, env)
+		}
+	}
+	if err := w.srv.Store.Write(context.Background(), func(tx *store.Tx) error {
+		_, err := tx.Exec(`UPDATE schedule SET payload = '{}' WHERE kind = 'inbox_defer' AND stage = ?`, old)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if es := w.entries(""); entryByID(es, id) != nil || entryByID(es, old) != nil {
+		t.Fatalf("a deferred entry shows before its time: %v", es)
+	}
+
+	w.clock.Advance(2 * time.Hour)
+	es := w.entries("")
+	if e := entryByID(es, id); e == nil || e["defer_reason"] != reason {
+		t.Fatalf("the returned entry = %v", e)
+	}
+	if e := entryByID(es, old); e == nil || e["defer_reason"] != nil {
+		t.Fatalf("the entry of a defer row with no reason = %v", e)
 	}
 }
 

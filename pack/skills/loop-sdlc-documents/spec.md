@@ -390,4 +390,17 @@ answer by reading the sources is work that you did not finish.
 >
 > **Bad.** ~~"Is this the right approach?"~~ Nobody can answer this. Ask about one choice.
 
+The operator decides each entry before this spec merges. Write the decision in the entry, as a bold
+run that starts `**Answered` or `**Deferred`. The run names who decided, and the date. An entry
+with no such run is undecided.
+
+> **Good**
+>
+> - The PRD says "ten years of history", and one symbol listed five years ago. Does it run from its
+>   first day, or not at all? This blocks work entry 3.
+>   **Answered (operator, 2026-03-02):** From its first day. Work entry 3 reads each symbol from its
+>   first bar.
+> - Does the engine read intraday bars? This blocks work entry 4.
+>   **Deferred (operator, 2026-03-02):** To the intraday epic. Work entry 4 reads daily bars only.
+
 - <Question> This blocks <which work entry>.

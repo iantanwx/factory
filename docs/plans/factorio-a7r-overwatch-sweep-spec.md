@@ -871,13 +871,14 @@ with a fault that names one escalation's key.*
 "Which parts port", row `stalls`. An item in a state that its stage takes is work when two fires of
 that stage's schedule (the project's override, else host config) passed after it entered the
 state, and no run on the item started since then. Its key is `overwatch:stalls:<item>@<state>`.
-These six are not work:
+These seven are not work:
 
 - Only one fire passed.
 - A run started after the item entered the state.
 - An open `retry_limit` or `run_blocked` alert names the item.
 - A room's hold holds the item.
 - Project config disables the stage.
+- A run that has not ended holds the item's lease.
 - Fewer than two fires count because each other fire started no run while a limit of the stage
   was full (F-46). The part counts the runs live at the fire on the whole instance, over each
   stage of each limit, as admission counts them for `cap_full`. The line says

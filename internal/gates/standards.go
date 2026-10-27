@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // Standards catches the silencing of a fault rather than the fault: when an
@@ -40,7 +42,7 @@ func Standards(ctx context.Context, r *Repo) ([]Finding, error) {
 		return nil, err
 	}
 	var findings []Finding
-	found := map[string]int{}
+	found := Counts{}
 	for _, f := range files {
 		lang := langFor(langs, f)
 		if lang == nil {
@@ -59,11 +61,11 @@ func Standards(ctx context.Context, r *Repo) ([]Finding, error) {
 			found[k] += n
 		}
 	}
-	baseline, err := r.suppressionBaseline()
+	baseline, _, err := readCounts(r.Root, suppressionsPath)
 	if err != nil {
 		return nil, err
 	}
-	findings = append(findings, ratchet(found, baseline)...)
+	findings = append(findings, ratchet(found, baseline, suppressionsPath, "new_suppression", "suppressions")...)
 	anchors, err := staleAnchors(ctx, r, files)
 	if err != nil {
 		return nil, err
@@ -78,7 +80,7 @@ var needlesJSON []byte
 // "<file>::<rule>" with the exact count allowed. Raising a count is a
 // reviewable edit to a file whose purpose is to be argued with, rather than
 // a line buried in a large diff.
-const suppressionsPath = ".loop/suppressions.json"
+const suppressionsPath = config.SuppressionsPath
 
 type language struct {
 	Name         string   `json:"name"`
@@ -166,47 +168,6 @@ func suppressedRules(list string) []string {
 		return []string{"all"}
 	}
 	return out
-}
-
-func (r *Repo) suppressionBaseline() (map[string]int, error) {
-	raw, err := os.ReadFile(filepath.Join(r.Root, suppressionsPath))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var b struct {
-		Allowed map[string]int `json:"allowed"`
-	}
-	if err := json.Unmarshal(raw, &b); err != nil {
-		return nil, fmt.Errorf("%s: %w", suppressionsPath, err)
-	}
-	return b.Allowed, nil
-}
-
-// ratchet holds the found suppressions to the baseline in both directions.
-func ratchet(found, baseline map[string]int) []Finding {
-	var findings []Finding
-	keys := make([]string, 0, len(found)+len(baseline))
-	for k := range found {
-		keys = append(keys, k)
-	}
-	for k := range baseline {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	for _, key := range slices.Compact(keys) {
-		file, rule, _ := strings.Cut(key, "::")
-		n, allowed := found[key], baseline[key]
-		switch {
-		case n > allowed:
-			findings = append(findings, Finding{File: file, Rule: "new_suppression", Message: fmt.Sprintf("%d suppressions of %s, and the baseline allows %d. Fix the code, or raise the count in %s with a reason", n, rule, allowed, suppressionsPath)})
-		case n < allowed:
-			findings = append(findings, Finding{File: file, Rule: "stale_baseline", Message: fmt.Sprintf("the baseline allows %d suppressions of %s, and %d remain. Lower the count in %s", allowed, rule, n, suppressionsPath)})
-		}
-	}
-	return findings
 }
 
 // skipDirs hold code the project does not write.
