@@ -26,6 +26,7 @@ const (
 	StageCodeReviewer = "code-reviewer"
 	StageDocReviewer  = "doc-reviewer"
 	StageAmender      = "amender"
+	StagePRDAuthor    = "prd-author"
 	StageSpecAuthor   = "spec-author"
 	StageDecomposer   = "decomposer"
 	StageFixer        = "fixer"
@@ -37,8 +38,8 @@ const (
 // The stage set (R13). The native jobs claim no item.
 var (
 	runStages = []string{
-		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StageSpecAuthor,
-		StageDecomposer, StageFixer, StageReproducer, StageIntake,
+		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StagePRDAuthor,
+		StageSpecAuthor, StageDecomposer, StageFixer, StageReproducer, StageIntake,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch"}
 	// optional lists the keys that a later release added. A host config
@@ -46,7 +47,7 @@ var (
 	// entry reads as its default and is never written to the file
 	// (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Decisions). Every
 	// other key stays required.
-	optional = []string{"overwatch"}
+	optional = []string{"overwatch", StagePRDAuthor}
 	// pools bound several stages together. The reviewers pool is today's
 	// REVIEW_CAP over every reviewer stage (scripts/sdlc/review-cap.ts,
 	// alpha), next to each stage's own cap.
@@ -96,6 +97,7 @@ func DefaultThroughput() map[string]Throughput {
 		StageDocReviewer:     {Cap: 10, Schedule: "26,56 * * * *"},
 		"reviewers":          {Cap: 10},
 		StageAmender:         {Cap: 2, Schedule: "16,46 * * * *"},
+		StagePRDAuthor:       {Cap: 2, Schedule: "5,35 * * * *"},
 		StageSpecAuthor:      {Cap: 2, Schedule: "25,55 * * * *"},
 		StageDecomposer:      {Cap: 2, Schedule: "10,40 * * * *"},
 		StageFixer:           {Cap: 1, Schedule: "14,44 * * * *"},

@@ -123,7 +123,7 @@ func ticketEdges() []edge {
 	return e
 }
 
-var epicLive = []string{Backlog, PRDNeeded, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+var epicLive = []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 	SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 
 func epicEdges() []edge {
@@ -136,6 +136,10 @@ func epicEdges() []edge {
 		{Initial, "create_prd", PRDNeeded}, {Initial, "create_prd", Backlog},
 		{Initial, "create_architecture", Backlog},
 		{Backlog, "unblock", PRDNeeded}, {Backlog, "unblock", Architecture},
+		// factorio-4n0: only a prd-author run claims a PRD epic, and its
+		// settlement returns the epic to the queue.
+		{PRDNeeded, "claim", PRDDrafting},
+		{PRDDrafting, "release", PRDNeeded}, {PRDDrafting, "reclaim", PRDNeeded},
 		{PRDReview, "review_reject", PRDAmending},
 		{PRDAmending, "prd_amended", PRDReview},
 		{PRDReview, "review_reject", Escalated},

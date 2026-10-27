@@ -180,7 +180,7 @@ func TestParityDoneHasOneWriter(t *testing.T) {
 // claims from, and escalate stores a target answer can land on.
 func TestParityResumeTargets(t *testing.T) {
 	inFlight := map[Kind][]string{
-		KindTicket: {InProgress}, KindEpic: {SpecDrafting, Decomposing}, KindBug: {Reproducing},
+		KindTicket: {InProgress}, KindEpic: {PRDDrafting, SpecDrafting, Decomposing}, KindBug: {Reproducing},
 	}
 	for _, tbl := range Tables() {
 		claimable := map[string]bool{}
