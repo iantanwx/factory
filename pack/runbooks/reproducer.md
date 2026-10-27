@@ -84,9 +84,9 @@ That list is the update that each source owes. The server does not require this 
 The body holds at most 400 words outside each `## Contract C-bug-<n>` section and outside the
 fenced blocks of `## Reproduction`. The words around the fence count.
 
-`loop work shape` checks the body before it creates the ticket. A missing section, or a count over
+The server checks the body when section 5 shapes the ticket. A missing section, or a count over
 its limit, refuses with `SHAPE_REFUSED` and rule `bug_shape`. The hint names every fault. The
-command creates no ticket, and the bug stays as it was. Repair each fault, and run the command
+server creates no ticket, and the bug stays as it was. Repair each fault, and run the same command
 again with the new body.
 
 Two faults in one report: shape the first, and put the second under Out of scope.
