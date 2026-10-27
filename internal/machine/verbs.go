@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iantanwx/loop/internal/beadsx"
@@ -235,7 +236,8 @@ func (m *Machine) headHeld(ctx context.Context, prj, item, head string) *cli.Ref
 // was created with, and the edit is a fact that replaces it: the item's
 // title, TaskText and so the retry identity (R10) read the edit. A new
 // body holds the shape that the item's shape fact names, so an item keeps
-// the shape it was checked against at its creation.
+// the shape it was checked against at its creation. A new ticket body
+// calls no host verb, shaped or not.
 func (m *Machine) workEdit(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -266,6 +268,11 @@ func (m *Machine) workEdit(ctx context.Context, call *rpc.Call) cli.Result {
 					return refusedAt(r, item, it)
 				}
 			}
+			if it.Kind == KindTicket {
+				if r := HostVerbRefusal(item, body); r != nil {
+					return refusedAt(r, item, it)
+				}
+			}
 			return nil
 		}
 	}
@@ -287,6 +294,31 @@ func BodyRefusal(s shape.Shape, item, body string) *cli.Refusal {
 	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: s.Name + "_shape", Item: item,
 		Hint: fmt.Sprintf("the body does not hold the %s shape: %s. Write each section as a `## ` heading, and send the body again",
 			s.Name, strings.Join(text, "; "))}
+}
+
+// hostVerbs are the verb paths that need the host-admin credential, read
+// once from the capability matrix.
+var hostVerbs = sync.OnceValue(func() []string {
+	m, _ := cli.Surface().CapabilityMatrix()
+	return m.HostVerbs
+})
+
+// HostVerbRefusal refuses a ticket body that tells a run to call a host verb
+// under Done means or Contracts to prove, with SHAPE_REFUSED, the rule
+// host_verb_in_ticket and every call. The server refuses a host verb from a
+// run's checkout (factorio-bxv0). It is nil for a body that calls none.
+func HostVerbRefusal(item, body string) *cli.Refusal {
+	calls := shape.HostVerbCalls(body, hostVerbs())
+	if len(calls) == 0 {
+		return nil
+	}
+	text := make([]string, len(calls))
+	for i, c := range calls {
+		text[i] = fmt.Sprintf("`loop %s` on line %d under %s", c.Verb, c.Line, c.Section)
+	}
+	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "host_verb_in_ticket", Item: item,
+		Hint: fmt.Sprintf("the body tells a run to call a host verb: %s. A run cannot call a host verb, "+
+			"so prove the behaviour with a test, and send the body again", strings.Join(text, "; "))}
 }
 
 // askQuestion is one top-level list item of an ask's body. An indented
