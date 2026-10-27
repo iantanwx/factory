@@ -1,4 +1,4 @@
-# ADR 0011: The coordinator recovers a twice-failed item once, and no fixer recovery is built
+# ADR 0011: The coordinator recovers a twice-failed item once, and the loop builds no fixer recovery
 
 **Status:** Proposed
 **Date:** 2026-10-27
