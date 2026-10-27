@@ -260,7 +260,7 @@ var surface = []Verb{
 	server("room", "list", "list rooms", coordinator, nil,
 		Flag{Name: "all", Type: FlagBool, Description: "list closed rooms too"}),
 
-	write(server("prd", "submit", "push the room's PRD commit, open its pull request and create its epic in review", []string{"intake room"}, nil,
+	write(server("prd", "submit", "push the PRD commit, open its pull request and move its epic to review: an intake room's new epic, or the epic a prd-author run holds", []string{"intake room", "run"}, nil,
 		Flag{Name: "path", Type: FlagString, Required: true, Description: "the PRD's path in the repository, committed at the checkout's HEAD"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic and pull request title"},
 		Flag{Name: "body", Type: FlagString, Description: "the pull request body"})),
