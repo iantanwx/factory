@@ -410,8 +410,10 @@ func (m *Machine) workUnblock(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "blocker_open", Item: item, CurrentStatus: it.Status,
 			Hint: fmt.Sprintf("%s still waits on %s; name each one with --by to end its block", item, strings.Join(open, ", "))})
 	}
-	if r := m.blockPending(ctx, prj, it, deps, by); r != nil {
-		return r.Result()
+	if by != "" {
+		if r := m.blockPending(ctx, prj, it, deps, by); r != nil {
+			return r.Result()
+		}
 	}
 	removed := by != "" && hasEdge(deps, by)
 	if removed {

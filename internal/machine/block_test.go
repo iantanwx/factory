@@ -248,6 +248,23 @@ func TestC6WorkUnblockByEndsABlock(t *testing.T) {
 	}
 }
 
+// C6: work unblock --by the blocker of the latest work block keeps a
+// ticket with another open blocker in backlog, and clears pending_block
+// (spec factorio-9wh Decision 22). A pending_block left on that blocker
+// would hold the ticket after its other blocker lands.
+func TestC6WorkUnblockByTheLatestBlockerClearsPendingBlock(t *testing.T) {
+	w := newWorld(t)
+	x, y := w.ticketIn(Todo), w.ticketIn(Todo)
+	tk := w.ticketIn(Todo)
+	mustOK(t, w.block(tk, x))
+	mustOK(t, w.block(tk, y))
+	mustOK(t, w.unblock(tk, y))
+	w.wantState(tk, Backlog, x)
+	if got := w.show(tk).Fact(FactPendingBlock); got != "" {
+		t.Fatalf("pending_block = %q after unblock --by %s", got, y)
+	}
+}
+
 // C6: work block crashed before its edge, and its blocker was then
 // canceled. work unblock --by that blocker frees the ticket.
 func TestC6WorkUnblockByEndsACrashedBlockOnACanceledBlocker(t *testing.T) {
@@ -282,6 +299,20 @@ func TestC7WorkUnblockFreesOnlyATicketWithNoOpenBlocker(t *testing.T) {
 		}
 		w.wantState(tk, Todo, edges...)
 	}
+	// A work block that stopped before its edge leaves an open blocker
+	// while its item is open, and none once that item is done.
+	p := w.ticketIn(Todo)
+	tk := w.ticketIn(Todo)
+	w.crashedBlock(tk, p)
+	if r := wantCode(t, w.unblock(tk, ""), cli.CodeUsage); r.Rule != "blocker_open" || !strings.Contains(r.Hint, p) {
+		t.Fatalf("an open pending blocker: rule %q hint %q, want blocker_open naming %s", r.Rule, r.Hint, p)
+	}
+	w.wantState(tk, Backlog)
+	w.force(p, Done, nil)
+	if res := w.unblock(tk, ""); res.Refusal != nil {
+		t.Fatalf("a done pending blocker: %+v", res.Refusal)
+	}
+	w.wantState(tk, Todo)
 	for name, edges := range map[string][]string{"an open edge": {x, d}, "a canceled edge": {c, d}, "both": {x, c}} {
 		tk := w.ticketIn(Backlog)
 		for _, on := range edges {
