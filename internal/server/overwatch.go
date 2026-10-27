@@ -268,6 +268,13 @@ func (w *serverWorld) Jobs() sched.Jobs {
 	return w.s.Sched.Jobs()
 }
 
+func (w *serverWorld) DrainSince() time.Time {
+	if w.s.Sched == nil {
+		return time.Time{}
+	}
+	return w.s.Sched.DrainSince()
+}
+
 // CheckoutDirs lists each loop-* directory one level under a directory of
 // agent_host.checkout_root, as absolute paths.
 func (w *serverWorld) CheckoutDirs(context.Context) ([]string, error) {

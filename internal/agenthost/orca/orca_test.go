@@ -859,8 +859,16 @@ func TestQuotaCaptured(t *testing.T) {
 	if err != nil || !q.OK || q.UpdatedAt.IsZero() {
 		t.Fatalf("Quota = %+v, %v", q, err)
 	}
-	want := []agenthost.QuotaWindow{{Name: "fableWeekly", UsedPercent: 20}, {Name: "session", UsedPercent: 10}, {Name: "weekly", UsedPercent: 50}}
-	if !slices.Equal(q.Windows, want) {
+	// session's resetsAt is null, and reads as the zero time.
+	reset := time.Date(2026, 10, 24, 0, 0, 0, 0, time.UTC)
+	want := []agenthost.QuotaWindow{
+		{Name: "fableWeekly", UsedPercent: 20, ResetsAt: reset},
+		{Name: "session", UsedPercent: 10},
+		{Name: "weekly", UsedPercent: 50, ResetsAt: reset},
+	}
+	if !slices.EqualFunc(q.Windows, want, func(a, b agenthost.QuotaWindow) bool {
+		return a.Name == b.Name && a.UsedPercent == b.UsedPercent && a.ResetsAt.Equal(b.ResetsAt)
+	}) {
 		t.Fatalf("windows = %+v", q.Windows)
 	}
 	cq, err := w.host.Quota(context.Background(), agenthost.Codex)

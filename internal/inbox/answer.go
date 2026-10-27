@@ -219,6 +219,9 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Found(map[string]any{"entry": id, "closed": true})
 	case KindSignoff:
 		return in.signoff(ctx, call, id, project, item, body)
+	case KindArchitecture:
+		return cli.Reject(cli.CodeUsage, "architecture_entry",
+			"an architecture entry ends when a ticket is filed under the epic or a room opens on it, not with an answer: "+archActs(project, item))
 	case KindPanel:
 		return cli.Reject(cli.CodeTransitionNotAllowed, "panel_pending",
 			"the fixer's panel routes this escalation; a person answers it only after the panel sends it to a person")

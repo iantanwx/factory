@@ -366,6 +366,37 @@ func TestC10AnItemStallsAtTheSecondFireOfItsStage(t *testing.T) {
 	}
 }
 
+// C-bug-1 (factorio-6z48): a fire of a stage while the server drains
+// starts no run, so it does not count against an item. The implementer
+// fires at 08:58 and 09:03, and the clock reads 09:05.
+func TestC10AFireDuringADrainDoesNotCount(t *testing.T) {
+	cases := []struct {
+		name  string
+		drain time.Time
+		work  bool
+	}{
+		{"no drain", time.Time{}, true},
+		{"a drain after both fires", at(9, 4), true},
+		{"a drain between the fires", at(9, 0), false},
+		{"a drain before both fires", at(8, 56), false},
+		{"a drain at the second fire", at(9, 3), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newStallsWorld(t)
+			w.drain = c.drain
+			w.item("factorio-t1", machine.KindTicket, machine.Todo, at(8, 57))
+			r := readStallsPart(t, w)
+			if _, ok := findingOf(r, "overwatch:stalls:factorio-t1@todo"); ok != c.work {
+				t.Fatalf("work = %v, want %v: %+v", ok, c.work, r)
+			}
+			if !c.work {
+				mustContain(t, noteOf(t, r, "factorio-t1"), "implementer", "the server drains since "+stamp(c.drain))
+			}
+		})
+	}
+}
+
 // C10: the entry into the state comes from the item's last transition that
 // changed its status, ahead of the item's last bead write.
 func TestC10TheEntryIsTheTransitionIntoTheState(t *testing.T) {

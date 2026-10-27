@@ -646,3 +646,97 @@ func TestCoordinatorUpgradeHandsOffToADetachedProcess(t *testing.T) {
 		t.Fatalf("rollback from a run = %v, detached %q", env, got)
 	}
 }
+
+// latestSource is a release directory whose newest release is version.
+func latestSource(t *testing.T, version string) func() release.Source {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "latest"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "latest", release.MetadataFile), release.Metadata{Version: version}.Encode(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return func() release.Source { return release.Source{Base: dir} }
+}
+
+// TestC22VersionNamesTheNewestRelease: `loop version` names the newest
+// release and whether the installed one is older. A source that fails, or
+// answers after the deadline, names latest_error and still exits 0.
+func TestC22VersionNamesTheNewestRelease(t *testing.T) {
+	instance := filepath.Join(t.TempDir(), "instance")
+	h := testHostVerbs(t, instance, &procService{t: t, instance: instance})
+	old := cli.Version
+	defer func() { cli.Version = old }()
+
+	cases := []struct {
+		name      string
+		installed string
+		source    func() release.Source
+		latest    string
+		behind    bool
+	}{
+		{"older", "v0.0.79", latestSource(t, "v0.0.80"), "v0.0.80", true},
+		{"newest", "v0.0.80", latestSource(t, "v0.0.80"), "v0.0.80", false},
+		{"dev build", "dev", latestSource(t, "v0.0.80"), "v0.0.80", false},
+	}
+	for _, tc := range cases {
+		cli.Version = tc.installed
+		h.source = tc.source
+		env := runVerb(t, h, "version")
+		data, _ := env["data"].(map[string]any)
+		if env["exit"] != float64(0) || data["version"] != tc.installed || data["latest"] != tc.latest || data["behind"] != tc.behind {
+			t.Errorf("%s: version = %v", tc.name, env)
+		}
+		if _, ok := data["latest_error"]; ok {
+			t.Errorf("%s: latest_error on a read that worked: %v", tc.name, env)
+		}
+	}
+
+	// A source that fails.
+	cli.Version = "v0.0.79"
+	h.source = func() release.Source { return release.Source{Base: t.TempDir()} }
+	env := runVerb(t, h, "version")
+	data, _ := env["data"].(map[string]any)
+	if env["exit"] != float64(0) || data["latest"] != "" || data["behind"] != false || data["latest_error"] == "" || data["latest_error"] == nil {
+		t.Fatalf("failed source: version = %v", env)
+	}
+
+	// A source that answers after the deadline.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	h.source = func() release.Source { return release.Source{Base: srv.URL, HTTP: srv.Client()} }
+	h.latestWithin = 50 * time.Millisecond
+	start := time.Now()
+	env = runVerb(t, h, "version")
+	data, _ = env["data"].(map[string]any)
+	if env["exit"] != float64(0) || data["latest"] != "" || data["behind"] != false || data["latest_error"] == "" || data["latest_error"] == nil {
+		t.Fatalf("slow source: version = %v", env)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("version waited %v past its deadline", took)
+	}
+}
+
+// TestVersionWaitsFiveSeconds: the newest release gets a 5-second deadline.
+func TestVersionWaitsFiveSeconds(t *testing.T) {
+	h := newHostVerbs(cli.Surface(), &cli.Client{})
+	if h.latestWithin != 5*time.Second {
+		t.Fatalf("latestWithin = %v", h.latestWithin)
+	}
+}
+
+// TestRegisterReleaseSetsVersion: run's registry answers version with the
+// newest release.
+func TestRegisterReleaseSetsVersion(t *testing.T) {
+	t.Setenv(release.ReleaseBaseEnv, t.TempDir())
+	var out, errb bytes.Buffer
+	if code := run(context.Background(), []string{"version"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("version exit %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"latest_error"`) {
+		t.Fatalf("version names no latest_error: %s", out.String())
+	}
+}

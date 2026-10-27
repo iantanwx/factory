@@ -71,6 +71,7 @@ Write the shaped ticket body. It holds these sections:
 4. **What was seen**: the five facts, with the reporter's words kept as they wrote them.
 5. **Priority**: 1 for lost data, wrong money or no sign-in. 2 for a broken story with no other
    way. 3 for a broken story with another way, wrong words or a visual difference. 4 for the rest.
+   Give the same number to `--priority` in section 5. The ticket keeps it as the fact `priority`.
 6. **Change**, for a product change only: each source line that the report supersedes, by path
    and line. That list is the update that each source owes.
 7. **Files**, **Done means** and **Out of scope**, as a ticket holds them.
@@ -84,9 +85,10 @@ repair. A separate author for the red and the green keeps the test honest.
 
 Run one command for the outcome:
 
-- **Bug**: `loop work shape <item> --title "<title>" --body "<the shaped body>"`. The server
-  creates the ticket, and it closes the bug as `shaped`. The answer names the ticket in `ticket`.
-  Name that ticket in your report.
+- **Bug**: `loop work shape <item> --title "<title>" --body "<the shaped body>" --priority <1 to 4>`.
+  The priority is the one of section 4. With no priority, the command refuses with `USAGE`, and
+  it makes no ticket. The server creates the ticket, and it closes the bug as `shaped`. The
+  answer names the ticket in `ticket`. Name that ticket in your report.
 - **Duplicate**: first record the proof with `loop work note <item> --body "<the test and its
   failure>"`. Then run `loop work duplicate <item> --of <the open bug>`.
 - **Not built yet**: record the item that builds it with `loop work note <item> --body "<item>"`,
