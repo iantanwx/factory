@@ -120,7 +120,7 @@ func ticketEdges() []edge {
 	return e
 }
 
-var epicLive = []string{PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+var epicLive = []string{Backlog, PRDNeeded, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 	SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 
 func epicEdges() []edge {
@@ -128,6 +128,11 @@ func epicEdges() []edge {
 		{Initial, "prd_submit", PRDReview},
 		{Initial, "create_architecture", Architecture},
 		{PRDReview, "review_pass", PRDSignoff},
+		// factorio-4n0: an epic enters by its blockers, and unblock lands
+		// it on the entry its blocked create recorded.
+		{Initial, "create_prd", PRDNeeded}, {Initial, "create_prd", Backlog},
+		{Initial, "create_architecture", Backlog},
+		{Backlog, "unblock", PRDNeeded}, {Backlog, "unblock", Architecture},
 		{PRDReview, "review_reject", PRDAmending},
 		{PRDAmending, "prd_amended", PRDReview},
 		{PRDReview, "review_reject", Escalated},
@@ -232,6 +237,9 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.When == "open_dependency" {
 		params["blocked"] = "true"
+	}
+	if r.Verb == VerbUnblock && r.To != Todo {
+		facts[FactEpicEntry] = r.To // the epic's blocked create recorded it
 	}
 	if r.Stage == StageSpecAuthor {
 		facts[FactPRDMerged] = "m1" // the operator signed the PRD off
