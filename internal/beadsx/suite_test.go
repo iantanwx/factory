@@ -443,6 +443,66 @@ func runContract(t *testing.T, c beadsx.Client) {
 		}
 	})
 
+	// C11: work unblock --by deletes one blocks edge. The other edges of
+	// the issue stay, and so does an edge of another kind to the same issue.
+	t.Run("RemoveDependencyDeletesOneEdge", func(t *testing.T) {
+		a, x, y, r := mustCreate(t, c, "rm-a"), mustCreate(t, c, "rm-x"), mustCreate(t, c, "rm-y"), mustCreate(t, c, "rm-r")
+		for _, e := range []struct {
+			to   string
+			kind beadsx.DepKind
+		}{{x.ID, beadsx.DepBlocks}, {y.ID, beadsx.DepBlocks}, {r.ID, beadsx.DepRelated}} {
+			if err := c.AddDependency(ctx, a.ID, e.to, e.kind); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := c.RemoveDependency(ctx, a.ID, x.ID, beadsx.DepBlocks); err != nil {
+			t.Fatalf("remove a blocks x: %v", err)
+		}
+		if err := c.RemoveDependency(ctx, a.ID, r.ID, beadsx.DepBlocks); err != nil {
+			t.Fatalf("remove a blocks r, an edge of another kind: %v", err)
+		}
+		got, err := c.Dependencies(ctx, a.ID)
+		want := map[string]beadsx.DepKind{y.ID: beadsx.DepBlocks, r.ID: beadsx.DepRelated}
+		if err != nil || len(got) != len(want) {
+			t.Fatalf("after one remove: %+v %v; want %v", got, err, want)
+		}
+		for _, d := range got {
+			if want[d.ID] != d.Kind {
+				t.Fatalf("after one remove: %+v; want %v", got, want)
+			}
+		}
+	})
+
+	// C11: a replay of work unblock --by removes the same edge again.
+	t.Run("RemoveDependencyTwice", func(t *testing.T) {
+		a, x, y := mustCreate(t, c, "rm2-a"), mustCreate(t, c, "rm2-x"), mustCreate(t, c, "rm2-y")
+		for _, to := range []string{x.ID, y.ID} {
+			if err := c.AddDependency(ctx, a.ID, to, beadsx.DepBlocks); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for i := range 2 {
+			if err := c.RemoveDependency(ctx, a.ID, x.ID, beadsx.DepBlocks); err != nil {
+				t.Fatalf("remove %d: %v", i+1, err)
+			}
+		}
+		got, err := c.Dependencies(ctx, a.ID)
+		if err != nil || len(got) != 1 || got[0] != (beadsx.Dependency{ID: y.ID, Kind: beadsx.DepBlocks, Status: "open"}) {
+			t.Fatalf("after two removes of one edge: %+v %v; want only the edge to %s", got, err, y.ID)
+		}
+	})
+
+	// C11: an unknown issue at either end is ErrNotFound.
+	t.Run("RemoveDependencyNotFound", func(t *testing.T) {
+		is := mustCreate(t, c, "rm-nf")
+		if err := c.RemoveDependency(ctx, "zz-nope", is.ID, beadsx.DepBlocks); !errors.Is(err, beadsx.ErrNotFound) {
+			t.Fatalf("remove from an unknown issue: %v", err)
+		}
+		if err := c.RemoveDependency(ctx, is.ID, "zz-nope", beadsx.DepBlocks); !errors.Is(err, beadsx.ErrNotFound) {
+			t.Fatalf("remove to an unknown issue: %v", err)
+		}
+	})
+
 	t.Run("RequestValidation", func(t *testing.T) {
 		is := mustCreate(t, c, "valid")
 		if _, err := c.Update(ctx, is.ID, beadsx.UpdateSpec{Status: "implementing"}); !errors.Is(err, beadsx.ErrInvalid) {
