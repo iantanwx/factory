@@ -31,7 +31,7 @@ type CreateResult struct {
 // the ticket waits in backlog on each blocker, which is checked before any
 // write. A bug takes no blocker. A ticket under an epic with a PRD holds
 // the Ticket shape, and records it as its shape fact. PRD-less work and a
-// bug are not checked.
+// bug are not checked. No ticket body calls a host verb, shaped or not.
 func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	prj, ref := call.Project(ownProject)
@@ -121,6 +121,11 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Reject(cli.CodeUsage, "story_without_epic", "--story cites the labels of an epic's PRD; name the epic with --epic")
 	default:
 		facts[machine.FactRequest] = request
+	}
+	if kind == machine.KindTicket {
+		if r := machine.HostVerbRefusal("", body); r != nil {
+			return r.Result()
+		}
 	}
 	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", title, body, request); ref != nil {
 		return ref.Result()

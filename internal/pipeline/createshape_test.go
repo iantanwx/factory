@@ -61,3 +61,26 @@ func TestC12WorkCreateChecksATicketUnderAPRD(t *testing.T) {
 		}
 	}
 }
+
+// factorio-bxv0: work create refuses a ticket whose Done means tells a run
+// to call a host verb, with host_verb_in_ticket, and creates nothing. The
+// rule holds for a PRD-less ticket, which no shape checks. The same verb
+// under Change is accepted, and a bug report may quote the host verb that
+// failed.
+func TestWorkCreateRefusesAHostVerbUnderDoneMeans(t *testing.T) {
+	w := newWorld(t)
+	done := strings.Replace(ticketBody, "The test passes.", "`loop doctor` is green.", 1)
+	flags := map[string]string{"title": "Doctor", "request": "the operator asked for this", "project": testProject, "body": done}
+	r := wantCode(t, w.call(w.coordinator(), "", "work create", flags), cli.CodeShapeRefused)
+	if r.Rule != "host_verb_in_ticket" || !strings.Contains(r.Hint, "`loop doctor`") || !strings.Contains(r.Hint, "line 19") {
+		t.Fatalf("refused with rule %q and hint %q", r.Rule, r.Hint)
+	}
+	if n := len(w.items(machine.KindTicket)); n != 0 {
+		t.Fatalf("a refused create made %d tickets", n)
+	}
+
+	flags["body"] = strings.Replace(ticketBody, "List each widget.", "Teach `loop doctor` to list each widget.", 1)
+	ok(t, w.call(w.coordinator(), "", "work create", flags))
+	flags["kind"], flags["body"] = "bug", done
+	ok(t, w.call(w.coordinator(), "", "work create", flags))
+}

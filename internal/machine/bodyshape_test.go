@@ -106,3 +106,61 @@ func TestC12WorkEditChecksTheShapeFact(t *testing.T) {
 		t.Fatalf("the unshaped edit: body %q, shape %q", got, it.Fact(FactShape))
 	}
 }
+
+// factorio-bxv0: a run cannot call a host verb, so an edit of a ticket body
+// that tells a run to call one under Done means or Contracts to prove is
+// refused with host_verb_in_ticket, and the hint names the verb and its
+// line. The rule holds for a ticket with no shape fact too. A host verb
+// under Change, Source or Out of scope is accepted, since a ticket may
+// change a host verb, and so is a verb that is no host verb.
+func TestWorkEditRefusesAHostVerbUnderDoneMeans(t *testing.T) {
+	w := newWorld(t)
+	id := w.create(KindTicket, "create", nil)
+	w.force(id, Todo, nil)
+	for _, c := range []struct{ name, old, new, line string }{
+		{"Done means", "The test passes.", "The test passes, and `loop doctor` is green.", "line 19"},
+		{"Contracts to prove", "- C1. The list shows each widget.", "- C1. `loop upgrade --dry-run` lists each widget.", "line 11"},
+		{"a fenced block", "The test passes.", "```sh\nloop doctor\n```", "line 20"},
+	} {
+		body := strings.Replace(shapedTicket, c.old, c.new, 1)
+		r := wantCode(t, w.call("work edit", coord(), []string{id}, map[string]string{"body": body}), cli.CodeShapeRefused)
+		verb := "`loop doctor`"
+		if c.name == "Contracts to prove" {
+			verb = "`loop upgrade`"
+		}
+		if r.Rule != "host_verb_in_ticket" || !strings.Contains(r.Hint, verb) || !strings.Contains(r.Hint, c.line) {
+			t.Errorf("%s: refused with rule %q and hint %q, want host_verb_in_ticket naming %s on %s", c.name, r.Rule, r.Hint, verb, c.line)
+		}
+	}
+	for name, body := range map[string]string{
+		"Change":         strings.Replace(shapedTicket, "List each widget.", "List each widget, as `loop doctor` does.", 1),
+		"Source":         strings.Replace(shapedTicket, "Spec entry 1.", "`loop doctor` failed in alert/113.", 1),
+		"Out of scope":   strings.Replace(shapedTicket, "The sort order.", "A change to `loop upgrade`.", 1),
+		"no host verb":   strings.Replace(shapedTicket, "The test passes.", "`loop work show` names the ticket.", 1),
+		"another prefix": strings.Replace(shapedTicket, "The test passes.", "`loop doctorate` is no verb.", 1),
+	} {
+		if res := w.call("work edit", coord(), []string{id}, map[string]string{"body": body}); res.Refusal != nil {
+			t.Errorf("%s: refused %+v", name, res.Refusal)
+		}
+	}
+}
+
+// factorio-bxv0: the gate reads its host verbs from the capability matrix,
+// so it refuses each verb that HostVerbs lists, and a copy that drifts
+// from the list fails here.
+func TestWorkEditRefusesEveryHostVerb(t *testing.T) {
+	w := newWorld(t)
+	id := w.create(KindTicket, "create", nil)
+	w.force(id, Todo, nil)
+	m, ok := cli.Surface().CapabilityMatrix()
+	if !ok || len(m.HostVerbs) == 0 {
+		t.Fatal("the surface lists no host verb")
+	}
+	for _, v := range m.HostVerbs {
+		body := strings.Replace(shapedTicket, "The test passes.", "Run `loop "+v+"`.", 1)
+		res := w.call("work edit", coord(), []string{id}, map[string]string{"body": body})
+		if res.Refusal == nil || res.Refusal.Rule != "host_verb_in_ticket" || !strings.Contains(res.Refusal.Hint, "`loop "+v+"`") {
+			t.Errorf("loop %s: answered %+v, want host_verb_in_ticket naming it", v, res.Refusal)
+		}
+	}
+}
