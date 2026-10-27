@@ -36,7 +36,7 @@ records and the design references. A user story wins over a design reference on 
 | Outcome | When | What you do |
 | --- | --- | --- |
 | Bug | A source states X and the product does not do X. Or a crash, an error page or lost data | Reproduce it, then shape it |
-| Product change | The report states the change it wants clearly, and a source states otherwise or states nothing | Shape it by sections 3 and 4. Name each source line it supersedes under **Change** |
+| Product change | The report states the change it wants clearly, and a source states otherwise or states nothing | Shape it by sections 3 and 4. Name each source line it supersedes under `## Change` |
 | Unclear product question | The report does not state the change it wants | Ask the reporter by section 6. Escalate at level 5 only when the reporter cannot state it |
 | Not built yet | A ticket or an epic in flight builds X | Let the report wait for it by section 5 |
 | Duplicate | An open bug fails the same test | Prove it with that bug's test, then route it |
@@ -63,18 +63,31 @@ reporter by section 6.
 
 ## 4. Shape the ticket
 
-Write the shaped ticket body. It holds these sections:
+Write the shaped ticket body. Write each section as a `## ` heading with the name below, in any
+order. Other headings are allowed. A count of words leaves out the heading lines.
 
-1. **Contract C-bug-1**: the broken promise, stated as a contract that can fail.
-2. **Source**: the document that the product breaks. For a product change, the report itself.
-3. **Reproduction**: the test path, and the whole test in a fenced block.
-4. **What was seen**: the five facts, with the reporter's words kept as they wrote them.
-5. **Priority**: 1 for lost data, wrong money or no sign-in. 2 for a broken story with no other
+1. `## Contract C-bug-<n>`: the broken promise, stated as a contract that can fail. Write one
+   section for each contract, from `## Contract C-bug-1`. Each one holds at most 80 words.
+2. `## Source`: the document that the product breaks. For a product change, the report itself.
+3. `## Reproduction`: the test path, and the whole test in a fenced block.
+4. `## What was seen`: the five facts, with the reporter's words kept as they wrote them.
+5. `## Priority`: 1 for lost data, wrong money or no sign-in. 2 for a broken story with no other
    way. 3 for a broken story with another way, wrong words or a visual difference. 4 for the rest.
    Give the same number to `--priority` in section 5. The ticket keeps it as the fact `priority`.
-6. **Change**, for a product change only: each source line that the report supersedes, by path
-   and line. That list is the update that each source owes.
-7. **Files**, **Done means** and **Out of scope**, as a ticket holds them.
+6. `## Files`: the files the repair may change, as a ticket holds them.
+7. `## Done means`: at most 60 words.
+8. `## Out of scope`: at most 60 words.
+
+A product change adds `## Change`: each source line that the report supersedes, by path and line.
+That list is the update that each source owes. The server does not require this section.
+
+The body holds at most 400 words outside each `## Contract C-bug-<n>` section and outside the
+fenced blocks of `## Reproduction`. The words around the fence count.
+
+`loop work shape` checks the body before it creates the ticket. A missing section, or a count over
+its limit, refuses with `SHAPE_REFUSED` and rule `bug_shape`. The hint names every fault. The
+command creates no ticket, and the bug stays as it was. Repair each fault, and run the command
+again with the new body.
 
 Two faults in one report: shape the first, and put the second under Out of scope.
 
