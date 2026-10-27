@@ -81,6 +81,7 @@ func TestC11StageListPrintsEachFiringWithItsEffectiveValues(t *testing.T) {
 		{Project: prj, Stage: "code-reviewer", Kind: FiringRun, Enabled: true, Schedule: never},
 		{Project: prj, Stage: "doc-reviewer", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "amender", Kind: FiringRun, Enabled: false, Schedule: never},
+		{Project: prj, Stage: "prd-author", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "spec-author", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "decomposer", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "fixer", Kind: FiringRun, Enabled: false, Schedule: never},
@@ -101,7 +102,7 @@ func TestC11StageListPrintsEachFiringWithItsEffectiveValues(t *testing.T) {
 		Firing: want[1],
 		Limits: []config.Limit{{Name: "implementer", Cap: 8, Stages: []string{"implementer"}}},
 		Profiles: []Profile{
-			{Harness: agenthost.Claude, Model: "opus", Effort: "high"},
+			{Harness: agenthost.Claude, Model: "claude-opus-5-5", Effort: "high"},
 			{Harness: agenthost.Codex, Model: "gpt-5-codex", Effort: "high"},
 		},
 		Escalated: &Profile{Harness: agenthost.Claude, Model: "claude-opus-5-5", Effort: "high", Escalated: true},
@@ -125,7 +126,7 @@ func TestC11StageListPrintsEachFiringWithItsEffectiveValues(t *testing.T) {
 
 	qa := rowOf(t, rows, prj, "nightly-qa")
 	if want := []config.Limit{{Name: "nightly-qa", Cap: 1, Stages: []string{"nightly-qa"}}}; !reflect.DeepEqual(qa.Limits, want) ||
-		!reflect.DeepEqual(qa.Profiles, []Profile{{Harness: agenthost.Claude, Model: "opus"}, {Harness: agenthost.Codex, Model: "gpt-5-codex"}}) {
+		!reflect.DeepEqual(qa.Profiles, []Profile{{Harness: agenthost.Claude, Model: "claude-opus-5-5"}, {Harness: agenthost.Codex, Model: "gpt-5-codex"}}) {
 		t.Fatalf("nightly-qa row = %+v", qa)
 	}
 
@@ -150,8 +151,8 @@ func TestC11StageListOfAProjectWhoseConfigDoesNotRead(t *testing.T) {
 	w.project.failWith(errors.New("stages.implementer.schedule: must be a nonempty schedule"))
 
 	rows := w.stageList(prj)
-	if len(rows) != 11 {
-		t.Fatalf("%d rows, want 9 run stages, 1 agent job and 1 native job: %+v", len(rows), rows)
+	if len(rows) != 12 {
+		t.Fatalf("%d rows, want 10 run stages, 1 agent job and 1 native job: %+v", len(rows), rows)
 	}
 	for _, r := range rows {
 		switch r.Kind {
