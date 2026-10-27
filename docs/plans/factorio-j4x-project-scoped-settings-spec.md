@@ -1086,10 +1086,12 @@ the command accepts a new one.
 **C23. Invariant: the proposed file differs from the base file in exactly the named setting.**
 Proves A9. For any valid config, and any key and value that the command accepts for it, the rows
 of `Effective(...).Settings(...)` for the proposed file equal the base file's rows, except the
-named key's row. The `enabled` rows are among them, so a change that turns a stage on or off
-outside its own key fails the property. The names under `stages` never lose a name. They gain one
-only for `stages.<stage>.enabled` of an unlisted stage, or for a field of intake or of a
-per-project native job. Every comment of the base file is in the new file.
+named key's row. One more row can differ. When the key is `stages.<stage>.cap` and the file sets
+no `runs_per_tick` for that stage, that stage's default `runs_per_tick` row follows the cap, as the
+Decisions state. Its value is then the cap in force in the proposed file. The `enabled` rows are
+among them, so a change that turns a stage on or off outside its own key fails the property. The
+names under `stages` never lose a name. They gain one only for `stages.<stage>.enabled` of an
+unlisted stage, or for a field of intake or of a per-project native job. Every comment of the base file is in the new file.
 *A property test over 1,000 generated configs, keys and values, plus a comment-preservation test
 over this repository's config and the `loop-init` template.*
 
