@@ -137,7 +137,7 @@ func TestArchitectureEpicWithNoADRTicketWaitsOnTheCoordinator(t *testing.T) {
 		t.Fatalf("a ticket under the epic left %+v", es)
 	}
 	w.must(adr, machine.VerbEscalate, nil)
-	w.must(adr, "cancel", nil)
+	w.must(adr, "cancel", map[string]string{"reason": "dropped"})
 	if es := w.entries(); len(es) != 1 || es[0].ID != "architecture/alpha/"+ep {
 		t.Fatalf("after the ticket was canceled: %+v", es)
 	}

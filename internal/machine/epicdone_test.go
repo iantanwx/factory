@@ -143,12 +143,12 @@ func TestOpenChildrenNamesEachChildThatRefusesComplete(t *testing.T) {
 		t.Fatalf("complete refused %+v; want each open child and no other", r)
 	}
 
-	w.must(held, "cancel", nil)
+	w.must(held, "cancel", map[string]string{"reason": "dropped"})
 	if got, _ := w.m.OpenChildren(ctx, prj, ep); !slices.Equal(got, []string{open}) {
 		t.Fatalf("OpenChildren after the cancel = %v, want [%s]", got, open)
 	}
 	w.must(open, "escalate", nil)
-	w.must(open, "cancel", nil)
+	w.must(open, "cancel", map[string]string{"reason": "dropped"})
 	if got, _ := w.m.OpenChildren(ctx, prj, ep); len(got) != 0 {
 		t.Fatalf("OpenChildren with every child terminal = %v", got)
 	}
