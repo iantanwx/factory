@@ -75,6 +75,9 @@ type Entry struct {
 	// Found marks an open alert whose root cause `inbox note` recorded.
 	// Its text holds the finding, and a repeat of it rings no one.
 	Found bool `json:"found,omitempty"`
+	// DeferReason is the --reason of the defer that ended, when the entry
+	// returned from one.
+	DeferReason string `json:"defer_reason,omitempty"`
 	// At is when the entry entered the inbox, in Unix milliseconds. The
 	// cursor of `inbox wait --since` is the At of the last entry seen.
 	At     int64  `json:"at"`

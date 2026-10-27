@@ -18,7 +18,8 @@ import (
 )
 
 // DeferKind is the schedule row kind of `inbox defer --until`. Its stage
-// column holds the entry id and its due_at the time the entry returns.
+// column holds the entry id, its due_at the time the entry returns, and
+// its payload {"reason": "..."}. A row written before the reason holds {}.
 const DeferKind = "inbox_defer"
 
 // Alert kinds that wait on a person: only the operator stores a secret or
@@ -94,7 +95,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			}
 		}
 	}
-	defers := map[string]int64{}
+	defers := map[string]deferRow{}
 	err := in.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		var err error
 		if defers, err = readDefers(ctx, tx); err != nil {
@@ -128,11 +129,12 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	}
 	shown := out[:0]
 	for _, e := range out {
-		if due, ok := defers[e.ID]; ok {
-			if due > now {
+		if d, ok := defers[e.ID]; ok {
+			if d.due > now {
 				continue
 			}
-			e.At = max(e.At, due)
+			e.At = max(e.At, d.due)
+			e.DeferReason = d.reason
 		}
 		e.Cursor = strconv.FormatInt(e.At, 10)
 		shown = append(shown, e)
@@ -146,20 +148,27 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	return shown, nil
 }
 
-func readDefers(ctx context.Context, tx *sql.Tx) (map[string]int64, error) {
-	rs, err := tx.QueryContext(ctx, `SELECT stage, due_at FROM schedule WHERE kind = ? AND state = 'active'`, DeferKind)
+// deferRow is one active defer: when its entry returns, and why.
+type deferRow struct {
+	due    int64
+	reason string
+}
+
+func readDefers(ctx context.Context, tx *sql.Tx) (map[string]deferRow, error) {
+	rs, err := tx.QueryContext(ctx, `SELECT stage, due_at, coalesce(json_extract(payload, '$.reason'), '') FROM schedule
+		WHERE kind = ? AND state = 'active'`, DeferKind)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rs.Close() }()
-	out := map[string]int64{}
+	out := map[string]deferRow{}
 	for rs.Next() {
-		var id string
+		var id, reason string
 		var due sql.NullInt64
-		if err := rs.Scan(&id, &due); err != nil {
+		if err := rs.Scan(&id, &due, &reason); err != nil {
 			return nil, err
 		}
-		out[id] = due.Int64
+		out[id] = deferRow{due: due.Int64, reason: reason}
 	}
 	return out, rs.Err()
 }

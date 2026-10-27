@@ -219,8 +219,8 @@ func clearDefer(tx *store.Tx, entry string) error {
 	return err
 }
 
-// deferVerb is `loop inbox defer --until`: the entry leaves the inbox and
-// returns at that time. The time lives in SQLite's schedule table, never
+// deferVerb is `loop inbox defer --until --reason`: the entry leaves the
+// inbox and returns at that time with the reason. The time lives in SQLite's schedule table, never
 // in beads' deferred status, so it holds across a restart. A deferred
 // decision also goes back to pending, and decision-timers fires it again
 // at that time.
@@ -232,6 +232,13 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	if !until.After(in.cfg.Now()) {
 		return cli.Reject(cli.CodeUsage, "until_past", "--until must be in the future")
+	}
+	reason := strings.TrimSpace(call.Inv.Flags["reason"])
+	if reason == "" {
+		return cli.Reject(cli.CodeUsage, "no_reason", "--reason names the act or the event the entry waits for")
+	}
+	if r := in.cfg.Redactor.Refusal("secret_in_reason", "reason", reason); r != nil {
+		return r.Result()
 	}
 	kind, project, item, _, ok := parseEntry(id)
 	if !ok {
@@ -264,8 +271,8 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 			return err
 		}
 		now := tx.Now().UnixMilli()
-		_, err := tx.Exec(`INSERT INTO schedule (project, kind, item, stage, due_at, state, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`, project, DeferKind, item, id, due, now, now)
+		_, err := tx.Exec(`INSERT INTO schedule (project, kind, item, stage, due_at, payload, state, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, json_object('reason', ?), 'active', ?, ?)`, project, DeferKind, item, id, due, reason, now, now)
 		return err
 	}); err != nil {
 		return cli.Internal(err)
