@@ -366,7 +366,8 @@ type UnblockResult struct {
 // blocker. A todo ticket with --by is free already, so the call deletes
 // its edge to --by, if any, and moves nothing (spec factorio-9wh
 // Decisions 6 and 23). The delete goes before the move, so a crash
-// between the two leaves the ticket in backlog.
+// between the two leaves the ticket in backlog. Any other kind takes its
+// table's unblock row, and keeps its edges.
 func (m *Machine) workUnblock(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -383,8 +384,8 @@ func (m *Machine) workUnblock(ctx context.Context, call *rpc.Call) cli.Result {
 		return r.Result()
 	}
 	req := request(call, prj, item, VerbUnblock, map[string]string{})
-	if it.Status != Backlog && (it.Status != Todo || by == "") {
-		return m.apply(ctx, &req) // the table refuses every other state
+	if it.Kind != KindTicket || it.Status != Backlog && (it.Status != Todo || by == "") {
+		return m.apply(ctx, &req) // an epic's rows, or the table refuses every other state
 	}
 	open, r := m.openBlockers(ctx, prj, it, deps, by)
 	if r != nil {

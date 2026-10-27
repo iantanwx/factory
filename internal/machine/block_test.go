@@ -389,3 +389,19 @@ func TestC8BlockPendingOnATerminalBlockerNamesTheUnblock(t *testing.T) {
 	mustOK(t, w.unblock(tk, x))
 	w.wantState(tk, Todo)
 }
+
+// work unblock of an epic keeps the epic table's own rule (spec
+// factorio-4n0): it lands on epic_entry on the person's word, with an open
+// blocker left, and deletes no edge. The ticket rules of work unblock
+// cover tickets only.
+func TestWorkUnblockOfAnEpicLandsOnItsEntryOnThePersonsWord(t *testing.T) {
+	w := newWorld(t)
+	x, y := w.ticketIn(Todo), w.ticketIn(Todo)
+	for by, epic := range map[string]string{"": w.create(KindEpic, "create_prd", map[string]string{"blocked": "true"}),
+		x: w.create(KindEpic, "create_prd", map[string]string{"blocked": "true"})} {
+		w.edge(epic, x)
+		w.edge(epic, y)
+		mustOK(t, w.unblock(epic, by))
+		w.wantState(epic, PRDNeeded, x, y)
+	}
+}
