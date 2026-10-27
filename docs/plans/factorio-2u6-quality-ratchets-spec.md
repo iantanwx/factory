@@ -16,16 +16,16 @@ contract below cites one of them, or the ADR paragraph it proves.
 | A2 | A test proves that `--update` lowers a count and never raises one |
 | A3 | A test proves that an audit baseline entry with an empty reason fails the gate |
 | A4 | `grep -c 'loop gates --only audit --full' .github/workflows/audit.yml` prints `1` |
-| A5 | A test proves that a first-parent commit with no `merged_sha` raises one audit alert, and that the next tick raises no second alert |
 | A6 | A test proves that a runbook naming a `make` target that no `Makefile` holds fails the `runbooks` gate |
 
 The ADR's own document checks (the gates, the Ticket line, the number, nine verdict rows, no
 `worktree.size` in `internal/gates`, no `lessons` noun) passed when the ADR merged. This spec owns
-none of them. Verdicts G6, G8 and G9 port nothing, so no work entry below builds them.
+none of them. Verdicts G6, G8 and G9 port nothing, so no work entry below builds them. A5, the
+base audit's criterion, belongs to factorio-fgza. So this spec has no A5.
 
 Round 1 read the loop at the base `7a6bdad`. Round 2 merged the base `58a9d93`. Between the two,
-no file that this spec cites changed, except `internal/machine/history.go`, which gained
-`Transition.Fact`.
+`internal/config/project.go` gained `ProjectConfig.Signoff`, and `pack/skills/loop-init/SKILL.md`
+gained the `signoff.readers` lines. Neither change breaks a claim of this spec.
 
 ## Scope check
 
@@ -34,18 +34,15 @@ no file that this spec cites changed, except `internal/machine/history.go`, whic
 1. **The ratchet gates.** `internal/gates` (the shared ratchet, the stack gates, the `runbooks`
    gate), the `baseline` key of `internal/config`, the flags of `loop gates`, the scheduled audit
    workflow, and the pack lines that tell an agent how to use them.
-2. **The base audit.** One step of the reactor tick in `internal/github`, and the merge record it
-   reads from `internal/machine`. Why not its own epic: it could be one. It shares no type and no
-   file with component 1. ADR 0003 decided it with the other gaps, under this one epic. Open
-   question Q1 proposes the split.
 
-Work entries 1 to 6 build component 1. Each one changes `internal/gates`, the config key or the
-verb that drives them, and the pack lines that name them. Entries 7 and 8 build component 2. No
-entry of one component needs an entry of the other.
+Work entries 1 to 6 build it. Each one changes `internal/gates`, the config key or the verb that
+drives them, and the pack lines that name them.
 
-**Not in this spec:** the overwatch `audit` part, which reads the newest scheduled audit run, and
-the config key `health.audit_workflow` that names the workflow. Both belong to factorio-a7r, work
-entry 9 of `docs/plans/factorio-a7r-overwatch-sweep-spec.md`.
+**Not in this spec:** the base audit of ADR 0003 § Decision, G5, with its merge record. The
+operator split it into the architecture epic factorio-fgza (Q1). Also not in this spec: the
+overwatch `audit` part, which reads the newest scheduled audit run, and the config key
+`health.audit_workflow` that names the workflow. Both belong to factorio-a7r, work entry 9 of
+`docs/plans/factorio-a7r-overwatch-sweep-spec.md`.
 
 ## Decisions
 
@@ -123,67 +120,6 @@ that the code forces.
   tool.** The gate holds a fixed list of each tool's built-ins, such as `install`, `add`, `exec`
   and `dlx`. `npm` and `bun` call a script only through `run`. We rejected a check of `npm <x>`,
   because `npm test` and `npm start` are built-ins that also run scripts.
-- **The base audit reads its merge records from the `transitions` table.** We chose the history
-  over the current facts of an item, because an epic's `reviewed_head` holds the spec's head once
-  the spec passes review. The PRD's reviewed head survives only in history. We rejected a new table
-  of merges, because each merge already writes one transition row in the transaction that applies
-  it (`internal/machine/history.go`).
-- **A spec merge records its merge commit in a new fact, `spec_merged`.** Today `doc_merged` from
-  `spec_signoff` sets no fact (`internal/machine/epic.go:312`), so no record names a spec's merge
-  commit. A PRD merge sets `prd_merged`, and a ticket merge sets `merged_sha`. We rejected reusing
-  `merged_sha` for the spec, because `merged_sha` means a ticket's merge in `loop work show` and
-  in the merge pipeline.
-- **A document merge that outran its review fails the audit, whatever its parents.** The record
-  says so in `MergeRecord.Outran`: the item's history holds a `doc_merged` row from that
-  document's review or amending state (`prd_review` or `prd_amending` for a PRD, `spec_review` or
-  `spec_amending` for a spec) before the merge row. We chose history over the reviewed head,
-  because an epic holds one `reviewed_head` for both documents, and no epic row clears it
-  (`internal/machine/epic.go:287`, `:310`, `:333` are its only writes). So a spec that a person
-  squash-merges during its review still finds the PRD's head there. A rule that read only the head
-  would pass that merge. We rejected a check that the reviewed head was set in the same document
-  round, because that needs the round boundaries replayed, and the outran row already marks the
-  one path that skips the review.
-- **Any other recorded merge passes at its reviewed head. A merge commit passes when its second
-  parent is that head. A commit with one parent passes when that head is not empty.** The
-  `direct` mechanism merges with a merge commit at the reviewed head
-  (`internal/github/merge_api.go:90`), so its second parent is exact. Mergify and a GitHub queue
-  may squash, which leaves one parent and no head in git. We rejected a rule that every base
-  commit has two parents, because the loop does not read a project's Mergify method, and that rule
-  would raise an alert for every squash. A document that did not outrun its review reached
-  sign-off through a pass, an unchanged amendment from sign-off, or `signoff_head`. Each of the
-  three sets, or keeps, the reviewed head of that same document (`internal/machine/epic.go`). So a
-  non-empty head on a non-outran document merge is that document's pinned head. A ticket clears
-  its reviewed head on a reject, a head change and a dequeue (`internal/machine/ticket.go:166-174`).
-- **The audit runs on every tick. On a tick whose `pollPulls` returned an error, a commit with no
-  merge record stops the walk, and the cursor stays before it.** A merge that `pollPulls` failed
-  to read has no record yet, and the audit would report it. A commit with a record is judged on
-  that tick, because a record never changes after its merge. We chose this over skipping the
-  whole step on such a tick, because `pollPulls` fails when any one pull request fails
-  (`internal/github/reactor.go:281-291`). A merge refusal other than not-found fails on each tick
-  (`:500-515`), so one stuck pull request would stop the audit for good, and raise nothing.
-  When `pollPulls` returned no error, a commit with no record fails at once, because `SyncBase`
-  fetches the base before `pollPulls` lists pull requests. So every commit that the fetch brought
-  was merged before the list was read.
-- **A commit that stops the walk for 15 minutes raises one `base_audit_stalled` alert.** The
-  first tick that stops at a commit writes the commit to the cursor stream `base_audit_stall`.
-  The row's `updated_at` keeps the time of that first stop. A tick that stops at the same commit
-  15 minutes or more after that time raises the alert. Its subject is `<project>@<sha>`, and its
-  body names the commit, the time stopped and the first line of the `pollPulls` error. The walk
-  deletes the row when it passes the commit. We chose a duration over a count of ticks, because
-  the host's schedule sets the tick rate (`internal/config/throughput.go:99`, every minute by
-  default), and a slower schedule would delay a count. We rejected an alert at the first stop,
-  because one failed GitHub read would raise it. ADR 0003 promises that a merge outside the loop
-  reaches the inbox on the next tick. A stuck pull request delays that, and this alert reports
-  the delay.
-- **A base that no longer holds the cursor raises one `base_rewritten` alert, and the cursor moves
-  to the new head.** The ADR does not cover a forced push. We rejected an audit of the new range
-  from the merge base, because a rewritten base breaks every record before it, and one alert
-  names the event that a person must read.
-- **An unreviewed document merge raises an alert.** The outran rows let a person merge a PRD or a
-  spec during its review, and that merge counts as sign-off. The ADR passes "a person's merge of a
-  reviewed PRD or spec". An outran merge was not reviewed, so its commit raises
-  `unreviewed_merge`, by the outran rule above. We rejected a pass for every document merge,
-  because the alert is the only trace that a document skipped its review.
 
 ## Assumptions
 
@@ -200,18 +136,6 @@ that the code forces.
   fails with `no_end_line`. That failure is loud, and it never reads as clean.
 - The CI runner holds `jq` on its `PATH`, as the Ubuntu runner images do. This is wrong if C4 or
   C30 fails with `jq` not found. The tests fail then, and never skip.
-- GitHub lists a merged pull request as merged as soon as the base fetch sees its commit. This is
-  wrong if an `unreviewed_merge` alert names a commit that an item records as its merge one tick
-  later.
-- No merge mechanism rebases a pull request onto the base. A rebase merge puts each commit of the
-  pull request on the first-parent line, and only the last one is recorded. This is wrong if one
-  merge raises more than one `unreviewed_merge` alert.
-- The coordinator reads each open alert by its existing rules, and no runbook line is needed for a
-  new kind. This is wrong if the coordinator runbook routes alerts by kind.
-- One scan of a project's `transitions` rows for each audited commit costs well under a second.
-  This is wrong if a project holds more than about a million transition rows.
-- The base audit sees few commits on each tick. A loop merges one pull request at a time. This is
-  wrong if a tick after a long outage walks so many commits that the tick overruns its interval.
 
 ## Approach
 
@@ -253,23 +177,6 @@ entry as it is. `cmd/loop/gates.go` refuses the flag combinations of C13 before 
 of the target or script only, never a flag or an argument after it. A name that holds `<`, `>`,
 `$`, `{` or `}` is a placeholder and is not checked.
 
-**The merge record.** `internal/machine` sets `spec_merged` on the `doc_merged` row from
-`spec_signoff`. `Machine.MergeOf` finds the transition row of one project whose `set` holds the
-commit as `merged_sha`, `prd_merged` or `spec_merged`. It then replays that item's history up to
-the row, and returns the reviewed head that the item held at that moment. For a PRD or a spec, it
-sets `Outran` when a `doc_merged` row from that document's review or amending state comes before
-the merge row.
-
-**The base audit.** `Reactor.auditBase` runs in `tickProject` after `pollPulls` on every tick,
-and it receives the error that `pollPulls` returned. It reads the cursor from `github_cursors`
-under the stream `base_audit`. With no cursor, it writes the base head and audits nothing.
-Otherwise it checks that the base head reaches the cursor (`Mirror.Reaches`). It lists the
-first-parent commits after the cursor, oldest first, and judges each one by C22. It raises one
-alert for each commit that fails, and moves the cursor past each commit once that commit's alert
-is written. A failed write stops the walk, and the next tick starts at the first commit it did not
-finish. When `pollPulls` failed, a commit with no merge record also stops the walk, and C31 times
-that stop. The step reads the mirror and the store, and it makes no GitHub request.
-
 ## Domain model
 
 ```
@@ -284,15 +191,6 @@ Advisory            one accepted advisory: Reason, Date
 
 The end line        the literal "loop:end"
   invariant: a ratcheted gate reads keys only from a stdout whose last non-blank line it is.
-
-internal/machine (changed)
-
-MergeRecord         Item, Kind, Verb, Fact, ReviewedHead, Outran, Seq
-  invariant: Fact is one of merged_sha, prd_merged, spec_merged, and the row named by Seq set that
-             fact to the commit. ReviewedHead is "" when the item held no reviewed head then.
-             Outran is false for merged_sha. For prd_merged it is true when a doc_merged row from
-             prd_review or prd_amending precedes Seq; for spec_merged, one from spec_review or
-             spec_amending.
 ```
 
 ## Interfaces
@@ -348,47 +246,6 @@ Flag{Name: "full", Type: FlagBool, Description: "with --only audit, audit every 
 "update_needs_only"  // --update with no --only
 "no_baseline"        // --update on a gate that is not standards and has no baseline
 "full_needs_audit"   // --full with any selection but --only audit
-
-// internal/machine/rows.go
-const FactSpecMerged = "spec_merged" // the merge commit of the epic's spec
-
-// internal/machine/history.go
-type MergeRecord struct {
-	Item         string
-	Kind         Kind
-	Verb         string // merged or doc_merged
-	Fact         string // merged_sha, prd_merged or spec_merged
-	ReviewedHead string // the item's reviewed_head at that transition, or ""
-	Outran       bool   // the document merged during its review or amendment
-	Seq          int64
-}
-
-func (m *Machine) MergeOf(ctx context.Context, project, sha string) (MergeRecord, bool, error)
-
-// internal/github/git.go
-func (m *Mirror) FirstParents(ctx context.Context, from, to string) ([]string, error) // after from, through to, oldest first
-func (m *Mirror) Commit(ctx context.Context, sha string) (Commit, error)
-
-type Commit struct {
-	SHA     string
-	Parents []string
-	Subject string
-	Author  string
-}
-
-// internal/github/reactor.go
-const (
-	StreamBaseAudit       = "base_audit"
-	StreamBaseAuditStall  = "base_audit_stall"   // cursor: the commit that stops the walk
-	AlertUnreviewedMerge  = "unreviewed_merge"   // subject "<project>@<sha>"
-	AlertBaseRewritten    = "base_rewritten"     // subject "<project>@<old cursor>"
-	AlertBaseAuditStalled = "base_audit_stalled" // subject "<project>@<sha>"
-)
-
-const baseAuditStallAfter = 15 * time.Minute
-
-// polled is the error pollPulls returned on this tick, or nil.
-func (r *Reactor) auditBase(ctx context.Context, p config.Project, sha string, polled error) error
 ```
 
 ## Data
@@ -404,23 +261,10 @@ func (r *Reactor) auditBase(ctx context.Context, p config.Project, sha string, p
 
 <audit baseline>.json (new, a path the config names)
   {"accepted": {"<advisory id>": {"reason": "<text>", "date": "YYYY-MM-DD"}}}
-
-github_cursors (no schema change)
-  + rows with stream = "base_audit"; cursor holds the full sha of the last audited commit
-  + rows with stream = "base_audit_stall"; cursor holds the full sha of the commit that stops the
-    walk, and updated_at the time of the first stop there. Absent when the walk is not stopped.
-
-bead metadata (no schema change)
-  + loop.spec_merged on an epic, set by doc_merged from spec_signoff
-
-alerts (no schema change)
-  + kinds unreviewed_merge, base_rewritten and base_audit_stalled
 ```
 
 **Existing records:** no project names a `baseline` today, and this repository holds no
-`.loop/suppressions.json`. No epic holds `spec_merged`. That costs nothing, because the base audit
-starts at the base head and never reads an earlier spec merge. No row holds the stream
-`base_audit` until the first tick after work entry 8 lands.
+`.loop/suppressions.json`.
 
 ## Flows
 
@@ -443,40 +287,6 @@ sequenceDiagram
         G->>F: write lower(found, baseline)
     end
     G-->>V: ratchet(found, baseline): new_finding, stale_baseline, new_advisory, stale_advisory
-```
-
-The base audit on one reactor tick:
-
-```mermaid
-sequenceDiagram
-    participant T as tickProject
-    participant M as Mirror
-    participant S as Store
-    participant H as Machine.MergeOf
-    T->>M: SyncBase, head sha
-    T->>T: pollPulls, keep its error as polled
-    T->>S: read cursor base_audit
-    alt no cursor
-        T->>S: write cursor = head, raise nothing
-    else head does not reach cursor
-        T->>S: raise base_rewritten, write cursor = head
-    else
-        T->>M: FirstParents(cursor, head)
-        loop each commit, oldest first
-            T->>M: Commit(sha): parents
-            T->>H: MergeOf(project, sha)
-            alt no record and polled is an error
-                T->>S: write stall row = sha, unless it holds sha
-                opt stall row 15 minutes old or more
-                    T->>S: raise base_audit_stalled
-                end
-                T->>T: stop the walk, keep the cursor
-            else no record, outran, or reviewed head fails C22
-                T->>S: raise unreviewed_merge
-            end
-            T->>S: write cursor = sha, delete the stall row; on a failed write, stop the walk
-        end
-    end
 ```
 
 ## Work
@@ -535,24 +345,6 @@ sequenceDiagram
    - Proves: C16, C17, C18
    - Done when: a fixture runbook naming `make nosuch` fails, and `loop gates --only runbooks`
      passes on this repository.
-7. **The merge record.** Set `spec_merged` on the spec's `doc_merged` row, and add
-   `Machine.MergeOf`.
-   - Files: `internal/machine/epic.go`, `internal/machine/rows.go`, `internal/machine/history.go`,
-     `internal/machine/*_test.go`
-   - Needs: nothing
-   - Proves: C19, C20
-   - Done when: `MergeOf` returns a PRD's reviewed head after the epic's spec passed review, and
-     sets `Outran` on a spec squash-merged during its review after the PRD passed.
-8. **The base audit.** Add `Mirror.FirstParents`, `Mirror.Commit`, the two cursor streams, the
-   three alert kinds and `Reactor.auditBase`, and call it from `tickProject` on every tick, with
-   the error of `pollPulls`.
-   - Files: `internal/github/git.go`, `internal/github/reactor.go`,
-     `internal/github/baseaudit.go`, `internal/github/baseaudit_test.go`
-   - Needs: 7
-   - Proves: C21, C22, C23, C24, C25, C26, C27, C31
-   - Done when: a test repository with one direct push on the base raises one
-     `unreviewed_merge` alert, the next tick raises none, and a pull list that fails on every
-     tick raises one `base_audit_stalled` alert once 15 minutes pass.
 
 ## Out of scope
 
@@ -563,12 +355,18 @@ sequenceDiagram
 - `worktree-size`, `env:check`, the excuse lists, `READINGS` and a ledger writer. ADR 0003 ports
   none of them (G6 to G9). A port needs a new ADR.
 - A check of a flag or an argument of a project command. ADR 0003 § Decision, G7.
+- The base audit (ADR 0003 § Decision, G5): the merge record, the reactor step that walks the
+  base, and its alerts. It belongs to the architecture epic factorio-fgza, by the operator's
+  answer to Q1.
 - Branch protection for this repository. GitHub refuses it on the current plan. That is the
-  operator's choice of plan, and the base audit is the detective answer the ADR chose.
+  operator's choice of plan, and the base audit of factorio-fgza is the detective answer the ADR
+  chose.
 - A lint baseline for this repository. Its `lint` command passes at zero findings today, so it
   names no `baseline`.
 
 ## Contracts
+
+C19 to C27 and C31 moved to factorio-fgza with the base audit. The other numbers did not change.
 
 **C1. Refusal: config load refuses a misplaced or shared baseline.** Proves ADR 0003 §
 Consequences, "Project config". Config load fails, and names the field, for a `baseline` on
@@ -686,72 +484,6 @@ a target that keeps a `$` after expansion, is open: a call that matches no targe
 finding. `loop gates --only runbooks` passes on this repository at the head of work entry 6.
 *Example tests, and the gate run on this repository in CI.*
 
-**C19. Behaviour: a spec merge records its commit.** Proves ADR 0003 § Decision, G5, "A person's
-merge of a reviewed PRD or spec passes". `doc_merged` from `spec_signoff` sets `spec_merged` to
-the merge sha. This holds on the outran path, whose second apply is that row.
-*An example test on the machine, for the sign-off path and the outran path.*
-
-**C20. Behaviour: `MergeOf` returns the reviewed head at the merge.** Proves ADR 0003 § Decision,
-G5. For a ticket, a PRD and a spec, `MergeOf(project, sha)` returns the item, the fact, and the
-reviewed head that the item held at its merge transition. After a PRD merges and the spec then
-passes review, `MergeOf` of the PRD's commit still returns the PRD's reviewed head. A ticket
-merged from `in_review` returns an empty reviewed head. An unknown sha returns not found.
-`Outran` is true for a PRD merged from `prd_review` or `prd_amending`, and for a spec merged
-from `spec_review` or `spec_amending`. It is false for a document merged from sign-off, and for a
-spec merged from sign-off after its PRD outran its own review.
-*Example tests on a store with history rows, one for each of the six `Outran` cases.*
-
-**C21. Behaviour: a commit with no merge record raises one alert, once.** Proves A5. A
-first-parent commit on the base that no item records raises one `unreviewed_merge` alert, with
-subject `<project>@<sha>`. The body names the commit's subject and author. The next tick, with no
-new commit, raises no alert and does not count up the open one.
-*An example test on a test mirror and store, over two ticks.*
-
-**C22. Behaviour: a recorded merge passes only at its reviewed head.** Proves ADR 0003 §
-Decision, G5. A recorded merge whose `MergeOf` says `Outran` raises `unreviewed_merge`, whatever
-its parents and its reviewed head. Any other merge commit that an item records passes when its
-second parent equals the reviewed head that `MergeOf` returns. It raises `unreviewed_merge` when
-the second parent differs, or when the reviewed head is empty. Any other one-parent commit that an
-item records passes when the reviewed head is not empty. The body of each alert states which rule
-failed: `outran`, `head_mismatch` or `no_reviewed_head`.
-*Example tests: a direct-mechanism ticket merge (passes), a PRD merge at its pinned head
-(passes), a ticket merged from `in_review` (fails), a recorded squash ticket commit at a reviewed
-head (passes), a spec squash-merged during its review after its PRD passed at another head
-(fails `outran`), a PRD squash-merged during review after a pass, a comment and an amendment
-(fails `outran`), and an outran merge commit whose second parent equals the stale reviewed head
-(fails `outran`).*
-
-**C23. Boundary: the first tick audits nothing.** Proves ADR 0003 § Decision, G5, "The cursor
-starts at the base head on the first tick". With no `base_audit` cursor, the tick writes the base
-head as the cursor and raises no alert, whatever the history holds.
-*An example test on a base with ten direct pushes.*
-
-**C24. Behaviour: a rewritten base raises one alert and moves the cursor.** Proves ADR 0003 §
-Decision, G5. When the base head does not reach the cursor, the tick raises one `base_rewritten`
-alert that names the old cursor and the new head. It raises no `unreviewed_merge` for the new
-range, and it writes the new head as the cursor.
-*An example test that resets the test base to an unrelated commit.*
-
-**C25. Refusal: the audit never judges a commit on a partial read, and never skips a commit.**
-Proves A5. On a tick whose `pollPulls` returns an error, the audit judges each commit that holds a
-merge record, and stops at the first commit that holds none. It raises no `unreviewed_merge` for
-that commit, and the cursor stays before it. On the next tick whose `pollPulls` returns no error,
-that commit is judged. When the alert write for a commit fails, the cursor stays before that
-commit, and the next tick audits it.
-*Example tests: a failing pull list over a base whose recorded merge comes before a direct push
-(the merge is judged and the cursor stops before the push), the same base on a later tick with a
-working pull list (the push raises one alert), and a store that fails one write.*
-
-**C26. Invariant: the base audit makes no GitHub request.** Proves ADR 0003 § Decision, G5, "We
-reject a port of `audit-main.ts`". `auditBase` sends no request to the GitHub API.
-*A test on `githubtest` that counts requests across one audit of three commits.*
-
-**C27. Behaviour: the base audit walks every first-parent commit in order.** Proves ADR 0003 §
-Decision, G5. With three commits after the cursor, the step judges each one, oldest first, and
-leaves the cursor at the newest. A commit that a merge brought in on a second parent is never
-judged.
-*An example test on a base with a merge whose branch holds two commits.*
-
 **C28. Behaviour: the pack names the reason rule for a raised baseline.** Proves ADR 0003 §
 Consequences, "The pack". `pack/runbooks/implementer.md` states that a new baseline file or a
 raised count needs a reason in the pull request body. `pack/runbooks/code-reviewer.md` rejects a
@@ -778,28 +510,14 @@ input, and prints `x`, `y` and one `loop:end`, in that order, on the stream `{"a
 `loop:end` from the skill, matches it against the form, and runs it as stated with the `jq` on its
 `PATH`. It fails when the skill holds no such line, and when `jq` is absent.*
 
-**C31. Behaviour: a walk stopped for 15 minutes raises one alert.** Proves ADR 0003 §
-Consequences, "What this makes easy": "A merge outside the loop reaches the inbox on the next
-tick". When `pollPulls` fails on every tick and the walk stops at one commit, ticks before 15
-minutes raise no alert. The first tick at 15 minutes or more after the first stop raises one `base_audit_stalled` alert, with
-subject `<project>@<sha>`, and a body that names the commit and the first line of the `pollPulls`
-error. Later ticks raise no second alert while it is open. A stop at a different commit starts the
-15 minutes again. Once the walk passes the commit, the stall row is gone.
-*An example test with a fake clock and a pull list that fails on every tick, over 16 ticks one
-minute apart, then one tick with a working pull list.*
-
 ## Observable behaviour
 
 None, because this epic draws no screen. Its outputs are gate findings in a log, two files under
-the project's control, one CI workflow and three alert kinds. The inbox already lists every alert.
+the project's control and one CI workflow.
 
 ## Open questions
 
-- **Q1. Split the base audit into its own epic?** The scope check's split rule says a second
-  component needs a line why it cannot be its own epic. The base audit (work entries 7 and 8)
-  shares no type, file or contract with the ratchet gates (entries 1 to 6), and it lands and is
-  proven alone. ADR 0003 decides both, and its sign-off is past, so `loop-sdlc-split` § 4 puts the
-  split with the operator. The proposal: keep this spec as it is for entries 1 to 6, and move
-  entries 7 and 8 with C19 to C27 and C31 to a new epic, whose source is ADR 0003 § Decision, G5. The
-  other answer is to keep one epic, as this spec is written. Either answer needs no change to the
-  design. This blocks the decomposer's cut, not any entry's content.
+- **Q1. Split the base audit into its own epic?** Answered by the operator on 2026-10-27: split.
+  This spec holds the ratchet gates, work entries 1 to 6. The base audit, with its former work
+  entries 7 and 8 and contracts C19 to C27 and C31, belongs to the architecture epic factorio-fgza
+  (Base audit, ADR 0003 § Decision, G5).
