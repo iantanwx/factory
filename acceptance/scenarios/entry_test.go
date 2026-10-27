@@ -38,7 +38,7 @@ func TestCoordinatorFilesABugAndTheReproducerShapesIt(t *testing.T) {
 	}
 	wantStatus(w, bug, machine.Reproducing)
 	r := w.Must(w.In(run.Checkout, "work", "shape", bug, "--title", "Show every widget on the list page",
-		"--body", "The list page drops each widget. Render every widget the API returns."))
+		"--body", "The list page drops each widget. Render every widget the API returns.", "--priority", "2"))
 	ticket := r.Str("ticket")
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 	wantStatus(w, bug, machine.Shaped)
