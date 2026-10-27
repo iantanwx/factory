@@ -63,6 +63,22 @@ codes cannot.
   `.gitattributes`. Or your branch changes the merge queue's config, such as `.mergify.yml`,
   against the base. Only the operator makes that change. Escalate it with `loop escalation raise`.
   A merge of the base that brings in the operator's config change is no change of yours.
+- `SETTINGS_CHANGE`: your stage run's push changes a setting, the `stages`, `pools` or `merge`
+  section of `.loop/config.yaml`. Only the coordinator changes a setting, with
+  `loop settings set`. The server reads each commit of the push, so a commit on top that reverts
+  the change does not end the refusal. Replace your unpushed commits with one commit:
+  1. Run `loop branch sync`, then each `fetch` command it prints.
+  2. Run `git reset --soft` to the item head that `loop branch sync` names. When the item has no
+     head, reset to `$(git merge-base HEAD origin/<base>)`. Never reset to `origin/<base>` when
+     your branch does not hold it. A reset there makes your next commit undo each base commit
+     since you started.
+     The reset keeps your work in the index.
+  3. Make the `stages`, `pools` and `merge` sections match their text at
+     `$(git merge-base HEAD origin/<base>)`. Then commit again.
+  4. When the commits you replaced held a merge of the base, merge `origin/<base>` again. The reset
+     dropped that merge. The new merge brings in each settings change of the coordinator.
+  5. Push. When your ticket needs that setting, escalate by section 6, and name the setting and its
+     value.
 - `GITHUB_REFUSED`: GitHub refused the request, and `hint` holds its answer. Never send the same
   request again. Escalate it with `loop escalation raise`.
 - `SHAPE_REFUSED`: the text you sent does not hold the shape that the `rule` names. The verb wrote

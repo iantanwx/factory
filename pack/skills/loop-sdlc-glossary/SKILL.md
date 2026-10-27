@@ -91,6 +91,17 @@ names a verb, and the transition table picks the state.
 - **Attempt**: one run on an item. The brief names the attempt number. Two failed attempts with
   unchanged inputs stop the item.
 
+## Settings
+
+- **A setting**: one value in the `stages`, `pools` or `merge` section of a project's
+  `.loop/config.yaml`, such as `stages.implementer.cap`. A setting that the project does not set
+  takes the host config value or the default. `loop settings show` lists each setting in force,
+  with its source.
+- **A settings change**: one setting changed by `loop settings set`, with a reason. Only the
+  coordinator runs it. The server writes the change on its own pull request, and the project's
+  merge mechanism merges it after CI. The merge puts a notice in the inbox. A stage run never
+  changes a setting, and the server refuses its push with `SETTINGS_CHANGE`.
+
 ## Overwatch
 
 - **Overwatch**: the server's native job that sweeps on a timer, and rings the coordinator when the

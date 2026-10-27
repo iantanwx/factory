@@ -511,7 +511,74 @@ commit you have not read. Give a command the subagent can run, not a number you 
 each subagent's result, and never report a result it did not return. A subagent never opens or
 merges a pull request on its own, and it never reads a credential file.
 
-## 12. Never
+## 12. Settings
+
+A project's settings live in its `.loop/config.yaml`. You change a setting on your own judgement,
+and the operator reads each change as a notice. A stage run never changes one. Host config is not
+a setting. The operator edits host config by hand.
+
+Change a setting in these cases:
+
+- The operator asks for the change.
+- A stage's row in `loop stage list` shows it at its cap while items wait in its states, and the
+  host has room for more runs.
+- A ticket needs a setting, and the escalation of its run names that setting.
+
+Never change a setting to hide a failure. A stage that keeps failing for a loop reason gets a
+pause by section 3.
+
+Read the settings in force before each change:
+
+```bash
+loop settings show <project>
+```
+
+Each row names a setting, its value and its source: the project file, host config or the default.
+A row from the project file also names the newest commit that changed it. The answer names the
+project's live change, when one exists. When `stale` is true, the default branch's config does not
+load, and the last good copy is in force. `stale` names the problem. That is work in the project,
+and it starts by section 8.
+
+Change one setting with one command, and give the reason:
+
+```bash
+loop settings set <project> <key> --value <value> --reason "<why>"
+loop settings set <project> <key> --unset --reason "<why>"
+```
+
+The key names one setting, such as `stages.implementer.cap`. `--unset` removes the setting from
+the file, so the host value or the default applies. The server writes the change on its own pull
+request. The project's merge mechanism merges it after CI, with no review by a person. The new
+value is in force from the tick after the server reads the merge. The answer is the change, in
+state `open` with its pull request, or `proposed` when the pull request did not open yet. The
+server opens it on a later tick.
+
+The command refuses these cases, and lands nothing:
+
+- **`INVALID_SETTING`.** The setting or its value does not hold a rule, or the change moves
+  neither the value nor its source. The hint names the setting and the rule. A field other than
+  `enabled` on a run stage or an agent job that the project does not list refuses. Set
+  `stages.<stage>.enabled` first.
+- **`SETTINGS_PENDING`.** The project holds one open change. The hint names its pull request. Wait
+  until that change merges or fails, then run the command again.
+
+When the change merges, the inbox shows a notice, `notice/<n>`. It names the setting, the old
+value, the new value and the reason. Name it in the report. Then dismiss it:
+
+```bash
+loop inbox answer notice/<n> --body "<the report that named it>"
+```
+
+A notice asks nothing, so it is never deferred.
+
+A change that cannot land fails, and the alert `settings_change_failed` waits on you. Red CI, a
+conflict with the base, a dequeue, a close by a person and a moved head each fail it. A change
+that does not reach the merge mechanism within 2 hours fails too. The alert names the state, and
+each required check that did not report. Nothing landed, so the old value stays in force. Find the
+cause by section 3. Red CI means that the new value broke a gate, so never run the same change
+again. Run the command again only when the cause is gone. Then answer the alert.
+
+## 13. Never
 
 - Never decide what the operator must decide.
 - Never claim an item or take over a live run.
