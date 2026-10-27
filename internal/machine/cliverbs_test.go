@@ -622,7 +622,7 @@ func TestReviewRoundsListsEachVerdict(t *testing.T) {
 	if len(rounds) != 2 {
 		t.Fatalf("rounds = %+v", res.Data)
 	}
-	if r := rounds[0]; r.Round != 1 || r.Verdict != "reject" || r.Body != "Fix the test." || r.RunID != "rev" {
+	if r := rounds[0]; r.Round != 1 || r.Verdict != "reject" || r.Head != shaA || r.Body != "Fix the test." || r.RunID != "rev" {
 		t.Fatalf("round 1 = %+v", r)
 	}
 	if r := rounds[1]; r.Round != 2 || r.Verdict != "pass" || r.Head != shaA || r.Body != "Good." || r.RunID != "rev-2" {

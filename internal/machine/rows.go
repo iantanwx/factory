@@ -14,6 +14,7 @@ const (
 	FactResume       = "resume"        // the state answer returns to
 	FactResumeEntry  = "resume_entry"  // the entry answer writes with a todo resume
 	FactReviewedHead = "reviewed_head" // the head a review passed at
+	FactRejectedHead = "rejected_head" // the head the last review reject named
 	FactHead         = "head"          // the PR head the server last saw
 	FactRejects      = "rejects"       // review rejects of a ticket
 	FactModelTier    = "model_tier"    // escalated after two rejects
@@ -145,19 +146,34 @@ func recordReview(c *change) *cli.Refusal {
 	return nil
 }
 
+// recordRejectedHead stores the head a reject named, so review rounds
+// lists it. reviewed_head stays the head of a pass only.
+func recordRejectedHead(c *change) *cli.Refusal {
+	if h := c.param("head"); h != "" {
+		c.setFact(FactRejectedHead, h)
+	} else {
+		c.unsetFact(FactRejectedHead)
+	}
+	return nil
+}
+
 // withReviews makes every row that review submit performs carry the
-// review fact.
+// review fact, and every reject row the head it named.
 func withReviews(rows []Row) []Row {
 	for i, r := range rows {
 		if r.Command != "review submit" {
 			continue
 		}
-		if r.set == nil {
-			rows[i].set = recordReview
-		} else {
-			rows[i].set = all(r.set, recordReview)
+		record, facts := recordReview, []string{FactReview}
+		if r.Verb == "review_reject" {
+			record, facts = all(recordRejectedHead, recordReview), []string{FactRejectedHead, FactReview}
 		}
-		rows[i].Facts = append(slices.Clone(r.Facts), FactReview)
+		if r.set == nil {
+			rows[i].set = record
+		} else {
+			rows[i].set = all(r.set, record)
+		}
+		rows[i].Facts = append(slices.Clone(r.Facts), facts...)
 	}
 	return rows
 }
