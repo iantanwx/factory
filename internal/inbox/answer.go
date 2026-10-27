@@ -240,8 +240,8 @@ func clearDefer(tx *store.Tx, entry string) error {
 // deferVerb is `loop inbox defer --until --reason`: the entry leaves the
 // inbox and returns at that time with the reason. The time lives in SQLite's schedule table, never
 // in beads' deferred status, so it holds across a restart. A deferred
-// decision also goes back to pending, and decision-timers fires it again
-// at that time.
+// decision also goes back to pending with the reason as the why of its
+// defer, and decision-timers fires it again at that time.
 func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 	id := call.Inv.Arg("entry")
 	until, err := time.Parse(time.RFC3339, call.Inv.Flags["until"])
@@ -278,7 +278,7 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	if kind == KindDecision {
 		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: machine.VerbDefer,
-			Actor: machine.Actor{Name: call.Principal.Actor(), RunID: call.Principal.RunID}, ExpectedStatus: machine.NeedsHuman})
+			Params: map[string]string{"why": reason}, Actor: machine.Actor{Name: call.Principal.Actor(), RunID: call.Principal.RunID}, ExpectedStatus: machine.NeedsHuman})
 		if res.Refusal != nil {
 			return res
 		}

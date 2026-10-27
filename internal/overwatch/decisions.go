@@ -47,7 +47,7 @@ func classifyDecisions(items []machine.Item) Reading {
 		if d := strings.TrimSpace(it.Fact(inbox.FactBy)); d != "" {
 			by = "by " + d + ", when decision-timers fires it"
 		}
-		r.Notes = append(r.Notes, fmt.Sprintf("decision %s waits on its trigger %q; %s. If the event happened, run `loop decision fire %s`",
+		r.Notes = append(r.Notes, fmt.Sprintf("decision %s waits on its trigger %q; %s. If the event happened, run `loop decision fire %s --why \"<the event>\"`",
 			it.ID, it.Fact(inbox.FactTrigger), by, it.ID))
 	}
 	return r

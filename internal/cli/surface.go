@@ -204,11 +204,15 @@ var surface = []Verb{
 		Flag{Name: "waits-for-a-person", Type: FlagString, Description: "who or what the decision waits for; exactly one of --by and this"},
 		Flag{Name: "now", Type: FlagBool, Description: "the trigger already fired: the decision waits on a person in the inbox at once; not with --by"},
 		Flag{Name: "body", Type: FlagString, Description: "the evidence behind the question"})),
-	write(server("decision", "fire", "fire a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
-	write(server("decision", "defer", "defer a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
+	write(server("decision", "fire", "fire a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag,
+		Flag{Name: "why", Type: FlagString, Required: true, Description: "why the trigger fired; the decision keeps it, and a person reads it"})),
+	write(server("decision", "defer", "defer a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag,
+		Flag{Name: "why", Type: FlagString, Required: true, Description: "why the trigger did not fire; the decision keeps it"})),
 	write(server("decision", "settle", "settle a decision", runOrCoordinator, []Arg{decisionArg}, projectFlag,
+		Flag{Name: "note", Type: FlagString, Required: true, Description: "the answer, or why it was dropped with --dropped"},
 		Flag{Name: "dropped", Type: FlagBool, Description: "close it as dropped, not answered"})),
-	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag)),
+	write(server("decision", "moot", "mark a decision moot", runOrCoordinator, []Arg{decisionArg}, projectFlag,
+		Flag{Name: "note", Type: FlagString, Required: true, Description: "why the question no longer exists"})),
 
 	server("overwatch", "sweep", "run every overwatch part once and print the report; it rings nobody", coordinatorOrHost, nil),
 

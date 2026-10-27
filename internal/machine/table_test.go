@@ -240,7 +240,8 @@ func TestTablesHoldExactlyThePlannedEdges(t *testing.T) {
 // setupFor is the parameters and facts that let one row apply.
 func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	params := map[string]string{"head": "h1", "body": "a note", "run": "r-1", "ticket": "tk-x", "of": "tk-y", "sha": "s1",
-		"evidence": EvidenceCommit, "ref": "abc1234", "reason": "main holds it"}
+		"evidence": EvidenceCommit, "ref": "abc1234", "reason": "main holds it", "why": "the trigger fired", "note": "no question left",
+		"answer": "yes"}
 	facts := map[string]string{FactReviewedHead: "h1"}
 	if r.Stage != "" {
 		params["stage"] = r.Stage

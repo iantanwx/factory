@@ -40,10 +40,10 @@ func TestDecisionVerbsKeepTheDecisionStates(t *testing.T) {
 		t.Fatal("a pending decision waits on a person")
 	}
 	moot := w.fileDecision("which queue", "--waits-for-a-person", "the operator")
-	if env, code := w.coordinator("decision", "moot", moot, "--project", "alpha"); code != 0 || w.show(moot).Status != machine.Canceled {
+	if env, code := w.coordinator("decision", "moot", moot, "--project", "alpha", "--note", "the queue was removed"); code != 0 || w.show(moot).Status != machine.Canceled {
 		t.Fatalf("moot from pending = %d %v", code, env)
 	}
-	if _, code := w.coordinator("decision", "fire", d, "--project", "alpha"); code != 0 {
+	if _, code := w.coordinator("decision", "fire", d, "--project", "alpha", "--why", "the first user paid"); code != 0 {
 		t.Fatal("fire failed")
 	}
 	e := entryByID(w.entries("person"), "decision/alpha/"+d)
@@ -57,8 +57,8 @@ func TestDecisionVerbsKeepTheDecisionStates(t *testing.T) {
 		t.Fatalf("answered = %s %v", it.Status, it.Facts)
 	}
 	dropped := w.fileDecision("which cache", "--waits-for-a-person", "the operator")
-	w.coordinator("decision", "fire", dropped, "--project", "alpha")
-	if env, code := w.coordinator("decision", "settle", dropped, "--project", "alpha", "--dropped"); code != 0 || w.show(dropped).Status != machine.Canceled {
+	w.coordinator("decision", "fire", dropped, "--project", "alpha", "--why", "the cache bill came")
+	if env, code := w.coordinator("decision", "settle", dropped, "--project", "alpha", "--dropped", "--note", "we keep no cache"); code != 0 || w.show(dropped).Status != machine.Canceled {
 		t.Fatalf("a dropped decision = %d %v, %s", code, env, w.show(dropped).Status)
 	}
 }
@@ -113,7 +113,7 @@ func TestDecisionTimersFireTheByDateOnce(t *testing.T) {
 	if w.show(d).Status != machine.NeedsHuman || w.show(later).Status != machine.DecisionPending {
 		t.Fatalf("after the tick: %s, %s", w.show(d).Status, w.show(later).Status)
 	}
-	if _, code := w.coordinator("decision", "defer", d, "--project", "alpha"); code != 0 {
+	if _, code := w.coordinator("decision", "defer", d, "--project", "alpha", "--why", "the store is not chosen yet"); code != 0 {
 		t.Fatal("defer failed")
 	}
 	if err := w.srv.Decisions.Tick(ctx, "alpha"); err != nil {
@@ -139,7 +139,7 @@ func TestDecisionFiledNowWaitsOnAPersonAtOnce(t *testing.T) {
 	item := todoTicket(t, w.bx)
 	rev := w.runToken("rev-1", item, machine.StageCodeReviewer)
 	waits := w.fileDecisionAs(rev, "the spec names no retry limit")
-	if env, _ := w.as(rev, "decision", "fire", waits); env["code"] != cli.CodeCapabilityDenied {
+	if env, _ := w.as(rev, "decision", "fire", waits, "--why", "the spec names no retry limit"); env["code"] != cli.CodeCapabilityDenied {
 		t.Fatalf("a run fired a decision it does not hold: %v", env)
 	}
 	env, code := w.as(rev, "decision", "file", "--title", "the spec names no backoff", "--trigger", "the code-reviewer passed a ticket on a spec defect",
@@ -186,7 +186,7 @@ func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()
 	d := w.fileDecision("which store", "--waits-for-a-person", "the operator")
-	w.coordinator("decision", "fire", d, "--project", "alpha")
+	w.coordinator("decision", "fire", d, "--project", "alpha", "--why", "the first user paid")
 	env, _ := w.coordinator("inbox", "prepare", "--body", "ship on Friday? options: yes, costs a weekend; no, costs a week",
 		"--entry", "decision/alpha/"+d)
 	q := env["data"].(map[string]any)["entry"].(string)
