@@ -22,7 +22,9 @@ import (
 // entered the state (C10), unless a live run of any stage holds its
 // lease. A fire that took only older items of the stage's queue is the
 // queue draining, and does not count. A fire while the server drains
-// admits no run, and does not count either. A ticket in
+// admits no run, and does not count either. An item at a stage that a
+// pause holds, in its project or in every project, waits for the resume
+// (C25). A ticket in
 // in_progress that no lease holds and no live run names is lost, and work
 // at once (C11). The stage claim states come from admission, so the part
 // lists no state of its own.
@@ -66,6 +68,7 @@ type itemRow struct {
 	// started at or after entered, oldest first.
 	queue []queueRun
 	lease string // the run that holds the item's lease and has not ended, such as "run r-c733f4f7982a of code-reviewer"
+	pause string // the pause that holds the stage and the verb that ends it, such as `implementer is paused in factorio ("the queue is red"), and ...`
 	hold  string // the room or escalation that holds the item, such as "room room-r7"
 	alert string // an open retry_limit or run_blocked alert that names the item, such as "alert/7 retry_limit"
 }
@@ -103,6 +106,10 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("read the projects: %w", err)
 	}
+	pauses, err := w.Pauses(ctx)
+	if err != nil {
+		return Reading{}, fmt.Errorf("read the stage pauses: %w", err)
+	}
 	var rows stallRows
 	configs := map[string]*config.ProjectConfig{}
 	for _, p := range projects {
@@ -117,6 +124,9 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 		items, err := stageItems(ctx, w, hc, p.ID, configs[p.ID])
 		if err != nil {
 			return Reading{}, err
+		}
+		for i := range items {
+			items[i].pause = pauseOf(pauses, p.ID, items[i].stage)
 		}
 		rows.items = append(rows.items, items...)
 		lost, err := w.Items(ctx, p.ID, machine.ListFilter{Kind: machine.KindTicket, Status: machine.InProgress})
@@ -167,6 +177,22 @@ func scheduleOf(hc *config.HostConfig, cfg *config.ProjectConfig, stage string) 
 		}
 	}
 	return sched.ParseCron(expr)
+}
+
+// pauseOf names the oldest pause that holds stage in project, its reason
+// and the verb that ends it. Empty when none does.
+func pauseOf(pauses []admission.StagePause, project, stage string) string {
+	for _, p := range pauses {
+		if p.Stage != stage || p.Project != "" && p.Project != project {
+			continue
+		}
+		scope, flag := "every project", ""
+		if p.Project != "" {
+			scope, flag = p.Project, " --project "+p.Project
+		}
+		return fmt.Sprintf("%s is paused in %s (%q), and `loop stage resume %s%s` ends the pause", stage, scope, p.Reason, stage, flag)
+	}
+	return ""
 }
 
 // stageItems lists each item of a project in a state that a run stage
@@ -383,6 +409,8 @@ func classifyStalls(rows stallRows, now, drain time.Time) Reading {
 			why = row.lease + " holds its lease"
 		case row.off != "":
 			why = row.off
+		case row.pause != "":
+			why = row.pause
 		case row.hold != "":
 			why = row.hold + " holds it"
 		case row.alert != "":
