@@ -60,7 +60,7 @@ func stackGate(name string) func(context.Context, *Repo) ([]Finding, error) {
 			if _, ok := err.(*exec.ExitError); err != nil && !ok {
 				return nil, err
 			}
-			return ratchetStack(r.Root, r.Config.Gates[i], stdout.String(), err)
+			return ratchetStack(r, r.Config.Gates[i], stdout.String(), err)
 		}
 		if err := c.Run(); err != nil {
 			if _, ok := err.(*exec.ExitError); ok {
@@ -75,8 +75,9 @@ func stackGate(name string) func(context.Context, *Repo) ([]Finding, error) {
 // ratchetStack holds the keys of a ratcheted gate's stdout to the gate's
 // baseline. The exit code decides nothing: oxlint exits 1 and govulncheck
 // exits 3 when they find something. The end line tells a clean run from a
-// silent one, and exit names the exit status in that finding.
-func ratchetStack(root string, gate config.Command, stdout string, exit error) ([]Finding, error) {
+// silent one, and exit names the exit status in that finding. With
+// r.Update, it first lowers the baseline to the keys it found.
+func ratchetStack(r *Repo, gate config.Command, stdout string, exit error) ([]Finding, error) {
 	keys, ok, bad := parseKeys(stdout)
 	if !ok {
 		msg := fmt.Sprintf("%s: the last non-blank line of stdout is not %s, so the gate cannot tell a clean run from a silent one", gate.Run, EndLine)
@@ -86,16 +87,22 @@ func ratchetStack(root string, gate config.Command, stdout string, exit error) (
 		return []Finding{{Rule: "no_end_line", Message: msg}}, nil
 	}
 	if gate.Name == "audit" {
-		findings, err := ratchetAudit(root, gate.Baseline, keys)
+		findings, err := ratchetAudit(r, gate.Baseline, keys)
 		return append(bad, findings...), err
 	}
-	baseline, exists, err := readCounts(root, gate.Baseline)
+	baseline, exists, err := readCounts(r.Root, gate.Baseline)
 	if err != nil {
 		return nil, err
 	}
 	found := Counts{}
 	for _, k := range keys {
 		found[k]++
+	}
+	if r.Update {
+		if baseline, err = updateCounts(r.Root, gate.Baseline, found, baseline, exists); err != nil {
+			return nil, err
+		}
+		exists = true
 	}
 	findings := ratchet(found, baseline, gate.Baseline, "new_finding", "findings")
 	if !exists {
@@ -110,8 +117,12 @@ func ratchetStack(root string, gate config.Command, stdout string, exit error) (
 // set in file. An audit tool prints one advisory once for each path to the
 // package, and that count follows the dependency graph, not the risk. So
 // each id counts once.
-func ratchetAudit(root, file string, ids []string) ([]Finding, error) {
-	accepted, _, err := readAccepted(root, file)
+//
+// With r.Update, it deletes each accepted id that the audit no longer
+// prints, and keeps every other entry as it is. It never accepts an id: an
+// accepted advisory needs a reason that a person writes.
+func ratchetAudit(r *Repo, file string, ids []string) ([]Finding, error) {
+	accepted, exists, err := readAccepted(r.Root, file)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +130,19 @@ func ratchetAudit(root, file string, ids []string) ([]Finding, error) {
 	found, baseline := Counts{}, Counts{}
 	for _, id := range ids {
 		found[id] = 1
+	}
+	if r.Update && !exists {
+		_, _ = fmt.Fprintf(r.Out, "%s does not exist, and --update writes no accepted advisory: write each id the project accepts in it by hand, with a reason and a date\n", file)
+	}
+	if r.Update && exists {
+		kept := maps.Clone(accepted)
+		maps.DeleteFunc(kept, func(id string, _ Advisory) bool { return found[id] == 0 })
+		if len(kept) < len(accepted) {
+			if err := writeAccepted(r.Root, file, kept); err != nil {
+				return nil, err
+			}
+			accepted = kept
+		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(accepted)) {
 		baseline[id] = 1

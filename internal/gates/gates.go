@@ -54,6 +54,8 @@ type Repo struct {
 	Config *config.ProjectConfig
 	// Out takes the output of each command that a gate runs.
 	Out io.Writer
+	// Update lowers each baseline to what the gate found (--update).
+	Update bool
 }
 
 // Git runs git in the checkout and returns its stdout.
@@ -157,6 +159,14 @@ func Select(cfg *config.ProjectConfig, docs, fast bool, only string) ([]Gate, er
 		return nil, fmt.Errorf("gates: no gate is named %q", only)
 	}
 	return out, nil
+}
+
+// Updatable reports whether --update has a baseline to lower in g: the
+// suppressions of standards, or the baseline that a stack gate's command
+// names.
+func Updatable(cfg *config.ProjectConfig, g Gate) bool {
+	return g.Name == "standards" || g.Stack && cfg != nil &&
+		slices.ContainsFunc(cfg.Gates, func(c config.Command) bool { return c.Name == g.Name && c.Baseline != "" })
 }
 
 // Result is the outcome of one gate.

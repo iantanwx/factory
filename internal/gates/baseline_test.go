@@ -1,7 +1,9 @@
 package gates
 
 import (
+	"fmt"
 	"maps"
+	"math/rand/v2"
 	"slices"
 	"strings"
 	"testing"
@@ -73,5 +75,30 @@ func TestParseKeys(t *testing.T) {
 		if _, ok, _ := parseKeys(stdout); ok {
 			t.Errorf("parseKeys(%q) ok, want no end line", stdout)
 		}
+	}
+}
+
+// C9: lower never raises a count and never adds a key. Over generated found
+// and baseline sets, each written count is at most both the old count and
+// the found count, and each written key is in both.
+func TestC9LowerNeverRaises(t *testing.T) {
+	rng := rand.New(rand.NewPCG(9, 9))
+	gen := func() Counts {
+		c := Counts{}
+		for range rng.IntN(6) {
+			c[fmt.Sprintf("k%d::r", rng.IntN(8))] = 1 + rng.IntN(4)
+		}
+		return c
+	}
+	for range 1000 {
+		found, baseline := gen(), gen()
+		for k, n := range lower(found, baseline) {
+			if n < 1 || n > found[k] || n > baseline[k] {
+				t.Fatalf("lower(%v, %v)[%s] = %d, want 1 to min(found, baseline)", found, baseline, k, n)
+			}
+		}
+	}
+	if got, want := lower(Counts{"a::r": 2, "c::r": 2, "d::r": 1}, Counts{"a::r": 3, "b::r": 1, "c::r": 1}), (Counts{"a::r": 2, "c::r": 1}); !maps.Equal(got, want) {
+		t.Fatalf("lower = %v, want %v", got, want)
 	}
 }

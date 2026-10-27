@@ -99,9 +99,13 @@ merge base, and the new text at the head. Record both. The same result at both c
 3. A file on the list the item must not change. The change passes only when the body names a
    contract of this item, the line it overrides and the reason. Reject when any part is missing, or
    when a narrower change would prove the contract.
-4. A rejection path that the item promised and the code does not build.
-5. A rule of the project policy that the change breaks.
-6. A rule of `../loop-boundaries/SKILL.md`, `../loop-least-code/SKILL.md` or
+4. A new baseline file, or a raised count in one, with no reason in the pull request body. A
+   baseline is `.loop/suppressions.json`, or the file that a gate's `baseline` in
+   `.loop/config.yaml` names. Reject when the body gives no reason for each new file and each
+   raised key. A lowered count needs no reason.
+5. A rejection path that the item promised and the code does not build.
+6. A rule of the project policy that the change breaks.
+7. A rule of `../loop-boundaries/SKILL.md`, `../loop-least-code/SKILL.md` or
    `../loop-reader-load/SKILL.md` that the change breaks.
 
 ## 6. Write the comment

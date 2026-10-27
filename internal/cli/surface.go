@@ -327,6 +327,7 @@ var surface = []Verb{
 		Flag{Name: "fast", Type: FlagBool, Description: "run every gate except test and build"},
 		Flag{Name: "docs", Type: FlagBool, Description: "run only the gates that read documents, for a stage that writes only Markdown"},
 		Flag{Name: "only", Type: FlagString, Description: "run one gate"},
+		Flag{Name: "update", Type: FlagBool, Description: "lower the baseline of the one gate --only names to what it found; never raise a count"},
 		Flag{Name: "list", Type: FlagBool, Description: "name the selected gates and run none"},
 		Flag{Name: "base", Type: FlagString, Description: "the ref the change is compared with; the pull request's base in CI, else the remote's default branch"})),
 	topLevel(server("meta", "schema", "print the CLI schema", anyone, nil)),
