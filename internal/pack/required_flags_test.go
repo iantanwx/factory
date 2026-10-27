@@ -1,7 +1,9 @@
 package pack_test
 
 import (
+	"fmt"
 	"io/fs"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -9,72 +11,83 @@ import (
 	"github.com/iantanwx/loop/internal/pack"
 )
 
-// requiredFlags holds one rule for each verb that epic factorio-9wh gives a
-// required flag: every command of the verb in the pack names one of the
-// flags. Each work entry that adds a required flag adds its rule (spec C25).
+// requiredFlags holds one C25 rule for each loop command that epic
+// factorio-9wh makes take a flag: every such command in the pack names one
+// of flags.
 var requiredFlags = []struct {
-	verb  string
-	flags []string
+	command string
+	flags   []string
 }{
+	{"loop work cancel", []string{"--reason"}},
 	{"loop decision file", []string{"--by", "--waits-for-a-person"}},
 }
 
-// C25: the pack names each flag that this epic makes required, so a run
-// that copies a pack command is never refused for a missing flag.
-func TestPackCommandsNameTheirRequiredFlags(t *testing.T) {
-	for _, r := range requiredFlags {
-		n := 0
-		err := fs.WalkDir(pack.Source(), ".", func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
-				return err
-			}
-			for _, cmd := range commands(read(t, path), r.verb) {
-				n++
-				if !slices.ContainsFunc(r.flags, func(f string) bool { return namesFlag(cmd, f) }) {
-					t.Errorf("%s: %q names none of %v", path, cmd, r.flags)
-				}
-			}
-			return nil
-		})
+// codeSpan is one inline code span of a markdown line.
+var codeSpan = regexp.MustCompile("`[^`]+`")
+
+// command is one command of the pack and the file and line it starts at.
+type command struct{ at, text string }
+
+// packCommands returns each command of the pack: each inline code span,
+// and each line of a fenced block with its continuation lines joined.
+func packCommands(t *testing.T) []command {
+	t.Helper()
+	var out []command
+	err := fs.WalkDir(pack.Source(), ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
+			return err
+		}
+		raw, err := fs.ReadFile(pack.Source(), path)
 		if err != nil {
-			t.Fatal(err)
+			return err
 		}
-		if n == 0 {
-			t.Errorf("no pack file runs %s", r.verb)
-		}
-	}
-}
-
-// commands returns each command of verb in text: the verb and its flags, up
-// to the end of the code span or the line. A line that ends in a backslash
-// goes on. A mention of the verb with no flag after it is prose.
-func commands(text, verb string) []string {
-	var cmds []string
-	for rest := text; ; {
-		i := strings.Index(rest, verb)
-		if i < 0 {
-			return cmds
-		}
-		rest = rest[i+len(verb):]
-		var cmd strings.Builder
-		for line := rest; ; {
-			l, next, _ := strings.Cut(line, "\n")
-			l, _, quoted := strings.Cut(l, "`")
-			cont, ok := strings.CutSuffix(strings.TrimRight(l, " "), `\`)
-			if quoted || !ok {
-				cmd.WriteString(l)
-				break
+		fenced, held, start := false, "", 0
+		for i, l := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(l), "```") {
+				fenced = !fenced
+				continue
 			}
-			cmd.WriteString(cont + " ")
-			line = next
+			if !fenced {
+				for _, s := range codeSpan.FindAllString(l, -1) {
+					out = append(out, command{fmt.Sprintf("%s:%d", path, i+1), s})
+				}
+				continue
+			}
+			if held == "" {
+				start = i + 1
+			}
+			held += l
+			if !strings.HasSuffix(l, `\`) {
+				out = append(out, command{fmt.Sprintf("%s:%d", path, start), held})
+				held = ""
+			}
 		}
-		if strings.HasPrefix(strings.TrimSpace(cmd.String()), "-") {
-			cmds = append(cmds, verb+cmd.String())
-		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
+	return out
 }
 
-// namesFlag reports whether cmd passes flag, as --flag value or --flag=value.
-func namesFlag(cmd, flag string) bool {
-	return slices.ContainsFunc(strings.Fields(cmd), func(f string) bool { return f == flag || strings.HasPrefix(f, flag+"=") })
+// TestC25PackNamesEachRequiredFlag proves C25 of factorio-9wh: each command
+// of the pack that a rule names carries that rule's flag, so a run that
+// copies it is not refused with USAGE.
+func TestC25PackNamesEachRequiredFlag(t *testing.T) {
+	cmds := packCommands(t)
+	for _, rule := range requiredFlags {
+		found := 0
+		for _, c := range cmds {
+			if !strings.Contains(c.text, rule.command) {
+				continue
+			}
+			found++
+			if !slices.ContainsFunc(rule.flags, func(f string) bool { return strings.Contains(c.text, f) }) {
+				t.Errorf("%s: %s names none of %v", c.at, c.text, rule.flags)
+			}
+		}
+		if found == 0 {
+			t.Errorf("the pack holds no %s command, so the rule reads nothing", rule.command)
+		}
+	}
 }

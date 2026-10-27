@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -176,6 +177,22 @@ func (s *Server) Handle(path string, h Handler) error {
 	}
 	s.handlers[path] = h
 	return nil
+}
+
+// Unhandled lists each server verb of the registry that has no handler,
+// in path order. A verb the registry answers itself, such as schema, has
+// one.
+func (s *Server) Unhandled() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []string
+	for _, v := range s.reg.Verbs() {
+		if v.Side == cli.SideServer && !v.Local() && s.handlers[v.Path] == nil {
+			out = append(out, v.Path)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // Logger is the server's redacting logger.
@@ -383,9 +400,10 @@ func (s *Server) replayed(rec store.IdemRecord, requestID string) (*cli.Envelope
 }
 
 // conditional reports a refusal that depends only on the moment: a full
-// cap, a held mutex, an open dependency or CI that is not green yet. Such
-// a refusal changed nothing, so it is not stored, and the same call later
-// gets a fresh answer.
+// cap, a held mutex, an open dependency, CI that is not green yet, or an
+// escalation answer that waits on an open question. Such a refusal changed
+// nothing, so it is not stored, and the same call later gets a fresh
+// answer.
 func conditional(r *cli.Refusal) bool {
 	if r == nil {
 		return false
@@ -394,7 +412,7 @@ func conditional(r *cli.Refusal) bool {
 	case cli.CodeCapFull, cli.CodeMutexHeld, cli.CodeDependencyOpen, cli.CodeCINotGreen:
 		return true
 	}
-	return false
+	return r.Code == cli.CodeTransitionNotAllowed && r.Rule == "question_open"
 }
 
 // fingerprint is what an idempotency key must match on a replay.

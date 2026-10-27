@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -609,5 +610,37 @@ func TestNewRefusesARegistryWithoutAMatrix(t *testing.T) {
 	opts.Registry = cli.New()
 	if _, err := New(opts); err == nil {
 		t.Fatal("a registry without a capability matrix must be refused")
+	}
+}
+
+// Unhandled names each server verb with no handler, in path order. It
+// leaves out a client verb, a verb with a handler, and a verb that the
+// registry answers itself, as it answers schema.
+func TestUnhandledListsServerVerbsWithNoHandlerInPathOrder(t *testing.T) {
+	reg := cli.NewRegistry()
+	for _, v := range []cli.Verb{
+		{Noun: "zeta", Name: "poke", Side: cli.SideServer},
+		{Noun: "work", Name: "show", Side: cli.SideServer},
+		{Noun: "work", Name: "open", Side: cli.SideClient},
+		{Noun: "alpha", Name: "poke", Side: cli.SideServer},
+		{Noun: "beta", Name: "poke", Side: cli.SideServer},
+	} {
+		v.Summary = "test"
+		if err := reg.RegisterVerb(v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := reg.SetHandler("beta poke", func(context.Context, cli.Invocation) cli.Result { return cli.Found(nil) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SetCapabilityMatrix(cli.CapabilityMatrix{}); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(o *Options) { o.Registry = reg })
+	if err := h.srv.Handle("work show", found); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := h.srv.Unhandled(), []string{"alpha poke", "zeta poke"}; !slices.Equal(got, want) {
+		t.Fatalf("Unhandled() = %q, want %q", got, want)
 	}
 }

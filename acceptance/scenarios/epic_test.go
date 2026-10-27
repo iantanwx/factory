@@ -3,6 +3,7 @@
 package scenarios
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"testing"
@@ -206,6 +207,18 @@ func TestF4AE7APRDFromIntakeToTicketsAndDone(t *testing.T) {
 	if got := w.Show(ids["name"]).Facts[machine.FactStories]; got != "US-02" {
 		t.Fatalf("the ticket cites %q", got)
 	}
+
+	// C10: a person's answer returns a ticket escalated from backlog to
+	// backlog, where it waits on its open blocker. The escalate write is
+	// the one the server makes when the fixer routes an escalation to a
+	// person.
+	res := w.Srv.Machine.Apply(context.Background(), machine.Request{Project: acceptance.Project, Item: ids["name"],
+		Verb: machine.VerbEscalate, ExpectedStatus: machine.Backlog, Actor: machine.Server("escalation")})
+	if res.Refusal != nil {
+		t.Fatalf("escalate %s: %+v", ids["name"], res.Refusal)
+	}
+	w.Must(w.Coordinator("inbox", "answer", "escalation/"+acceptance.Project+"/"+ids["name"], "--body", "Keep it after the list."))
+	wantStatus(w, ids["name"], machine.Backlog)
 
 	// Both tickets land, and the last one closes the epic.
 	_, head := implement(w, ids["list"], map[string]string{"widgets/list.txt": "list\n"})
