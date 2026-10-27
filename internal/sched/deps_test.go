@@ -142,6 +142,123 @@ func TestDependencyAdvance(t *testing.T) {
 	})
 }
 
+// bug files a bug report. It lands in reported.
+func (w *world) bug() string {
+	w.t.Helper()
+	id, res := w.m.Create(context.Background(), machine.CreateRequest{Project: prj, Kind: machine.KindBug, Title: "It breaks",
+		Verb: "file", Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		w.t.Fatalf("file a bug: %+v", res.Refusal)
+	}
+	return id
+}
+
+// awaitBuild routes bug to wait for build, as
+// `work duplicate <bug> --of <build> --unbuilt` does.
+func (w *world) awaitBuild(bug, build string) {
+	w.t.Helper()
+	res := w.m.Apply(context.Background(), machine.Request{Project: prj, Item: bug, Verb: "await_build",
+		Params: map[string]string{"of": build}, Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		w.t.Fatalf("route %s to wait for %s: %+v", bug, build, res.Refusal)
+	}
+}
+
+// move sets the status of a bead with no table row, as another writer would.
+func (w *world) move(id, status string) {
+	w.t.Helper()
+	ctx := context.Background()
+	is, err := w.bx.Get(ctx, id)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	if _, err := w.bx.Update(ctx, id, beadsx.UpdateSpec{IfStatus: is.Status, Status: status}); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+// TestC20BuildEndRoutesTheWaitingBug proves C20: at the dependency-advance
+// tick after the build reaches done, the waiting bug is a duplicate of it.
+// At the tick after the build is canceled, the bug is reported again with
+// no built_by. While the build is open, the bug waits.
+func TestC20BuildEndRoutesTheWaitingBug(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct{ build, want string }{
+		{machine.Done, machine.Duplicate},
+		{machine.Canceled, machine.Reported},
+		{machine.Todo, "awaiting_build"},
+		{machine.InProgress, "awaiting_build"},
+		{machine.Escalated, "awaiting_build"},
+	}
+	for _, c := range cases {
+		t.Run(c.build, func(t *testing.T) {
+			w := newWorld(t)
+			build, bug := w.ticket(machine.InProgress), w.bug()
+			w.awaitBuild(bug, build)
+			w.move(build, c.build)
+			if err := w.s.advanceDependencies(ctx, prj); err != nil {
+				t.Fatal(err)
+			}
+			it, _ := w.m.Show(ctx, prj, bug)
+			builtBy, dupOf := it.Fact("built_by"), it.Fact(machine.FactDuplicateOf)
+			var ok bool
+			switch c.want {
+			case machine.Duplicate:
+				ok = dupOf == build
+			case machine.Reported:
+				ok = builtBy == "" && dupOf == ""
+			default:
+				ok = builtBy == build && dupOf == ""
+			}
+			if it.Status != c.want || !ok {
+				t.Fatalf("with the build %s: bug %s, built_by %q, duplicate_of %q; want %s", c.build, it.Status, builtBy, dupOf, c.want)
+			}
+		})
+	}
+}
+
+// The end-to-end path: a report routed --unbuilt waits while its building
+// ticket is in review. The ticket merges, and the next dependency-advance
+// tick closes the report as its duplicate.
+func TestWaitingBugClosesOneTickAfterItsBuildMerges(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	build, bug := w.ticket(machine.InReview), w.bug()
+	w.awaitBuild(bug, build)
+	if err := w.s.advanceDependencies(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	if got := w.status(bug); got != "awaiting_build" {
+		t.Fatalf("with the build in review: bug %s, want awaiting_build", got)
+	}
+	w.merge(build)
+	if got := w.status(bug); got != "awaiting_build" {
+		t.Fatalf("before the tick: bug %s, want awaiting_build", got)
+	}
+	if err := w.s.advanceDependencies(ctx, prj); err != nil {
+		t.Fatal(err)
+	}
+	it, _ := w.m.Show(ctx, prj, bug)
+	if it.Status != machine.Duplicate || it.Fact(machine.FactDuplicateOf) != build {
+		t.Fatalf("after the tick: bug %s, duplicate_of %q; want duplicate of %s", it.Status, it.Fact(machine.FactDuplicateOf), build)
+	}
+}
+
+// C19: no stage claims a bug in awaiting_build. The reproducer's peek
+// finds a reported bug, and finds nothing once that bug waits for a build.
+func TestC19ReproducerPeekSkipsAWaitingBug(t *testing.T) {
+	ctx := context.Background()
+	w := newWorld(t)
+	bug := w.bug()
+	if c, ref := w.a.Peek(ctx, prj, machine.StageReproducer); ref != nil || c == nil || c.Item != bug {
+		t.Fatalf("peek with %s reported = %+v %+v; want %s", bug, c, ref, bug)
+	}
+	w.awaitBuild(bug, w.ticket(machine.InProgress))
+	if c, ref := w.a.Peek(ctx, prj, machine.StageReproducer); ref != nil || c != nil {
+		t.Fatalf("peek with %s in awaiting_build = %+v %+v; want nothing", bug, c, ref)
+	}
+}
+
 // pulls is a reader of the open pull requests that answers with heads,
 // or with err. It counts its reads.
 type pulls struct {

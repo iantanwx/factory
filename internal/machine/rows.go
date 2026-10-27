@@ -49,6 +49,7 @@ const (
 	FactSupersededBy    = "superseded_by"
 	FactSupersedeReason = "supersede_reason" // how that evidence answers the ticket
 	FactCancelReason    = "cancel_reason"    // why work cancel closed the item
+	FactBuiltBy         = "built_by"         // the ticket or epic a waiting bug waits for
 )
 
 // Entry values of a todo ticket (R6).
