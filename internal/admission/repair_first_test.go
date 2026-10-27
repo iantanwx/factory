@@ -56,9 +56,9 @@ func TestPeekPassesAnInadmissibleRepair(t *testing.T) {
 	}
 }
 
-// Only the implementer reorders its claim states. Every other stage walks
-// its claim states in machine table order, as before F-19.
-func TestClaimStatesKeepTableOrderOutsideTheImplementer(t *testing.T) {
+// Every stage lists its claim states in machine table order. The
+// implementer's rank, not the order of its states, puts repair first.
+func TestClaimStatesKeepTableOrder(t *testing.T) {
 	tableOrder := map[string][]stateOf{}
 	for _, tb := range machine.Tables() {
 		for _, r := range tb.Rows {
@@ -71,9 +71,6 @@ func TestClaimStatesKeepTableOrderOutsideTheImplementer(t *testing.T) {
 		}
 	}
 	for stage, want := range tableOrder {
-		if stage == machine.StageImplementer {
-			want = []stateOf{{machine.KindTicket, machine.Repair}, {machine.KindTicket, machine.Todo}}
-		}
 		if got := claimStates(stage); !slices.Equal(got, want) {
 			t.Errorf("claimStates(%s) = %v, want %v", stage, got, want)
 		}

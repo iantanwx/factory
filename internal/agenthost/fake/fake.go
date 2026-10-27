@@ -101,21 +101,22 @@ type session struct {
 
 // Host is the fake agent host. The zero value is not usable; call New.
 type Host struct {
-	mu         sync.Mutex
-	clock      *Clock
-	root       string
-	quiet      time.Duration
-	extra      map[agenthost.Harness][]string
-	epoch      int
-	next       int
-	checkouts  map[string]bool
-	sessions   []*session
-	launches   []Launch
-	incomplete bool
-	neverReady bool
-	dropModel  bool
-	down       bool
-	quota      map[agenthost.Harness]agenthost.Quota
+	mu          sync.Mutex
+	clock       *Clock
+	root        string
+	quiet       time.Duration
+	extra       map[agenthost.Harness][]string
+	epoch       int
+	next        int
+	checkouts   map[string]bool
+	sessions    []*session
+	launches    []Launch
+	incomplete  bool
+	neverReady  bool
+	dropModel   bool
+	silentModel bool
+	down        bool
+	quota       map[agenthost.Harness]agenthost.Quota
 }
 
 // Option configures a Host.
@@ -252,6 +253,10 @@ func (h *Host) SetNeverReady(on bool) { h.set(func() { h.neverReady = on }) }
 // SetDropModel makes the host drop the model argument of later starts. It
 // serves agenthosttest.ModelDropper.
 func (h *Host) SetDropModel(on bool) { h.set(func() { h.dropModel = on }) }
+
+// SetSilentModel makes the harness of later starts record no model. It
+// serves agenthosttest.ModelSilencer.
+func (h *Host) SetSilentModel(on bool) { h.set(func() { h.silentModel = on }) }
 
 // SetDown makes every call fail with agenthost.ErrHostUnavailable.
 func (h *Host) SetDown(on bool) { h.set(func() { h.down = on }) }
@@ -465,6 +470,9 @@ func (h *Host) Start(_ context.Context, spec agenthost.StartSpec) (agenthost.Ses
 	if h.dropModel {
 		s.observed = DroppedModel
 	}
+	if h.silentModel {
+		s.observed = ""
+	}
 	h.sessions = append(h.sessions, s)
 	h.launches = append(h.launches, Launch{ID: id, Argv: argv, Spec: spec})
 	if h.neverReady {
@@ -472,8 +480,11 @@ func (h *Host) Start(_ context.Context, spec agenthost.StartSpec) (agenthost.Ses
 		return s.s, fmt.Errorf("%w: %s never appeared", agenthost.ErrNotReady, id)
 	}
 	if spec.RequireVerifiedModel && s.observed != spec.Model {
+		if s.observed == "" {
+			return s.s, fmt.Errorf("%w: requested %s", agenthost.ErrNoModelReceipt, spec.Model)
+		}
 		s.closed = true
-		return s.s, fmt.Errorf("%w: requested %s, harness records %s", agenthost.ErrModelUnverified, spec.Model, s.observed)
+		return s.s, fmt.Errorf("%w: requested %s, harness records %s", agenthost.ErrModelMismatch, spec.Model, s.observed)
 	}
 	return s.s, nil
 }
@@ -659,9 +670,12 @@ func (h *Host) ModelReceipt(_ context.Context, sess agenthost.Session) (agenthos
 	for _, s := range h.sessions {
 		if s.s.ID == sess.ID {
 			rc.Observed = s.observed
-			if s.observed == sess.Model {
+			switch s.observed {
+			case sess.Model:
 				rc.Status = agenthost.Verified
-			} else {
+			case "":
+				rc.Reason = "no transcript of this session names a model yet"
+			default:
 				rc.Reason = "the harness records another model"
 			}
 			return rc, nil

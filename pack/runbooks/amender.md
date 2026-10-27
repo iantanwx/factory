@@ -63,8 +63,12 @@ A comment can teach a rule that binds every later document, not only this one. D
 forces its mechanism:
 
 ```bash
-loop decision file --title "Which rung holds: <lesson>" --trigger "<the event that forces it>"
+loop decision file --title "Which rung holds: <lesson>" --trigger "<the event that forces it>" \
+  --waits-for-a-person "<who notices the event>"
 ```
+
+When the trigger names a date, pass `--by <YYYY-MM-DD>` in place of `--waits-for-a-person`. The
+server refuses a decision with neither or both.
 
 Never build the mechanism in this run. This run changes your document only.
 

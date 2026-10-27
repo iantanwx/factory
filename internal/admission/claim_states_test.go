@@ -14,7 +14,7 @@ import (
 // Work entry 4).
 func TestClaimStatesIsTheViewOfEachStagesClaimStates(t *testing.T) {
 	want := map[string][]ClaimState{
-		config.StageImplementer:  {{machine.KindTicket, machine.Repair}, {machine.KindTicket, machine.Todo}},
+		config.StageImplementer:  {{machine.KindTicket, machine.Todo}, {machine.KindTicket, machine.Repair}},
 		config.StageCodeReviewer: {{machine.KindTicket, machine.InReview}},
 		config.StageReproducer:   {{machine.KindBug, machine.Reported}},
 		config.StageFixer:        nil,

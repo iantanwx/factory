@@ -18,8 +18,11 @@ import (
 // one-run guard of scripts/sdlc/stage-claims.ts (alpha): two spec authors
 // would each take an epic and break the stage's cadence, and a second
 // reproducer would take the next report from a stale queue read while the
-// first still reads it (timer-reproducer-row.ts, alpha).
-var mutexStages = []string{config.StageIntake, config.StageSpecAuthor, config.StageReproducer}
+// first still reads it (timer-reproducer-row.ts, alpha). The PRD author
+// keeps the same guard for the spec author's reason: two runs would each
+// take an epic and break the stage's cadence (ADR 0001, spec factorio-4n0
+// Decisions).
+var mutexStages = []string{config.StageIntake, config.StageSpecAuthor, config.StageReproducer, config.StagePRDAuthor}
 
 func isMutexStage(stage string) bool { return slices.Contains(mutexStages, stage) }
 

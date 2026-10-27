@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc"
@@ -73,6 +75,9 @@ type Client struct {
 	Budget time.Duration
 	// State reads the expected status and sequence of a write's item.
 	State StateReader
+	// Exec replaces the process with the checkout's loop binary.
+	// syscall.Exec when nil.
+	Exec func(binary string, argv, env []string) error
 }
 
 // Attach makes c the remote of every server verb in r, and gates the
@@ -105,7 +110,6 @@ func (c *Client) prepare(inv Invocation) (*callCtx, *Result) {
 		}
 		cc.instance = dir
 	}
-	cc.socket = SocketPath(cc.instance)
 	cc.budget = c.Budget
 	if cc.budget <= 0 {
 		cc.budget = effectiveBudget()
@@ -132,14 +136,86 @@ func (c *Client) prepare(inv Invocation) (*callCtx, *Result) {
 		}
 		cc.token, cc.checkout = &tf, checkout
 	}
-	if slices.Contains(inv.Verb.Callers, "host") {
+	// The token file routes a run's own call, and that call sends no
+	// host-admin credential. A host verb is a host-admin call. It ignores
+	// the file, so the credential never reaches another instance.
+	switch {
+	case cc.token != nil && !isHostVerb(inv.Verb):
+		if res := c.route(cc); res != nil {
+			return nil, res
+		}
+	case slices.Contains(inv.Verb.Callers, "host"):
 		// The credential comes only from the instance's file. A missing
 		// file sends none, and the server refuses the verb.
 		if cred, err := ReadAdminCredential(cc.instance); err == nil {
 			cc.admin = cred
 		}
 	}
+	cc.socket = SocketPath(cc.instance)
 	return cc, nil
+}
+
+// isHostVerb reports whether every caller of v is a host label, the rule
+// by which DeriveMatrix names a host verb.
+func isHostVerb(v *Verb) bool {
+	return slices.Contains(v.Callers, "host") && !slices.ContainsFunc(v.Callers, func(c string) bool {
+		return !slices.Contains(hostVerbLabels, c)
+	})
+}
+
+// route follows the checkout's token file. A binary other than this one
+// runs in its place, at most once and only from under the instance. Then
+// the call goes to the instance the file names.
+func (c *Client) route(cc *callCtx) *Result {
+	tf := cc.token
+	if tf.Binary != "" && os.Getenv(CheckoutExecEnv) == "" {
+		bin, err := filepath.EvalSymlinks(tf.Binary)
+		if err != nil {
+			return new(Internal(fmt.Errorf("resolve the checkout's loop binary: %w", err)))
+		}
+		self, err := os.Executable()
+		if err == nil {
+			self, err = filepath.EvalSymlinks(self)
+		}
+		if err != nil {
+			return new(Internal(fmt.Errorf("resolve this loop binary: %w", err)))
+		}
+		if bin != self {
+			if !within(bin, tf.Instance) {
+				return usage("binary_outside_instance", fmt.Sprintf(
+					"the token file names the binary %s, which resolves outside the instance %s; the CLI runs no binary from outside its instance",
+					tf.Binary, tf.Instance))
+			}
+			return new(Internal(c.exec(bin)))
+		}
+	}
+	if tf.Instance != "" {
+		cc.instance = tf.Instance
+	}
+	return nil
+}
+
+// within reports whether the resolved path lies under dir, after dir is
+// resolved through symlinks too.
+func within(path, dir string) bool {
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// exec replaces the process with bin, with the same arguments and
+// environment, and CheckoutExecEnv set. It returns only on a failure.
+func (c *Client) exec(bin string) error {
+	execve := c.Exec
+	if execve == nil {
+		execve = syscall.Exec
+	}
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, CheckoutExecEnv+"=") })
+	err := execve(bin, append([]string{bin}, os.Args[1:]...), append(env, CheckoutExecEnv+"=1"))
+	return fmt.Errorf("run %s: %w", bin, err)
 }
 
 func (cc *callCtx) request(inv Invocation) *loopv1.VerbRequest {

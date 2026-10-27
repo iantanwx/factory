@@ -7,6 +7,7 @@ import (
 	"maps"
 	"slices"
 	"sync"
+	"time"
 )
 
 // Throughput is one entry of host config's throughput map (KTD30). Cap is
@@ -17,6 +18,10 @@ import (
 type Throughput struct {
 	Cap      int    `yaml:"cap"`
 	Schedule string `yaml:"schedule,omitempty"`
+	// Overdue is how long a ticket waits in todo before the implementer's
+	// work query ranks it overdue. Only the implementer entry takes it.
+	// 90 minutes when absent.
+	Overdue time.Duration `yaml:"overdue,omitempty"`
 }
 
 // The run stages (R13). The machine's claim rows use these names. Intake
@@ -26,6 +31,7 @@ const (
 	StageCodeReviewer = "code-reviewer"
 	StageDocReviewer  = "doc-reviewer"
 	StageAmender      = "amender"
+	StagePRDAuthor    = "prd-author"
 	StageSpecAuthor   = "spec-author"
 	StageDecomposer   = "decomposer"
 	StageFixer        = "fixer"
@@ -37,8 +43,8 @@ const (
 // The stage set (R13). The native jobs claim no item.
 var (
 	runStages = []string{
-		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StageSpecAuthor,
-		StageDecomposer, StageFixer, StageReproducer, StageIntake,
+		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StagePRDAuthor,
+		StageSpecAuthor, StageDecomposer, StageFixer, StageReproducer, StageIntake,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch", "orca-acceptance"}
 	// optional lists the keys that a later release added. A host config
@@ -46,7 +52,7 @@ var (
 	// entry reads as its default and is never written to the file
 	// (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Decisions). Every
 	// other key stays required.
-	optional = []string{"overwatch", "orca-acceptance"}
+	optional = []string{"overwatch", "orca-acceptance", StagePRDAuthor}
 	// pools bound several stages together. The reviewers pool is today's
 	// REVIEW_CAP over every reviewer stage (scripts/sdlc/review-cap.ts,
 	// alpha), next to each stage's own cap.
@@ -96,6 +102,7 @@ func DefaultThroughput() map[string]Throughput {
 		StageDocReviewer:     {Cap: 10, Schedule: "26,56 * * * *"},
 		"reviewers":          {Cap: 10},
 		StageAmender:         {Cap: 2, Schedule: "16,46 * * * *"},
+		StagePRDAuthor:       {Cap: 2, Schedule: "5,35 * * * *"},
 		StageSpecAuthor:      {Cap: 2, Schedule: "25,55 * * * *"},
 		StageDecomposer:      {Cap: 2, Schedule: "10,40 * * * *"},
 		StageFixer:           {Cap: 1, Schedule: "14,44 * * * *"},
@@ -153,6 +160,12 @@ func (c *HostConfig) validateThroughput(ck *checker) {
 			ck.fail(f+".schedule", "must be absent; a pool bounds other stages and runs nothing")
 		case !isPool(key) && (e.Schedule == "" || HasControl(e.Schedule)):
 			ck.fail(f+".schedule", "must be a nonempty schedule")
+		}
+		switch {
+		case e.Overdue != 0 && key != StageImplementer:
+			ck.fail(f+".overdue", "must be absent; only the implementer ranks overdue tickets")
+		case e.Overdue < 0:
+			ck.fail(f+".overdue", "must not be negative")
 		}
 	}
 	for _, key := range slices.Sorted(maps.Keys(c.Throughput)) {
@@ -282,4 +295,17 @@ func (l *HostLoader) Load(ctx context.Context) (*HostConfig, error) {
 		l.raised = true
 	}
 	return l.good, nil
+}
+
+// DefaultOverdue is the implementer's overdue wait when host config sets
+// none: tickertown's 9 ticks of 10 minutes (implementer-rank.ts:133-158).
+const DefaultOverdue = 90 * time.Minute
+
+// Overdue returns how long a ticket waits in todo before the implementer's
+// work query ranks it overdue.
+func (c *HostConfig) Overdue() time.Duration {
+	if d := c.ThroughputFor(StageImplementer).Overdue; d != 0 {
+		return d
+	}
+	return DefaultOverdue
 }

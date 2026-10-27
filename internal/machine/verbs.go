@@ -15,6 +15,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/shape"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -173,12 +174,33 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 				return refusedAt(r, item, it)
 			}
 		}
+		if r := contractsNamed(it, body); r != nil {
+			return refusedAt(r, item, it)
+		}
 		if body != "" && m.reviewComment != nil {
 			return m.reviewComment(ctx, prj, item, body, key)
 		}
 		return nil
 	}
 	return m.Apply(ctx, req)
+}
+
+// contractsNamed refuses a review of a shaped ticket whose body omits a
+// contract id of the ticket's task text (spec factorio-wnl, C13). A ticket
+// with no shape fact was never checked at its creation, so its review is
+// not checked either.
+func contractsNamed(it Item, review string) *cli.Refusal {
+	s, ok := shape.ByName(it.Fact(FactShape))
+	if it.Kind != KindTicket || !ok {
+		return nil
+	}
+	missing := shape.Unnamed(shape.ContractIDs(s, it.Body), review)
+	if len(missing) == 0 {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "contract_unnamed",
+		Hint: fmt.Sprintf("the review does not name %s; write one line for each contract id of the ticket, and submit again",
+			strings.Join(missing, ", "))}
 }
 
 // refusedAt names the item, its status and its next moves in a refusal
@@ -503,6 +525,13 @@ func (m *Machine) workShow(ctx context.Context, call *rpc.Call) cli.Result {
 	if r != nil {
 		return r.Result()
 	}
+	if m.wait != nil {
+		if w, err := m.wait(ctx, prj, it.ID); err != nil {
+			it.WaitError = err.Error()
+		} else {
+			it.Wait = &w
+		}
+	}
 	return cli.Found(it)
 }
 
@@ -537,6 +566,14 @@ type PRHeadReader func(ctx context.Context, project, item string) (string, *cli.
 // SetPRHeadReader sets the reader of live pull request heads. The GitHub
 // setup sets it before the socket binds.
 func (m *Machine) SetPRHeadReader(f PRHeadReader) { m.prHead = f }
+
+// WaitReader reads why an item waits: its lease, its holds, its counted
+// failures and the open alerts that name it.
+type WaitReader func(ctx context.Context, project, item string) (Wait, error)
+
+// SetWaitReader sets the reader of work show's wait. The server sets it
+// before the socket binds.
+func (m *Machine) SetWaitReader(f WaitReader) { m.wait = f }
 
 // PassGate reads CI at head, the head a code review passes. It refuses
 // unless every required check is green there.

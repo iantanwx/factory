@@ -355,6 +355,9 @@ type PR struct {
 	MergeableState string
 	// Reviewers lists each login requested for review, in order.
 	Reviewers []string
+	// Files lists each path the PR modifies. With none, the PR has the
+	// files that SetFiles counts.
+	Files []string
 }
 
 func (p *PR) json() map[string]any {
@@ -677,8 +680,14 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 		switch m[3] {
 		case "files":
 			out := []any{}
-			for i := (page-1)*100 + 1; i <= w.files && i <= page*100; i++ {
-				out = append(out, map[string]any{"filename": fmt.Sprintf("f%03d.txt", i), "status": "added", "additions": 1})
+			if p := w.pr(m[2]); p != nil && p.Files != nil {
+				for _, f := range p.Files[min(len(p.Files), (page-1)*100):min(len(p.Files), page*100)] {
+					out = append(out, map[string]any{"filename": f, "status": "modified", "additions": 1})
+				}
+			} else {
+				for i := (page-1)*100 + 1; i <= w.files && i <= page*100; i++ {
+					out = append(out, map[string]any{"filename": fmt.Sprintf("f%03d.txt", i), "status": "added", "additions": 1})
+				}
 			}
 			WriteJSON(rw, 200, out)
 		default:

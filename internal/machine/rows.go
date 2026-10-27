@@ -52,6 +52,8 @@ const (
 	FactCancelReason    = "cancel_reason"    // why work cancel closed the item
 	FactBuiltBy         = "built_by"         // the ticket or epic a waiting bug waits for
 	FactPriority        = "priority"         // the priority work shape gave the ticket: 1 to 4
+	FactSpecPath        = "spec_path"        // the spec's path in the repository, set when the spec merges
+	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
 )
 
 // Entry values of a todo ticket (R6).

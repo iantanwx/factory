@@ -13,7 +13,7 @@ DESCRIPTOR    := gen/loop.binpb
 # `make gates` is the definition of done. A later unit adds its gate here.
 GATES := lint test race proto-check pack-check
 
-.PHONY: build build-all test race lint proto proto-check pack-check gates acceptance beads-contract beads-contract-race orca-contract \
+.PHONY: build build-all test race lint proto proto-check pack-check gates acceptance beads-contract beads-contract-race orca-contract orca-acceptance \
 	release-dist release-sign release-dry $(PLATFORMS)
 
 build:
@@ -62,6 +62,15 @@ acceptance:
 orca-contract:
 	$(GO) test -tags orca -run TestOrcaContract -v -timeout 60m ./internal/agenthost/orca/
 
+# The real-orca lane (ADR 0008) runs the orca contract, then the F1
+# scenario, with real agents on this host. It spends harness quota, so it
+# stays out of GATES and every workflow. Each lane binary's gate fails on a
+# missing LOOP_ORCA_ROOT, LOOP_ORCA_REPO or LOOP_ORCA_MODEL. -count=1 keeps
+# a cached pass from proving nothing, and 120m is the lane's deadline.
+orca-acceptance:
+	$(GO) test -count=1 -timeout 120m -tags orca ./internal/agenthost/orca/
+	$(GO) test -count=1 -timeout 120m -tags 'acceptance orca' -run '^TestF1RealAgentsTakeATicketFromClaimToMerge$$' ./acceptance/scenarios/
+
 proto:
 	$(BUF) lint
 	$(BUF) generate
@@ -106,7 +115,10 @@ release-dist:
 	@case "$(VERSION)" in v*.*.*) ;; *) echo "VERSION=$(VERSION) is not a release version vMAJOR.MINOR.PATCH" >&2; exit 1;; esac
 	rm -rf $(DIST) && mkdir -p $(DIST)
 	for p in $(PLATFORMS); do \
-		GOOS=$${p%/*} GOARCH=$${p#*/} $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-$${p%/*}-$${p#*/} ./cmd/loop || exit 1; \
+		os=$${p%/*} arch=$${p#*/}; \
+		GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-$$os-$$arch ./cmd/loop && \
+		GOOS=$$os GOARCH=$$arch $(GO) test -c -tags orca -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-orca-contract-$$os-$$arch ./internal/agenthost/orca/ && \
+		GOOS=$$os GOARCH=$$arch $(GO) test -c -tags 'acceptance orca' -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-orca-acceptance-$$os-$$arch ./acceptance/scenarios/ || exit 1; \
 	done
 	$(RELEASE_TOOL) dist -dir $(DIST) -version $(VERSION) $(if $(MIN_FROM),-min-from $(MIN_FROM)) $(if $(NO_ROLLBACK),-no-rollback)
 

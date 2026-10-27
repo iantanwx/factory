@@ -82,6 +82,59 @@ func TestOnlyTheCurrentDocumentPRMovesTheEpic(t *testing.T) {
 	}
 }
 
+// C2: the reactor records the path of a spec that merges on GitHub. The
+// path is the one file of the spec PR at docs/plans/<epic>-*-spec.md. A
+// PRD merge records none, even with such a file. A spec PR with two such
+// files records none, and the epic still moves to spec_approved.
+func TestSpecMergeOnGitHubRecordsTheSpecPath(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		files func(epic string) []string
+		want  func(epic string) string
+	}{
+		{
+			"one spec file",
+			func(epic string) []string { return []string{"README.md", "docs/plans/" + epic + "-cache-spec.md"} },
+			func(epic string) string { return "docs/plans/" + epic + "-cache-spec.md" },
+		},
+		{
+			"two spec files",
+			func(epic string) []string {
+				return []string{"docs/plans/" + epic + "-cache-spec.md", "docs/plans/" + epic + "-store-spec.md"}
+			},
+			func(string) string { return "" },
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t)
+			w := e.withWorld()
+			ctx := context.Background()
+			prd := w.Add(&gt.PR{Head: "loop/placeholder", HeadSHA: shaA})
+			id := e.epicInReview(prd.Number)
+			w.Update(prd, func(p *gt.PR) { p.Head, p.Files = BranchFor(id), c.files(id) })
+			mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Params: map[string]string{"head": shaA}, Actor: machine.Server("test")}))
+			r := e.reactor()
+			w.Update(prd, func(p *gt.PR) { p.State, p.Merged, p.MergeSHA = "closed", true, shaM })
+			e.tick(r)
+			if it := e.status(id); it.Status != machine.SpecNeeded || it.Fact(machine.FactSpecPath) != "" {
+				t.Fatalf("after the PRD merge: %s %v", it.Status, it.Facts)
+			}
+
+			_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageSpecAuthor, RunID: "run-spec"})
+			mustOK(t, res)
+			spec := w.Add(&gt.PR{Head: SpecBranchFor(id), HeadSHA: shaB, Files: c.files(id)})
+			mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "pr_open",
+				Params: map[string]string{"pr": strconv.Itoa(spec.Number)}, Actor: machine.Server("test")}))
+			mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "review_pass", Params: map[string]string{"head": shaB}, Actor: machine.Server("test")}))
+			w.Update(spec, func(p *gt.PR) { p.State, p.Merged, p.MergeSHA = "closed", true, shaM })
+			e.tick(r)
+			if it := e.status(id); it.Status != machine.SpecApproved || it.Fact(machine.FactSpecPath) != c.want(id) {
+				t.Fatalf("after the spec merge: %s %v, want spec_path %q", it.Status, it.Facts, c.want(id))
+			}
+		})
+	}
+}
+
 // A closed document PR escalates the epic, and never cancels it.
 func TestClosedDocumentPREscalatesTheEpic(t *testing.T) {
 	e := newEnv(t)

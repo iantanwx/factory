@@ -222,6 +222,8 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	case KindArchitecture:
 		return cli.Reject(cli.CodeUsage, "architecture_entry",
 			"an architecture entry ends when a ticket is filed under the epic or a room opens on it, not with an answer: "+archActs(project, item))
+	case KindPause:
+		return cli.Reject(cli.CodeUsage, "pause_entry", "a pause entry ends when the stage resumes, not with an answer: "+resumeCommand(project, item))
 	case KindPanel:
 		return cli.Reject(cli.CodeTransitionNotAllowed, "panel_pending",
 			"the fixer's panel routes this escalation; a person answers it only after the panel sends it to a person")
