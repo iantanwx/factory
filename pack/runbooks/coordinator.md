@@ -114,6 +114,9 @@ read with the event you blame. Read the state back after each write you report.
   `found` and shows the finding. A repeat of it then rings no one, and its text counts each repeat
   after the finding. Read that count at each wake. A later note replaces the finding. Answer the
   alert when the cause is gone.
+- **A `run_start_failed` alert repeats.** A repeat of an open one rings no one, even before a
+  finding. Its text shows the count and the time of the last raise. Answer it only when the cause
+  is gone, never at each repeat. A failure after the answer opens a new alert.
 - **An item stopped after a blocked run.** Its `run_blocked` alert holds the item at that stage.
   Changed inputs or a move of the item lift the hold. At the code-reviewer stage, a push to the
   pull request lifts it too. When the cause is gone, answer the alert.
