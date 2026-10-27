@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/beadsx/fake"
 	"github.com/iantanwx/loop/internal/cli"
@@ -174,5 +175,100 @@ func TestARoomEndsTheArchitectureEntryAndAnAnswerDoesNot(t *testing.T) {
 	}
 	if es := w.entries(); len(es) != 1 || es[0].ID != id {
 		t.Fatalf("after the answer: %+v", es)
+	}
+}
+
+// C10: each pause is one entry that awaits the coordinator. It quotes the
+// reason, is dated at paused_at, and names its `stage resume` command. An
+// answer refuses with USAGE, rule pause_entry, and the entry stays. A
+// defer hides it, and a resume removes it.
+func TestEachPauseIsOneInboxEntryThatAwaitsTheCoordinator(t *testing.T) {
+	w := newArchWorld(t)
+	pauses := func() map[string]Entry {
+		t.Helper()
+		es, err := w.in.Entries(w.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]Entry{}
+		for _, e := range es {
+			if strings.HasPrefix(e.ID, "pause/") {
+				out[e.ID] = e
+			}
+		}
+		return out
+	}
+	every, err := admission.Pause(w.ctx, w.st, admission.StagePause{Stage: "implementer", Reason: "the CI runners are down", By: "coordinator:r-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, err := admission.Pause(w.ctx, w.st, admission.StagePause{Project: prj, Stage: "code-reviewer", Reason: "a review gate misfires", By: "coordinator:r-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	es := pauses()
+	if len(es) != 2 {
+		t.Fatalf("pause entries = %+v, want two", es)
+	}
+	for _, tc := range []struct {
+		id, project, reason, next string
+		at                        int64
+	}{
+		{"pause/implementer", "", "the CI runners are down", "loop stage resume implementer", every.At.UnixMilli()},
+		{"pause/alpha/code-reviewer", prj, "a review gate misfires", "loop stage resume code-reviewer --project alpha", one.At.UnixMilli()},
+	} {
+		e, ok := es[tc.id]
+		if !ok {
+			t.Fatalf("no entry %s in %+v", tc.id, es)
+		}
+		if e.Kind != "pause" || e.Awaits != AwaitsCoordinator || e.Project != tc.project {
+			t.Errorf("%s = %+v", tc.id, e)
+		}
+		if !strings.Contains(e.Text, tc.reason) {
+			t.Errorf("%s text = %q; it quotes the reason", tc.id, e.Text)
+		}
+		if e.At == 0 || e.At != tc.at {
+			t.Errorf("%s at = %d, want paused_at %d", tc.id, e.At, tc.at)
+		}
+		if e.Next != tc.next {
+			t.Errorf("%s next = %q, want %q", tc.id, e.Next, tc.next)
+		}
+	}
+
+	call := func(verb string, args []string, flags map[string]string) cli.Result {
+		t.Helper()
+		inv, bad := cli.Surface().Validate(verb, args, flags, "req-1")
+		if bad != nil {
+			t.Fatalf("validate %s: %+v", verb, bad)
+		}
+		c := &rpc.Call{Inv: inv, Principal: rpc.Principal{Kind: cli.PrincipalCoordinator}}
+		if verb == "inbox answer" {
+			return w.in.answer(w.ctx, c)
+		}
+		return w.in.deferVerb(w.ctx, c)
+	}
+	res := call("inbox answer", []string{"pause/alpha/code-reviewer"}, map[string]string{"body": "resume it"})
+	if r := res.Refusal; r == nil || r.Code != cli.CodeUsage || r.Rule != "pause_entry" ||
+		!strings.Contains(r.Hint, "loop stage resume code-reviewer --project alpha") {
+		t.Fatalf("answer = %+v, want USAGE pause_entry with a hint that names loop stage resume", res)
+	}
+	if _, ok := pauses()["pause/alpha/code-reviewer"]; !ok {
+		t.Fatal("the answer removed the entry")
+	}
+
+	until := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	if res := call("inbox defer", []string{"pause/implementer"}, map[string]string{"until": until, "reason": "the runners return at noon"}); res.Refusal != nil {
+		t.Fatalf("defer = %+v", res)
+	}
+	if es := pauses(); len(es) != 1 {
+		t.Fatalf("after the defer: %+v, want pause/alpha/code-reviewer only", es)
+	}
+
+	if _, err := admission.Resume(w.ctx, w.st, prj, "code-reviewer", "coordinator:r-1"); err != nil {
+		t.Fatal(err)
+	}
+	if es := pauses(); len(es) != 0 {
+		t.Fatalf("after the resume: %+v", es)
 	}
 }

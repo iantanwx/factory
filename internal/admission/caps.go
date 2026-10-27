@@ -18,7 +18,8 @@ import (
 // and neither does one past spec review. Ported from CAP_STATES in
 // scripts/sdlc/intake-cap.ts (alpha).
 var intakeCounted = []string{
-	machine.PRDNeeded, machine.PRDReview, machine.PRDAmending, machine.SpecNeeded, machine.SpecDrafting, machine.SpecReview,
+	machine.PRDNeeded, machine.PRDDrafting, machine.PRDReview, machine.PRDAmending, machine.SpecNeeded, machine.SpecDrafting,
+	machine.SpecReview,
 }
 
 // liveRuns counts the runs of the stages that have not ended, on the whole

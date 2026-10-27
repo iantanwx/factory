@@ -326,7 +326,8 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 func routedHint(t escalation.Triage) string {
 	l := t.Level
 	return fmt.Sprintf("level %d %s routes to the loop, not to a person: %s answers the finding, so no room opens and no hold is taken. "+
-		"New work: file it with `loop work create` (an architecture epic with `loop epic create --architecture`). "+
+		"New product work: create its PRD epic with `loop epic create --request`, and a PRD author writes the PRD. "+
+		"A bug or a chore: file it with `loop work create`. An architecture epic: `loop epic create --architecture`. "+
 		"Level 1 or 2: run the command that answers the finding. Level 3: apply the derived answer, and name the rule and the document it rests on. "+
 		"Open the room again only when the level is wrong (read that level's \"Not this level when\" paragraph in the sdlc-triage skill), "+
 		"or when one answer sends a message, spends money, publishes, deploys or changes a vendor or production system: then pass --choice outside.",

@@ -15,6 +15,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/shape"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -173,12 +174,33 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 				return refusedAt(r, item, it)
 			}
 		}
+		if r := contractsNamed(it, body); r != nil {
+			return refusedAt(r, item, it)
+		}
 		if body != "" && m.reviewComment != nil {
 			return m.reviewComment(ctx, prj, item, body, key)
 		}
 		return nil
 	}
 	return m.Apply(ctx, req)
+}
+
+// contractsNamed refuses a review of a shaped ticket whose body omits a
+// contract id of the ticket's task text (spec factorio-wnl, C13). A ticket
+// with no shape fact was never checked at its creation, so its review is
+// not checked either.
+func contractsNamed(it Item, review string) *cli.Refusal {
+	s, ok := shape.ByName(it.Fact(FactShape))
+	if it.Kind != KindTicket || !ok {
+		return nil
+	}
+	missing := shape.Unnamed(shape.ContractIDs(s, it.Body), review)
+	if len(missing) == 0 {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "contract_unnamed",
+		Hint: fmt.Sprintf("the review does not name %s; write one line for each contract id of the ticket, and submit again",
+			strings.Join(missing, ", "))}
 }
 
 // refusedAt names the item, its status and its next moves in a refusal

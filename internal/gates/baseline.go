@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 )
 
 // Counts maps a finding key, such as "<file>::<rule>", to its count.
@@ -57,4 +58,32 @@ func ratchet(found, baseline Counts, file, over, noun string) []Finding {
 		}
 	}
 	return findings
+}
+
+// EndLine is the last non-blank line of a ratcheted command's stdout. A
+// silent or crashed tool prints no end line, so it never reads as clean.
+const EndLine = "loop:end"
+
+// maxKey is the longest key, in bytes, that parseKeys reads.
+const maxKey = 512
+
+// parseKeys reads the keys of a ratcheted command's stdout. ok is false when
+// the end line is not the last non-blank line.
+func parseKeys(stdout string) (keys []string, ok bool, bad []Finding) {
+	lines := strings.Split(stdout, "\n")
+	end := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == EndLine })
+	if end < 0 || slices.ContainsFunc(lines[end+1:], func(l string) bool { return strings.TrimSpace(l) != "" }) {
+		return nil, false, nil
+	}
+	for i, l := range lines[:end] {
+		key := strings.TrimSpace(l)
+		switch {
+		case key == "":
+		case len(key) > maxKey || strings.ContainsFunc(key, unicode.IsControl):
+			bad = append(bad, Finding{Rule: "bad_key", Message: fmt.Sprintf("line %d of stdout is no key: a key is at most %d bytes and holds no control character", i+1, maxKey)})
+		default:
+			keys = append(keys, key)
+		}
+	}
+	return keys, true, bad
 }

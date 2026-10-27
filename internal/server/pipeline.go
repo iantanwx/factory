@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"errors"
+	"fmt"
 
 	"github.com/iantanwx/loop/internal/pipeline"
 )
@@ -25,7 +27,8 @@ type Pipeline struct {
 }
 
 // Setup composes the pipeline over the server's store, machine, beads,
-// projects and GitHub service, and registers its verbs.
+// projects, GitHub service, admission's intake cap and the project config
+// source, and registers its verbs.
 func (p *Pipeline) Setup(s *Server) error {
 	if p.GitHub == nil || p.GitHub.Service == nil {
 		return errors.New("server: the pipeline setup needs the GitHub setup first")
@@ -33,8 +36,19 @@ func (p *Pipeline) Setup(s *Server) error {
 	if s.Machine == nil {
 		return nil
 	}
+	if s.Admission == nil {
+		return errors.New("server: the pipeline asks admission's intake cap, so it needs admission")
+	}
+	source := s.projectSource()
+	enabled := func(ctx context.Context, project, stage string) (bool, error) {
+		snap, err := source(ctx, project)
+		if err != nil {
+			return false, fmt.Errorf("server: read the config of %s: %w", project, err)
+		}
+		return snap.Config.StageEnabled(stage), nil
+	}
 	pl, err := pipeline.New(pipeline.Config{Store: s.Store, Machine: s.Machine, Beads: s.opts.Beads, GitHub: p.GitHub.Service,
-		Projects: s.Projects, Redactor: s.Redactor, Logger: s.RPC.Logger()})
+		Projects: s.Projects, Redactor: s.Redactor, Logger: s.RPC.Logger(), IntakeCap: s.Admission.IntakeCap, StageEnabled: enabled})
 	if err != nil {
 		return err
 	}

@@ -18,6 +18,10 @@
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-encode-lessons", "loop-sdlc-documents", "loop-unslop", "loop-commit"]
     },
+    "prd-author": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-sdlc-documents", "loop-brainstorm"]
+    },
     "spec-author": {
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents", "loop-unslop", "loop-commit", "loop-domain-modeling"]

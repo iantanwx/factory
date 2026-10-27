@@ -491,15 +491,15 @@ func TestCoordinatorFilesABugForTheReproducer(t *testing.T) {
 
 // The coordinator creates an architecture epic. It waits in architecture
 // until an ADR whose Ticket line names it lands on the base. A run
-// creates none, the verb needs --architecture, and a stored secret is
-// refused.
+// creates none, an epic with no --architecture needs the operator's
+// request, and a stored secret is refused.
 func TestCoordinatorCreatesAnArchitectureEpic(t *testing.T) {
 	w := newWorld(t)
 	w.red.SetStored([]secrets.NamedValue{{Name: testProject + "/API_KEY", Value: "s3cr3t-value-for-epic"}})
 	flags := map[string]string{"title": "Move the store to Postgres", "project": testProject,
 		"body": "The operator wants the store on Postgres; an ADR records the decision."}
 	wantCode(t, w.call(w.run("run-x", "", machine.StageImplementer), "", "epic create", flags), cli.CodeCapabilityDenied)
-	wantCode(t, w.call(w.coordinator(), "", "epic create", flags), cli.CodeUsage)
+	wantCode(t, w.call(w.coordinator(), "", "epic create", flags), cli.CodePRDRequired)
 	flags["architecture"] = "true"
 	leaky := maps.Clone(flags)
 	leaky["body"] += " s3cr3t-value-for-epic"

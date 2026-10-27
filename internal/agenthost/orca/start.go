@@ -3,6 +3,7 @@ package orca
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,8 +12,8 @@ import (
 )
 
 // Start launches the harness as an orca agent in the checkout, waits for
-// orca to name the agent in its terminal, and, for an escalated role, waits
-// for a verified model receipt. orca's agent launch starts the harness the
+// orca to name the agent in its terminal, and, when the spec asks, reads
+// the model receipt. orca's agent launch starts the harness the
 // way a new agent tab does, with orca's own flags for the agent, so orca
 // tracks it as an agent and its permission prompts stay off for a run that
 // no person attends. The launch takes no title, so the title follows.
@@ -77,7 +78,9 @@ func (h *Host) Start(ctx context.Context, spec agenthost.StartSpec) (agenthost.S
 	}
 	if spec.RequireVerifiedModel {
 		if err := h.awaitReceipt(ctx, s); err != nil {
-			h.abandon(s.ID)
+			if !errors.Is(err, agenthost.ErrNoModelReceipt) {
+				h.abandon(s.ID)
+			}
 			return s, err
 		}
 	}
@@ -136,7 +139,9 @@ func (h *Host) awaitReady(ctx context.Context, s agenthost.Session) error {
 	}
 }
 
-// awaitReceipt polls the model receipt until it reads verified.
+// awaitReceipt polls the model receipt until it reads verified. A recorded
+// mismatch returns ErrModelMismatch at once. A window that read no model
+// returns ErrNoModelReceipt. A failed transcript read reads no model.
 func (h *Host) awaitReceipt(ctx context.Context, s agenthost.Session) error {
 	deadline := h.cfg.Now().Add(h.cfg.ReceiptWindow)
 	for {
@@ -145,13 +150,13 @@ func (h *Host) awaitReceipt(ctx context.Context, s agenthost.Session) error {
 			return nil
 		}
 		if rc.Observed != "" && rc.Observed != s.Model {
-			return fmt.Errorf("%w: requested %s, the harness records %s", agenthost.ErrModelUnverified, s.Model, rc.Observed)
+			return fmt.Errorf("%w: requested %s, the harness records %s", agenthost.ErrModelMismatch, s.Model, rc.Observed)
 		}
 		if !h.cfg.Now().Before(deadline) {
-			return fmt.Errorf("%w: requested %s: %s", agenthost.ErrModelUnverified, s.Model, rc.Reason)
+			return fmt.Errorf("%w: requested %s: %s", agenthost.ErrNoModelReceipt, s.Model, rc.Reason)
 		}
 		if err := h.cfg.Sleep(ctx, h.cfg.PollInterval); err != nil {
-			return fmt.Errorf("%w: %w", agenthost.ErrModelUnverified, err)
+			return fmt.Errorf("%w: %w", agenthost.ErrHostUnavailable, err)
 		}
 	}
 }

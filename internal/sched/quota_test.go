@@ -40,6 +40,15 @@ func TestStageWithNoEffortRunsAtTheStageDefault(t *testing.T) {
 	}
 }
 
+// C8: the default Claude model is a full id, so a stage that names no
+// model requests the id the harness records, and never an alias.
+func TestC8EachDefaultModelIsAFullID(t *testing.T) {
+	m := DefaultModels[agenthost.Claude]
+	if m != "claude-opus-5-5" || !config.ClaudeModelID(m) {
+		t.Fatalf("default Claude model = %q, want the full id claude-opus-5-5", m)
+	}
+}
+
 // Each profile carries an effort: the stage's own on its configured
 // harness, the stage default on each fallback harness.
 func TestProfilesCarryTheEffort(t *testing.T) {
@@ -49,7 +58,7 @@ func TestProfilesCarryTheEffort(t *testing.T) {
 	hc := &config.HostConfig{Harnesses: []config.HarnessLogin{{Name: "claude"}, {Name: "codex"}}}
 	got := profiles("implementer", pc, hc)
 	want := []Profile{
-		{Harness: agenthost.Claude, Model: "opus", Effort: "max"},
+		{Harness: agenthost.Claude, Model: "claude-opus-5-5", Effort: "max"},
 		{Harness: agenthost.Codex, Model: "gpt-5-codex", Effort: "high"},
 	}
 	if !slices.Equal(got, want) {
@@ -94,7 +103,7 @@ func TestTwoRejectsStartTheNextImplementerRunOnTheEscalatedModel(t *testing.T) {
 	plain := w.ticket(machine.Todo)
 	st := w.dispatch(machine.StageImplementer)
 	spec := w.host.Launches()[0].Spec
-	if st.Item != plain || spec.Model != "opus" || spec.Effort != "high" || spec.RequireVerifiedModel {
+	if st.Item != plain || spec.Model != "claude-opus-5-5" || spec.Effort != "high" || spec.RequireVerifiedModel {
 		t.Fatalf("a ticket with no reject starts %+v", spec)
 	}
 
@@ -107,6 +116,26 @@ func TestTwoRejectsStartTheNextImplementerRunOnTheEscalatedModel(t *testing.T) {
 	}
 	if st.Profile.Model != spec.Model {
 		t.Fatalf("the run records profile %+v, and the session runs %s", st.Profile, spec.Model)
+	}
+}
+
+// An escalated start whose harness records no model fails as before, and
+// the scheduler closes the session the host left running. Ticket c of
+// factorio-jiv replaces this guard.
+func TestEscalatedStartWithNoReceiptClosesTheSession(t *testing.T) {
+	w := newWorld(t)
+	id := w.ticket(machine.InReview)
+	w.rejectTwice(id)
+	w.host.SetSilentModel(true)
+	if st, ref := w.s.Dispatch(context.Background(), prj, machine.StageImplementer); ref == nil || st != nil {
+		t.Fatalf("dispatch = %+v, %+v; want a refusal", st, ref)
+	}
+	l := w.host.Launches()
+	if len(l) != 1 || !l[0].Spec.RequireVerifiedModel {
+		t.Fatalf("launches = %+v", l)
+	}
+	if st, _ := w.host.Settle(context.Background(), l[0].ID); st.Liveness == agenthost.Live {
+		t.Fatal("the session with no model receipt still runs")
 	}
 }
 

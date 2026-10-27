@@ -110,6 +110,11 @@ Put the findings first, the worst first. Write one line for each contract, each 
 stop condition, with pass or fail and its evidence. A fault that no line covers is a fail of its
 own, unless it shows at the merge base.
 
+Name each contract by its id, such as `C3` or `C-bug-1`. On a ticket with a `shape` fact, the
+server refuses a pass or a reject whose comment does not name each contract id. The refusal is
+`SHAPE_REFUSED` with rule `contract_unnamed`, and its hint names each missing id. It posts no
+comment and records nothing. Add the missing lines, and submit again.
+
 - A pass holds no fail. A reject holds at least one.
 - Round 1 checks every line, because a line it skips is what round 3 raises.
 - In a later round, a line that passed keeps its pass unless the diff changed what it governs.
@@ -159,9 +164,10 @@ ends. A push to the pull request lifts the hold too, because the head enters the
   wrong.
 - **The change keeps every promise, and the spec holds a defect.** Pass the work. Then file the
   defect as a decision for the epic, so the work still merges:
-  `loop decision file --title "<the spec defect>" --trigger "<the event that forces the answer>" --now`.
+  `loop decision file --title "<the spec defect>" --trigger "<the event that forces the answer>" --waits-for-a-person "the operator" --now`.
   Name the epic, the spec, the contract and the line in its body. `--now` sends the decision to a
   person's inbox at once. Without it, the decision waits for its trigger and pages nobody.
+  `--waits-for-a-person` names who answers it. The server refuses a decision with no notice.
 
 ## 9. Never
 

@@ -10,13 +10,15 @@ import (
 )
 
 // Within one claim state, the work query takes the item that has waited
-// there longest, not the item whose id sorts first (F-20). The fake numbers
-// ids in base 36, so tk-10 sorts before tk-2, tk-3 and tk-4.
+// there longest, not the item whose id sorts first (F-20). The implementer
+// ranks its tickets by D10, so the code-reviewer's queue shows the order.
+// The fake numbers ids in base 36, so tk-10 sorts before tk-2, tk-3 and
+// tk-4.
 //
-// tk-3 entered todo first. tk-10 entered todo next. tk-2 and tk-4 were made
-// in backlog and entered todo last. So id order picks tk-10, reversed id
-// order picks tk-4, and creation order picks tk-2. Only the time an item
-// entered its state picks tk-3.
+// tk-3 entered in_review first. tk-10 entered in_review next. tk-2 and tk-4
+// entered in_review last. So id order picks tk-10, reversed id order picks
+// tk-4, and creation order picks tk-2. Only the time an item entered its
+// state picks tk-3.
 func TestPeekTakesTheItemThatWaitedLongestInItsState(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
@@ -29,23 +31,22 @@ func TestPeekTakesTheItemThatWaitedLongestInItsState(t *testing.T) {
 		return id
 	}
 	mk(machine.Backlog, "tk-1")
-	late2 := mk(machine.Backlog, "tk-2")
-	oldest := mk(machine.Todo, "tk-3")
-	late4 := mk(machine.Backlog, "tk-4")
+	late2 := mk(machine.InReview, "tk-2")
+	oldest := mk(machine.InReview, "tk-3")
+	late4 := mk(machine.InReview, "tk-4")
 	for n := 5; n < 36; n++ {
 		w.ticket(machine.Backlog)
 	}
-	newer := mk(machine.Todo, "tk-10")
+	newer := mk(machine.InReview, "tk-10")
+	start := time.Now().Add(-time.Hour)
+	w.history(oldest, "pr_open", machine.InProgress, machine.InReview, start)
+	w.history(newer, "pr_open", machine.InProgress, machine.InReview, start.Add(time.Minute))
 	for _, id := range []string{late2, late4} {
-		res := w.m.Apply(ctx, machine.Request{Project: prj, Item: id, Verb: machine.VerbUnblock,
-			Command: "work unblock", Actor: machine.Server("test")})
-		if res.Refusal != nil {
-			t.Fatalf("unblock %s: %+v", id, res.Refusal)
-		}
+		w.history(id, "pr_open", machine.InProgress, machine.InReview, start.Add(2*time.Minute))
 	}
-	c, r := w.a.Peek(ctx, prj, machine.StageImplementer)
-	if r != nil || c == nil || c.Item != oldest || c.Status != machine.Todo {
-		t.Fatalf("peek = %+v %+v, want %s, which entered todo before %s, %s and %s", c, r, oldest, newer, late2, late4)
+	c, r := w.a.Peek(ctx, prj, machine.StageCodeReviewer)
+	if r != nil || c == nil || c.Item != oldest || c.Status != machine.InReview {
+		t.Fatalf("peek = %+v %+v, want %s, which entered in_review before %s, %s and %s", c, r, oldest, newer, late2, late4)
 	}
 }
 
@@ -76,32 +77,27 @@ func TestWaitOrderBreaksTiesByBeadWriteThenID(t *testing.T) {
 // there, not from its last bead write. A note writes the bead and keeps the
 // status, so it must not send the item to the back of its state.
 //
-// tk-2 entered todo before tk-1, then got a note. Id order picks tk-1, and
-// last-write order picks tk-1. Only the time an item entered its state
+// tk-2 entered in_review before tk-1, then got a note. Id order picks tk-1,
+// and last-write order picks tk-1. Only the time an item entered its state
 // picks tk-2.
 func TestPeekDatesEntryByTransitionNotByLastBeadWrite(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	newer := w.ticket(machine.Backlog)
-	oldest := w.ticket(machine.Backlog)
+	newer := w.ticket(machine.InReview)
+	oldest := w.ticket(machine.InReview)
 	if newer != "tk-1" || oldest != "tk-2" {
 		t.Fatalf("made %s and %s, want tk-1 and tk-2", newer, oldest)
 	}
-	for _, id := range []string{oldest, newer} {
-		res := w.m.Apply(ctx, machine.Request{Project: prj, Item: id, Verb: machine.VerbUnblock,
-			Command: "work unblock", Actor: machine.Server("test")})
-		if res.Refusal != nil {
-			t.Fatalf("unblock %s: %+v", id, res.Refusal)
-		}
-		time.Sleep(5 * time.Millisecond) // the history dates in milliseconds
-	}
+	start := time.Now().Add(-time.Hour)
+	w.history(oldest, "pr_open", machine.InProgress, machine.InReview, start)
+	w.history(newer, "pr_open", machine.InProgress, machine.InReview, start.Add(time.Minute))
 	res := w.m.Apply(ctx, machine.Request{Project: prj, Item: oldest, Verb: machine.VerbNote,
 		Command: "work note", Params: map[string]string{"body": "x"}, Actor: machine.Server("test")})
 	if res.Refusal != nil {
 		t.Fatalf("note: %+v", res.Refusal)
 	}
-	c, r := w.a.Peek(ctx, prj, machine.StageImplementer)
-	if r != nil || c == nil || c.Item != oldest || c.Status != machine.Todo {
-		t.Fatalf("peek = %+v %+v, want %s, which entered todo before %s", c, r, oldest, newer)
+	c, r := w.a.Peek(ctx, prj, machine.StageCodeReviewer)
+	if r != nil || c == nil || c.Item != oldest || c.Status != machine.InReview {
+		t.Fatalf("peek = %+v %+v, want %s, which entered in_review before %s", c, r, oldest, newer)
 	}
 }

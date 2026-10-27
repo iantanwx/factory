@@ -84,8 +84,12 @@ Show both sides to the operator, with each line. When the operator decides, writ
 into the PRD with the operator's words. When the operator does not decide now, file the question:
 
 ```bash
-loop decision file --title "<the question>" --trigger "<the event that forces the answer>" --body "<both sides>"
+loop decision file --title "<the question>" --trigger "<the event that forces the answer>" --body "<both sides>" \
+  --waits-for-a-person "<who decides>"
 ```
+
+When the trigger names a date, pass `--by <YYYY-MM-DD>` in place of `--waits-for-a-person`. The
+server refuses a decision with neither or both.
 
 Name that decision in Open questions, as a blocker.
 

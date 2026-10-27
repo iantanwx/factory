@@ -33,7 +33,7 @@ func TestStageKindsTheOtherScenariosMiss(t *testing.T) {
 
 	// A decision room serves a filed decision.
 	d := w.Must(w.Coordinator("decision", "file", "--project", acceptance.Project, "--title", "Which colour do widgets take?",
-		"--trigger", "the first widget ships"))
+		"--trigger", "the first widget ships", "--waits-for-a-person", "the operator"))
 	openRoom(w, "decision", d.Str("decision"), "the operator wants to settle the colour")
 }
 

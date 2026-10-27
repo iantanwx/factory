@@ -76,6 +76,7 @@ const (
 	StageCodeReviewer = config.StageCodeReviewer
 	StageDocReviewer  = config.StageDocReviewer
 	StageAmender      = config.StageAmender
+	StagePRDAuthor    = config.StagePRDAuthor
 	StageSpecAuthor   = config.StageSpecAuthor
 	StageDecomposer   = config.StageDecomposer
 	StageReproducer   = config.StageReproducer

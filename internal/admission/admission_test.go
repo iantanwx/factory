@@ -97,7 +97,8 @@ func TestIntakeMutexHasOneHolder(t *testing.T) {
 // Parity 8.6 (stage-claims.ts and timer-reproducer-row.ts, alpha): one
 // spec-author run and one reproducer run in a project at a time, whatever
 // cap host config holds. The second run is refused on a second item, the
-// peek offers nothing, and settling the holder frees the stage.
+// peek offers nothing, and settling the holder frees the stage. C17 holds
+// the prd-author to the same rule.
 func TestSpecAuthorAndReproducerRunOneAtATime(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -107,6 +108,7 @@ func TestSpecAuthorAndReproducerRunOneAtATime(t *testing.T) {
 	}{
 		{machine.StageSpecAuthor, machine.KindEpic, machine.PRDSignoff},
 		{machine.StageReproducer, machine.KindBug, machine.Reported},
+		{"prd-author", machine.KindEpic, machine.PRDNeeded},
 	}
 	for _, c := range cases {
 		t.Run(c.stage, func(t *testing.T) {
@@ -114,7 +116,7 @@ func TestSpecAuthorAndReproducerRunOneAtATime(t *testing.T) {
 			w.setCaps(map[string]int{c.stage: 5})
 			item := func() string {
 				id := w.put(c.kind, c.status, "item")
-				if c.kind == machine.KindEpic {
+				if c.stage == machine.StageSpecAuthor {
 					w.signOff(id)
 				}
 				return id

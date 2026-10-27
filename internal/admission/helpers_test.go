@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -183,11 +184,34 @@ func (w *world) failures(item string) int {
 // declaredBody declares one file and cites one document.
 const declaredBody = "Fix the thing.\n\n## Files\n\n**May change:**\n- `app/task.go`\n\n**Must not change:**\n- `elsewhere/`\n\nSee `docs/plans/thing.md`.\n"
 
-// editable lets a test edit an item's body, which the fake cannot.
+// editable lets a test edit an item's body, which the fake cannot. After
+// countDeps, it counts the Dependencies calls for each item.
 type editable struct {
 	beadsx.Client
 	mu   sync.Mutex
 	body map[string]string
+	deps map[string]int
+}
+
+func (e *editable) countDeps() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.deps = map[string]int{}
+}
+
+func (e *editable) depCalls() map[string]int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return maps.Clone(e.deps)
+}
+
+func (e *editable) Dependencies(ctx context.Context, id string) ([]beadsx.Dependency, error) {
+	e.mu.Lock()
+	if e.deps != nil {
+		e.deps[id]++
+	}
+	e.mu.Unlock()
+	return e.Client.Dependencies(ctx, id)
 }
 
 func (e *editable) edit(id, body string) {

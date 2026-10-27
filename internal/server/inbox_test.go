@@ -39,7 +39,7 @@ func TestDecisionVerbsKeepTheDecisionStates(t *testing.T) {
 	if entryByID(w.entries(""), "decision/alpha/"+d) != nil {
 		t.Fatal("a pending decision waits on a person")
 	}
-	moot := w.fileDecision("which queue")
+	moot := w.fileDecision("which queue", "--waits-for-a-person", "the operator")
 	if env, code := w.coordinator("decision", "moot", moot, "--project", "alpha"); code != 0 || w.show(moot).Status != machine.Canceled {
 		t.Fatalf("moot from pending = %d %v", code, env)
 	}
@@ -56,10 +56,46 @@ func TestDecisionVerbsKeepTheDecisionStates(t *testing.T) {
 	if it := w.show(d); it.Status != machine.Done || it.Fact(machine.FactAnswer) != "postgres" {
 		t.Fatalf("answered = %s %v", it.Status, it.Facts)
 	}
-	dropped := w.fileDecision("which cache")
+	dropped := w.fileDecision("which cache", "--waits-for-a-person", "the operator")
 	w.coordinator("decision", "fire", dropped, "--project", "alpha")
 	if env, code := w.coordinator("decision", "settle", dropped, "--project", "alpha", "--dropped"); code != 0 || w.show(dropped).Status != machine.Canceled {
 		t.Fatalf("a dropped decision = %d %v, %s", code, env, w.show(dropped).Status)
+	}
+}
+
+// C13: a decision names its notice. `decision file` takes exactly one of
+// --by and --waits-for-a-person, and neither or both refuse with USAGE and
+// file nothing. A decision that waits for a person holds waits_for, makes
+// no inbox entry while it is pending, and decision-timers never fires it.
+func TestDecisionFileNamesItsNotice(t *testing.T) {
+	w := newHumanWorld(t, "")
+	ctx := context.Background()
+	for _, notice := range [][]string{nil, {"--by", "2000-01-01", "--waits-for-a-person", "the operator"}} {
+		args := append([]string{"decision", "file", "--project", "alpha", "--title", "which store", "--trigger", "the first paying user"}, notice...)
+		if env, code := w.coordinator(args...); code != 2 || env["code"] != cli.CodeUsage {
+			t.Fatalf("decision file %v = %d %v", notice, code, env)
+		}
+	}
+	if its, ref := w.srv.Machine.List(ctx, "alpha", machine.ListFilter{Kind: machine.KindDecision}); ref != nil || len(its) != 0 {
+		t.Fatalf("a refused decision file filed %v %v", its, ref)
+	}
+	byDate := w.fileDecision("which queue", "--by", "2000-01-01")
+	if it := w.show(byDate); it.Status != machine.DecisionPending || it.Fact("by") != "2000-01-01" || it.Fact("waits_for") != "" {
+		t.Fatalf("filed with --by = %s %v", it.Status, it.Facts)
+	}
+	waits := w.fileDecision("which cache", "--waits-for-a-person", "the operator reads the cost report")
+	if it := w.show(waits); it.Status != machine.DecisionPending || it.Fact("waits_for") != "the operator reads the cost report" || it.Fact("by") != "" {
+		t.Fatalf("filed with --waits-for-a-person = %s %v", it.Status, it.Facts)
+	}
+	if entryByID(w.entries(""), "decision/alpha/"+waits) != nil {
+		t.Fatal("a pending decision that waits for a person makes an inbox entry")
+	}
+	w.clock.Advance(100 * 365 * 24 * time.Hour)
+	if err := w.srv.Decisions.Tick(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if w.show(byDate).Status != machine.NeedsHuman || w.show(waits).Status != machine.DecisionPending {
+		t.Fatalf("a hundred years on: --by %s, --waits-for-a-person %s", w.show(byDate).Status, w.show(waits).Status)
 	}
 }
 
@@ -107,7 +143,7 @@ func TestDecisionFiledNowWaitsOnAPersonAtOnce(t *testing.T) {
 		t.Fatalf("a run fired a decision it does not hold: %v", env)
 	}
 	env, code := w.as(rev, "decision", "file", "--title", "the spec names no backoff", "--trigger", "the code-reviewer passed a ticket on a spec defect",
-		"--body", "spec section 4.2 names no backoff", "--now")
+		"--body", "spec section 4.2 names no backoff", "--waits-for-a-person", "the operator", "--now")
 	if code != 0 {
 		t.Fatalf("decision file --now = %d %v", code, env)
 	}
@@ -131,7 +167,7 @@ func TestDecisionFiledNowWaitsOnAPersonAtOnce(t *testing.T) {
 // that it waits in pending with no inbox entry.
 func (w *humanWorld) fileDecisionAs(checkout, title string) string {
 	w.t.Helper()
-	env, code := w.as(checkout, "decision", "file", "--title", title, "--trigger", "the first paying user")
+	env, code := w.as(checkout, "decision", "file", "--title", title, "--trigger", "the first paying user", "--waits-for-a-person", "the operator")
 	if code != 0 {
 		w.t.Fatalf("decision file = %d %v", code, env)
 	}
@@ -149,7 +185,7 @@ func (w *humanWorld) fileDecisionAs(checkout, title string) string {
 func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()
-	d := w.fileDecision("which store")
+	d := w.fileDecision("which store", "--waits-for-a-person", "the operator")
 	w.coordinator("decision", "fire", d, "--project", "alpha")
 	env, _ := w.coordinator("inbox", "prepare", "--body", "ship on Friday? options: yes, costs a weekend; no, costs a week",
 		"--entry", "decision/alpha/"+d)

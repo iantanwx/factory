@@ -66,6 +66,8 @@ type (
 	ReadinessBreaker interface{ SetNeverReady(on bool) }
 	// ModelDropper makes the host drop the model argument of later starts.
 	ModelDropper interface{ SetDropModel(on bool) }
+	// ModelSilencer makes the harness of later starts record no model at all.
+	ModelSilencer interface{ SetSilentModel(silent bool) }
 	// NotifyRefuser makes the host refuse input to one session.
 	NotifyRefuser interface {
 		RefuseNotify(id agenthost.RunID, on bool)
@@ -130,7 +132,8 @@ var scenarios = []scenario{
 	{name: "tool_call_running_never_ended", fakeOnly: "TurnDriver", run: scToolRunning},
 	{name: "real_session_ends_on_its_own", sessions: 1, run: scEndedReal},
 	{name: "close_keeps_checkout", sessions: 1, run: scCloseKeeps},
-	{name: "dropped_model_reads_unverified", fakeOnly: "ModelDropper", run: scDroppedModel},
+	{name: "recorded_mismatch_refuses_start", fakeOnly: "ModelDropper", run: scMismatch},
+	{name: "missing_receipt_starts_session", fakeOnly: "ModelSilencer", run: scNoReceipt},
 	{name: "requested_model_reads_verified", sessions: 1, run: scVerified},
 	{name: "notify_idle_coordinator", sessions: 1, run: scNotify},
 	{name: "notify_refused_is_an_error", fakeOnly: "NotifyRefuser", run: scNotifyRefused},
@@ -194,14 +197,17 @@ func (c *contract) spec(kind agenthost.Kind, checkout, promptFile string) agenth
 	}
 }
 
-// start starts a session and closes it when the scenario ends.
+// start starts a session and closes it when the scenario ends. A failed
+// start can still return a live session, such as one with no model receipt.
 func (c *contract) start(t *testing.T, spec agenthost.StartSpec) agenthost.Session {
 	t.Helper()
 	s, err := c.env.Host.Start(c.ctx, spec)
+	if s.ID.Valid() {
+		t.Cleanup(func() { _ = c.env.Host.Close(context.Background(), s.ID) })
+	}
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	t.Cleanup(func() { _ = c.env.Host.Close(context.Background(), s.ID) })
 	return s
 }
 
@@ -440,7 +446,7 @@ func scCloseKeeps(t *testing.T, c *contract) {
 	}
 }
 
-func scDroppedModel(t *testing.T, c *contract) {
+func scMismatch(t *testing.T, c *contract) {
 	dropper := need[ModelDropper](t, c.env.Driver)
 	dropper.SetDropModel(true)
 	t.Cleanup(func() { dropper.SetDropModel(false) })
@@ -452,19 +458,46 @@ func scDroppedModel(t *testing.T, c *contract) {
 	spec := c.spec(agenthost.KindStage, path, c.prompt(t, c.env.Prompt))
 	spec.RequireVerifiedModel = true
 	esc, err := c.env.Host.Start(c.ctx, spec)
-	if !errors.Is(err, agenthost.ErrModelUnverified) {
-		t.Fatalf("escalated start with a dropped model = %v; want ErrModelUnverified", err)
+	if !errors.Is(err, agenthost.ErrModelMismatch) {
+		t.Fatalf("checked start with a dropped model = %v; want ErrModelMismatch", err)
 	}
 	if esc.ID.Valid() {
 		st, _ := c.env.Host.Settle(c.ctx, esc.ID)
 		if st.Liveness == agenthost.Live {
-			t.Fatal("an escalated role with an unverified model is still live")
+			t.Fatal("a session that records another model is still live")
 		}
 	}
 }
 
+func scNoReceipt(t *testing.T, c *contract) {
+	silencer := need[ModelSilencer](t, c.env.Driver)
+	silencer.SetSilentModel(true)
+	t.Cleanup(func() { silencer.SetSilentModel(false) })
+	s, err := c.env.Host.Start(c.ctx, c.checked(t))
+	if s.ID.Valid() {
+		t.Cleanup(func() { _ = c.env.Host.Close(context.Background(), s.ID) })
+	}
+	if !errors.Is(err, agenthost.ErrNoModelReceipt) {
+		t.Fatalf("checked start with no recorded model = %v; want ErrNoModelReceipt", err)
+	}
+	if st, _ := c.env.Host.Settle(c.ctx, s.ID); st.Liveness != agenthost.Live {
+		t.Fatalf("a session with no model receipt reads %s; want live", st.Liveness)
+	}
+}
+
+// checked is a stage start in a new checkout that reads the model receipt.
+func (c *contract) checked(t *testing.T) agenthost.StartSpec {
+	t.Helper()
+	spec := c.spec(agenthost.KindStage, c.checkout(t), c.prompt(t, c.env.Prompt))
+	spec.RequireVerifiedModel = true
+	return spec
+}
+
 func scVerified(t *testing.T, c *contract) {
-	s, _ := c.startDefault(t, agenthost.KindStage)
+	s := c.start(t, c.checked(t))
+	if st, _ := c.env.Host.Settle(c.ctx, s.ID); st.Liveness != agenthost.Live {
+		t.Fatalf("a verified session reads %s; want live", st.Liveness)
+	}
 	var rc agenthost.ModelReceipt
 	ok := c.eventually(func() bool {
 		var err error
