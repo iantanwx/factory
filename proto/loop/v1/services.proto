@@ -127,6 +127,7 @@ service StageService {
 
 service SettingsService {
   rpc Show(VerbRequest) returns (Envelope);
+  rpc Set(VerbRequest) returns (Envelope);
 }
 
 service SecretService {

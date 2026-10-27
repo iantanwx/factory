@@ -2,24 +2,35 @@ package server
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/github"
+	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/settings"
 )
 
-// wireSettings registers the settings verbs.
-func (s *Server) wireSettings() error {
+// settingsService is the settings service over the server's host config,
+// store and projects.
+func (s *Server) settingsService() *settings.Service {
 	host := &config.HostLoader{Path: s.HostPath}
-	svc := &settings.Service{
+	return &settings.Service{
 		Host: host.Load,
 		Loader: &config.Loader{LKG: config.StoreLKG(s.Store), Alerts: config.StoreAlerter(s.Store),
 			Check: config.StageCheck(host)},
 		Defaults: sched.Defaults,
 		Repo:     s.settingsRepo,
+		Store:    s.Store,
+		Redactor: s.Redactor,
 	}
+}
+
+// wireSettings registers settings show.
+func (s *Server) wireSettings() error {
+	svc := s.settingsService()
 	return s.RPC.Handle("settings show", func(ctx context.Context, call *rpc.Call) cli.Result {
 		project := call.Inv.Arg("project")
 		if _, err := s.Projects.Show(project); err != nil {
@@ -30,6 +41,52 @@ func (s *Server) wireSettings() error {
 			return ref.Result()
 		}
 		return cli.Found(v)
+	})
+}
+
+// wireSettingsSet registers settings set, which proposes each change
+// through gh and checks a new merge mechanism against mechs. Merge.Setup
+// calls it.
+func (s *Server) wireSettingsSet(gh *github.Service, mechs map[config.MergeMechanism]merge.Mechanism) error {
+	svc := s.settingsService()
+	svc.Propose = func(ctx context.Context, project string, f github.FileChange) (int, string, error) {
+		p, err := s.Projects.Show(project)
+		if err != nil {
+			return 0, "", err
+		}
+		pr, head, err := gh.ProposeFile(ctx, p, f)
+		return pr.Number, head, err
+	}
+	svc.CheckMechanism = func(ctx context.Context, project string, name config.MergeMechanism) error {
+		p, err := s.Projects.Show(project)
+		if err != nil {
+			return err
+		}
+		m, ok := mechs[name]
+		if !ok {
+			return fmt.Errorf("this server holds no merge mechanism %q", name)
+		}
+		return m.Check(ctx, p)
+	}
+	return s.RPC.Handle("settings set", func(ctx context.Context, call *rpc.Call) cli.Result {
+		project := call.Inv.Arg("project")
+		if _, err := s.Projects.Show(project); err != nil {
+			return projectFault(err)
+		}
+		v, set := call.Inv.Flags["value"]
+		if set == (call.Inv.Flags["unset"] == "true") {
+			return cli.Reject(cli.CodeUsage, "value_or_unset", "pass exactly one of --value <v> and --unset")
+		}
+		var value *string
+		if set {
+			value = &v
+		}
+		c, ref := svc.Set(ctx, settings.SetRequest{Project: project, Key: call.Inv.Arg("key"), Value: value,
+			Reason: call.Inv.Flags["reason"], Actor: call.Principal.Kind})
+		if ref != nil {
+			return ref.Result()
+		}
+		return cli.Found(c)
 	})
 }
 

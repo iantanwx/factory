@@ -10,7 +10,10 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/gitx"
+	"github.com/iantanwx/loop/internal/secrets"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 // Row is one setting in force.
@@ -39,7 +42,7 @@ type Repo struct {
 	Head   string
 }
 
-// Service reads a project's settings in force.
+// Service reads a project's settings in force, and changes one.
 type Service struct {
 	Host   func(ctx context.Context) (*config.HostConfig, error)
 	Loader *config.Loader
@@ -48,6 +51,14 @@ type Service struct {
 	Defaults func(*config.ProjectConfig) config.Defaults
 	// Repo fetches the project's default branch.
 	Repo func(ctx context.Context, project string) (Repo, error)
+
+	// Store, Redactor, Propose and CheckMechanism serve Set.
+	Store    *store.Store
+	Redactor *secrets.Redactor
+	// Propose opens the pull request of one change: github.ProposeFile.
+	Propose func(ctx context.Context, project string, f github.FileChange) (pr int, head string, err error)
+	// CheckMechanism runs the Check of merge mechanism m for project.
+	CheckMechanism func(ctx context.Context, project string, m config.MergeMechanism) error
 }
 
 // Show lists every setting of project in force, with its value and source.

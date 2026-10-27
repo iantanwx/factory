@@ -63,20 +63,23 @@ func (m *Merge) Setup(s *Server) error {
 		}
 		return &l.ProjectSnapshot, nil
 	}
+	mechs := map[config.MergeMechanism]merge.Mechanism{
+		config.MergeMergify:     mergify.New(svc),
+		config.MergeGitHubQueue: ghqueue.New(svc),
+		config.MergeDirect:      direct.New(svc),
+	}
 	job, err := merge.New(merge.Config{
 		GitHub: svc, Machine: s.Machine, Store: s.Store, Projects: s.Projects, Source: source,
-		Mechanisms: map[config.MergeMechanism]merge.Mechanism{
-			config.MergeMergify:     mergify.New(svc),
-			config.MergeGitHubQueue: ghqueue.New(svc),
-			config.MergeDirect:      direct.New(svc),
-		},
-		Logger: s.RPC.Logger(),
+		Mechanisms: mechs, Logger: s.RPC.Logger(),
 	})
 	if err != nil {
 		return err
 	}
 	s.Projects.AddHooks = append(s.Projects.AddHooks, job.AddHook)
 	m.HandOff = job
+	if err := s.wireSettingsSet(svc, mechs); err != nil {
+		return err
+	}
 	return s.RPC.Handle("merge status", mergeStatus(s))
 }
 

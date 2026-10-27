@@ -326,6 +326,97 @@ func (s *Service) OpenFilePR(ctx context.Context, p config.Project, f FilePR) (P
 	return pr, true, nil
 }
 
+// FileChange is one edit of an existing file that the server proposes
+// through its own pull request.
+type FileChange struct {
+	Branch  string // loop/settings/<change id>; never the base and never an item branch
+	Path    string
+	BaseSHA string // the default branch head the edit read; the branch starts here
+	Content []byte
+	Message string
+	Title   string
+	Body    string // holds Message, so a squash merge loses no record
+}
+
+// ProposeFile creates Branch at BaseSHA, writes Content over Path with one
+// commit, and opens the pull request. It is safe to run again: an existing
+// branch, an existing commit and an open pull request are no fault. It
+// returns the pull request and the head commit.
+func (s *Service) ProposeFile(ctx context.Context, p config.Project, f FileChange) (PR, string, error) {
+	if ItemOf(f.Branch) != "" {
+		return PR{}, "", fmt.Errorf("github: %s is an item branch; a proposed file needs its own branch", f.Branch)
+	}
+	if !shaRe.MatchString(f.BaseSHA) {
+		return PR{}, "", fmt.Errorf("github: %q is not a full sha", f.BaseSHA)
+	}
+	base, err := s.DefaultBranch(ctx, p)
+	if err != nil {
+		return PR{}, "", err
+	}
+	if f.Branch == base {
+		return PR{}, "", fmt.Errorf("github: a proposed file never writes the base branch %s", base)
+	}
+	unlock := s.lock(p.ID + "\x00pr\x00" + f.Branch)
+	defer unlock()
+	if pr, err := s.FindPR(ctx, p, f.Branch); err != nil {
+		return PR{}, "", err
+	} else if pr != nil && pr.State == "open" {
+		head, err := s.BranchSHA(ctx, p, f.Branch)
+		return *pr, head, err
+	}
+	_, err = s.repoDo(ctx, p, ScopeMerge, Call{Method: http.MethodPost, Path: repoPath(p, "/git/refs"),
+		Body: map[string]string{"ref": "refs/heads/" + f.Branch, "sha": f.BaseSHA}}, nil)
+	var api *APIError
+	if err != nil && (!errors.As(err, &api) || api.Status != http.StatusUnprocessableEntity) {
+		return PR{}, "", err // 422: the branch exists from an earlier call
+	}
+	head, err := s.BranchSHA(ctx, p, f.Branch)
+	if err != nil {
+		return PR{}, "", err
+	}
+	// A branch past BaseSHA holds the commit of an earlier call.
+	if head == f.BaseSHA {
+		if head, err = s.commitFile(ctx, p, f); err != nil {
+			return PR{}, "", err
+		}
+	}
+	var pr PR
+	_, err = s.repoDo(ctx, p, ScopeMerge, Call{Method: http.MethodPost, Path: repoPath(p, "/pulls"),
+		Body: map[string]any{"title": f.Title, "body": f.Body, "head": f.Branch, "base": base}}, &pr)
+	if err != nil {
+		return PR{}, "", err
+	}
+	return pr, head, nil
+}
+
+// commitFile writes f.Content over f.Path on f.Branch with one commit, and
+// returns the commit. The contents API names the file it replaces by the
+// blob at BaseSHA.
+func (s *Service) commitFile(ctx context.Context, p config.Project, f FileChange) (string, error) {
+	var old struct {
+		SHA string `json:"sha"`
+	}
+	path := repoPath(p, "/contents/"+pathEscapeBranch(f.Path))
+	if err := s.repoGet(ctx, p, ScopeRead, path+"?ref="+url.QueryEscape(f.BaseSHA), &old); err != nil {
+		return "", err
+	}
+	var out struct {
+		Commit struct {
+			SHA string `json:"sha"`
+		} `json:"commit"`
+	}
+	_, err := s.repoDo(ctx, p, ScopeMerge, Call{Method: http.MethodPut, Path: path,
+		Body: map[string]string{"message": f.Message, "content": base64.StdEncoding.EncodeToString(f.Content),
+			"branch": f.Branch, "sha": old.SHA}}, &out)
+	if err != nil {
+		return "", err
+	}
+	if !shaRe.MatchString(out.Commit.SHA) {
+		return "", &UnavailableError{Err: fmt.Errorf("the contents answer of %s names no commit", f.Branch)}
+	}
+	return out.Commit.SHA, nil
+}
+
 // AppSlug reads the slug of the loop App that acts on p. Its bot user is
 // "<slug>[bot]".
 func (s *Service) AppSlug(ctx context.Context, p config.Project) (string, error) {
