@@ -295,6 +295,90 @@ A project runs the job only when its `.loop/config.yaml` lists it under
 run budget and schedule, like the entry of any stage. Each run finishes
 with `loop run finish`, as every stage run does.
 
+## The orca acceptance lane
+
+The orca acceptance lane runs real agents on this host's orca (ADR 0008).
+It runs the agent-host contract, then the F1 scenario: a real implementer
+and a real code-reviewer take one ticket from claim to merge. The lane
+spends harness quota, so it never runs in CI.
+
+The native job `orca-acceptance` runs the lane. Its throughput entry is
+`orca-acceptance: {cap: 1, schedule: "30 17 * * *"}`, so it runs once a
+day at 17:30 UTC. A `host.yaml` with no entry for it runs on that default.
+The server registers the job only when `agent_host.kind` is `orca`. The job
+needs no operator step. Each tick does these steps:
+
+1. It fetches `orca-contract.test` and `orca-acceptance.test` of the
+   installed release into `versions/<v>/`, verified against the release's
+   signed `checksums.txt`.
+2. It makes the fixture `orca-acceptance/fixture` in the instance
+   directory when it is absent, and registers it with orca.
+3. It removes each orca worktree of the fixture, runs the contract binary,
+   then the scenario binary, under one 120-minute deadline, and removes
+   each worktree again.
+4. It writes one log to `orca-acceptance/logs/<UTC stamp>.log` in the
+   instance directory, and keeps the 30 newest. The log holds the job's own
+   lines, then the output of each binary under a header that names its
+   exit, such as `== orca-acceptance.test exit 0 ==`.
+
+A green lane raises no fault. A lane that is not green raises one loop
+fault, reported by the host, in the coordinator's inbox:
+
+| Outcome | Cause |
+| --- | --- |
+| `skipped` | A binary exited 3 on a spent quota window, or the release ships no lane binaries |
+| `failed` | A binary exited other than 0 or 3, or a fetch or setup step failed |
+| `timed out` | The lane passed its 120-minute deadline |
+
+The fault's first line is `orca-acceptance <outcome> on loop <version>,
+orca <orca version>.` The next lines name each `--- FAIL:` test, the quota
+line or the stop reason. The last line names the log. A tick that a server
+stop ends raises no fault, and the next tick runs the lane again.
+
+### Run the lane by hand
+
+`make orca-acceptance` runs the same lane from a loop source checkout. It
+starts up to 13 real sessions, so run it only when you need a result
+before the next tick. It needs a lane fixture of its own. Do not use the
+job's fixture, because the job can run at the same time. Make one:
+
+```sh
+fixture=$HOME/orca/lane-fixture
+git init -b main "$fixture"
+git -C "$fixture" commit --allow-empty -m "orca acceptance lane fixture"
+touch "$fixture/.git/loop-orca-fixture"
+orca repo add --path "$fixture"
+```
+
+The real world refuses a clone with no `.git/loop-orca-fixture` marker
+before it changes anything. Each run resets the fixture's `main`, so never
+mark a clone that holds work.
+
+Then run the lane with these values:
+
+```sh
+LOOP_ORCA_ROOT=$HOME/orca/workspaces \
+LOOP_ORCA_REPO=path:$fixture \
+LOOP_ORCA_MODEL=claude-opus-5-5 \
+LOOP_BD=$HOME/.local/state/loop/bin/bd \
+LOOP_DOLT=$HOME/.local/state/loop/bin/dolt \
+make orca-acceptance
+```
+
+- `LOOP_ORCA_ROOT` is the agent host's `agent_host.checkout_root` in
+  `host.yaml`.
+- `LOOP_ORCA_MODEL` is a full model id, because the session's receipt
+  never verifies an alias.
+- Set `LOOP_ORCA_BIN` too when `host.yaml` sets `agent_host.binary`.
+- `LOOP_BD` and `LOOP_DOLT` name the pinned binaries. Without them the
+  scenario looks in `~/.cache/loop-dev/bin`.
+
+Each missing `LOOP_ORCA_*` value prints `LOOP_ORCA_<NAME> is not set`, and
+the lane fails before it starts a session. A quota window at or above the
+limit prints its `quota:` line and its reset time, and the lane starts no
+session. Wait for the reset. A lane plan above 20 sessions also starts
+nothing.
+
 ## The gates
 
 `loop gates` is the definition of done in a project. Agents run it before
