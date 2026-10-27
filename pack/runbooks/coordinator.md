@@ -123,11 +123,28 @@ Never trust your first theory, and never trust a line without its source. Compar
 read with the event you blame. Read the state back after each write you report.
 
 - **An item stopped after two failed attempts.** Its `retry_limit` alert names the item, the
-  stage and each failed run. The same inputs fail the same way, so change the task first. Run
-  `loop work edit <item> --title "<title>" --body "<body>"` with the operator's text. The edit
-  enters the item's inputs and admits a new attempt. Then answer the alert with what changed.
-  At the code-reviewer stage, a push to the pull request also admits a new attempt.
-  Never look for a way to reset the count.
+  stage and each failed run. The same inputs fail the same way, so the task must change. You give
+  each item one recovery, ever. Work in this order:
+  1. **Read the record first.** Run `loop work show <item>`. When the body holds a `## Recovery`
+     section, the item had its one recovery. Prepare a question on the alert by section 5, with
+     `loop inbox prepare --entry <alert>`, and leave the alert open. Edit the item only with the
+     operator's answer. Stop here.
+  2. **Find the cause.** Read each failed run with `loop run show <run>` and
+     `loop run events <run>`.
+  3. **A loop fault spends no recovery.** When the cause is a loop fault, report it with
+     `loop fault report`, or name the open fault. Edit nothing. A new release admits a new attempt.
+  4. **A ticket with no work closes.** When a merged change or a ruling leaves the ticket with no
+     work, run `loop work supersede` by its own bullet below. It writes no `## Recovery` section.
+  5. **Otherwise recover once.** Run `loop work edit <item> --title "<title>" --body "<body>"`
+     with your own title and body. The new body ends with a `## Recovery` section. Its one line
+     names the date, the alert entry, the stage and what changed:
+     `Recovered once by the coordinator on <date>, after <entry> retry_limit at stage <stage>. Changed: <what changed>.`
+     On `SHAPE_REFUSED`, cut the task text, never the section, and send it again. The edit enters
+     the item's inputs and admits a new attempt. Then answer the alert with what changed.
+
+  Each later body edit of the item keeps the `## Recovery` section unchanged, an edit with the
+  operator's answer included. At the code-reviewer stage, a push to the pull request also admits
+  a new attempt. Never look for a way to reset the count.
 - **An alert stays open after you read its cause.** Record the root cause with
   `loop inbox note <entry> --body "<finding>"`. The alert stays open, and `loop inbox list` marks it
   `found` and shows the finding. A repeat of it then rings no one, and its text counts each repeat
@@ -161,7 +178,8 @@ read with the event you blame. Read the state back after each write you report.
 - **A ticket left backlog because its blocker was canceled.** The server frees the dependants of a
   canceled blocker that holds no open pull request, as if the blocker had landed. Read each freed
   ticket with `loop work show <item>`. When it still needs the canceled work, change it with
-  `loop work edit <item>` so it no longer does, or bring it to the operator.
+  `loop work edit <item>` so it no longer does, and keep a `## Recovery` section of its body. Or
+  bring it to the operator.
 - **The operator drops an escalated item.** Run
   `loop work cancel <item> --reason "<the operator's words>"`, and quote the operator's words in
   the report.
