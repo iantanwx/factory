@@ -33,6 +33,7 @@ import (
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
+	"github.com/iantanwx/loop/internal/server/orcalane"
 )
 
 // A host config with no beads, agent host or App serves the plain verbs:
@@ -463,5 +464,72 @@ func TestC10TheProductionLoopBinaryIsTheCurrentLink(t *testing.T) {
 	defer cleanup()
 	if want := filepath.Join(dir, release.CurrentLink, release.BinaryName); err != nil || opts.LoopBinary != want {
 		t.Fatalf("with a current link: LoopBinary %q, want %s, %v", opts.LoopBinary, want, err)
+	}
+}
+
+// C21: serve registers the orca-acceptance job when agent_host.kind is
+// orca, and not for fake or an empty kind.
+func TestC21TheOrcaLaneJobExistsOnlyOnAnOrcaHost(t *testing.T) {
+	for _, kind := range []string{"orca", "fake", ""} {
+		t.Run("kind "+kind, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "instance")
+			if err := os.Mkdir(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			root := filepath.Join(t.TempDir(), "checkouts")
+			cfg := config.DefaultHost(dir)
+			cfg.Beads = config.BeadsConfig{BD: "/opt/loop/bd", Dolt: "/opt/loop/dolt"}
+			cfg.AgentHost = config.AgentHostConfig{Kind: kind, Binary: "/opt/orca", CheckoutRoot: root}
+			if err := config.SaveHost(filepath.Join(dir, config.HostConfigFile), cfg); err != nil {
+				t.Fatal(err)
+			}
+			bx := beadsfake.New("tk")
+			if err := bx.ConfigureStatuses(context.Background(), machine.Statuses()); err != nil {
+				t.Fatal(err)
+			}
+			host := agentfake.New(root)
+			w := wiring{
+				beads: func(context.Context, *config.HostConfig) (machine.BeadsResolver, func(context.Context) error, error) {
+					return func(string) (beadsx.Client, error) { return bx, nil }, func(context.Context) error { return nil }, nil
+				},
+				agents: func(*config.HostConfig, *config.Projects) (agenthost.Host, func(string) sched.CheckoutHost, error) {
+					return host, func(string) sched.CheckoutHost { return host }, nil
+				},
+			}
+			opts, cleanup, err := productionOptions(context.Background(), dir, w)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cleanup()
+			registered := false
+			opts.Setup = append(opts.Setup, func(s *server.Server) error {
+				if s.Sched != nil {
+					err := s.Sched.RegisterInstanceJob(orcalane.JobName, func(context.Context) error { return nil })
+					registered = err != nil && strings.Contains(err.Error(), "twice")
+				}
+				return nil
+			})
+			t.Setenv("HOME", t.TempDir())
+			opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+			ready := make(chan struct{})
+			opts.Ready = ready
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() { done <- server.Run(ctx, opts) }()
+			select {
+			case <-ready:
+			case err := <-done:
+				t.Fatalf("serve stopped: %v", err)
+			case <-time.After(10 * time.Second):
+				t.Fatal("serve did not become ready")
+			}
+			cancel()
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			if want := kind == "orca"; registered != want {
+				t.Fatalf("orca-acceptance registered = %v, want %v", registered, want)
+			}
+		})
 	}
 }

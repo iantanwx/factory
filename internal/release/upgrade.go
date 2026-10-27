@@ -351,47 +351,13 @@ func (u *Upgrader) Run(ctx context.Context, version string) (UpgradeReport, erro
 // comment, every checksum, its metadata and its third-party pins.
 func (u *Upgrader) fetch(ctx context.Context, version string) (verified, error) {
 	var rel verified
-	refuseFetch := func(asset string, err error) error {
-		switch {
-		case errors.Is(err, ErrNoGHLogin):
-			return refuse(CodeReleaseUnavailable, "no_gh_login", "fetch %s: %v", version, err)
-		case errors.Is(err, fs.ErrNotExist):
-			return refuse(cli.CodeNotFound, "no_release", "release %s has no %s: %v", version, asset, err)
-		}
-		return refuse(CodeReleaseUnavailable, "fetch_failed", "fetch %s of %s: %v", asset, version, err)
-	}
-	read, err := u.Source.assets(ctx, version)
+	get, err := u.Source.verifiable(ctx, version)
 	if err != nil {
-		return rel, refuseFetch("release", err)
-	}
-	get := func(asset string) ([]byte, error) {
-		data, err := read(asset)
-		if err != nil {
-			return nil, refuseFetch(asset, err)
-		}
-		return data, nil
-	}
-	if rel.sums, err = get(ChecksumsFile); err != nil {
 		return rel, err
 	}
-	if rel.sig, err = get(SignatureFile); err != nil {
+	var sums Checksums
+	if rel.sums, rel.sig, sums, err = verifiedChecksums(u.Keys, version, get); err != nil {
 		return rel, err
-	}
-	if len(u.Keys) == 0 {
-		return rel, refuse(CodeSignatureInvalid, "no_trusted_key", "this binary embeds no release key; build it with the operator's public key in internal/release/trusted_keys.pub")
-	}
-	trusted, err := Verify(u.Keys, rel.sums, rel.sig)
-	if err != nil {
-		return rel, refuse(CodeSignatureInvalid, "bad_signature", "%v", err)
-	}
-	signed, err := TrustedVersion(trusted)
-	if err != nil || signed != version {
-		return rel, refuse(CodeVersionRefused, "trusted_version_mismatch",
-			"the signed trusted comment names %q, not %s; a validly signed release is being served as another version", signed, version)
-	}
-	sums, err := ParseChecksums(rel.sums)
-	if err != nil {
-		return rel, refuse(CodeChecksumMismatch, "bad_checksums", "%v", err)
 	}
 	if rel.metaRaw, err = get(MetadataFile); err != nil {
 		return rel, err
@@ -487,4 +453,109 @@ func snapshot(ctx context.Context, l Layout, from string, now time.Time) (string
 		return "", err
 	}
 	return dst, st.Close()
+}
+
+// verifiable returns a reader of the assets of version that refuses each
+// failed read with its rule.
+func (s Source) verifiable(ctx context.Context, version string) (func(asset string) ([]byte, error), error) {
+	refuseFetch := func(asset string, err error) error {
+		switch {
+		case errors.Is(err, ErrNoGHLogin):
+			return refuse(CodeReleaseUnavailable, "no_gh_login", "fetch %s: %v", version, err)
+		case errors.Is(err, fs.ErrNotExist):
+			return refuse(cli.CodeNotFound, "no_release", "release %s has no %s: %v", version, asset, err)
+		}
+		return refuse(CodeReleaseUnavailable, "fetch_failed", "fetch %s of %s: %v", asset, version, err)
+	}
+	read, err := s.assets(ctx, version)
+	if err != nil {
+		return nil, refuseFetch("release", err)
+	}
+	return func(asset string) ([]byte, error) {
+		data, err := read(asset)
+		if err != nil {
+			return nil, refuseFetch(asset, err)
+		}
+		return data, nil
+	}, nil
+}
+
+// verifiedChecksums reads the checksum file of version and its signature,
+// and verifies the signature with keys and its trusted comment. Every
+// asset of the release is then checked against the returned sums.
+func verifiedChecksums(keys []PublicKey, version string, get func(string) ([]byte, error)) (raw, sig []byte, sums Checksums, err error) {
+	if raw, err = get(ChecksumsFile); err != nil {
+		return nil, nil, nil, err
+	}
+	if sig, err = get(SignatureFile); err != nil {
+		return nil, nil, nil, err
+	}
+	if len(keys) == 0 {
+		return nil, nil, nil, refuse(CodeSignatureInvalid, "no_trusted_key", "this binary embeds no release key; build it with the operator's public key in internal/release/trusted_keys.pub")
+	}
+	trusted, err := Verify(keys, raw, sig)
+	if err != nil {
+		return nil, nil, nil, refuse(CodeSignatureInvalid, "bad_signature", "%v", err)
+	}
+	signed, err := TrustedVersion(trusted)
+	if err != nil || signed != version {
+		return nil, nil, nil, refuse(CodeVersionRefused, "trusted_version_mismatch",
+			"the signed trusted comment names %q, not %s; a validly signed release is being served as another version", signed, version)
+	}
+	if sums, err = ParseChecksums(raw); err != nil {
+		return nil, nil, nil, refuse(CodeChecksumMismatch, "bad_checksums", "%v", err)
+	}
+	return raw, sig, sums, nil
+}
+
+// The orca lane binaries inside versions/<v>/ (ADR 0008).
+const (
+	LaneContractFile   = "orca-contract.test"
+	LaneAcceptanceFile = "orca-acceptance.test"
+)
+
+// FetchLane puts the orca lane binaries of version for platform into dir,
+// each verified as Upgrader.Run verifies a release: the signature, its
+// trusted comment, then each checksum. It writes nothing unless both
+// verify. A checksum file that names neither binary is a release that
+// predates the lane: shipped is false, and the error nil.
+func FetchLane(ctx context.Context, src Source, keys []PublicKey, version, platform, dir string) (shipped bool, err error) {
+	get, err := src.verifiable(ctx, version)
+	if err != nil {
+		return false, err
+	}
+	_, _, sums, err := verifiedChecksums(keys, version, get)
+	if err != nil {
+		return false, err
+	}
+	goos, goarch, _ := strings.Cut(platform, "/")
+	assets := map[string]string{
+		LaneContractFile:   OrcaContractAssetName(goos, goarch),
+		LaneAcceptanceFile: OrcaAcceptanceAssetName(goos, goarch),
+	}
+	_, contract := sums[assets[LaneContractFile]]
+	_, acceptance := sums[assets[LaneAcceptanceFile]]
+	if !contract && !acceptance {
+		return false, nil
+	}
+	bins := map[string][]byte{}
+	for name, asset := range assets {
+		data, err := get(asset)
+		if err != nil {
+			return true, err
+		}
+		if err := sums.Check(asset, data); err != nil {
+			return true, refuse(CodeChecksumMismatch, "lane_checksum", "%v", err)
+		}
+		bins[name] = data
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return true, err
+	}
+	for name, data := range bins {
+		if err := writeFileAtomic(filepath.Join(dir, name), data, 0o755); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
 }
