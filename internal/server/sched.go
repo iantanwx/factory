@@ -120,14 +120,19 @@ func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 		Check: config.StageCheck(&config.HostLoader{Path: s.HostPath})}
 	var mu sync.Mutex
 	cache := map[string]cachedSnap{}
+	// gen counts each project's forgets, so a load that started before a
+	// forget does not cache what it read.
+	gen := map[string]int{}
 	s.caches.add(func(project string) {
 		mu.Lock()
 		delete(cache, project)
+		gen[project]++
 		mu.Unlock()
 	})
 	return func(ctx context.Context, project string) (*config.ProjectSnapshot, error) {
 		mu.Lock()
 		c, ok := cache[project]
+		g := gen[project]
 		mu.Unlock()
 		if ok && time.Since(c.at) < projectConfigTTL {
 			return c.snap, nil
@@ -146,7 +151,9 @@ func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 		}
 		snap := &l.ProjectSnapshot
 		mu.Lock()
-		cache[project] = cachedSnap{snap: snap, at: time.Now()}
+		if gen[project] == g {
+			cache[project] = cachedSnap{snap: snap, at: time.Now()}
+		}
 		mu.Unlock()
 		return snap, nil
 	}

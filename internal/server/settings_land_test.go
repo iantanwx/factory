@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -93,5 +95,51 @@ func TestC28MergedSettingsChangeIsInForceAtTheNextTick(t *testing.T) {
 	}
 	if len(notices) != 1 || !strings.Contains(notices[0]["text"].(string), merged) {
 		t.Fatalf("notices = %v; want one that names %s", notices, merged)
+	}
+}
+
+// C28: a merge that lands while a config load is in flight still takes
+// force at the next read. The load that read the old config does not keep
+// it in the cache past the merge's forget.
+func TestC28MergeDuringALoadIsInForceAtTheNextRead(t *testing.T) {
+	w := newSchedWorld(t, Options{})
+	ctx := context.Background()
+	p, err := w.srv.Projects.Show("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := false
+	load := w.srv.projectLoader(func(ctx context.Context, p config.Project) (config.RefReader, string, error) {
+		read, branch, err := LocalRefs(ctx, p)
+		return func(ctx context.Context, ref, path string) ([]byte, error) {
+			raw, err := read(ctx, ref, path)
+			if path == config.ProjectConfigPath && !merged {
+				// The merge lands after this read: main gains a stage, and
+				// the server forgets the cached config.
+				merged = true
+				cfg := "stages:\n  code-reviewer: {}\n  implementer: {}\nmerge:\n  mechanism: direct\n"
+				if err := os.WriteFile(filepath.Join(p.Path, config.ProjectConfigPath), []byte(cfg), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				gitT(t, p.Path, "commit", "-q", "-am", "merge the settings change")
+				gitT(t, p.Path, "push", "-q", "origin", "main")
+				w.srv.caches.forget(p.ID)
+			}
+			return raw, err
+		}, branch, err
+	})
+	enabled := func() bool {
+		t.Helper()
+		snap, err := load(ctx, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap.Config.StageEnabled("implementer")
+	}
+	if enabled() {
+		t.Fatal("the load in flight read the merged config; want the config before the merge")
+	}
+	if !enabled() {
+		t.Fatal("the read after the merge serves the config before it")
 	}
 }
