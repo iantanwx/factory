@@ -31,6 +31,7 @@ type fakeWorld struct {
 	bodies   map[string]map[string]string // project -> item -> body
 	st       *store.Store
 	itemsErr error
+	drain    time.Time // when the fake server began to drain; zero when it does not
 }
 
 var errFake = errors.New("the fake world holds no such read")
@@ -101,7 +102,8 @@ func (w *fakeWorld) Store() *store.Store { return w.st }
 func (w *fakeWorld) Intervals() Intervals {
 	return Intervals{}
 }
-func (w *fakeWorld) Jobs() sched.Jobs { return sched.Jobs{} }
+func (w *fakeWorld) Jobs() sched.Jobs      { return sched.Jobs{} }
+func (w *fakeWorld) DrainSince() time.Time { return w.drain }
 func (w *fakeWorld) CheckoutDirs(context.Context) ([]string, error) {
 	return agenthost.ListCheckoutDirs(w.root)
 }
