@@ -244,7 +244,9 @@ starts the next one under the new release, in the same worktree.
 
 ## Checkout cleanup
 
-The scheduler runs a cleanup pass on each cleanup interval. It judges the
+The scheduler runs a cleanup pass on the first tick after a server start,
+then on each cleanup interval. An upgrade restarts the server, so the pass
+runs again right after each upgrade. It judges the
 checkout of each run that ended and of each room that `loop room close`
 ended. That includes a run checkout that the server kept when the run's
 session ended with no finish. A checkout that a lease, a live session or an

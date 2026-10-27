@@ -743,28 +743,36 @@ func TestTickPrunesOldLastCalls(t *testing.T) {
 }
 
 // The cleanup pass purges the idempotency keys whose expiry passed, and
-// keeps a key with no expiry.
+// keeps a key with no expiry. The first tick after a start runs the pass,
+// and a second tick inside one cleanup interval runs none (F-40).
 func TestCleanupPurgesExpiredKeys(t *testing.T) {
 	w := newWorld(t)
-	err := w.st.Write(context.Background(), func(tx *store.Tx) error {
-		for key, expires := range map[string]time.Time{"gone": tx.Now().Add(-time.Minute), "kept": {}} {
-			if err := tx.StoreResult(store.IdemRecord{Key: key, Fingerprint: store.Fingerprint{RunID: "r-x", Verb: "work move"},
-				Result: []byte(`{}`), ExpiresAt: expires}); err != nil {
-				return err
-			}
+	put := func(key string, expires time.Time) {
+		t.Helper()
+		err := w.st.Write(context.Background(), func(tx *store.Tx) error {
+			return tx.StoreResult(store.IdemRecord{Key: key, Fingerprint: store.Fingerprint{RunID: "r-x", Verb: "work move"},
+				Result: []byte(`{}`), ExpiresAt: expires})
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	w.tick()
-	if n := w.count(`SELECT count(*) FROM idempotency`); n != 2 {
-		t.Fatalf("keys before the cleanup interval = %d, want 2", n)
-	}
-	w.clock.Advance(DefaultCleanupInterval)
+	put("gone", w.clock.Now().Add(-time.Minute))
+	put("kept", time.Time{})
+	w.restart()
 	w.tick()
 	if w.count(`SELECT count(*) FROM idempotency WHERE key = 'gone'`) != 0 || w.count(`SELECT count(*) FROM idempotency WHERE key = 'kept'`) != 1 {
-		t.Fatal("the cleanup did not purge only the expired key")
+		t.Fatal("the first tick after the start did not purge only the expired key")
+	}
+	put("later", w.clock.Now().Add(-time.Minute))
+	w.clock.Advance(DefaultCleanupInterval - time.Second)
+	w.tick()
+	if n := w.count(`SELECT count(*) FROM idempotency WHERE key = 'later'`); n != 1 {
+		t.Fatalf("expired keys after a second tick inside the cleanup interval = %d, want 1", n)
+	}
+	w.clock.Advance(time.Second)
+	w.tick()
+	if n := w.count(`SELECT count(*) FROM idempotency WHERE key = 'later'`); n != 0 {
+		t.Fatalf("expired keys after the cleanup interval = %d, want 0", n)
 	}
 }
