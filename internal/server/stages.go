@@ -19,7 +19,29 @@ func (s *Server) wireStages() error {
 	if err := s.RPC.Handle("stage pause", s.stagePause); err != nil {
 		return err
 	}
-	return s.RPC.Handle("stage resume", s.stageResume)
+	if err := s.RPC.Handle("stage resume", s.stageResume); err != nil {
+		return err
+	}
+	return s.RPC.Handle("stage list", s.stageList)
+}
+
+// stageList is `loop stage list [--project]`. It reads the scheduler's own
+// firings, so each row prints the schedule the scheduler fires on.
+func (s *Server) stageList(ctx context.Context, call *rpc.Call) cli.Result {
+	project := call.Inv.Flags["project"]
+	if project != "" {
+		if _, err := s.Projects.Show(project); err != nil {
+			return projectFault(err)
+		}
+	}
+	if s.Sched == nil {
+		return cli.Reject(cli.CodeNotImplemented, "no_scheduler", "this server runs no scheduler, so no stage fires")
+	}
+	rows, err := s.Sched.StageList(ctx, project)
+	if err != nil {
+		return cli.Internal(err)
+	}
+	return cli.List(rows)
 }
 
 // stagePause is `loop stage pause <stage> [--project] --reason`. It holds

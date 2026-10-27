@@ -396,9 +396,29 @@ func (s *Scheduler) purgeKeys(ctx context.Context) {
 func stageKey(project, stage string) string { return project + "/" + stage }
 
 type cronRow struct {
-	expr string
-	due  sql.NullInt64
-	ok   bool
+	expr      string
+	due, last sql.NullInt64
+	ok        bool
+}
+
+// readCrons reads every cron row of schedule, by stageKey.
+func readCrons(ctx context.Context, tx *sql.Tx) (map[string]cronRow, error) {
+	rs, err := tx.QueryContext(ctx, `SELECT project, stage, cron_expr, due_at, last_fired_at FROM schedule WHERE kind = 'cron'`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rs.Close() }()
+	rows := map[string]cronRow{}
+	for rs.Next() {
+		var p, st string
+		var r cronRow
+		if err := rs.Scan(&p, &st, &r.expr, &r.due, &r.last); err != nil {
+			return nil, err
+		}
+		r.ok = true
+		rows[stageKey(p, st)] = r
+	}
+	return rows, rs.Err()
 }
 
 // fireDue fires each stage and job whose deadline passed. Each deadline
@@ -406,23 +426,10 @@ type cronRow struct {
 // down fires once on the next start.
 func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 	now := s.now()
-	rows := map[string]cronRow{}
-	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		rs, err := tx.QueryContext(ctx, `SELECT project, stage, cron_expr, due_at FROM schedule WHERE kind = 'cron'`)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rs.Close() }()
-		for rs.Next() {
-			var p, st string
-			var r cronRow
-			if err := rs.Scan(&p, &st, &r.expr, &r.due); err != nil {
-				return err
-			}
-			r.ok = true
-			rows[stageKey(p, st)] = r
-		}
-		return rs.Err()
+	var rows map[string]cronRow
+	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) (err error) {
+		rows, err = readCrons(ctx, tx)
+		return err
 	})
 	if err != nil {
 		return err
@@ -439,9 +446,9 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 		}
 		return sn
 	}
-	for _, t := range Timers(hc, projects, snap, s.Jobs()) {
-		if s.advance(ctx, rows, t.Project, t.Stage, t.Expr, now) {
-			s.launch(ctx, t.Project, t.Stage, t.kind, hc)
+	for _, f := range Firings(hc, projects, snap, s.Jobs()) {
+		if f.Enabled && s.advance(ctx, rows, f.Project, f.Stage, f.Schedule, now) {
+			s.launch(ctx, f.Project, f.Stage, f.Kind, hc)
 		}
 	}
 	return perr
@@ -498,25 +505,18 @@ func (s *Scheduler) advance(ctx context.Context, rows map[string]cronRow, projec
 	return fire
 }
 
-type launchKind int
-
-const (
-	kindRun launchKind = iota
-	kindJob
-	kindInstanceJob
-)
-
 // launch starts one firing in its own goroutine. A stage starts at most one
 // firing at a time for each project, and a job at most its cap of
 // concurrent calls. A run stage's firing fills its free cap.
-func (s *Scheduler) launch(ctx context.Context, project, stage string, kind launchKind, hc *config.HostConfig) {
+func (s *Scheduler) launch(ctx context.Context, project, stage string, kind FiringKind, hc *config.HostConfig) {
 	key := stageKey(project, stage)
+	run := kind == FiringRun || kind == FiringAgentJob
 	limit := 1
-	if kind != kindRun {
+	if !run {
 		limit = max(1, hc.ThroughputFor(stage).Cap)
 	}
 	s.mu.Lock()
-	if s.inflight[key] >= limit || kind == kindRun && s.draining {
+	if s.inflight[key] >= limit || run && s.draining {
 		s.mu.Unlock()
 		return
 	}
@@ -531,13 +531,13 @@ func (s *Scheduler) launch(ctx context.Context, project, stage string, kind laun
 			s.mu.Unlock()
 		}()
 		switch kind {
-		case kindRun:
+		case FiringRun, FiringAgentJob:
 			s.fill(ctx, project, stage, max(1, hc.Throughput[stage].Cap))
-		case kindJob:
+		case FiringJob:
 			if err := s.job(stage)(ctx, project); err != nil {
 				s.log.WarnContext(ctx, "native job", "project", project, "job", stage, "err", err)
 			}
-		case kindInstanceJob:
+		case FiringInstanceJob:
 			if err := s.instanceJob(stage)(ctx); err != nil {
 				s.log.WarnContext(ctx, "native job", "job", stage, "err", err)
 			}

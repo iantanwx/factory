@@ -122,6 +122,7 @@ service EpicService {
 service StageService {
   rpc Pause(VerbRequest) returns (Envelope);
   rpc Resume(VerbRequest) returns (Envelope);
+  rpc List(VerbRequest) returns (Envelope);
 }
 
 service SecretService {
