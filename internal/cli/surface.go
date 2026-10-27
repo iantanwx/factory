@@ -82,6 +82,9 @@ var (
 	bodyFlag = Flag{Name: "body", Type: FlagString, Required: true, Description: "the text to write"}
 	// fixFlag makes loop doctor remove each .env that no live run holds (KTD17).
 	fixFlag = Flag{Name: "fix", Type: FlagBool, Description: "remove each .env in a checkout with no live run"}
+	// blockedByFlag names the items a new ticket waits on in backlog.
+	blockedByFlag = Flag{Name: "blocked-by", Type: FlagString,
+		Description: "item ids the ticket waits on, comma-separated; a ticket or a decision each"}
 	// fileFlag names a file the CLI reads and sends with the call (ExtraFile).
 	fileFlag = Flag{Name: "file", Type: FlagString, Required: true, Description: "the file to send, read by the CLI"}
 )
@@ -106,6 +109,7 @@ var surface = []Verb{
 	write(server("work", "shape", "shape a bug into a ticket and close the bug as shaped; the answer names the ticket", runOrCoordinator, []Arg{itemArg},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the ticket title"},
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the shaped ticket body"},
+		blockedByFlag,
 		projectFlag)),
 	write(server("work", "ask", "ask a bug's reporter for a fact only the reporter holds; the report waits in asked, the inbox relays the question, and the answer returns it to reported; a report asks at most twice", runOrCoordinator, []Arg{itemArg},
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "one to three questions, each a top-level list item, in plain words for a person"},
@@ -126,6 +130,7 @@ var surface = []Verb{
 		Flag{Name: "epic", Type: FlagString, Description: "the epic whose merged PRD the ticket implements; or, for the coordinator with --request and no --story, the architecture epic whose ADR the ticket writes"},
 		Flag{Name: "story", Type: FlagString, Description: "the PRD story labels the ticket cites, comma-separated, for example US-01,US-02; needs --epic"},
 		Flag{Name: "request", Type: FlagString, Description: "the operator's own words that ask for PRD-less work; the coordinator only"},
+		blockedByFlag,
 		projectFlag)),
 
 	write(server("run", "finish", "report the run's outcome and release its lease", runOnly, nil,
