@@ -271,8 +271,11 @@ var surface = []Verb{
 	write(server("epic", "decompose", "create an epic's tickets in one batch", []string{"decomposer"}, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the decomposition file: a JSON object whose tickets each hold key, title, body, stories and blocked_by"})),
 
-	write(server("stage", "pause", "pause a stage", coordinator, []Arg{stageArg})),
-	write(server("stage", "resume", "resume a stage", coordinator, []Arg{stageArg})),
+	write(server("stage", "pause", "pause a run stage or an agent job: no new run of it starts, and a live run continues", coordinator, []Arg{stageArg},
+		Flag{Name: "project", Type: FlagString, Description: "the project id; every project when absent"},
+		Flag{Name: "reason", Type: FlagString, Description: "required: why the stage pauses"})),
+	write(server("stage", "resume", "end the pause of one scope", coordinator, []Arg{stageArg},
+		Flag{Name: "project", Type: FlagString, Description: "the project id of the pause; the pause of every project when absent"})),
 
 	server("secret", "check", "say whether a secret is present: the project's own value, or a global one", runOnly, []Arg{secretArg}, projectFlag),
 	write(server("secret", "set", "store a secret; the value comes from stdin only", hostOnly, []Arg{secretArg},
