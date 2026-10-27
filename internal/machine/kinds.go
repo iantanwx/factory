@@ -47,6 +47,9 @@ const (
 	VerbADRLanded          = "adr_landed"
 	VerbADRMisjoined       = "adr_misjoined"
 	VerbAnswer             = "answer"
+	VerbAwaitBuild         = "await_build"    // bug: reported, reproducing -> awaiting_build
+	VerbBuildCanceled      = "build_canceled" // bug: awaiting_build -> reported (server)
+	VerbBuildLanded        = "build_landed"   // bug: awaiting_build -> duplicate (server)
 	VerbCIRed              = "ci_red"
 	VerbCreate             = "create"
 	VerbCreateArchitecture = "create_architecture"

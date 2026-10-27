@@ -41,13 +41,13 @@ var (
 		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StagePRDAuthor,
 		StageSpecAuthor, StageDecomposer, StageFixer, StageReproducer, StageIntake,
 	}
-	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch"}
+	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch", "orca-acceptance"}
 	// optional lists the keys that a later release added. A host config
 	// that an older release wrote holds no entry for them, so a missing
 	// entry reads as its default and is never written to the file
 	// (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Decisions). Every
 	// other key stays required.
-	optional = []string{"overwatch", StagePRDAuthor}
+	optional = []string{"overwatch", "orca-acceptance", StagePRDAuthor}
 	// pools bound several stages together. The reviewers pool is today's
 	// REVIEW_CAP over every reviewer stage (scripts/sdlc/review-cap.ts,
 	// alpha), next to each stage's own cap.
@@ -108,6 +108,7 @@ func DefaultThroughput() map[string]Throughput {
 		"decision-timers":    {Cap: 1, Schedule: "* * * * *"},
 		"github-reactor":     {Cap: 1, Schedule: "* * * * *"},
 		"overwatch":          {Cap: 1, Schedule: "3,13,23,33,43,53 * * * *"},
+		"orca-acceptance":    {Cap: 1, Schedule: "30 17 * * *"},
 	}
 }
 

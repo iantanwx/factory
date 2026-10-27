@@ -202,7 +202,13 @@ question about the entry is open, its answer refuses with `TRANSITION_NOT_ALLOWE
 Quote the operator's statement and choice, and the reason when the operator gave one. Add
 `--amend` when the answer changes the task. When the answer needs your own work first, do that
 work before the item can resume. When it needs an act of the operator outside the repository,
-defer the entry until that act: `loop inbox defer <entry> --until <time>`.
+defer the entry until that act, and name the act in `--reason`:
+
+```bash
+loop inbox defer <entry> --until <time> --reason "<the act or the event the entry waits for>"
+```
+
+The entry returns at that time with the reason in `defer_reason`.
 
 Before the operator signs off a PRD or a spec, read its Open questions. Prepare one question for
 each one that holds no answer, with the document's proposed answer as the recommendation.

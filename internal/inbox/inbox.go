@@ -1,6 +1,7 @@
 // Package inbox is the coordinator's one typed inbox (KTD21). It is a
 // derived view: its entries come from beads states (escalated, sign-off
-// waiting, fired decisions, asked bug reports) and from SQLite (alerts, questions, rooms and
+// waiting, fired decisions, asked bug reports, architecture epics that
+// nothing works on) and from SQLite (alerts, questions, rooms and
 // escalations that wait for the fixer's panel). Each entry says who it
 // waits on, a person or the coordinator, and carries a link, so a
 // coordinator act never reads as a wait on the operator.
@@ -34,15 +35,16 @@ const (
 
 // Entry kinds.
 const (
-	KindEscalation = "escalation" // an item in escalated
-	KindPanel      = "panel"      // an escalation that waits for the fixer's panel
-	KindDecision   = "decision"   // a fired decision
-	KindSignoff    = "signoff"    // a document that waits for the operator's approval
-	KindQuestion   = "question"   // a question the coordinator prepared
-	KindAsk        = "ask"        // a bug report whose reproducer asks its reporter
-	KindRoom       = "room"       // a room that is not closed
-	KindAlert      = "alert"      // an open alert
-	KindFault      = "fault"      // an open or acknowledged loop fault
+	KindEscalation   = "escalation"   // an item in escalated
+	KindPanel        = "panel"        // an escalation that waits for the fixer's panel
+	KindDecision     = "decision"     // a fired decision
+	KindSignoff      = "signoff"      // a document that waits for the operator's approval
+	KindQuestion     = "question"     // a question the coordinator prepared
+	KindAsk          = "ask"          // a bug report whose reproducer asks its reporter
+	KindArchitecture = "architecture" // an architecture epic with no open child and no open room
+	KindRoom         = "room"         // a room that is not closed
+	KindAlert        = "alert"        // an open alert
+	KindFault        = "fault"        // an open or acknowledged loop fault
 )
 
 // Defaults.
@@ -75,6 +77,9 @@ type Entry struct {
 	// Found marks an open alert whose root cause `inbox note` recorded.
 	// Its text holds the finding, and a repeat of it rings no one.
 	Found bool `json:"found,omitempty"`
+	// DeferReason is the --reason of the defer that ended, when the entry
+	// returned from one.
+	DeferReason string `json:"defer_reason,omitempty"`
 	// At is when the entry entered the inbox, in Unix milliseconds. The
 	// cursor of `inbox wait --since` is the At of the last entry seen.
 	At     int64  `json:"at"`

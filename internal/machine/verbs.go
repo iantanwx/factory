@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -267,7 +268,9 @@ func (m *Machine) workAsk(ctx context.Context, call *rpc.Call) cli.Result {
 	return m.Apply(ctx, request(call, prj, bug, "ask", map[string]string{"body": body}))
 }
 
-// workDuplicate closes a bug as a duplicate of another item.
+// workDuplicate closes a bug as a duplicate of another item. With
+// --unbuilt the bug waits for the item instead, a ticket or an epic that
+// is not terminal, because only those build a change (spec Decision 11).
 func (m *Machine) workDuplicate(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -280,10 +283,23 @@ func (m *Machine) workDuplicate(ctx context.Context, call *rpc.Call) cli.Result 
 	if of == "" || of == bug {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "bad_original", Item: bug, Hint: "--of names another item, the one the bug repeats"})
 	}
-	if _, r := m.Read(ctx, prj, of); r != nil {
+	it, r := m.Read(ctx, prj, of)
+	if r != nil {
 		return r.Result()
 	}
-	return m.Apply(ctx, request(call, prj, bug, "duplicate", map[string]string{"of": of}))
+	if call.Inv.Flags["unbuilt"] != "true" {
+		return m.Apply(ctx, request(call, prj, bug, "duplicate", map[string]string{"of": of}))
+	}
+	t, _ := TableFor(it.Kind)
+	switch {
+	case it.Kind != KindTicket && it.Kind != KindEpic:
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "build_kind", Item: of,
+			Hint: fmt.Sprintf("%s is a %s; a bug waits only for a ticket or an epic, which builds a change", of, it.Kind)})
+	case t.Terminal(it.Status):
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "build_terminal", Item: of,
+			Hint: fmt.Sprintf("%s is %s already, so it builds nothing more; close the bug without --unbuilt, or name the build in flight", of, it.Status)})
+	}
+	return m.Apply(ctx, request(call, prj, bug, VerbAwaitBuild, map[string]string{"of": of}))
 }
 
 // workCancel closes an escalated item, or a bug the reproducer routes as
@@ -371,8 +387,9 @@ type ShapeResult struct {
 // workShape shapes a bug into a ticket: it creates the ticket, which
 // names the bug, then closes the bug as shaped with the ticket's id. The
 // ticket's create key is the bug, so a retry after a crash between the
-// two writes finds the ticket it made. With --blocked-by the ticket waits
-// in backlog on each blocker, which is checked before any write.
+// two writes finds the ticket it made. The ticket keeps --priority as a
+// fact. With --blocked-by the ticket waits in backlog on each blocker,
+// which is checked before any write.
 func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -385,6 +402,11 @@ func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 	title, body := strings.TrimSpace(call.Inv.Flags["title"]), call.Inv.Flags["body"]
 	if title == "" {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "no_title", Item: bug, Hint: "--title names the ticket"})
+	}
+	priority := strings.TrimSpace(call.Inv.Flags["priority"])
+	if !slices.Contains(priorities, priority) {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "no_priority", Item: bug,
+			Hint: "--priority is 1, 2, 3 or 4, by the reproducer runbook, section 4"})
 	}
 	unlock := m.lock(prj, bug)
 	defer unlock()
@@ -404,7 +426,7 @@ func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 	if r := m.CheckBlockers(ctx, prj, "", blockers); r != nil {
 		return r.Result()
 	}
-	ticket, r := m.shapedTicket(ctx, prj, bug, title, body, blockers, call)
+	ticket, r := m.shapedTicket(ctx, prj, bug, title, body, priority, blockers, call)
 	if r != nil {
 		return r.Result()
 	}
@@ -416,10 +438,14 @@ func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Found(ShapeResult{Bug: bug, Ticket: ticket, Status: Shaped})
 }
 
+// priorities are the values of work shape --priority (Decision 8): the
+// fact holds one, and the native beads priority stays 2.
+var priorities = []string{"1", "2", "3", "4"}
+
 // shapedTicket finds the ticket a bug was shaped into, or creates it in
 // todo, or in backlog with an edge to each blocker. The caller holds the
 // bug's lock.
-func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body string, blockers []string, call *rpc.Call) (string, *cli.Refusal) {
+func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body, priority string, blockers []string, call *rpc.Call) (string, *cli.Refusal) {
 	key := shapeKey(bug)
 	found, r := m.List(ctx, prj, ListFilter{Kind: KindTicket, Facts: map[string]string{FactCreateKey: key}})
 	if r != nil {
@@ -430,7 +456,7 @@ func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body string
 		tk = found[0]
 	} else {
 		id, r := m.CreateBead(ctx, CreateRequest{Project: prj, Kind: KindTicket, Title: title, Description: body,
-			Facts: map[string]string{FactCreateKey: key, FactBug: bug}})
+			Facts: map[string]string{FactCreateKey: key, FactBug: bug, FactPriority: priority}})
 		if r != nil {
 			return "", r
 		}

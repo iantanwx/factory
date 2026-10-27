@@ -19,6 +19,8 @@ var requiredFlags = []struct {
 	flags   []string
 }{
 	{"loop work cancel", []string{"--reason"}},
+	{"loop inbox defer", []string{"--reason"}},
+	{"loop work shape", []string{"--priority"}},
 }
 
 // codeSpan is one inline code span of a markdown line.

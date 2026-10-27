@@ -38,7 +38,7 @@ records and the design references. A user story wins over a design reference on 
 | Bug | A source states X and the product does not do X. Or a crash, an error page or lost data | Reproduce it, then shape it |
 | Product change | The report states the change it wants clearly, and a source states otherwise or states nothing | Shape it by sections 3 and 4. Name each source line it supersedes under **Change** |
 | Unclear product question | The report does not state the change it wants | Ask the reporter by section 6. Escalate at level 5 only when the reporter cannot state it |
-| Not built yet | An open item builds X | Name that item in a note. Then record the outcome by section 5 |
+| Not built yet | A ticket or an epic in flight builds X | Let the report wait for it by section 5 |
 | Duplicate | An open bug fails the same test | Prove it with that bug's test, then route it |
 | Loop fault | The symptom is in the loop: a pull request, a state, an agent's comment | Report a loop fault. Then record the outcome by section 5 |
 | Missing fact | Only the reporter holds a fact you need, and no screenshot or run shows it | Ask the reporter by section 6 |
@@ -71,6 +71,7 @@ Write the shaped ticket body. It holds these sections:
 4. **What was seen**: the five facts, with the reporter's words kept as they wrote them.
 5. **Priority**: 1 for lost data, wrong money or no sign-in. 2 for a broken story with no other
    way. 3 for a broken story with another way, wrong words or a visual difference. 4 for the rest.
+   Give the same number to `--priority` in section 5. The ticket keeps it as the fact `priority`.
 6. **Change**, for a product change only: each source line that the report supersedes, by path
    and line. That list is the update that each source owes.
 7. **Files**, **Done means** and **Out of scope**, as a ticket holds them.
@@ -84,13 +85,16 @@ repair. A separate author for the red and the green keeps the test honest.
 
 Run one command for the outcome:
 
-- **Bug**: `loop work shape <item> --title "<title>" --body "<the shaped body>"`. The server
-  creates the ticket, and it closes the bug as `shaped`. The answer names the ticket in `ticket`.
-  Name that ticket in your report.
+- **Bug**: `loop work shape <item> --title "<title>" --body "<the shaped body>" --priority <1 to 4>`.
+  The priority is the one of section 4. With no priority, the command refuses with `USAGE`, and
+  it makes no ticket. The server creates the ticket, and it closes the bug as `shaped`. The
+  answer names the ticket in `ticket`. Name that ticket in your report.
 - **Duplicate**: first record the proof with `loop work note <item> --body "<the test and its
   failure>"`. Then run `loop work duplicate <item> --of <the open bug>`.
-- **Not built yet**: record the item that builds it with `loop work note <item> --body "<item>"`,
-  and run `loop work duplicate <item> --of <that item>`.
+- **Not built yet**: run `loop work duplicate <item> --of <the ticket or epic> --unbuilt`. The
+  report waits in `awaiting_build`, and no stage claims it. When that item lands, the report
+  closes as its `duplicate`. When that item is canceled, the report returns to `reported`. The
+  server refuses an item of another kind, or one that is already `done` or `canceled`.
 - **Missing fact**: ask the reporter by section 6.
 - **Loop fault**: record the fault id with `loop work note <item> --body "loop fault F-<n>"`. Then
   run `loop work cancel <item> --reason "loop fault F-<n>"`. The report closes as `canceled`, and

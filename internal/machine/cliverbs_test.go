@@ -250,9 +250,9 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 	w := newWorld(t)
 	bug := w.create(KindBug, "file", nil)
 	run := w.claimAs(bug, StageReproducer, "repro")
-	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": " ", "body": "b"}), cli.CodeUsage)
+	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": " ", "body": "b", "priority": "2"}), cli.CodeUsage)
 
-	res := w.call("work shape", run, []string{bug}, map[string]string{"title": "Fix the crash", "body": "## Files\n"})
+	res := w.call("work shape", run, []string{bug}, map[string]string{"title": "Fix the crash", "body": "## Files\n", "priority": "2"})
 	mustOK(t, res)
 	data, _ := res.Data.(ShapeResult)
 	ticket := data.Ticket
@@ -265,7 +265,7 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 		t.Fatalf("the shaped ticket: %+v", tk)
 	}
 	// A second shape of a closed bug is refused, and makes no ticket.
-	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": "Again", "body": "b"}), cli.CodeTransitionNotAllowed)
+	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": "Again", "body": "b", "priority": "2"}), cli.CodeTransitionNotAllowed)
 	if n := len(w.items(KindTicket)); n != 1 {
 		t.Fatalf("%d tickets, want 1", n)
 	}
@@ -278,7 +278,7 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 	if ref != nil {
 		t.Fatal(ref)
 	}
-	res = w.call("work shape", run2, []string{bug2}, map[string]string{"title": "Fix it", "body": "b"})
+	res = w.call("work shape", run2, []string{bug2}, map[string]string{"title": "Fix it", "body": "b", "priority": "2"})
 	mustOK(t, res)
 	if got := w.show(bug2).Fact(FactTicket); got != made {
 		t.Fatalf("the retry shaped %q, want the ticket %s it made before", got, made)
@@ -287,7 +287,49 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 		t.Fatalf("the reused ticket is in %s", it.Status)
 	}
 	// Only a bug is shaped.
-	wantCode(t, w.call("work shape", coord(), []string{made}, map[string]string{"title": "x", "body": "b"}), cli.CodeUsage)
+	wantCode(t, w.call("work shape", coord(), []string{made}, map[string]string{"title": "x", "body": "b", "priority": "2"}), cli.CodeUsage)
+}
+
+// TestC18AShapedTicketCarriesAPriority proves C18: with no priority, or
+// one outside 1 to 4, work shape refuses with USAGE, the bug stays, and no
+// ticket is made. With one, the ticket holds the fact priority, and its
+// native beads priority stays 2.
+func TestC18AShapedTicketCarriesAPriority(t *testing.T) {
+	w := newWorld(t)
+	bug, run := w.shapeRun("repro")
+	before := w.show(bug)
+	for _, p := range []string{"", " ", "0", "5", "high"} {
+		flags := map[string]string{"title": "T", "body": "b"}
+		if p != "" {
+			flags["priority"] = p
+		}
+		if r := wantCode(t, w.call("work shape", run, []string{bug}, flags), cli.CodeUsage); r.Item != bug {
+			t.Errorf("priority %q: the refusal names %q", p, r.Item)
+		}
+	}
+	if after := w.show(bug); after.Status != before.Status || after.Seq != before.Seq {
+		t.Fatalf("a refused shape changed the bug: %+v", after)
+	}
+	if n := len(w.items(KindTicket)); n != 0 {
+		t.Fatalf("a refused shape made %d tickets", n)
+	}
+
+	for _, p := range []string{"1", "2", "3", "4"} {
+		bug, run := w.shapeRun("repro-" + p)
+		res := w.call("work shape", run, []string{bug}, map[string]string{"title": "T", "body": "b", "priority": p})
+		mustOK(t, res)
+		ticket := res.Data.(ShapeResult).Ticket
+		if got := w.show(ticket).Fact(FactPriority); got != p {
+			t.Errorf("priority %s: the ticket holds priority %q", p, got)
+		}
+		is, err := w.bc.Get(context.Background(), ticket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if is.Priority != 2 {
+			t.Errorf("priority %s: the native beads priority is %d, want 2", p, is.Priority)
+		}
+	}
 }
 
 // The reproducer closes a bug as a duplicate of an existing item.
@@ -301,6 +343,58 @@ func TestWorkDuplicateClosesTheBug(t *testing.T) {
 	mustOK(t, w.call("work duplicate", run, []string{bug}, map[string]string{"of": first}))
 	if it := w.show(bug); it.Status != Duplicate || it.Fact(FactDuplicateOf) != first {
 		t.Fatalf("after duplicate: %s %v", it.Status, it.Facts)
+	}
+}
+
+// TestC19DuplicateUnbuiltWaitsForTheBuild proves C19: a report that a
+// build answers moves from reported or reproducing to awaiting_build, with
+// built_by naming the build. The build is a ticket or an epic that is not
+// terminal. Any other item refuses with USAGE, and the report stays.
+func TestC19DuplicateUnbuiltWaitsForTheBuild(t *testing.T) {
+	w := newWorld(t)
+	unbuilt := func(of string) map[string]string { return map[string]string{"of": of, "unbuilt": "true"} }
+	ticket := w.create(KindTicket, "create", nil)
+	epic := w.create(KindEpic, "create_architecture", nil)
+
+	reported := w.create(KindBug, "file", nil)
+	mustOK(t, w.call("work duplicate", coord(), []string{reported}, unbuilt(ticket)))
+	bug := w.create(KindBug, "file", nil)
+	run := w.claimAs(bug, StageReproducer, "repro")
+	mustOK(t, w.call("work duplicate", run, []string{bug}, unbuilt(epic)))
+	for id, build := range map[string]string{reported: ticket, bug: epic} {
+		if it := w.show(id); it.Status != "awaiting_build" || it.Fact("built_by") != build || it.Fact(FactDuplicateOf) != "" || it.Owner != "" {
+			t.Fatalf("%s after --unbuilt: %s, owner %q, facts %v; want awaiting_build, built_by %s", id, it.Status, it.Owner, it.Facts, build)
+		}
+	}
+
+	done, canceled := w.create(KindTicket, "create", nil), w.create(KindTicket, "create", nil)
+	w.force(done, Done, nil)
+	w.force(canceled, Canceled, nil)
+	other := w.create(KindBug, "file", nil)
+	decision := w.create(KindDecision, "file", nil)
+	g := w.create(KindBug, "file", nil)
+	before := w.show(g)
+	for _, of := range []string{done, canceled, other, decision} {
+		if ref := wantCode(t, w.call("work duplicate", coord(), []string{g}, unbuilt(of)), cli.CodeUsage); ref.Item != of {
+			t.Fatalf("the refusal of %s names %q", of, ref.Item)
+		}
+	}
+	if after := w.show(g); after.Status != Reported || after.Seq != before.Seq {
+		t.Fatalf("a refused --unbuilt changed the report: %+v", after)
+	}
+}
+
+// TestC12WaitingBugRefusesCancel proves the awaiting_build part of C12:
+// no cancel row starts from the waiting state (Decision 24), so a reasoned
+// cancel refuses with TRANSITION_NOT_ALLOWED and the report keeps waiting.
+func TestC12WaitingBugRefusesCancel(t *testing.T) {
+	w := newWorld(t)
+	build := w.create(KindTicket, "create", nil)
+	bug := w.create(KindBug, "file", nil)
+	mustOK(t, w.call("work duplicate", coord(), []string{bug}, map[string]string{"of": build, "unbuilt": "true"}))
+	wantCode(t, w.call("work cancel", coord(), []string{bug}, map[string]string{"reason": "dropped"}), cli.CodeTransitionNotAllowed)
+	if it := w.show(bug); it.Status != "awaiting_build" || it.Fact("built_by") != build {
+		t.Fatalf("after the refused cancel: %s, built_by %q", it.Status, it.Fact("built_by"))
 	}
 }
 

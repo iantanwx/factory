@@ -12,13 +12,15 @@ import (
 // Bug states. A raw report becomes a shaped ticket, a duplicate or an
 // escalation, behind the optional reproducer stage: a project without
 // the stage shapes a report straight from reported. A report waits in
-// asked while its reporter answers the reproducer's question.
+// asked while its reporter answers the reproducer's question, and in
+// awaiting_build while a ticket or an epic builds what it asks for.
 const (
-	Reported    = "reported"
-	Reproducing = "reproducing"
-	Asked       = "asked"
-	Shaped      = "shaped"
-	Duplicate   = "duplicate"
+	Reported      = "reported"
+	Reproducing   = "reproducing"
+	Asked         = "asked"
+	AwaitingBuild = "awaiting_build"
+	Shaped        = "shaped"
+	Duplicate     = "duplicate"
 )
 
 // AskLimit is the asks of its reporter one report may hold
@@ -75,25 +77,50 @@ func answerAsk(c *change) *cli.Refusal {
 
 func bugResume(string) (string, string) { return Reported, "" }
 
+// buildLanded closes a waiting report as a duplicate of the build that
+// answered it (D9).
+func buildLanded(c *change) *cli.Refusal {
+	c.setFact(FactDuplicateOf, c.fact(FactBuiltBy))
+	return nil
+}
+
+// buildCanceled returns a waiting report to the reproducer: the build that
+// would answer it never lands.
+func buildCanceled(c *change) *cli.Refusal {
+	c.unsetFact(FactBuiltBy)
+	return nil
+}
+
 func bugTable() *Table {
 	states := []State{
 		{Name: Reported, Category: beadsx.CategoryActive},
 		{Name: Reproducing, Category: beadsx.CategoryWIP},
 		{Name: Asked, Category: beadsx.CategoryFrozen},
+		{Name: AwaitingBuild, Category: beadsx.CategoryFrozen},
 		{Name: Escalated, Category: beadsx.CategoryFrozen},
 		{Name: Shaped, Category: beadsx.CategoryDone, Terminal: true},
 		{Name: Duplicate, Category: beadsx.CategoryDone, Terminal: true},
 		{Name: Canceled, Category: beadsx.CategoryDone, Terminal: true},
 	}
 	open := []string{Reported, Reproducing}
+	// A waiting report has no lease, and the coordinator may still route
+	// it by hand.
+	routable := []string{Reported, Reproducing, AwaitingBuild}
 	rows := []Row{
 		{Verb: VerbFile, From: []string{Initial}, To: Reported},
 		{Verb: "claim", From: []string{Reported}, To: Reproducing, Stage: StageReproducer, when: stageIs(StageReproducer),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
-		{Verb: "shape", From: open, To: Shaped, Command: "work shape", Lease: LeaseDrop, set: needCopy("ticket", FactTicket),
+		{Verb: "shape", From: routable, To: Shaped, Command: "work shape", Lease: LeaseDrop, set: needCopy("ticket", FactTicket),
 			Facts: []string{FactTicket}},
-		{Verb: "duplicate", From: open, To: Duplicate, Command: "work duplicate", Lease: LeaseDrop, set: needCopy("of", FactDuplicateOf),
+		{Verb: "duplicate", From: routable, To: Duplicate, Command: "work duplicate", Lease: LeaseDrop, set: needCopy("of", FactDuplicateOf),
 			Facts: []string{FactDuplicateOf}},
+		// The reproducer routes a report that a ticket or an epic in flight
+		// will answer. Dependency-advance reads the build each tick and
+		// moves the report when the build ends.
+		{Verb: VerbAwaitBuild, From: open, To: AwaitingBuild, Command: "work duplicate", Lease: LeaseDrop, set: needCopy("of", FactBuiltBy),
+			Facts: []string{FactBuiltBy}},
+		{Verb: VerbBuildLanded, From: []string{AwaitingBuild}, To: Duplicate, set: buildLanded, Facts: []string{FactDuplicateOf}},
+		{Verb: VerbBuildCanceled, From: []string{AwaitingBuild}, To: Reported, set: buildCanceled, Facts: []string{FactBuiltBy}},
 		{Verb: VerbEscalate, From: open, To: Escalated, Lease: LeaseDrop, set: escalateTo(bugResume), Facts: []string{FactResume, FactEscalation}},
 		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: []string{Reported}, set: answerResume,
 			Facts: []string{FactResume, FactEscalation, FactAnswer, FactAmendment}},
@@ -109,9 +136,9 @@ func bugTable() *Table {
 		// would only run again.
 		{Verb: "cancel", From: []string{Reproducing, Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop,
 			set: needCopy("reason", FactCancelReason), Facts: []string{FactCancelReason}},
-		{Verb: VerbNote, From: []string{Reported, Reproducing, Asked, Escalated}, To: ToSame, Command: "work note", set: notePut,
+		{Verb: VerbNote, From: []string{Reported, Reproducing, Asked, AwaitingBuild, Escalated}, To: ToSame, Command: "work note", set: notePut,
 			Facts: []string{FactNote}},
-		editRow([]string{Reported, Reproducing, Asked, Escalated}),
+		editRow([]string{Reported, Reproducing, Asked, AwaitingBuild, Escalated}),
 	}
 	pairs := [][2]string{{Reproducing, Reported}}
 	rows = append(rows, releaseRows("release", false, pairs, nil)...)

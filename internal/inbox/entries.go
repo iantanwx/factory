@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/machine"
@@ -18,7 +19,8 @@ import (
 )
 
 // DeferKind is the schedule row kind of `inbox defer --until`. Its stage
-// column holds the entry id and its due_at the time the entry returns.
+// column holds the entry id, its due_at the time the entry returns, and
+// its payload {"reason": "..."}. A row written before the reason holds {}.
 const DeferKind = "inbox_defer"
 
 // Alert kinds that wait on a person: only the operator stores a secret or
@@ -36,7 +38,8 @@ func rowEntry(kind string, id int64) string { return kind + "/" + strconv.Format
 func parseEntry(id string) (kind, project, item string, row int64, ok bool) {
 	parts := strings.Split(id, "/")
 	switch {
-	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindDecision || parts[0] == KindSignoff || parts[0] == KindAsk):
+	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindDecision || parts[0] == KindSignoff || parts[0] == KindAsk ||
+		parts[0] == KindArchitecture):
 		return parts[0], parts[1], parts[2], 0, parts[1] != "" && parts[2] != ""
 	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel):
 		n, err := strconv.ParseInt(parts[1], 10, 64)
@@ -59,6 +62,46 @@ var itemSources = []itemSource{
 	{KindSignoff, machine.ListFilter{Kind: machine.KindEpic, Status: machine.PRDSignoff}},
 	{KindSignoff, machine.ListFilter{Kind: machine.KindEpic, Status: machine.SpecSignoff}},
 	{KindAsk, machine.ListFilter{Kind: machine.KindBug, Status: machine.Asked}},
+	// An epic here makes an entry only with no open child, and, read in
+	// the store, no open room on it.
+	{KindArchitecture, machine.ListFilter{Kind: machine.KindEpic, Status: machine.Architecture}},
+}
+
+// sourced is one item an entry kind read, with its link.
+type sourced struct {
+	kind string
+	item machine.Item
+	link string
+}
+
+// projectItems reads the items of every item source of one project. An
+// architecture epic with an open child is left out, so a ticket filed
+// under it ends its entry. A reader with no machine reads no open
+// children, so it makes no architecture entry.
+func (in *Inbox) projectItems(ctx context.Context, project string) ([]sourced, *cli.Refusal) {
+	var out []sourced
+	for _, src := range itemSources {
+		if src.kind == KindArchitecture && in.cfg.Machine == nil {
+			continue
+		}
+		got, ref := in.cfg.List(ctx, project, src.filter)
+		if ref != nil {
+			return nil, ref
+		}
+		for _, it := range got {
+			if src.kind == KindArchitecture {
+				open, ref := in.cfg.Machine.OpenChildren(ctx, project, it.ID)
+				if ref != nil {
+					return nil, ref
+				}
+				if len(open) > 0 {
+					continue
+				}
+			}
+			out = append(out, sourced{kind: src.kind, item: it, link: in.cfg.ItemLink(it)})
+		}
+	}
+	return out, nil
 }
 
 // Entries builds the inbox now: every entry, oldest first. A deferred
@@ -66,11 +109,6 @@ var itemSources = []itemSource{
 // shows as one coordinator entry, and the rest of the inbox still reads.
 func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	now := in.cfg.Now().UnixMilli()
-	type sourced struct {
-		kind string
-		item machine.Item
-		link string
-	}
 	var items []sourced
 	var out []Entry
 	if in.cfg.List != nil && in.cfg.Projects != nil {
@@ -79,28 +117,33 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			return nil, err
 		}
 		for _, p := range projects {
-			for _, src := range itemSources {
-				got, ref := in.cfg.List(ctx, p.ID, src.filter)
-				if ref != nil {
-					// At stays zero, so a beads outage rings no doorbell on
-					// every poll. `inbox list` still shows it.
-					out = append(out, Entry{ID: "unread/" + p.ID, Kind: KindAlert, Awaits: AwaitsCoordinator, Project: p.ID,
-						Title: "the inbox cannot read project " + p.ID, Text: ref.Code + ": " + ref.Hint})
-					break
-				}
-				for _, it := range got {
-					items = append(items, sourced{kind: src.kind, item: it, link: in.cfg.ItemLink(it)})
-				}
+			got, ref := in.projectItems(ctx, p.ID)
+			if ref != nil {
+				// At stays zero, so a beads outage rings no doorbell on
+				// every poll. `inbox list` still shows it.
+				out = append(out, Entry{ID: "unread/" + p.ID, Kind: KindAlert, Awaits: AwaitsCoordinator, Project: p.ID,
+					Title: "the inbox cannot read project " + p.ID, Text: ref.Code + ": " + ref.Hint})
+				continue
 			}
+			items = append(items, got...)
 		}
 	}
-	defers := map[string]int64{}
+	defers := map[string]deferRow{}
 	err := in.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		var err error
 		if defers, err = readDefers(ctx, tx); err != nil {
 			return err
 		}
 		for _, it := range items {
+			if it.kind == KindArchitecture {
+				roomed, err := openRoom(ctx, tx, it.item)
+				if err != nil {
+					return err
+				}
+				if roomed {
+					continue
+				}
+			}
 			e, err := in.itemEntry(ctx, tx, it.kind, it.item)
 			if err != nil {
 				return err
@@ -128,11 +171,12 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	}
 	shown := out[:0]
 	for _, e := range out {
-		if due, ok := defers[e.ID]; ok {
-			if due > now {
+		if d, ok := defers[e.ID]; ok {
+			if d.due > now {
 				continue
 			}
-			e.At = max(e.At, due)
+			e.At = max(e.At, d.due)
+			e.DeferReason = d.reason
 		}
 		e.Cursor = strconv.FormatInt(e.At, 10)
 		shown = append(shown, e)
@@ -146,20 +190,27 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	return shown, nil
 }
 
-func readDefers(ctx context.Context, tx *sql.Tx) (map[string]int64, error) {
-	rs, err := tx.QueryContext(ctx, `SELECT stage, due_at FROM schedule WHERE kind = ? AND state = 'active'`, DeferKind)
+// deferRow is one active defer: when its entry returns, and why.
+type deferRow struct {
+	due    int64
+	reason string
+}
+
+func readDefers(ctx context.Context, tx *sql.Tx) (map[string]deferRow, error) {
+	rs, err := tx.QueryContext(ctx, `SELECT stage, due_at, coalesce(json_extract(payload, '$.reason'), '') FROM schedule
+		WHERE kind = ? AND state = 'active'`, DeferKind)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rs.Close() }()
-	out := map[string]int64{}
+	out := map[string]deferRow{}
 	for rs.Next() {
-		var id string
+		var id, reason string
 		var due sql.NullInt64
-		if err := rs.Scan(&id, &due); err != nil {
+		if err := rs.Scan(&id, &due, &reason); err != nil {
 			return nil, err
 		}
-		out[id] = due.Int64
+		out[id] = deferRow{due: due.Int64, reason: reason}
 	}
 	return out, rs.Err()
 }
@@ -174,6 +225,14 @@ func enteredAt(ctx context.Context, tx *sql.Tx, it machine.Item) (int64, string,
 		return 0, "", nil
 	}
 	return at.Int64, says.String, err
+}
+
+// openRoom reports whether a room that is not closed serves the item.
+func openRoom(ctx context.Context, tx *sql.Tx, it machine.Item) (bool, error) {
+	var open bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM rooms WHERE project = ? AND item = ? AND closed_at IS NULL)`,
+		it.Project, it.ID).Scan(&open)
+	return open, err
 }
 
 func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it machine.Item) (Entry, error) {
@@ -224,12 +283,22 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 		}
 		text = append(text, fmt.Sprintf("The %s passed review%s and waits for the operator's approval. On the approval the server merges that head.",
 			docOf(it.Status), at))
+	case KindArchitecture:
+		e.Awaits, e.Next = AwaitsCoordinator, archActs(it.Project, it.ID)
+		text = append(text, "The epic is in architecture, and no open ticket under it writes its ADR, and no room serves it.")
 	}
 	if n := it.Fact(machine.FactNote); n != "" && kind != KindSignoff {
 		text = append(text, "The item's last note:", AgentText(it.Fact(machine.FactOwner), n))
 	}
 	e.Text = strings.Join(text, "\n\n")
 	return e, nil
+}
+
+// archActs names the two acts that end an architecture entry: a ticket
+// filed under the epic, or an architect room opened on it.
+func archActs(project, epic string) string {
+	return fmt.Sprintf("loop work create --project %s --epic %s --request <the operator's words> --title <the ADR ticket>, "+
+		"or loop room open --kind architect --project %s --item %s --reason <why> --score <level>", project, epic, project, epic)
 }
 
 // askCount is the number of the ask an asked report holds.
