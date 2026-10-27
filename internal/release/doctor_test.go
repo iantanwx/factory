@@ -49,6 +49,10 @@ func TestDoctorChecksTheHost(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	bins := t.TempDir()
+	fakeBin(t, bins, "claude")
+	fakeBin(t, bins, "codex")
+	t.Setenv("PATH", bins+string(os.PathListSeparator)+os.Getenv("PATH"))
 	d := &Doctor{Layout: w.in.Layout, Installer: w.in, Home: home,
 		Repos: func(context.Context, *config.HostConfig) ([]string, error) { return []string{"/src/alpha"}, nil },
 		Remote: func(context.Context) ([]DoctorLine, error) {

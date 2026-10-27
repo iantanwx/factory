@@ -76,6 +76,7 @@ const (
 	CodeCINotGreen           = "CI_NOT_GREEN"
 	CodeBodyRefused          = "BODY_REFUSED"
 	CodeAskLimit             = "ASK_LIMIT"
+	CodeShapeRefused         = "SHAPE_REFUSED"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -127,6 +128,7 @@ var baseRefusals = []RefusalCode{
 	{CodeCINotGreen, ExitRefused, codes.FailedPrecondition, false, "a code pass needs every required check green at the head it names; the same call lands once CI is green there"},
 	{CodeBodyRefused, ExitRefused, codes.FailedPrecondition, false, "the body is over its word budget, or breaks a markup or prose rule; the hint names each fault, and GitHub holds nothing"},
 	{CodeAskLimit, ExitRefused, codes.FailedPrecondition, false, "the bug report already holds two asks of its reporter; escalate the missing fact at level 5"},
+	{CodeShapeRefused, ExitRefused, codes.FailedPrecondition, false, "the text does not hold the shape that the rule names; the hint names the rule and each fault, and the verb wrote nothing"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

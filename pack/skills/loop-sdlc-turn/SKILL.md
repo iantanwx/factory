@@ -65,6 +65,8 @@ codes cannot.
   A merge of the base that brings in the operator's config change is no change of yours.
 - `GITHUB_REFUSED`: GitHub refused the request, and `hint` holds its answer. Never send the same
   request again. Escalate it with `loop escalation raise`.
+- `SHAPE_REFUSED`: the text you sent does not hold the shape that the `rule` names. The verb wrote
+  nothing, and `hint` names each fault. Change the text that the rule names, and send it again.
 - `SERVER_UNAVAILABLE`, `DRAINING`, `BEADS_UNAVAILABLE` and `GITHUB_UNAVAILABLE` exit 4. Run
   the same command again.
 

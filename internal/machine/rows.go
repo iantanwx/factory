@@ -34,6 +34,7 @@ const (
 	FactPRDPath      = "prd_path"      // the PRD's path in the repository
 	FactPRDMerged    = "prd_merged"    // the merge commit of the epic's PRD: the operator's sign-off
 	FactADR          = "adr"           // the path of the ADR that replaced the PRD of an architecture epic, on the base
+	FactEpicEntry    = "epic_entry"    // prd_needed or architecture: where unblock sends a blocked epic
 	FactCreateKey    = "create_key"    // the natural key work entry created the item under
 	FactStories      = "stories"       // the PRD story labels a ticket cites, comma-separated (R45)
 	FactRequest      = "request"       // the operator's request a PRD-less ticket cites (R48)
@@ -50,6 +51,7 @@ const (
 	FactSupersedeReason = "supersede_reason" // how that evidence answers the ticket
 	FactCancelReason    = "cancel_reason"    // why work cancel closed the item
 	FactBuiltBy         = "built_by"         // the ticket or epic a waiting bug waits for
+	FactPriority        = "priority"         // the priority work shape gave the ticket: 1 to 4
 )
 
 // Entry values of a todo ticket (R6).
@@ -169,6 +171,10 @@ func stageIs(stage string) func(c *change) bool {
 
 func paramIs(name, value string) func(c *change) bool {
 	return func(c *change) bool { return c.param(name) == value }
+}
+
+func factIs(name, value string) func(c *change) bool {
+	return func(c *change) bool { return c.fact(name) == value }
 }
 
 // claimGuard refuses a claim on a held lease, then asks admission.

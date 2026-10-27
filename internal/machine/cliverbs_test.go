@@ -250,9 +250,9 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 	w := newWorld(t)
 	bug := w.create(KindBug, "file", nil)
 	run := w.claimAs(bug, StageReproducer, "repro")
-	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": " ", "body": "b"}), cli.CodeUsage)
+	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": " ", "body": "b", "priority": "2"}), cli.CodeUsage)
 
-	res := w.call("work shape", run, []string{bug}, map[string]string{"title": "Fix the crash", "body": "## Files\n"})
+	res := w.call("work shape", run, []string{bug}, map[string]string{"title": "Fix the crash", "body": "## Files\n", "priority": "2"})
 	mustOK(t, res)
 	data, _ := res.Data.(ShapeResult)
 	ticket := data.Ticket
@@ -265,7 +265,7 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 		t.Fatalf("the shaped ticket: %+v", tk)
 	}
 	// A second shape of a closed bug is refused, and makes no ticket.
-	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": "Again", "body": "b"}), cli.CodeTransitionNotAllowed)
+	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": "Again", "body": "b", "priority": "2"}), cli.CodeTransitionNotAllowed)
 	if n := len(w.items(KindTicket)); n != 1 {
 		t.Fatalf("%d tickets, want 1", n)
 	}
@@ -278,7 +278,7 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 	if ref != nil {
 		t.Fatal(ref)
 	}
-	res = w.call("work shape", run2, []string{bug2}, map[string]string{"title": "Fix it", "body": "b"})
+	res = w.call("work shape", run2, []string{bug2}, map[string]string{"title": "Fix it", "body": "b", "priority": "2"})
 	mustOK(t, res)
 	if got := w.show(bug2).Fact(FactTicket); got != made {
 		t.Fatalf("the retry shaped %q, want the ticket %s it made before", got, made)
@@ -287,7 +287,49 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 		t.Fatalf("the reused ticket is in %s", it.Status)
 	}
 	// Only a bug is shaped.
-	wantCode(t, w.call("work shape", coord(), []string{made}, map[string]string{"title": "x", "body": "b"}), cli.CodeUsage)
+	wantCode(t, w.call("work shape", coord(), []string{made}, map[string]string{"title": "x", "body": "b", "priority": "2"}), cli.CodeUsage)
+}
+
+// TestC18AShapedTicketCarriesAPriority proves C18: with no priority, or
+// one outside 1 to 4, work shape refuses with USAGE, the bug stays, and no
+// ticket is made. With one, the ticket holds the fact priority, and its
+// native beads priority stays 2.
+func TestC18AShapedTicketCarriesAPriority(t *testing.T) {
+	w := newWorld(t)
+	bug, run := w.shapeRun("repro")
+	before := w.show(bug)
+	for _, p := range []string{"", " ", "0", "5", "high"} {
+		flags := map[string]string{"title": "T", "body": "b"}
+		if p != "" {
+			flags["priority"] = p
+		}
+		if r := wantCode(t, w.call("work shape", run, []string{bug}, flags), cli.CodeUsage); r.Item != bug {
+			t.Errorf("priority %q: the refusal names %q", p, r.Item)
+		}
+	}
+	if after := w.show(bug); after.Status != before.Status || after.Seq != before.Seq {
+		t.Fatalf("a refused shape changed the bug: %+v", after)
+	}
+	if n := len(w.items(KindTicket)); n != 0 {
+		t.Fatalf("a refused shape made %d tickets", n)
+	}
+
+	for _, p := range []string{"1", "2", "3", "4"} {
+		bug, run := w.shapeRun("repro-" + p)
+		res := w.call("work shape", run, []string{bug}, map[string]string{"title": "T", "body": "b", "priority": p})
+		mustOK(t, res)
+		ticket := res.Data.(ShapeResult).Ticket
+		if got := w.show(ticket).Fact(FactPriority); got != p {
+			t.Errorf("priority %s: the ticket holds priority %q", p, got)
+		}
+		is, err := w.bc.Get(context.Background(), ticket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if is.Priority != 2 {
+			t.Errorf("priority %s: the native beads priority is %d, want 2", p, is.Priority)
+		}
+	}
 }
 
 // The reproducer closes a bug as a duplicate of an existing item.
@@ -584,5 +626,44 @@ func TestReviewRoundsListsEachVerdict(t *testing.T) {
 	}
 	if r := rounds[1]; r.Round != 2 || r.Verdict != "pass" || r.Head != shaA || r.Body != "Good." || r.RunID != "rev-2" {
 		t.Fatalf("round 2 = %+v", r)
+	}
+}
+
+// C14: work list --epic lists the items whose epic fact names the id, and
+// combines with --status. An id that no item names lists nothing.
+func TestC14WorkListEpicListsTheEpicsChildren(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	ep := w.create(KindEpic, "create_architecture", nil)
+	var kids []string
+	for range 2 {
+		id, res := w.m.Create(ctx, CreateRequest{Project: prj, Kind: KindTicket, Title: "c", Verb: "create",
+			Actor: Server("test"), Facts: map[string]string{FactEpic: ep}})
+		mustOK(t, res)
+		kids = append(kids, id)
+	}
+	w.create(KindTicket, "create", nil)
+	w.force(kids[1], InProgress, nil)
+	ids := func(flags map[string]string) []string {
+		t.Helper()
+		res := w.call("work list", coord(), nil, flags)
+		if res.Refusal != nil {
+			t.Fatalf("work list %v: %+v", flags, res.Refusal)
+		}
+		items, _ := res.Data.([]Item)
+		var got []string
+		for _, it := range items {
+			got = append(got, it.ID)
+		}
+		return got
+	}
+	if got := ids(map[string]string{"epic": ep}); strings.Join(got, ",") != strings.Join(kids, ",") {
+		t.Errorf("--epic %s = %v, want %v", ep, got, kids)
+	}
+	if got := ids(map[string]string{"epic": ep, "status": "todo"}); strings.Join(got, ",") != kids[0] {
+		t.Errorf("--epic %s --status todo = %v, want [%s]", ep, got, kids[0])
+	}
+	if res := w.call("work list", coord(), nil, map[string]string{"epic": "factorio-none"}); res.Exit != cli.ExitNothing {
+		t.Errorf("--epic of an id no item names = %+v, want exit %d", res, cli.ExitNothing)
 	}
 }

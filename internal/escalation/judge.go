@@ -81,6 +81,18 @@ func Live() Judging {
 	}
 }
 
+// JudgeBins names the binary of each judge of the live panel, in panel
+// order. `loop doctor` checks that each one is on the path.
+func JudgeBins() []string {
+	var bins []string
+	for _, j := range Live().Judges {
+		if c, ok := j.(CommandJudge); ok {
+			bins = append(bins, c.Bin)
+		}
+	}
+	return bins
+}
+
 // CommandJudge asks one harness CLI. The prompt goes through stdin and no
 // shell, so no argument carries prompt text.
 type CommandJudge struct {
