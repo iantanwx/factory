@@ -1,4 +1,4 @@
-# ADR 0011: The base audit passes an ADR merge on a new `adr_merged` record
+# ADR 0012: The base audit passes an ADR merge on a new `adr_merged` record
 
 **Status:** Proposed
 **Date:** 2026-10-27
@@ -109,9 +109,9 @@ added the file gets the record. This is wrong if one ADR merge raises an `unrevi
 ## Acceptance criteria
 
 - `loop gates --docs` passes.
-- `grep -c '^\*\*Ticket:\*\* factorio-fgza$' docs/adr/0011-base-audit-adr-merges.md` prints `1`.
-- `ls docs/adr | grep -c '^0011-'` prints `1`.
-- `grep -c 'adr_merged' docs/adr/0011-base-audit-adr-merges.md` prints at least `1`.
+- `grep -c '^\*\*Ticket:\*\* factorio-fgza$' docs/adr/0012-base-audit-adr-merges.md` prints `1`.
+- `ls docs/adr | grep -c '^0012-'` prints `1`.
+- `grep -c 'adr_merged' docs/adr/0012-base-audit-adr-merges.md` prints at least `1`.
 
 Epic factorio-fgza owns these checks, through its spec and tickets:
 
