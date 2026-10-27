@@ -14,7 +14,8 @@ import (
 // the most the stage holds at once: live runs for a run stage, epics in
 // counted document states for intake, and concurrent runs of a native
 // job. Schedule is the stage's cron. Project config may override the
-// schedule and never the cap (R35). A pool entry holds a cap only.
+// schedule, a run stage's or intake's cap, and a pool's cap (R35).
+// Effective merges the two. A pool entry holds a cap only.
 type Throughput struct {
 	Cap      int    `yaml:"cap"`
 	Schedule string `yaml:"schedule,omitempty"`
@@ -225,6 +226,12 @@ type Limit struct {
 	Name   string
 	Cap    int
 	Stages []string
+	// Project is the project whose live runs count. Empty counts the
+	// whole instance, as an agent job's limit does.
+	Project string
+	// Field is the config field that set Cap, such as
+	// stages.implementer.cap or throughput.implementer.cap.
+	Field string
 }
 
 // Limits returns the stage's own limit, then the limit of each pool that

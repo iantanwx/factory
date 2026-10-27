@@ -196,6 +196,43 @@ func TestLocalRefsReadsTheDefaultBranch(t *testing.T) {
 	}
 }
 
+// C1: the scheduler's project loader checks the stage names. A commit
+// that lists stages.implementr keeps the last good config in force, and
+// the project_config_invalid alert names stages.implementr.
+func TestC1SchedLoaderRefusesAnUnknownStageName(t *testing.T) {
+	w := newSchedWorld(t, Options{})
+	ctx := context.Background()
+	p, err := w.srv.Projects.Show("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap, err := w.srv.projectLoader(LocalRefs)(ctx, "alpha"); err != nil || !snap.Config.StageEnabled("code-reviewer") {
+		t.Fatalf("first load = %+v, %v", snap, err)
+	}
+	cfg := "stages:\n  code-reviewer: {}\n  implementr: {}\nmerge:\n  mechanism: direct\n"
+	if err := os.WriteFile(filepath.Join(p.Path, config.ProjectConfigPath), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, p.Path, "commit", "-q", "-am", "misspell a stage")
+	gitT(t, p.Path, "push", "-q", "origin", "main")
+
+	snap, err := w.srv.projectLoader(LocalRefs)(ctx, "alpha")
+	if err != nil {
+		t.Fatalf("load = %v, want the last good config", err)
+	}
+	if _, ok := snap.Config.Stages["implementr"]; ok || !snap.Config.StageEnabled("code-reviewer") {
+		t.Fatalf("stages in force = %+v, want the last good config", snap.Config.Stages)
+	}
+	var body string
+	err = w.srv.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT body FROM alerts WHERE project = 'alpha' AND kind = ? AND state = 'open'`,
+			config.AlertProjectConfigInvalid).Scan(&body)
+	})
+	if err != nil || !strings.Contains(body, "stages.implementr") {
+		t.Fatalf("alert body = %q, %v; want one that names stages.implementr", body, err)
+	}
+}
+
 // countPulls answers that no pull request is open, and counts its reads.
 type countPulls struct{ reads atomic.Int32 }
 

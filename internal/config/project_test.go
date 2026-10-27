@@ -66,10 +66,10 @@ func TestParseProjectConfig(t *testing.T) {
 	if cfg.Stages["implementer"].RunBudget != 90*time.Minute {
 		t.Fatalf("run budget = %v", cfg.Stages["implementer"].RunBudget)
 	}
-	if err := cfg.CheckStages([]string{"implementer", "code-reviewer"}); err != nil {
+	if err := cfg.CheckStages(Known{RunStages: []string{"implementer", "code-reviewer"}}); err != nil {
 		t.Fatalf("CheckStages: %v", err)
 	}
-	if err := cfg.CheckStages([]string{"implementer"}); !errors.Is(err, ErrInvalid) {
+	if err := cfg.CheckStages(Known{RunStages: []string{"implementer"}}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("CheckStages with an unknown stage: %v", err)
 	}
 }

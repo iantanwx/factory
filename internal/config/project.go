@@ -34,6 +34,7 @@ type ProjectConfig struct {
 	Tracker     TrackerConfig          `yaml:"tracker,omitempty"`
 	Merge       MergeConfig            `yaml:"merge"`
 	Stages      map[string]StageConfig `yaml:"stages,omitempty"`
+	Pools       map[string]PoolConfig  `yaml:"pools,omitempty"`
 	Gates       []Command              `yaml:"gates,omitempty"`
 	PolicyHooks []Command              `yaml:"policy_hooks,omitempty"`
 	Signoff     SignoffConfig          `yaml:"signoff,omitempty"`
@@ -93,6 +94,12 @@ type StageConfig struct {
 	Effort    string        `yaml:"effort,omitempty"`     // overrides the stage's default effort
 	RunBudget time.Duration `yaml:"run_budget,omitempty"` // overrides the host default (KTD9)
 	Schedule  string        `yaml:"schedule,omitempty"`   // overrides the host default schedule
+	// Cap overrides host config's cap for this project. Nil takes the host
+	// value. A pointer, so cap: 0 is a value that validation refuses.
+	Cap *int `yaml:"cap,omitempty"`
+	// RunsPerTick bounds the runs one firing starts. Nil takes the cap in
+	// force.
+	RunsPerTick *int `yaml:"runs_per_tick,omitempty"`
 	// Escalated is the profile of a run on an item whose model_tier is
 	// escalated, after two code-review rejects. Nil takes the default.
 	Escalated *EscalatedProfile `yaml:"escalated,omitempty"`
@@ -175,6 +182,9 @@ func (c *ProjectConfig) validate() error {
 		if s.RunBudget < 0 {
 			ck.fail(f+".run_budget", "must not be negative")
 		}
+		if kind, ok := KindOf(name, codeKnown()); ok {
+			checkStageFields(ck, f, kind, s)
+		}
 		if e := s.Escalated; e != nil {
 			if e.Harness != "" && !validIdent(e.Harness) {
 				ck.fail(f+".escalated.harness", "must be a lower-case identifier")
@@ -187,6 +197,7 @@ func (c *ProjectConfig) validate() error {
 			}
 		}
 	}
+	c.checkPools(ck)
 	checkCommands(ck, "gates", c.Gates)
 	checkCommands(ck, "policy_hooks", c.PolicyHooks)
 	checkBaselines(ck, c.Gates, c.PolicyHooks)
@@ -285,22 +296,6 @@ func (c *ProjectConfig) ManifestPath() string {
 func (c *ProjectConfig) StageEnabled(stage string) bool {
 	s, ok := c.Stages[stage]
 	return ok && (s.Enabled == nil || *s.Enabled)
-}
-
-// CheckStages refuses a stage name outside known. The scheduler owns
-// the stage list, so it calls this after it loads a config.
-func (c *ProjectConfig) CheckStages(known []string) error {
-	ck := &checker{source: ProjectConfigPath}
-	for _, name := range slices.Sorted(maps.Keys(c.Stages)) {
-		found := false
-		for _, k := range known {
-			found = found || k == name
-		}
-		if !found {
-			ck.fail("stages."+name, "is not a stage of this loop")
-		}
-	}
-	return ck.err()
 }
 
 // RefReader returns the bytes of path at a git ref. It returns an error that

@@ -93,7 +93,8 @@ type cachedSnap struct {
 // branch through config.Loader, so an invalid commit keeps the last known
 // good config and raises an alert (KTD20).
 func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
-	loader := &config.Loader{LKG: config.StoreLKG(s.Store), Alerts: config.StoreAlerter(s.Store)}
+	loader := &config.Loader{LKG: config.StoreLKG(s.Store), Alerts: config.StoreAlerter(s.Store),
+		Check: config.StageCheck(&config.HostLoader{Path: s.HostPath})}
 	var mu sync.Mutex
 	cache := map[string]cachedSnap{}
 	return func(ctx context.Context, project string) (*config.ProjectSnapshot, error) {
