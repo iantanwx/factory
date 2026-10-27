@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -18,20 +19,57 @@ type Counts map[string]int
 // readCounts reads a count baseline, {"allowed": {"<key>": <count>}}, at
 // rel under root. An absent file reads as empty, and exists says which.
 func readCounts(root, rel string) (c Counts, exists bool, err error) {
-	raw, err := os.ReadFile(filepath.Join(root, rel))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
 	var b struct {
 		Allowed Counts `json:"allowed"`
 	}
-	if err := json.Unmarshal(raw, &b); err != nil {
-		return nil, true, fmt.Errorf("%s: %w", rel, err)
+	exists, err = readBaseline(root, rel, &b)
+	return b.Allowed, exists, err
+}
+
+// Advisory is one accepted advisory of an audit baseline. A valid entry has
+// a reason that is not blank and a date that is a calendar day, YYYY-MM-DD.
+type Advisory struct {
+	Reason string `json:"reason"`
+	Date   string `json:"date"`
+}
+
+// faults reports each way the entry of id in file is not valid.
+func (a Advisory) faults(id, file string) []Finding {
+	var findings []Finding
+	if strings.TrimSpace(a.Reason) == "" {
+		findings = append(findings, Finding{File: file, Rule: "no_reason", Message: id + " is accepted with no reason. Write why the project accepts it"})
 	}
-	return b.Allowed, true, nil
+	if _, err := time.Parse(time.DateOnly, a.Date); err != nil {
+		findings = append(findings, Finding{File: file, Rule: "bad_date", Message: fmt.Sprintf("%s is accepted on %q, which is no calendar day in the form YYYY-MM-DD", id, a.Date)})
+	}
+	return findings
+}
+
+// readAccepted reads an audit baseline, {"accepted": {"<id>": {"reason":
+// "...", "date": "YYYY-MM-DD"}}}, at rel under root. An absent file reads as
+// empty, and exists says which.
+func readAccepted(root, rel string) (a map[string]Advisory, exists bool, err error) {
+	var b struct {
+		Accepted map[string]Advisory `json:"accepted"`
+	}
+	exists, err = readBaseline(root, rel, &b)
+	return b.Accepted, exists, err
+}
+
+// readBaseline reads the JSON file at rel under root into v. An absent file
+// leaves v as it is, and exists says which.
+func readBaseline(root, rel string, v any) (exists bool, err error) {
+	raw, err := os.ReadFile(filepath.Join(root, rel))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := json.Unmarshal(raw, v); err != nil {
+		return true, fmt.Errorf("%s: %w", rel, err)
+	}
+	return true, nil
 }
 
 // ratchet holds found to baseline in both directions. over names the rule of
