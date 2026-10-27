@@ -346,6 +346,9 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	if err := s.wire(); err != nil {
 		return nil, err
 	}
+	if err := s.wireStages(); err != nil {
+		return nil, err
+	}
 	s.Faults = &fault.Service{Store: st, Redactor: red, Release: cli.Version}
 	if err := s.Faults.Register(srv); err != nil {
 		return nil, err

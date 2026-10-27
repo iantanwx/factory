@@ -36,10 +36,10 @@ type Started struct {
 }
 
 // Dispatch starts one run of stage on project, in the order of KTD7 and
-// the admission flowchart: a manifest secret check before any claim,
-// admission with its claim, the checkout, the project's setup command, the
-// pack, brief and .env, the token, then the start. It returns nil and no
-// refusal when the stage has no work now.
+// the admission flowchart: the stage pause, a manifest secret check before
+// any claim, admission with its claim, the checkout, the project's setup
+// command, the pack, brief and .env, the token, then the start. It returns
+// nil and no refusal when the stage has no work now, or a pause holds it.
 func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Started, *cli.Refusal) {
 	// Intake has a throughput entry, and its cap counts epics (KTD30).
 	// Intake itself runs in a room, attended, so no unattended run of it
@@ -50,6 +50,14 @@ func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Start
 	}
 	if s.Draining() {
 		return nil, &cli.Refusal{Code: cli.CodeDraining, Rule: "draining", Hint: "the server is draining and admits no new run"}
+	}
+	// A paused stage starts nothing, and checks no secret: a missing one
+	// would raise its alert on each fire of the pause (ADR 0004 D3).
+	if paused, err := s.cfg.Admission.Paused(ctx, project, stage); err != nil || paused {
+		if err != nil {
+			return nil, cli.InternalRefusal(err)
+		}
+		return nil, nil
 	}
 	snap, err := s.cfg.ProjectConfig(ctx, project)
 	if err != nil {
