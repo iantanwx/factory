@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,7 +22,8 @@ import (
 // stage takes stalls at the second fire of that stage with no run since it
 // entered the state (C10). A fire that took only older items of the
 // stage's queue is the queue draining, and does not count. A fire while the
-// server drains admits no run, and does not count either. A ticket in
+// server drains admits no run, and does not count either. Nor does a fire
+// that started no run while a limit of the stage was full. A ticket in
 // in_progress that no lease holds and no live run names is lost, and work
 // at once (C11). The stage claim states come from admission, so the part
 // lists no state of its own.
@@ -64,8 +66,13 @@ type itemRow struct {
 	// queue is each run of the stage in the project on another item that
 	// started at or after entered, oldest first.
 	queue []queueRun
-	hold  string // the room or escalation that holds the item, such as "room room-r7"
-	alert string // an open retry_limit or run_blocked alert that names the item, such as "alert/7 retry_limit"
+	// limits are the stage's caps in host config, and capRuns each run of
+	// a limit's stages on the instance that had not ended when the item
+	// entered, so a fire can tell whether a cap was full.
+	limits  []config.Limit
+	capRuns []capRun
+	hold    string // the room or escalation that holds the item, such as "room room-r7"
+	alert   string // an open retry_limit or run_blocked alert that names the item, such as "alert/7 retry_limit"
 }
 
 // queueRun is one run of a stage on an item of its queue.
@@ -75,6 +82,12 @@ type queueRun struct {
 	// entered is when the item last entered a state that the stage takes,
 	// at or before the run started. Zero when no transition dates it.
 	entered time.Time
+}
+
+// capRun is one run that a limit of a row's stage counts.
+type capRun struct {
+	stage          string
+	started, ended time.Time // a zero ended: the run is live
 }
 
 // lostRow is one ticket in in_progress.
@@ -176,7 +189,7 @@ func stageItems(ctx context.Context, w World, hc *config.HostConfig, project str
 		if len(states) == 0 {
 			continue
 		}
-		row := itemRow{stage: stage}
+		row := itemRow{stage: stage, limits: hc.Limits(stage)}
 		switch {
 		case cfg == nil:
 			row.off = fmt.Sprintf("project %s has no config yet, so %s never fires", project, stage)
@@ -229,6 +242,9 @@ func readItem(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 	}
 	row.runAt = time.UnixMilli(started)
 	if err := readQueue(ctx, tx, row); err != nil {
+		return err
+	}
+	if err := readCapRuns(ctx, tx, row); err != nil {
 		return err
 	}
 	var kind, holder string
@@ -286,6 +302,44 @@ func readQueue(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 			q.entered = time.UnixMilli(entered.Int64)
 		}
 		row.queue = append(row.queue, q)
+	}
+	return errors.Join(rs.Err(), rs.Close())
+}
+
+// readCapRuns reads each run on the instance of a stage that a limit of
+// the row's stage counts, and that had not ended when the row entered.
+// Host config is instance scope, so its caps are too, as admission counts
+// them.
+func readCapRuns(ctx context.Context, tx *sql.Tx, row *itemRow) error {
+	var stages []string
+	for _, l := range row.limits {
+		stages = append(stages, l.Stages...)
+	}
+	if len(stages) == 0 {
+		return nil
+	}
+	args := []any{row.entered.UnixMilli()}
+	for _, s := range stages {
+		args = append(args, s)
+	}
+	rs, err := tx.QueryContext(ctx, `SELECT stage, started_at, ended_at FROM runs WHERE (ended_at IS NULL OR ended_at > ?)
+		AND stage IN (`+strings.TrimSuffix(strings.Repeat("?, ", len(stages)), ", ")+`)`, args...)
+	if err != nil {
+		return err
+	}
+	for rs.Next() {
+		var c capRun
+		var started int64
+		var ended sql.NullInt64
+		if err := rs.Scan(&c.stage, &started, &ended); err != nil {
+			_ = rs.Close()
+			return err
+		}
+		c.started = time.UnixMilli(started)
+		if ended.Valid {
+			c.ended = time.UnixMilli(ended.Int64)
+		}
+		row.capRuns = append(row.capRuns, c)
 	}
 	return errors.Join(rs.Err(), rs.Close())
 }
@@ -377,14 +431,17 @@ func classifyStalls(rows stallRows, now, drain time.Time) Reading {
 		case row.run != "":
 			why = fmt.Sprintf("run %s started at %s, after it entered at %s", row.run, stamp(row.runAt), stamp(row.entered))
 		default:
-			n, drained := queueFires(row, now, drain)
+			n, drained, full := queueFires(row, now, drain)
 			if len(drained) > 0 {
 				tookOlder = "; the fires that took only older items of its queue started " + tookList(drained)
 			}
 			if n < stallFires {
 				why = fmt.Sprintf("%s of %s since it entered at %s", fireCount(n), row.stage, stamp(row.entered))
-				if tookOlder != "" {
+				if tookOlder != "" || full != "" {
 					why += " counts against it" + tookOlder
+				}
+				if full != "" {
+					why += "; " + full
 				}
 				if !drain.IsZero() {
 					why += fmt.Sprintf("; the server drains since %s and admits no run, so no fire since then counts against it", stamp(drain))
@@ -429,10 +486,12 @@ func fires(c *sched.Cron, since, now time.Time) int {
 // runs of the fires that did not count. A fire counts unless the runs that
 // started from it until the next fire all took items that entered the
 // queue before the row did: that is the queue draining. An item that no
-// transition dates counts as younger. A fire at or after a non-zero drain
-// never counts: the drain lasts until the server restarts, and admits no
-// run. A schedule that no date holds never fires.
-func queueFires(row itemRow, now, drain time.Time) (n int, drained []queueRun) {
+// transition dates counts as younger. A fire that started no run while a
+// limit of the stage was full does not count either: full says so for the
+// newest such fire. A fire at or after a non-zero drain never counts: the
+// drain lasts until the server restarts, and admits no run. A schedule
+// that no date holds never fires.
+func queueFires(row itemRow, now, drain time.Time) (n int, drained []queueRun, full string) {
 	next, err := row.cron.Next(row.entered)
 	for n < stallFires && err == nil && !next.After(now) && (drain.IsZero() || next.Before(drain)) {
 		fire := next
@@ -448,13 +507,44 @@ func queueFires(row itemRow, now, drain time.Time) (n int, drained []queueRun) {
 				took = append(took, q)
 			}
 		}
-		if len(took) == 0 || younger {
+		if younger {
 			n++
 			continue
 		}
-		drained = append(drained, took...)
+		if len(took) > 0 {
+			drained = append(drained, took...)
+			continue
+		}
+		if line := capHeld(row, fire); line != "" {
+			full = line + " at the fire of " + stamp(fire)
+			continue
+		}
+		n++
 	}
-	return n, drained
+	return n, drained, full
+}
+
+// capHeld checks each limit of the row's stage at the fire, as admission
+// does, and says which one its live runs fill. A run is live at the fire
+// when it started before the fire and had not ended at it. Empty when
+// every limit has room.
+func capHeld(row itemRow, fire time.Time) string {
+	for _, l := range row.limits {
+		live := 0
+		for _, c := range row.capRuns {
+			if slices.Contains(l.Stages, c.stage) && c.started.Before(fire) && (c.ended.IsZero() || c.ended.After(fire)) {
+				live++
+			}
+		}
+		switch {
+		case live < l.Cap:
+		case l.Name == row.stage:
+			return fmt.Sprintf("%s holds its cap (%d of %d live)", row.stage, live, l.Cap)
+		default:
+			return fmt.Sprintf("%s holds the cap of the %s pool (%d of %d live)", row.stage, l.Name, live, l.Cap)
+		}
+	}
+	return ""
 }
 
 // tookList names each run and the item it took.
