@@ -51,7 +51,7 @@ func parseEntry(id string) (kind, project, item string, row int64, ok bool) {
 	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindDecision || parts[0] == KindSignoff || parts[0] == KindAsk ||
 		parts[0] == KindArchitecture || parts[0] == KindPause):
 		return parts[0], parts[1], parts[2], 0, parts[1] != "" && parts[2] != ""
-	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel):
+	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel || parts[0] == KindNotice):
 		n, err := strconv.ParseInt(parts[1], 10, 64)
 		return parts[0], "", "", n, err == nil && n > 0
 	case len(parts) == 2 && (parts[0] == KindRoom || parts[0] == KindPause):
@@ -161,7 +161,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			e.Link = it.link
 			out = append(out, e)
 		}
-		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults, in.pauses} {
+		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults, in.pauses, in.notices} {
 			es, err := read(ctx, tx)
 			if err != nil {
 				return err
@@ -554,4 +554,27 @@ func resumeCommand(project, stage string) string {
 		return "loop stage resume " + stage
 	}
 	return "loop stage resume " + stage + " --project " + project
+}
+
+// notices shows each notice that no answer dismissed. It waits on a
+// person, so the overwatch reminder brings it back when the coordinator
+// never relays it, and its next asks nothing.
+func (in *Inbox) notices(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
+	rs, err := tx.QueryContext(ctx, `SELECT id, project, subject, body, at FROM notices WHERE dismissed_at IS NULL ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rs.Close() }()
+	var out []Entry
+	for rs.Next() {
+		var id, at int64
+		var project, subject, body string
+		if err := rs.Scan(&id, &project, &subject, &body, &at); err != nil {
+			return nil, err
+		}
+		e := rowEntry(KindNotice, id)
+		out = append(out, Entry{ID: e, Kind: KindNotice, Awaits: AwaitsPerson, Project: project, Title: subject, Text: body,
+			Next: "tell the operator; `loop inbox answer " + e + " --body <anything>` dismisses it", At: at})
+	}
+	return out, rs.Err()
 }

@@ -105,7 +105,7 @@ func (in *Inbox) waitVerb(ctx context.Context, call *rpc.Call) cli.Result {
 // admitted again (R10). An asked bug report returns to reported with its
 // reporter's answer. A fired decision settles as answered. A sign-off
 // merges the document at the head its entry named. A question records the
-// answer, and an alert closes.
+// answer, an alert closes, and a notice is dismissed.
 func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	id, body := call.Inv.Arg("entry"), strings.TrimSpace(call.Inv.Flags["body"])
 	if body == "" {
@@ -217,6 +217,23 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		in.Changed()
 		return cli.Found(map[string]any{"entry": id, "closed": true})
+	case KindNotice:
+		var n int64
+		if err := in.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+			r, err := tx.Exec(`UPDATE notices SET dismissed_at = ? WHERE id = ? AND dismissed_at IS NULL`, in.cfg.Now().UnixMilli(), row)
+			if err != nil {
+				return err
+			}
+			n, _ = r.RowsAffected()
+			return nil
+		}); err != nil {
+			return cli.Internal(err)
+		}
+		if n == 0 {
+			return cli.Reject(cli.CodeNotFound, "no_notice", fmt.Sprintf("no notice %d that waits", row))
+		}
+		in.Changed()
+		return cli.Found(map[string]any{"entry": id, "dismissed": true})
 	case KindSignoff:
 		return in.signoff(ctx, call, id, project, item, body)
 	case KindArchitecture:
@@ -261,6 +278,10 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 	kind, project, item, _, ok := parseEntry(id)
 	if !ok {
 		return cli.Reject(cli.CodeUsage, "bad_entry", fmt.Sprintf("%q is no entry id that `loop inbox list` prints", id))
+	}
+	if kind == KindNotice {
+		return cli.Reject(cli.CodeTransitionNotAllowed, "notice_defer",
+			"a notice asks nothing and is never deferred; `loop inbox answer "+id+" --body <anything>` dismisses it")
 	}
 	es, err := in.Entries(ctx)
 	if err != nil {

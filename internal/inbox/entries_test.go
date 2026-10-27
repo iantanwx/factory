@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -270,5 +271,124 @@ func TestEachPauseIsOneInboxEntryThatAwaitsTheCoordinator(t *testing.T) {
 	}
 	if es := pauses(); len(es) != 0 {
 		t.Fatalf("after the resume: %+v", es)
+	}
+}
+
+// C18: a notice is an inbox entry that asks nothing. A put notice lists
+// with kind notice, awaits a person, shows its subject and body, and its
+// next holds no question. A defer refuses, and an answer dismisses it. No
+// item, run or decision changes state when it is put or dismissed.
+func TestANoticeIsAnInboxEntryThatAsksNothing(t *testing.T) {
+	w := newArchWorld(t)
+	tk := w.create(machine.KindTicket, "create", nil)
+	state := func() string {
+		t.Helper()
+		var s string
+		if err := w.st.Read(w.ctx, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(w.ctx, `SELECT (SELECT count(*) FROM transitions) || '/' || (SELECT count(*) FROM runs) || '/' ||
+				(SELECT count(*) FROM intents)`).Scan(&s)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		items, ref := w.m.List(w.ctx, prj, machine.ListFilter{})
+		if ref != nil {
+			t.Fatalf("list: %+v", ref)
+		}
+		for _, it := range items {
+			s += " " + it.ID + "=" + it.Status
+		}
+		return s
+	}
+	before := state()
+
+	var row int64
+	if err := w.st.Write(w.ctx, func(tx *store.Tx) (err error) {
+		row, err = PutNotice(tx, Notice{Project: prj, Subject: "alpha: stages.implementer.cap 8 (host) to 3",
+			Body: "The cap is 3 from project.", Source: "settings_change", Ref: "7"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.st.Write(w.ctx, func(tx *store.Tx) error {
+		again, err := PutNotice(tx, Notice{Project: prj, Subject: "a repeat", Body: "b", Source: "settings_change", Ref: "7"})
+		if err == nil && again != row {
+			t.Errorf("a repeated put = row %d, want %d", again, row)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if after := state(); after != before {
+		t.Fatalf("the put changed state: %s, want %s (%s)", after, before, tk)
+	}
+
+	call := func(verb string, args []string, flags map[string]string) cli.Result {
+		t.Helper()
+		inv, bad := cli.Surface().Validate(verb, args, flags, "req-"+verb)
+		if bad != nil {
+			t.Fatalf("validate %s: %+v", verb, bad)
+		}
+		c := &rpc.Call{Inv: inv, Principal: rpc.Principal{Kind: cli.PrincipalCoordinator}}
+		switch verb {
+		case "inbox list":
+			return w.in.list(w.ctx, c)
+		case "inbox answer":
+			return w.in.answer(w.ctx, c)
+		}
+		return w.in.deferVerb(w.ctx, c)
+	}
+	notices := func() []Entry {
+		t.Helper()
+		res := call("inbox list", nil, map[string]string{"awaits": "person"})
+		if res.Refusal != nil {
+			t.Fatalf("list = %+v", res)
+		}
+		var out []Entry
+		listed, _ := res.Data.([]Entry)
+		for _, e := range listed {
+			if e.Kind == "notice" {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	id := "notice/" + strconv.FormatInt(row, 10)
+	es := notices()
+	if len(es) != 1 {
+		t.Fatalf("notice entries = %+v, want one", es)
+	}
+	e := es[0]
+	if e.ID != id || e.Awaits != "person" || e.Project != prj || e.Title != "alpha: stages.implementer.cap 8 (host) to 3" ||
+		e.Text != "The cap is 3 from project." || e.At == 0 {
+		t.Fatalf("entry = %+v", e)
+	}
+	if want := "tell the operator; `loop inbox answer " + id + " --body <anything>` dismisses it"; e.Next != want {
+		t.Fatalf("next = %q, want %q", e.Next, want)
+	}
+	if strings.Contains(e.Next, "?") || strings.Contains(e.Next, "the operator's answer") {
+		t.Fatalf("next = %q asks a question", e.Next)
+	}
+
+	until := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	res := call("inbox defer", []string{id}, map[string]string{"until": until, "reason": "later"})
+	if r := res.Refusal; r == nil || r.Code != cli.CodeTransitionNotAllowed || r.Rule != "notice_defer" {
+		t.Fatalf("defer = %+v, want TRANSITION_NOT_ALLOWED notice_defer", res)
+	}
+	if es := notices(); len(es) != 1 {
+		t.Fatalf("after the defer: %+v", es)
+	}
+
+	if res := call("inbox answer", []string{id}, map[string]string{"body": "told"}); res.Refusal != nil {
+		t.Fatalf("answer = %+v", res)
+	}
+	if es := notices(); len(es) != 0 {
+		t.Fatalf("after the answer: %+v", es)
+	}
+	if after := state(); after != before {
+		t.Fatalf("the dismissal changed state: %s, want %s", after, before)
+	}
+	res = call("inbox answer", []string{id}, map[string]string{"body": "again"})
+	if r := res.Refusal; r == nil || r.Code != cli.CodeNotFound || r.Rule != "no_notice" {
+		t.Fatalf("second answer = %+v, want NOT_FOUND no_notice", res)
 	}
 }

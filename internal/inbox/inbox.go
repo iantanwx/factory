@@ -2,7 +2,7 @@
 // derived view: its entries come from beads states (escalated, sign-off
 // waiting, fired decisions, asked bug reports, architecture epics that
 // nothing works on) and from SQLite (alerts, questions, rooms, stage
-// pauses and escalations that wait for the fixer's panel). Each entry says
+// pauses, notices and escalations that wait for the fixer's panel). Each entry says
 // who it waits on, a person or the coordinator, and carries a link, so a
 // coordinator act never reads as a wait on the operator.
 //
@@ -46,6 +46,7 @@ const (
 	KindAlert        = "alert"        // an open alert
 	KindFault        = "fault"        // an open or acknowledged loop fault
 	KindPause        = "pause"        // a stage pause of one project or of every project
+	KindNotice       = "notice"       // a change the operator reads; nothing waits on it
 )
 
 // Defaults.
@@ -177,6 +178,29 @@ func (in *Inbox) woken() <-chan struct{} {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 	return in.wake
+}
+
+// Notice is a change the operator reads, such as a settings change that
+// merged. Its entry awaits a person and asks nothing. An answer dismisses
+// it, and a defer refuses.
+type Notice struct {
+	Project string
+	Subject string // such as "factorio: stages.implementer.cap 8 (host) to 3"
+	Body    string // the change; agent text in it sits in agent tags
+	Source  string // what put it, such as "settings_change"
+	Ref     string // the source's id of the change
+}
+
+// PutNotice puts n in the inbox and returns its row. A second put of the
+// same source and ref puts nothing and returns the first row.
+func PutNotice(tx *store.Tx, n Notice) (int64, error) {
+	if _, err := tx.Exec(`INSERT INTO notices (project, source, ref, subject, body, at) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (source, ref) DO NOTHING`, n.Project, n.Source, n.Ref, n.Subject, n.Body, tx.Now().UnixMilli()); err != nil {
+		return 0, err
+	}
+	var id int64
+	err := tx.QueryRow(`SELECT id FROM notices WHERE source = ? AND ref = ?`, n.Source, n.Ref).Scan(&id)
+	return id, err
 }
 
 // The opening and closing agent tags, and the pattern AgentText escapes.
