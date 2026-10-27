@@ -98,10 +98,61 @@ Host config edits, which the operator makes by hand as today.
   its own reason: it runs once for the host. This is the operator's US-03 answer.
 - **One command changes one setting.** We chose this over several keys in one call, because one
   change then maps to one commit, one reason and one notice, as A9 and A13 count them.
+- **The command refuses any field except `enabled` on a run stage or an agent job that the
+  project does not list. The refusal is `INVALID_SETTING`, and its hint says to set
+  `stages.<stage>.enabled` first.** A project runs such a stage only when it lists the stage
+  (`StageEnabled` in `internal/config/project.go`, read by `Timers` in `internal/sched/timers.go`
+  and by the overwatch parts). So a new entry that holds only `cap` would also turn the stage on.
+  We chose the refusal over a new entry that holds `enabled: false` beside the field. That entry
+  writes two keys for one change, and the stage would hold a value that nothing reads until a
+  second change turns it on. The run stages include the fixer. Intake and the per-project native
+  jobs are left out of the rule. Neither reads `StageEnabled`, so a new entry under them changes
+  only its one field (C32).
+- **`--unset` removes one field, and never the stage's key under `stages`.** When it removes the
+  last field, the entry stays as `<stage>: {}`, which a listed stage reads as enabled. We chose
+  this over removing the empty key, because that would turn the stage off, and the change would
+  name one field and change two things. Only `--unset stages.<stage>.enabled` changes whether the
+  stage runs: it turns a stage that says `enabled: false` back on (C33).
+- **A change must move the named setting's value or its source in force. Any other change
+  refuses with `INVALID_SETTING`.** The command compares the named row of `Settings` before and
+  after the edit. We chose this over a byte compare of the two files, because a byte compare
+  accepts `enabled: false` on a stage the project does not list. That edit writes a key, and the
+  stage stays off. A move of the source alone counts as a change. For example, `--unset` of a
+  project cap that equals the host cap changes the source from `project` to `host`, and a later
+  host edit then applies to the project.
 - **A project holds at most one open settings change. The command refuses a second with
   `SETTINGS_PENDING`.** We chose this over a second pull request beside the first, because two
   pull requests that edit one file from one base head conflict, or land in an order that nobody
-  chose. A stuck change ends when CI reports or when a person closes its pull request (C30).
+  chose. A live change therefore needs an end, which the next three Decisions give.
+- **A change that has not reached the mechanism within 2 hours of its creation fails.** The
+  limit is `settings.LiveLimit`, a constant, and it bounds the states `proposed` and `open`. At the
+  limit, `Land` closes the pull request, the change becomes `failed`, and the alert
+  `settings_change_failed` tells the coordinator. Its detail names the state and each required
+  check that has not reported. The coordinator learns of a stuck change that way, and a later
+  change can start. We chose a fixed limit over the project's `health.ci_budget`, because that
+  field is optional with no default, so a project without it would have no bound. It also bounds
+  one CI run, not the wait before CI starts. We chose a bound over none, because CI that never
+  reports on the App's pull request would hold every later change of the project at
+  `SETTINGS_PENDING`, and nobody would learn of it. The bound leaves out `handed`. The mechanism
+  holds a handed change, and it ends it with a merge, a dequeue or a close. A `Withdraw` at a limit
+  could race a merge that the mechanism already started, and the change would then be in force with
+  no notice.
+- **`Land` waits for the required checks in force: `github.RequiredChecks` at the default branch.
+  A change of `merge.required_checks` also waits for each check that the proposed list names.**
+  We chose the list in force over the proposed file's list alone, because the proposed list is not
+  in force before the merge. The proposed list alone could also drop a check that guards the merge.
+  We chose to add the proposed list over the list in force alone. Otherwise a change that names a
+  check that CI never runs would merge, and no later ticket would become eligible. That is the
+  failure that the `merge.mechanism` Decision guards against. With both lists, that change waits
+  for a check that never reports, and it fails at `settings.LiveLimit` before it lands (C30, C34).
+- **A `proposed` change with no pull request, after a crash or a GitHub failure in the command's
+  last step, is retried on each `Land` tick until `settings.LiveLimit`.** `Land` builds the file
+  again with `SetSetting` from the file at the recorded `base_sha`, so each try writes the same
+  bytes. `ProposeFile` is safe to run again (Interfaces). A transient answer, such as a 5xx or a
+  rate limit, waits for the next tick. Any other GitHub refusal fails the change at once, with the
+  answer in its detail. We chose a retry over a failure at the first error, because a crash between
+  the record and the pull request is not the coordinator's fault. We chose a bound over endless
+  retries for the reason of the bound above (C35).
 - **The server writes the settings commit through the contents API, on the branch
   `loop/settings/<change id>`.** We chose this over a git push from the mirror, because KTD14
   allows no git with the token, and `OpenFilePR` already writes this way. `ItemOf` maps a branch
@@ -120,9 +171,20 @@ Host config edits, which the operator makes by hand as today.
   a change whose CI goes red never takes effect, and a notice must report what is in force. The
   notice waits on a person, so the overwatch reminder brings it back if the coordinator never
   relays it. `loop inbox answer` dismisses it. No item, run or decision waits on it.
+- **Work entries 6 and 7 each add their own migration file, and entry 7 needs entry 6.** Entry 6
+  adds the `notices` table, and entry 7 adds the `settings_changes` table. Each file takes the
+  next free number when its entry lands, and starts with `-- min_reader_schema: 1`. We chose two
+  files over one shared `0011_settings.sql`, because the store applies a migration once, by
+  number (`internal/store/migrate.go`). A host that upgrades between the two merges would run the
+  first copy of the shared file and never create the second table. We chose the order over two
+  independent entries, because two pull requests that each add the same next number land in any
+  order. `loadMigrations` refuses a duplicate number and a gap, so a collision with another epic,
+  such as factorio-wd0's stage pause, fails the store's tests on the pull request that lands
+  second. The value `1` fits both files, because each one only creates a new table. An older
+  binary after `loop rollback` reads every table it knows and never reads the new one.
 - **A settings change that cannot land fails, raises the alert `settings_change_failed` for the
-  coordinator, and puts no notice.** Red CI, a conflict with the base, a dequeue and a person's
-  close each fail it. We chose a failure over a retry, because red CI on a one-key change means the
+  coordinator, and puts no notice.** Red CI, a conflict with the base, a dequeue, a person's
+  close and `settings.LiveLimit` each fail it. We chose a failure over a retry, because red CI on a one-key change means the
   new value broke a gate, and a retry repeats it. The coordinator runs the command again when it
   judges the cause gone.
 - **A change of `merge.mechanism` runs the new mechanism's `Check` before the command lands
@@ -161,7 +223,9 @@ Host config edits, which the operator makes by hand as today.
 ## Assumptions
 
 - The project's CI runs on a pull request that the loop App opens with its installation token.
-  This is wrong if a settings pull request shows no check run within the project's CI budget.
+  This is wrong if a settings change fails at `settings.LiveLimit` with a required check that never
+  reported. The alert `settings_change_failed` names each such check, so the coordinator sees the
+  first case that shows it.
 - The default branch's ruleset requires no approving review. U10 requires CI and `loop/eligible`
   only, and ticket pull requests merge today with no review. This is wrong if
   `loop doctor-github` reports a required approval count above 0.
@@ -172,8 +236,11 @@ Host config edits, which the operator makes by hand as today.
   after the upgrade, any project raises `project_config_invalid` that names `stages.<name>`.
 - A9's "one commit" is the settings commit on the pull request branch. The mechanism's merge
   commit is how the change reaches the default branch, and it is no second change. This is wrong
-  if the project's mechanism squashes, and the operator reads the squash commit as the record. The
-  squash commit then holds the same message, so the read still names the actor and the reason.
+  if the project's mechanism squashes, and the operator reads the squash commit as the record.
+  The squash commit's message depends on the repository's squash message setting, so it can lose
+  the reason and the trailers. The settings read does not depend on that message, because it
+  names commits from the file's history. The pull request body holds the commit message, and the
+  notice holds the reason, so neither record is lost.
 - The history of `.loop/config.yaml` is short enough that `settings show` reads all of it on each
   call. This is wrong if one call takes more than 2 seconds on a project.
 
@@ -203,6 +270,10 @@ schedule and runs per tick, and it lists every setting with its value and source
 carry the project, so admission's count of live runs filters by project. A project with no config
 yet, `ErrConfigMissing`, resolves to the host values.
 
+The `enabled` row of a run stage or an agent job is `StageEnabled(stage)`. For a stage that the
+project does not list, the row reads `false` with source `default`. For a listed stage, the row
+takes the source `project`.
+
 ### The readers
 
 Admission gains a project config source, the same `ProjectSource` the scheduler holds. `Admit`,
@@ -222,22 +293,27 @@ read `Schedule(stage)`.
 1. The capability matrix admits the coordinator only.
 2. The reason is not blank, and it holds no stored secret value.
 3. The project holds no open change.
-4. The server fetches the default branch, reads `.loop/config.yaml` at its head, and edits the one
-   key's node.
-5. The new file parses, passes the stage-name check and every field rule, and differs from the old
-   file. A change of `merge.mechanism` also passes that mechanism's `Check`.
+4. The server fetches the default branch and reads `.loop/config.yaml` at its head. It refuses a
+   field other than `enabled` on a run stage or an agent job that the file does not list. Then it
+   edits the one key's node. `--unset` of the last field leaves `<stage>: {}`.
+5. The new file parses, passes the stage-name check and every field rule, and moves the named
+   setting's value or source in force. A change of `merge.mechanism` also passes that mechanism's
+   `Check`.
 6. The server records the change as `proposed`, with the old value in force and its source.
 7. The server creates the branch at the head it read, writes the file with one commit, and opens
-   the pull request. The change becomes `open`, with the pull request's number and head.
+   the pull request. The change becomes `open`, with the pull request's number and head. When this
+   step does not finish, the command still answers with the change, in state `proposed`, and
+   `Land` finishes the step.
 
-Each tick of the merge-handoff job reads each project's live change before its tickets. An `open`
-change waits for every required check at its recorded head. When all are green, the server posts
-`loop/eligible` on that head and hands the pull request to the mechanism, and the change becomes
-`handed`. Each later tick polls the mechanism. A merge makes the change `merged`. The server then
-fetches the default branch, drops the project's cached config, and puts the notice. A red check, a
-conflict, a dequeue, a close, or a head that moved fails the change and raises
-`settings_change_failed`. A `proposed` change with no pull request, after a crash in step 7, runs
-step 7 again, because `OpenFilePR`'s steps are safe to repeat.
+Each tick of the merge-handoff job reads each project's live change before its tickets. A
+`proposed` change runs step 7 again, as Decisions states. An `open` change waits for every
+required check in force at its recorded head, and for each check of a proposed
+`merge.required_checks`. When all are green, the server posts `loop/eligible` on that head and
+hands the pull request to the mechanism, and the change becomes `handed`. Each later tick polls the
+mechanism. A merge makes the change `merged`. The server then fetches the default branch, drops the
+project's cached config, and puts the notice. A red check, a conflict, a dequeue, a close, a head
+that moved, or a `proposed` or `open` change older than `settings.LiveLimit` fails the change and
+raises `settings_change_failed`.
 
 ### The read
 
@@ -306,6 +382,8 @@ Change               one settings change by the command
              in the move open -> handed.
   invariant: Old is the value in force when the command read the file, with its Source. New is
              nil for --unset.
+  invariant: a change in proposed or open is never older than LiveLimit. Land fails it at the
+             limit. A handed change has no limit, because the mechanism holds it.
 
 View                 the answer of settings show: rows, stale flag, problem, live change
 Row                  one setting: key, value, source, commit (project source only)
@@ -368,7 +446,10 @@ func (t ProjectThroughput) RunsPerTick(stage string) int
 func (t ProjectThroughput) Settings(k Known, d Defaults) []Setting // sorted by key
 
 // SetSetting returns raw with key set to value, or removed when value is
-// nil. It edits the one node and keeps every comment. It does not validate.
+// nil. It edits the one node and keeps every comment. It never removes a
+// stage's key under stages: removing the last field leaves "<stage>: {}".
+// It does not validate. The command refuses a field other than enabled on
+// an unlisted run stage or agent job before it calls SetSetting.
 func SetSetting(raw []byte, key SettingKey, value *string) ([]byte, error)
 
 // SettingsChanged reports whether two config files differ in stages, pools
@@ -415,7 +496,7 @@ type FileChange struct {
 	Content []byte
 	Message string
 	Title   string
-	Body    string
+	Body    string // holds Message, so a squash merge loses no record
 }
 
 // ProposeFile creates Branch at BaseSHA, writes Content over Path with one
@@ -436,6 +517,9 @@ const (
 	Merged   State = "merged"
 	Failed   State = "failed"
 )
+
+// LiveLimit bounds a change in proposed or open, from its creation.
+const LiveLimit = 2 * time.Hour
 
 type Change struct {
 	ID        int64             `json:"change"`
@@ -484,7 +568,9 @@ func (s *Service) Show(ctx context.Context, project string) (View, *cli.Refusal)
 func (s *Service) Set(ctx context.Context, r SetRequest) (Change, *cli.Refusal)
 
 // Land moves the project's live change one step. merge-handoff calls it
-// on each tick of the project, before its tickets.
+// on each tick of the project, before its tickets. It retries a proposed
+// change's pull request, and it fails a proposed or open change at
+// LiveLimit.
 func (s *Service) Land(ctx context.Context, p config.Project, m merge.Mechanism) error
 
 // Eligible reports whether PR n is a handed settings change at its
@@ -527,7 +613,7 @@ loop settings show <project>
 
 loop settings set <project> <key> (--value <v> | --unset) --reason <text>
   callers: coordinator. Write, with an idempotency key (KTD13).
-  data: Change, in state open
+  data: Change, in state open, or proposed when the pull request did not open (Land retries it)
   --value of a list (merge.required_checks) is a comma-separated list.
 
 Refusal codes (internal/cli/codes.go):
@@ -568,7 +654,8 @@ App's bot user, which the contents API records.
       reviewers
         cap          integer >= 1, optional
 
-settings_changes (new, migration 0011)
+settings_changes (new, entry 7's migration: the next free number after entry 6's,
+                  first line "-- min_reader_schema: 1")
   id            INTEGER PRIMARY KEY AUTOINCREMENT
   project       TEXT    NOT NULL
   setting       TEXT    NOT NULL   the key, such as stages.implementer.cap
@@ -589,7 +676,8 @@ settings_changes (new, migration 0011)
   UNIQUE INDEX settings_changes_live ON settings_changes (project)
     WHERE state IN ('proposed', 'open', 'handed')
 
-notices (new, migration 0011)
+notices (new, entry 6's migration: the next free number when it lands, 0011 on today's main,
+         first line "-- min_reader_schema: 1")
   id            INTEGER PRIMARY KEY AUTOINCREMENT
   project       TEXT    NOT NULL DEFAULT ''
   source        TEXT    NOT NULL   'settings_change'
@@ -601,7 +689,8 @@ notices (new, migration 0011)
   UNIQUE INDEX notices_ref ON notices (source, ref)
 ```
 
-**Existing records:** none. Both tables are new and empty. No project file holds `cap`,
+**Existing records:** none. Both tables are new and empty, and each comes in its own migration
+file (Decisions). An older binary after `loop rollback` ignores both tables. No project file holds `cap`,
 `runs_per_tick` or `pools` today, so every project runs at the host values after the upgrade. The
 count changes with it: each project now counts its own runs against each host cap (Decisions). The
 `notices_ref` index makes a repeated landing tick put one notice per change.
@@ -619,14 +708,19 @@ sequenceDiagram
     V->>V: refuse a blank reason, or one that holds a secret
     V->>V: refuse when a change is live (SETTINGS_PENDING)
     V->>M: fetch the default branch, read .loop/config.yaml at its head
+    V->>V: refuse a field other than enabled on an unlisted run stage or agent job
     V->>V: edit one node, then parse, check stage names and fields
-    alt invalid or unchanged
+    alt invalid, unlisted, or no move of the value or source in force
         V-->>C: INVALID_SETTING naming the key, nothing recorded
     end
     V->>V: record the change, proposed
     V->>GH: branch at the head read, one commit, open the PR
-    V->>V: change open, with PR and head
-    V-->>C: change, PR, head
+    alt the PR opened
+        V->>V: change open, with PR and head
+        V-->>C: change, PR, head
+    else GitHub failed or the server stopped
+        V-->>C: change, proposed (Land retries)
+    end
 ```
 
 ```mermaid
@@ -637,15 +731,33 @@ sequenceDiagram
     participant Mech as Mechanism
     participant I as Inbox
     H->>S: Land(project, mechanism)
-    S->>GH: read the PR and the checks at the recorded head
-    alt the head moved, or a check is red, or the PR is closed
-        S->>GH: close the PR
-        S->>S: change failed
+    alt proposed or open, and older than LiveLimit
+        S->>GH: close the PR, when one exists
+        S->>S: change failed, the detail names the state and each check not reported
         S->>I: alert settings_change_failed, for the coordinator
-    else every required check is green, change open
-        S->>GH: post loop/eligible on the recorded head
-        S->>Mech: HandOff
-        S->>S: change handed
+    else change proposed
+        S->>GH: ProposeFile again, same branch, base and bytes
+        alt the PR opened
+            S->>S: change open, with PR and head
+        else a transient answer
+            S->>S: stay proposed until the next tick
+        else any other refusal
+            S->>S: change failed
+            S->>I: alert settings_change_failed
+        end
+    else change open
+        S->>GH: read the PR, and the checks in force plus a proposed required_checks
+        alt the head moved, or a check is red, or the PR is closed
+            S->>GH: close the PR
+            S->>S: change failed
+            S->>I: alert settings_change_failed, for the coordinator
+        else every check is green
+            S->>GH: post loop/eligible on the recorded head
+            S->>Mech: HandOff
+            S->>S: change handed
+        else a check has not reported
+            S->>S: stay open until the next tick
+        end
     else change handed
         S->>Mech: Poll
         alt merged
@@ -726,7 +838,7 @@ sequenceDiagram
    - Files: `internal/config/{project,throughput,lkg,settings}.go`, `internal/server/sched.go`,
      `internal/server/merge.go`, with tests.
    - Needs: nothing.
-   - Proves: C1, C2.
+   - Proves: C1, C2, C33.
    - Done when: a project config with `stages.implementr` keeps the last good config in force,
      and the alert names `stages.implementr`. A config with `stages.implementer.cap: 0` is
      refused and names that field.
@@ -766,31 +878,38 @@ sequenceDiagram
      after a commit that sets it to 3, lists 3 from project with that commit's sha.
 6. **The inbox notice.** Add the `notices` table, `KindNotice`, `PutNotice`, its entries in
    `Entries`, and its dismissal in `answer`. A notice cannot be deferred.
-   - Files: `internal/store/migrations/0011_settings.sql` (the `notices` table),
-     `internal/inbox/{inbox,entries,answer}.go`, with tests.
+   - Files: `internal/store/migrations/<next free number>_notices.sql`, with the first line
+     `-- min_reader_schema: 1`, and `internal/inbox/{inbox,entries,answer}.go`, with tests.
    - Needs: nothing.
    - Proves: C18.
    - Done when: a notice put in a test appears in `loop inbox list` waiting on a person, and an
      answer removes it.
 7. **`loop settings set`.** Add the `settings_changes` table, `Change`, `Set`, and
-   `github.ProposeFile`. Add `INVALID_SETTING` and `SETTINGS_PENDING`. Add the verb to the surface
-   and to `services.proto`, regenerate `gen/`, and register the handler.
-   - Files: `internal/store/migrations/0011_settings.sql` (the `settings_changes` table),
+   `github.ProposeFile`. Refuse a field other than `enabled` on an unlisted run stage or agent job,
+   and a change that moves neither the value nor the source in force. Answer with the change in
+   state `proposed` when the pull request does not open. Add `INVALID_SETTING` and
+   `SETTINGS_PENDING`. Add the verb to the surface and to `services.proto`, regenerate `gen/`, and
+   register the handler.
+   - Files: `internal/store/migrations/<next free number>_settings_changes.sql`, with the first
+     line `-- min_reader_schema: 1`,
      `internal/settings/{change,set}.go`, `internal/github/merge_api.go`,
      `internal/server/settings.go`, `internal/cli/{surface,codes}.go`,
      `proto/loop/v1/services.proto`, `gen/**`, with tests.
-   - Needs: 1, and 5 for the package and the server file.
-   - Proves: C19, C20, C21, C22, C23, C24, C25.
+   - Needs: 1, 5 for the package and the server file, and 6, so that its migration takes the
+     number after entry 6's (Decisions).
+   - Proves: C19, C20, C21, C22, C23, C24, C25, C32.
    - Done when: against a fake GitHub, the command opens one pull request whose branch holds one
      commit that changes `stages.implementer.cap` only.
 8. **The landing.** Build `Land` and `Eligible`. Add `Lander` to the merge-handoff config, call it
    first in `TickProject`, and pass `Eligible` to the github-queue sweep beside the tickets'. On a
    merge, fetch the base, call the loader's forget function, and put the notice. On a failure,
-   close the pull request and raise `settings_change_failed`.
+   close the pull request and raise `settings_change_failed`. Retry a `proposed` change's pull
+   request. Wait for the checks in force and for a proposed `merge.required_checks`. Fail a
+   `proposed` or `open` change at `settings.LiveLimit`.
    - Files: `internal/settings/land.go`, `internal/merge/handoff.go`, `internal/server/merge.go`,
      `internal/server/sched.go`, with tests.
    - Needs: 6 and 7.
-   - Proves: C26, C27, C28, C29, C30.
+   - Proves: C26, C27, C28, C29, C30, C34, C35.
    - Done when: with the fake mechanism, a change goes from open to merged across three ticks, the
      fourth tick admits against the new cap, and the inbox holds one notice.
 9. **The runbooks and the plan's text.** The coordinator runbook gains a section on settings: when
@@ -820,7 +939,7 @@ sequenceDiagram
 - A command for the operator to change a setting. The PRD review dropped it, because no operator
   words asked for it. The operator edits the file by hand.
 - Withdrawing a live settings change by a command. Never in this epic. A person closes its pull
-  request, and the change fails (C30).
+  request, or `settings.LiveLimit` passes, and the change fails (C30).
 - Stopping live runs when a cap drops. Never, by the operator's choice "They finish" (US-01).
 - Listing the settings read in a visibility command. It belongs to factorio-wd0, which may call
   `loop settings show`.
@@ -850,8 +969,11 @@ project and refuses the fourth with `CAP_FULL`.
 
 **C4. Invariant: one project's live runs never count against another project's limit.** Proves
 A2 and A4. For any set of live runs spread over two projects, and any stage caps and reviewers pool
-caps on each, admission of a stage in project P refuses exactly when P's own live runs of the
-limit's stages reach P's cap in force.
+caps on each, admission of a run stage in project P refuses with `CAP_FULL` exactly when P's own
+live runs of the limit's stages reach P's cap in force. The property covers the run stages and the
+reviewers pool only. It holds the stage mutex, holds, dependencies and the retry limit fixed, so
+none of them refuses in a generated case. Agent jobs keep counting the whole instance and are not
+generated.
 *A property test over 1,000 generated run sets and cap pairs, against a model that counts by
 hand.*
 
@@ -920,8 +1042,8 @@ no commit.
 
 **C16. Equivalence: the settings read shows what admission and the scheduler enforce.** Proves
 A14. For any host config and project config, each `cap` row equals the cap that `Limits` gives
-admission, each `schedule` row equals the expression that `Timers` fires, and each `runs_per_tick`
-row equals the limit `launch` passes to `fill`.
+admission, each `schedule` row equals the expression that `Timers` fires, each `runs_per_tick`
+row equals the limit `launch` passes to `fill`, and each `enabled` row equals `StageEnabled`.
 *A property test over 1,000 generated config pairs.*
 
 **C17. Behaviour: the settings read says when the last good copy is in force, and why.** Proves
@@ -948,9 +1070,11 @@ server. In both cases no change row, no branch and no pull request exist.
 *An example test against a fake GitHub that counts calls.*
 
 **C21. Refusal: the command refuses a value that does not validate, and lands nothing.** Proves
-A11. A cap of 0, an unknown key, a key that its stage kind cannot hold, a malformed schedule, an
-unchanged value, and a `merge.mechanism` whose `Check` fails each get `INVALID_SETTING`, and
-the hint names the setting. No change row, branch or pull request exists.
+A11. A cap of 0, an unknown key, a key that its stage kind cannot hold, a malformed schedule, a
+change that moves neither the value nor the source in force, and a `merge.mechanism` whose `Check`
+fails each get `INVALID_SETTING`, and the hint names the setting. `enabled: false` on a stage that
+the project does not list is such a change. No change row, branch or pull request exists. C32
+covers a field on a stage that the project does not list.
 *An example test per case.*
 
 **C22. Refusal: a second change waits for the first.** Proves A9, one change at a time. While a
@@ -960,9 +1084,12 @@ the command accepts a new one.
 *An example test.*
 
 **C23. Invariant: the proposed file differs from the base file in exactly the named setting.**
-Proves A9. For any valid config and any settable key and valid value, `SetSetting` gives a file
-whose parsed config equals the base's with that one field changed. Every comment of the base file
-is in the new file.
+Proves A9. For any valid config, and any key and value that the command accepts for it, the rows
+of `Effective(...).Settings(...)` for the proposed file equal the base file's rows, except the
+named key's row. The `enabled` rows are among them, so a change that turns a stage on or off
+outside its own key fails the property. The names under `stages` never lose a name. They gain one
+only for `stages.<stage>.enabled` of an unlisted stage, or for a field of intake or of a
+per-project native job. Every comment of the base file is in the new file.
 *A property test over 1,000 generated configs, keys and values, plus a comment-preservation test
 over this repository's config and the `loop-init` template.*
 
@@ -1003,9 +1130,10 @@ notice names the value in force after it and that value's source.
 
 **C30. Behaviour: a change that cannot land fails, alerts the coordinator, and puts no notice.**
 Proves A13: a notice reports only what is in force. Red CI, a conflict, a `Dequeued` or `Closed`
-poll, and a pull request a person closed each make the change `failed`, close the pull request
-when it is open, and raise one `settings_change_failed` alert that waits on the coordinator. The
-inbox holds no notice for that change.
+poll, a pull request a person closed, and a `proposed` or `open` change older than
+`settings.LiveLimit` each make the change `failed`, close the pull request when it is open, and
+raise one `settings_change_failed` alert that waits on the coordinator. The inbox holds no notice
+for that change. After the failure, the command accepts a new change for the project.
 *An example test per cause.*
 
 **C31. Behaviour: the runbooks name the verbs and the code.** Proves A12 and A16. `loop schema`
@@ -1014,6 +1142,45 @@ both verbs. `loop-sdlc-turn` section 2 names `SETTINGS_CHANGE`. `make pack-check
 `grep -c 'override .schedule. only' docs/plans/2026-10-21-1328-feat-standalone-sdlc-loop-plan.md`
 prints `0`.
 *`make pack-check`, `loop schema`, and the `grep`.*
+
+**C32. Refusal: a field other than `enabled` on a run stage or an agent job that the project does
+not list is refused, and lands nothing.** Proves A11 and A9, one change at a time. On a project
+whose file does not list `reproducer`, `loop settings set p stages.reproducer.cap --value 1` gets
+`INVALID_SETTING`. The hint names `stages.reproducer.enabled` as the setting to change first. No
+change row, branch or pull request exists, and the reproducer does not fire for the project. The
+same holds for an agent job of host config and for the fixer. `stages.reproducer.enabled --value
+true` on that project lands one change, and its proposed file adds `reproducer: {enabled: true}`
+only. `stages.intake.cap --value 2` and `stages.merge-handoff.schedule` on a file that lists
+neither land, because neither entry turns a stage on.
+*An example test per stage kind against a fake GitHub that counts calls, plus a `Timers` read of
+the refused case.*
+
+**C33. Behaviour: `--unset` never removes a stage's key, so it never turns a stage off.** Proves
+A9. `SetSetting` with a nil value on `reproducer: {cap: 1}` gives `reproducer: {}`, and
+`StageEnabled("reproducer")` stays `true`. On `reproducer: {enabled: false, cap: 1}`, unsetting
+`enabled` gives `reproducer: {cap: 1}`, and the stage turns on. That move is the change the key
+names. No `--unset` of any other field changes `StageEnabled` of any stage.
+*An example test per case, plus the property of C23 over generated `--unset` keys.*
+
+**C34. Behaviour: a settings change waits for the required checks in force, and for each check
+that a proposed `merge.required_checks` adds.** Proves A9 and A19. The list in force is
+`github.RequiredChecks` at the default branch. A change that adds `audit` to
+`merge.required_checks` stays `open` while `audit` has not reported at its head, even with every
+check in force green. When `audit` never reports, the change fails at `settings.LiveLimit`. Its
+alert's detail names `audit` and the state `open`, and no notice exists. A change that removes a
+check still waits for that check, because the list in force names it. An `open` change at
+`settings.LiveLimit` minus one second is still `open`.
+*An example test with a fake clock and a fake GitHub that reports chosen checks.*
+
+**C35. Behaviour: a `proposed` change is retried until it opens, fails on a refusal, or reaches the
+limit.** Proves A9. When `ProposeFile` fails in the command, the command answers with the change
+in state `proposed`. On the next `Land` tick, `ProposeFile` runs with the recorded branch,
+`base_sha` and the same bytes, and the change becomes `open` with one pull request and one commit.
+A 5xx or a rate-limit answer leaves the change `proposed` for the next tick. A 422 fails it at once,
+with GitHub's answer in the detail and one `settings_change_failed` alert. A change that is still
+`proposed` at `settings.LiveLimit` fails the same way. A crash after `ProposeFile` created the
+branch and before the record moved to `open` gives one pull request, not two.
+*An example test per case, with a fake GitHub that fails chosen calls and a fake clock.*
 
 ## Observable behaviour
 
