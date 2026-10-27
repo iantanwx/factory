@@ -42,11 +42,24 @@ type Config struct {
 	Source func(ctx context.Context, p config.Project) (*config.ProjectSnapshot, error)
 	// Mechanisms holds one mechanism for each name a config may hold.
 	Mechanisms map[config.MergeMechanism]Mechanism
-	Logger     *slog.Logger
+	// Settings lands the project's settings changes on each tick, before
+	// its tickets. Nil lands no settings change.
+	Settings Lander
+	Logger   *slog.Logger
 }
 
-// HandOff is the merge-handoff native job. Each tick of a project
-// withdraws every PR whose ticket left queued, reads the outcome of every
+// Lander moves a project's settings change through the mechanism:
+// settings.Service.
+type Lander interface {
+	// Land moves the project's live change one step.
+	Land(ctx context.Context, p config.Project, m Mechanism) error
+	// Eligible reports whether PR n is a handed settings change at its
+	// recorded head.
+	Eligible(ctx context.Context, p config.Project, n int) (bool, error)
+}
+
+// HandOff is the merge-handoff native job. Each tick of a project moves
+// its settings change one step, withdraws every PR whose ticket left queued, reads the outcome of every
 // queued ticket's PR, hands off every ready_to_merge ticket whose
 // loop/eligible is posted at its PR's current head, and runs the
 // mechanism's sweep.
@@ -130,6 +143,14 @@ func (h *HandOff) TickProject(ctx context.Context, project string) error {
 		return err
 	}
 	var errs []error
+	if h.cfg.Settings != nil {
+		if err := h.cfg.Settings.Land(ctx, p, mech); err != nil {
+			if rateLimited(err) {
+				return nil
+			}
+			errs = append(errs, fmt.Errorf("settings: %w", err))
+		}
+	}
 	if err := h.withdrawStale(ctx, p, mech); err != nil {
 		errs = append(errs, err)
 	}
@@ -151,7 +172,13 @@ func (h *HandOff) TickProject(ctx context.Context, project string) error {
 		}
 	}
 	if sw, ok := mech.(Sweeper); ok {
-		if err := sw.Sweep(ctx, p, func(ctx context.Context, n int) (bool, error) { return h.eligible(ctx, p, n) }); err != nil {
+		if err := sw.Sweep(ctx, p, func(ctx context.Context, n int) (bool, error) {
+			ok, err := h.eligible(ctx, p, n)
+			if ok || err != nil || h.cfg.Settings == nil {
+				return ok, err
+			}
+			return h.cfg.Settings.Eligible(ctx, p, n)
+		}); err != nil {
 			errs = append(errs, err)
 		}
 	}

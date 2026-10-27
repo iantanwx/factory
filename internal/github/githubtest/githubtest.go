@@ -672,6 +672,9 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 		if b, ok := body["body"]; ok {
 			pr.Body = b
 		}
+		if st, ok := body["state"]; ok {
+			pr.State = st
+		}
 		pr.UpdatedAt = w.tick()
 		WriteJSON(rw, 200, pr.json())
 	case r.Method == http.MethodGet && rePullSub.MatchString(path):

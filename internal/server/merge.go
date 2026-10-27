@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"maps"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
@@ -25,9 +26,13 @@ import (
 // Setup composes the three mechanisms and the merge-handoff job, adds the
 // mechanism check to `project add` and serves `merge status`. The
 // scheduler registers
-// HandOff.TickProject as the merge-handoff native job.
+// HandOff.TickProject as the merge-handoff native job. Each tick lands the
+// project's settings change first, through `settings set`'s service.
 type Merge struct {
 	GitHub *GitHub
+	// Mechanisms replaces the composed mechanism of each name it holds. A
+	// test puts the fake there.
+	Mechanisms map[config.MergeMechanism]merge.Mechanism
 
 	// HandOff is set by Setup. It is nil on a server without beads.
 	HandOff *merge.HandOff
@@ -68,18 +73,20 @@ func (m *Merge) Setup(s *Server) error {
 		config.MergeGitHubQueue: ghqueue.New(svc),
 		config.MergeDirect:      direct.New(svc),
 	}
+	maps.Copy(mechs, m.Mechanisms)
+	lander, err := s.wireSettingsSet(svc, mechs)
+	if err != nil {
+		return err
+	}
 	job, err := merge.New(merge.Config{
 		GitHub: svc, Machine: s.Machine, Store: s.Store, Projects: s.Projects, Source: source,
-		Mechanisms: mechs, Logger: s.RPC.Logger(),
+		Mechanisms: mechs, Settings: lander, Logger: s.RPC.Logger(),
 	})
 	if err != nil {
 		return err
 	}
 	s.Projects.AddHooks = append(s.Projects.AddHooks, job.AddHook)
 	m.HandOff = job
-	if err := s.wireSettingsSet(svc, mechs); err != nil {
-		return err
-	}
 	return s.RPC.Handle("merge status", mergeStatus(s))
 }
 
