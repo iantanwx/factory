@@ -75,8 +75,15 @@ func TestC15SettingsShowFromTheHost(t *testing.T) {
 // main holds cfg, and whose fake GitHub serves that file at main's head.
 func setWorld(t *testing.T, cfg string) (*ghWorld, string) {
 	t.Helper()
+	return setWorldWith(t, cfg, &Merge{})
+}
+
+// setWorldWith is setWorld with the merge setup mg.
+func setWorldWith(t *testing.T, cfg string, mg *Merge) (*ghWorld, string) {
+	t.Helper()
 	w := newGHWorld(t)
-	if err := (&Merge{GitHub: w.gh}).Setup(w.srv); err != nil {
+	mg.GitHub = w.gh
+	if err := mg.Setup(w.srv); err != nil {
 		t.Fatal(err)
 	}
 	gt.Git(t, w.checkout, "checkout", "-q", "main")

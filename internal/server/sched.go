@@ -89,17 +89,50 @@ type cachedSnap struct {
 	at   time.Time
 }
 
+// configCaches holds the forget func of each project config loader.
+type configCaches struct {
+	mu      sync.Mutex
+	forgets []func(project string)
+}
+
+func (c *configCaches) add(forget func(project string)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.forgets = append(c.forgets, forget)
+}
+
+// forget drops project's cached config from every loader, so the next
+// read loads the default branch again. A merged settings change calls it.
+func (c *configCaches) forget(project string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, f := range c.forgets {
+		f(project)
+	}
+}
+
 // projectLoader reads a project's config and manifest from its default
 // branch through config.Loader, so an invalid commit keeps the last known
-// good config and raises an alert (KTD20).
+// good config and raises an alert (KTD20). Server.caches drops its cached
+// copy of a project.
 func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 	loader := &config.Loader{LKG: config.StoreLKG(s.Store), Alerts: config.StoreAlerter(s.Store),
 		Check: config.StageCheck(&config.HostLoader{Path: s.HostPath})}
 	var mu sync.Mutex
 	cache := map[string]cachedSnap{}
+	// gen counts each project's forgets, so a load that started before a
+	// forget does not cache what it read.
+	gen := map[string]int{}
+	s.caches.add(func(project string) {
+		mu.Lock()
+		delete(cache, project)
+		gen[project]++
+		mu.Unlock()
+	})
 	return func(ctx context.Context, project string) (*config.ProjectSnapshot, error) {
 		mu.Lock()
 		c, ok := cache[project]
+		g := gen[project]
 		mu.Unlock()
 		if ok && time.Since(c.at) < projectConfigTTL {
 			return c.snap, nil
@@ -118,7 +151,9 @@ func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 		}
 		snap := &l.ProjectSnapshot
 		mu.Lock()
-		cache[project] = cachedSnap{snap: snap, at: time.Now()}
+		if gen[project] == g {
+			cache[project] = cachedSnap{snap: snap, at: time.Now()}
+		}
 		mu.Unlock()
 		return snap, nil
 	}

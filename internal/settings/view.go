@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
@@ -59,6 +60,14 @@ type Service struct {
 	Propose func(ctx context.Context, project string, f github.FileChange) (pr int, head string, err error)
 	// CheckMechanism runs the Check of merge mechanism m for project.
 	CheckMechanism func(ctx context.Context, project string, m config.MergeMechanism) error
+
+	// GitHub, Forget and Now serve Land.
+	GitHub GitHub
+	// Forget drops the project's cached config, so the next tick reads
+	// the default branch again. Nil drops nothing.
+	Forget func(project string)
+	// Now is the clock of LiveLimit. time.Now when nil.
+	Now func() time.Time
 }
 
 // Show lists every setting of project in force, with its value and source.

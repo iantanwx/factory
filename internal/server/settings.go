@@ -46,9 +46,11 @@ func (s *Server) wireSettings() error {
 
 // wireSettingsSet registers settings set, which proposes each change
 // through gh and checks a new merge mechanism against mechs. Merge.Setup
-// calls it.
-func (s *Server) wireSettingsSet(gh *github.Service, mechs map[config.MergeMechanism]merge.Mechanism) error {
+// calls it, and its merge-handoff job lands each change through the
+// service it returns.
+func (s *Server) wireSettingsSet(gh *github.Service, mechs map[config.MergeMechanism]merge.Mechanism) (*settings.Service, error) {
 	svc := s.settingsService()
+	svc.GitHub, svc.Forget = gh, s.caches.forget
 	svc.Propose = func(ctx context.Context, project string, f github.FileChange) (int, string, error) {
 		p, err := s.Projects.Show(project)
 		if err != nil {
@@ -68,7 +70,7 @@ func (s *Server) wireSettingsSet(gh *github.Service, mechs map[config.MergeMecha
 		}
 		return m.Check(ctx, p)
 	}
-	return s.RPC.Handle("settings set", func(ctx context.Context, call *rpc.Call) cli.Result {
+	return svc, s.RPC.Handle("settings set", func(ctx context.Context, call *rpc.Call) cli.Result {
 		project := call.Inv.Arg("project")
 		if _, err := s.Projects.Show(project); err != nil {
 			return projectFault(err)

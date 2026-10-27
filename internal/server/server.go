@@ -150,6 +150,8 @@ type Server struct {
 	Started time.Time
 
 	human *human
+	// caches drops a project's cached config from every loader.
+	caches configCaches
 	// overwatch is the sweep's world and part list, composed with the
 	// machine.
 	overwatch overwatchState

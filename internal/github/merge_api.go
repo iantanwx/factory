@@ -75,6 +75,13 @@ func (s *Service) Comment(ctx context.Context, p config.Project, n int, body str
 	return err
 }
 
+// ClosePR closes PR n with no merge. A closed PR is no fault.
+func (s *Service) ClosePR(ctx context.Context, p config.Project, n int) error {
+	_, err := s.repoDo(ctx, p, ScopePulls, Call{Method: http.MethodPatch, Path: repoPath(p, fmt.Sprintf("/pulls/%d", n)),
+		Body: map[string]string{"state": "closed"}}, nil)
+	return err
+}
+
 // MergePR merges PR n with a merge commit, only while its head is sha.
 // GitHub refuses the merge when the head moved, so a push after review
 // can never merge. It returns the merge commit. A refusal is an
