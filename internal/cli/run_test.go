@@ -119,7 +119,7 @@ func TestHandlerReceivesCanonicalArgsAndFlags(t *testing.T) {
 		got = inv
 		return Found(nil)
 	})
-	_, code := runJSON(t, r, "--json", "inbox", "defer", "--until=2026-10-21T10:00:00+02:00", "E-1")
+	_, code := runJSON(t, r, "--json", "inbox", "defer", "--until=2026-10-21T10:00:00+02:00", "--reason", "the deploy", "E-1")
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
