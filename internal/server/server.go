@@ -113,6 +113,9 @@ type Options struct {
 	// operator's decision that the coordinator relays (ADR 0010). A
 	// server with none refuses `coordinator upgrade`. Optional.
 	Upgrade UpgradeStarter
+	// LoopBinary is the absolute loop binary each token file names. Empty
+	// names none. `loop serve` sets <instance>/current/loop when it exists.
+	LoopBinary string
 }
 
 // Server is one composed instance.
@@ -298,7 +301,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	if cred, err := cli.ReadAdminCredential(dir); err == nil {
 		red.SetLive("host/admin_credential", cred)
 	}
-	tokens := &rpc.Tokens{Store: st, Redactor: red}
+	tokens := &rpc.Tokens{Store: st, Redactor: red, Instance: dir, LoopBinary: opts.LoopBinary}
 	if err := tokens.LoadLive(ctx); err != nil {
 		return nil, err
 	}

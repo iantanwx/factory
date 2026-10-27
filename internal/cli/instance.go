@@ -19,6 +19,9 @@ const (
 	// location, never a credential. The CLI reads the host-admin credential
 	// only from AdminCredentialFile inside that directory.
 	InstanceEnv = "LOOP_INSTANCE"
+	// CheckoutExecEnv marks a process that the checkout's token file
+	// exec'd. Such a process never execs again.
+	CheckoutExecEnv = "LOOP_CHECKOUT_EXEC"
 	// AdminCredentialFile holds the host-admin credential, mode 0600
 	// (KTD12). `loop install` writes it.
 	AdminCredentialFile = "admin.credential"
@@ -128,12 +131,16 @@ func ReadAdminCredential(instance string) (string, error) {
 // TokenFile is the content of .loop/token in a checkout. The server writes
 // it when it starts a run, a room or the coordinator. Token is the secret.
 // The other fields let the CLI derive idempotency keys without a call.
+// Instance and Binary route the run's own calls (ADR 0008, decision 5):
+// the instance the CLI calls, and the loop binary it runs.
 type TokenFile struct {
-	Token   string `json:"token"`
-	RunID   string `json:"run_id"`
-	Kind    string `json:"kind"`
-	Project string `json:"project,omitempty"`
-	Item    string `json:"item,omitempty"`
+	Token    string `json:"token"`
+	RunID    string `json:"run_id"`
+	Kind     string `json:"kind"`
+	Project  string `json:"project,omitempty"`
+	Item     string `json:"item,omitempty"`
+	Instance string `json:"instance,omitempty"`
+	Binary   string `json:"binary,omitempty"`
 }
 
 // ErrNoCheckout means no directory from the working directory up holds a

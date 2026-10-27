@@ -103,6 +103,12 @@ func fetchedSkills(instance string) fs.FS {
 // server. The returned cleanup stops what it started.
 func productionOptions(ctx context.Context, dir string, w wiring) (server.Options, func(), error) {
 	opts := server.Options{Instance: dir, Upgrade: newUpgradeStarter(dir).Start}
+	// Each run's CLI execs the release the service runs. A server outside
+	// a release, such as a dev build, names no binary.
+	bin := filepath.Join(dir, release.CurrentLink, release.BinaryName)
+	if _, err := os.Stat(bin); err == nil {
+		opts.LoopBinary = bin
+	}
 	cleanup := func() {}
 	cfg, err := config.LoadHost(filepath.Join(dir, config.HostConfigFile))
 	if errors.Is(err, fs.ErrNotExist) {

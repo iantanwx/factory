@@ -89,6 +89,10 @@ type IssueRequest struct {
 type Tokens struct {
 	Store    *store.Store
 	Redactor *secrets.Redactor // optional
+	// Instance and LoopBinary are written into each token file, so a
+	// run's CLI calls this instance with this binary. Either may be empty.
+	Instance   string
+	LoopBinary string
 }
 
 func hashToken(token string) string { return hexid.SHA256([]byte(token)) }
@@ -140,7 +144,8 @@ func (t *Tokens) IssueToCheckout(ctx context.Context, r IssueRequest) (cli.Token
 	if err != nil {
 		return cli.TokenFile{}, err
 	}
-	tf := cli.TokenFile{Token: token, RunID: r.RunID, Kind: r.Kind, Project: r.Project, Item: r.Item}
+	tf := cli.TokenFile{Token: token, RunID: r.RunID, Kind: r.Kind, Project: r.Project, Item: r.Item,
+		Instance: t.Instance, Binary: t.LoopBinary}
 	if err := cli.WriteTokenFile(r.Checkout, tf); err != nil {
 		return cli.TokenFile{}, fmt.Errorf("rpc: write the token file: %w", err)
 	}
