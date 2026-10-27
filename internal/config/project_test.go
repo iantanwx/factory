@@ -334,3 +334,49 @@ func TestReadProjectSnapshotReadsManifest(t *testing.T) {
 		t.Fatalf("a configured manifest that is missing: %v, want ErrInvalid", err)
 	}
 }
+
+// C1: a baseline belongs to one ratcheted gate. Config load refuses it on a
+// gate that prints no findings, on a policy hook, on a path outside the
+// repository, on a path two gates share and on the standards gate's own
+// file, and names the field each time.
+func TestProjectConfigBaseline(t *testing.T) {
+	gates := func(lines ...string) string {
+		return strings.Replace(validProjectConfig, "gates:\n  - name: gates\n    run: make gates\n", "gates:\n"+strings.Join(lines, ""), 1)
+	}
+	gate := func(name, baseline string) string {
+		return "  - name: " + name + "\n    run: make " + name + "\n    baseline: " + baseline + "\n"
+	}
+	refused := map[string]struct{ doc, field string }{
+		"on format":             {gates(gate("format", "lint.json")), "gates[0].baseline"},
+		"on typecheck":          {gates(gate("typecheck", "lint.json")), "gates[0].baseline"},
+		"on test":               {gates(gate("test", "lint.json")), "gates[0].baseline"},
+		"on build":              {gates(gate("build", "lint.json")), "gates[0].baseline"},
+		"on a policy hook":      {strings.Replace(validProjectConfig, "run: ./scripts/policy.sh", "run: ./scripts/policy.sh\n    baseline: policy.json", 1), "policy_hooks[0].baseline"},
+		"absolute":              {gates(gate("lint", "/etc/lint.json")), "gates[0].baseline"},
+		"escaping":              {gates(gate("lint", "../lint.json")), "gates[0].baseline"},
+		"dot-dot inside":        {gates(gate("lint", ".loop/../lint.json")), "gates[0].baseline"},
+		"not clean":             {gates(gate("lint", ".loop//lint.json")), "gates[0].baseline"},
+		"dot":                   {gates(gate("lint", ".")), "gates[0].baseline"},
+		"shared by two gates":   {gates(gate("lint", ".loop/lint.json"), gate("audit", ".loop/lint.json")), "gates[1].baseline"},
+		"the suppressions file": {gates(gate("lint", ".loop/suppressions.json")), "gates[0].baseline"},
+	}
+	for name, c := range refused {
+		t.Run(name, func(t *testing.T) {
+			_, err := ParseProjectConfig([]byte(c.doc))
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.field+":") {
+				t.Fatalf("err = %v, want a refusal of %s", err, c.field)
+			}
+		})
+	}
+	cfg, err := ParseProjectConfig([]byte(gates(gate("lint", ".loop/lint.json"), gate("audit", ".loop/audit.json"), gate("e2e", "e2e/baseline.json"))))
+	if err != nil {
+		t.Fatalf("baselines on lint, audit and an extra gate: %v", err)
+	}
+	var got []string
+	for _, g := range cfg.Gates {
+		got = append(got, g.Name+"="+g.Baseline)
+	}
+	if want := "lint=.loop/lint.json audit=.loop/audit.json e2e=e2e/baseline.json"; strings.Join(got, " ") != want {
+		t.Fatalf("baselines = %v, want %s", got, want)
+	}
+}
