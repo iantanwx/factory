@@ -593,6 +593,29 @@ func (b *BD) Dependencies(ctx context.Context, id string) ([]Dependency, error) 
 	return deps, nil
 }
 
+// RemoveDependency implements Client. bd 1.3.1 `dep remove` deletes the edge
+// of the pair whatever its type, and it reports success for a missing edge
+// and for a target with another prefix (TestDepRemoveMissingEdgeReal). So
+// the call reads the target and the edge first, and deletes only an edge of
+// the given kind.
+func (b *BD) RemoveDependency(ctx context.Context, from, to string, kind DepKind) error {
+	if kind == "" {
+		kind = DepBlocks
+	}
+	if _, err := b.Get(ctx, to); err != nil {
+		return err
+	}
+	deps, err := b.Dependencies(ctx, from)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(deps, func(d Dependency) bool { return d.ID == to && d.Kind == kind }) {
+		return nil
+	}
+	_, err = b.run(ctx, "dep", "remove", from, to, "--json")
+	return err
+}
+
 // config reads the effective configuration, as `bd config show` reports it.
 func (b *BD) config(ctx context.Context) (map[string]string, error) {
 	out, err := b.run(ctx, "config", "show", "--json")

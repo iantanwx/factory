@@ -68,6 +68,10 @@ type Client interface {
 	// edge's kind and the target's current status. An unknown id returns
 	// ErrNotFound.
 	Dependencies(ctx context.Context, id string) ([]Dependency, error)
+	// RemoveDependency deletes the edge from issue `from` to issue `to` of the
+	// given kind. An edge that does not exist is no error, so a replay is safe.
+	// Edges of another kind and to another issue stay.
+	RemoveDependency(ctx context.Context, from, to string, kind DepKind) error
 }
 
 // Dependency is one edge out of an issue: the issue it depends on, the
