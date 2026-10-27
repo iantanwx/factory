@@ -26,7 +26,9 @@ import (
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/agenthost/agenthosttest"
 	agentfake "github.com/iantanwx/loop/internal/agenthost/fake"
+	"github.com/iantanwx/loop/internal/agenthost/orca"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
@@ -34,6 +36,7 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/pack"
+	"github.com/iantanwx/loop/internal/pipeline"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
@@ -72,10 +75,51 @@ type Options struct {
 	Config string
 	// Files are more files on the project's main branch.
 	Files map[string]string
+	// Real composes the world as production does on an orca host: the real
+	// clock, no coordinator, the project clone at Real.Clone. Nil keeps the
+	// fake world.
+	Real *RealHost
+}
+
+// RealHost is the host of a real world.
+type RealHost struct {
+	Agents    agenthost.Host     // wrapped in Counting with Declared
+	Checkouts sched.CheckoutHost // makes the project's checkouts from Clone
+	Clone     string             // absolute path of a lane fixture
+	Declared  int                // the sessions the test declares in the plan
+}
+
+// devboxOrca is the orca CLI on the devbox, as the orca contract names it.
+const devboxOrca = "/home/operator/.config/orca/cli/bin/orca"
+
+// OrcaHost builds a RealHost from LOOP_ORCA_*, as cmd/loop's realAgents
+// builds the orca host. Clone is the path of LOOP_ORCA_REPO, which must use
+// the path: form.
+func OrcaHost(declared int) (*RealHost, error) {
+	repo := os.Getenv("LOOP_ORCA_REPO")
+	clone, ok := strings.CutPrefix(repo, "path:")
+	if !ok || !filepath.IsAbs(clone) {
+		return nil, fmt.Errorf("LOOP_ORCA_REPO %q is not path:<absolute clone>", repo)
+	}
+	base := orca.Config{Bin: os.Getenv("LOOP_ORCA_BIN"), CheckoutRoot: os.Getenv("LOOP_ORCA_ROOT")}
+	if base.Bin == "" {
+		base.Bin = devboxOrca
+	}
+	agents, err := orca.New(base)
+	if err != nil {
+		return nil, err
+	}
+	base.Repo = repo
+	checkouts, err := orca.New(base)
+	if err != nil {
+		return nil, err
+	}
+	return &RealHost{Agents: agents, Checkouts: checkouts, Clone: clone, Declared: declared}, nil
 }
 
 // World is one instance: the real server, real beads, the fake agent host
-// and synthetic GitHub.
+// and synthetic GitHub. A real world has the host of Options.Real in place
+// of the fake.
 type World struct {
 	T *testing.T
 	// Dir is the instance directory. It is also the state directory, so
@@ -88,10 +132,13 @@ type World struct {
 
 	API  *gt.API
 	Git  *gt.GitServer
-	Host *agentfake.Host
-	Srv  *server.Server
-	GH   *server.GitHub
-	MG   *server.Merge
+	Host *agentfake.Host // nil in a real world
+	// Agents is the server's agent host: the fake, or the real world's
+	// host wrapped in Counting.
+	Agents agenthost.Host
+	Srv    *server.Server
+	GH     *server.GitHub
+	MG     *server.Merge
 
 	root    string // the parent of everything the world writes
 	hostCwd string // the host's working directory, outside every checkout
@@ -99,6 +146,9 @@ type World struct {
 	bin     string // a PATH that holds loop and git only
 	bd      string
 	dolt    string
+	real    *RealHost
+	pl      *server.Pipeline
+	loop    string // a real world's copy of Binary under Dir, which each token file names
 
 	mu      sync.Mutex
 	run     *running
@@ -132,7 +182,9 @@ func (b *syncBuffer) String() string {
 
 // New makes a world, starts its server, stores the GitHub App key and
 // registers the project through the CLI as the host, and restarts once so
-// the coordinator session starts on the registered project.
+// the coordinator session starts on the registered project. A real world
+// starts no coordinator, and it refuses a clone that is not a lane fixture
+// before it changes anything.
 func New(t *testing.T, o Options) *World {
 	t.Helper()
 	bd, dolt, ok := BeadsBinaries()
@@ -142,11 +194,15 @@ func New(t *testing.T, o Options) *World {
 	if Binary == "" {
 		t.Fatal("acceptance: no loop binary; the scenarios' TestMain builds one with BuildBinary")
 	}
+	if o.Real != nil && !orca.IsLaneFixture(o.Real.Clone) {
+		t.Fatalf("acceptance: %s is no lane fixture: it has no .git/%s, so a real world does not rewrite it",
+			o.Real.Clone, orca.LaneFixtureMarker)
+	}
 	root, err := os.MkdirTemp("", "acc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &World{T: t, root: root, bd: bd, dolt: dolt, logs: &syncBuffer{}}
+	w := &World{T: t, root: root, bd: bd, dolt: dolt, real: o.Real, logs: &syncBuffer{}}
 	t.Cleanup(func() {
 		w.Stop()
 		if t.Failed() {
@@ -182,6 +238,11 @@ func New(t *testing.T, o Options) *World {
 	cfg := config.DefaultHost(w.Dir)
 	cfg.Beads = config.BeadsConfig{BD: bd, Dolt: dolt}
 	cfg.AgentHost = config.AgentHostConfig{Kind: "fake", CheckoutRoot: filepath.Join(root, "co")}
+	if w.real != nil {
+		// No checkout root, so the cleanup never sweeps a real root that
+		// holds the operator's own worktrees.
+		cfg.AgentHost = config.AgentHostConfig{Kind: "orca"}
+	}
 	cfg.Credentials.GitHubApp = config.GitHubAppCredentials{AppID: gt.AppID, PrivateKeySecret: "GITHUB_APP_KEY"}
 	if err := config.SaveHost(filepath.Join(w.Dir, config.HostConfigFile), cfg); err != nil {
 		t.Fatal(err)
@@ -190,11 +251,26 @@ func New(t *testing.T, o Options) *World {
 	if _, err := rpc.EnsureAdminCredential(w.Dir); err != nil {
 		t.Fatal(err)
 	}
-	w.Host = agentfake.New(filepath.Join(root, "co"), agentfake.WithQuietPeriod(time.Hour))
+	if w.real != nil {
+		w.Agents = agenthosttest.Counting(t, w.real.Agents, w.real.Declared)
+		if q, ok := w.real.Agents.(agenthost.QuotaReader); ok {
+			w.Agents = quotaHost{w.Agents, q}
+		}
+		w.loop = filepath.Join(w.Dir, "acceptance", "loop")
+		if err := copyFile(Binary, w.loop); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		w.Host = agentfake.New(filepath.Join(root, "co"), agentfake.WithQuietPeriod(time.Hour))
+		w.Agents = w.Host
+	}
 
 	w.Start()
 	w.Must(w.HostCLI(bytes.NewReader(gt.KeyPEM()), "secret", "set", "GITHUB_APP_KEY", "--project", config.HostScope))
 	w.Must(w.HostCLI(nil, "project", "add", Project, "--repo", Repo, "--path", w.Repo))
+	if w.real != nil {
+		return w
+	}
 	// The service's next tick starts the coordinator on the new project.
 	if err := w.Srv.Sched.Tick(context.Background()); err != nil {
 		t.Fatal(err)
@@ -222,6 +298,15 @@ func (w *World) seed(o Options) {
 	gt.Git(t, seed, "init", "-q", "-b", "main")
 	gt.Commit(t, seed, "seed the fixture project", files)
 	gt.Git(t, seed, "push", "-q", w.Remote, "main")
+	if w.real != nil {
+		w.Repo = w.real.Clone
+		if err := resetMain(w.Repo, w.Remote); err != nil {
+			t.Fatal(err)
+		}
+		_ = setupGit(w.Repo, "remote", "remove", "origin")
+		gt.Git(t, w.Repo, "remote", "add", "origin", w.Git.URL(Repo))
+		return
+	}
 	w.Repo = filepath.Join(w.root, "repo")
 	gt.Git(t, w.root, "clone", "-q", w.Remote, w.Repo)
 	// The clone's origin is synthetic GitHub, which takes a token the
@@ -244,7 +329,8 @@ func (w *World) options() server.Options {
 		Sleep: func(context.Context, time.Duration) error { return nil }}
 	mg := &server.Merge{GitHub: gh}
 	w.GH, w.MG = gh, mg
-	opts.Setup = append(opts.Setup, gh.Setup, mg.Setup, (&server.Pipeline{GitHub: gh}).Setup)
+	w.pl = &server.Pipeline{GitHub: gh}
+	opts.Setup = append(opts.Setup, gh.Setup, mg.Setup, w.pl.Setup)
 	opts.Reconcile = append(opts.Reconcile, gh.Reconcile)
 	opts.BaseFiles = lazyBase{gh}
 	opts.Pulls = lazyPulls{gh}
@@ -283,8 +369,12 @@ func (w *World) options() server.Options {
 			t.Errorf("stop beads: %v", err)
 		}
 	})
-	opts.Agents = w.Host
+	opts.Agents = w.Agents
 	opts.Sched.Checkouts = func(string) sched.CheckoutHost { return checkouts{w} }
+	if w.real != nil {
+		opts.Sched.Checkouts = func(string) sched.CheckoutHost { return realCheckouts{w} }
+		opts.LoopBinary = w.loop
+	}
 	src, fetched, err := fixtureSkills()
 	if err != nil {
 		t.Fatal(err)
@@ -294,9 +384,11 @@ func (w *World) options() server.Options {
 		t.Fatalf("pack: left out %v, %v", left, err)
 	}
 	opts.Sched.Pack = p
-	opts.Sched.Coordinator = &sched.CoordinatorConfig{Harness: agenthost.Claude}
-	if len(cfg.Projects) > 0 {
-		opts.Sched.Coordinator.Project = cfg.Projects[0].ID
+	if w.real == nil {
+		opts.Sched.Coordinator = &sched.CoordinatorConfig{Harness: agenthost.Claude}
+		if len(cfg.Projects) > 0 {
+			opts.Sched.Coordinator.Project = cfg.Projects[0].ID
+		}
 	}
 	opts.Setup = append(opts.Setup, func(s *server.Server) error {
 		if s.Sched == nil {
@@ -316,9 +408,11 @@ func (w *World) options() server.Options {
 	// The suite's own seams. Each stage and job runs when a scenario says
 	// so: the tick loop runs its first pass at start, which starts the
 	// coordinator, and the clock it reads is the agent host's, which moves
-	// only when a scenario moves it.
+	// only when a scenario moves it. A real world reads the wall clock.
 	opts.Sched.TickInterval = time.Hour
-	opts.Sched.Now = w.Host.Clock().Now
+	if w.Host != nil {
+		opts.Sched.Now = w.Host.Clock().Now
+	}
 	opts.Human.PollInterval = 20 * time.Millisecond
 	opts.ShutdownTimeout = ShutdownTimeout
 	opts.Logger = slog.New(slog.NewJSONHandler(w.logs, nil))
@@ -582,6 +676,47 @@ func (c checkouts) RemoveCheckout(ctx context.Context, path string) error {
 	return setupGit(c.w.Repo, "worktree", "remove", "--force", path)
 }
 
+// realCheckouts resets the clone's main to the synthetic remote's main,
+// then has the real host make the checkout from it.
+type realCheckouts struct{ w *World }
+
+func (c realCheckouts) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec) (agenthost.Checkout, error) {
+	if err := resetMain(c.w.Repo, c.w.Remote); err != nil {
+		return agenthost.Checkout{}, err
+	}
+	return c.w.real.Checkouts.CreateCheckout(ctx, spec)
+}
+
+func (c realCheckouts) RemoveCheckout(ctx context.Context, path string) error {
+	return c.w.real.Checkouts.RemoveCheckout(ctx, path)
+}
+
+// resetMain points clone's main, and its work tree, at remote's main.
+func resetMain(clone, remote string) error {
+	if err := setupGit(clone, "fetch", "-q", remote, "main"); err != nil {
+		return err
+	}
+	return setupGit(clone, "checkout", "-q", "-f", "-B", "main", "FETCH_HEAD")
+}
+
+// quotaHost keeps the real host's quota reading behind Counting, so the
+// chooser reads it as production does.
+type quotaHost struct {
+	agenthost.Host
+	agenthost.QuotaReader
+}
+
+func copyFile(from, to string) error {
+	b, err := os.ReadFile(from)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(to, b, 0o755)
+}
+
 // GitIn runs git in dir as an agent does, with no credential, and returns
 // its output.
 func (w *World) GitIn(dir string, args ...string) string {
@@ -722,6 +857,32 @@ func (w *World) Coordinator(args ...string) Result {
 }
 
 // ---- Stages, jobs and GitHub ----
+
+// CreateTicket creates a PRD-less ticket through the work-create handler,
+// in process, as the coordinator on the operator's request, and returns
+// its id. It works in both modes, because a real world has no coordinator
+// session to call the CLI.
+func (w *World) CreateTicket(title, body string) string {
+	w.T.Helper()
+	flags := map[string]string{"project": Project, "title": title, "request": "the operator asked for this ticket"}
+	if body != "" {
+		flags["body"] = body
+	}
+	inv, bad := cli.Surface().Validate("work create", nil, flags, fmt.Sprintf("create-%d", time.Now().UnixNano()))
+	if bad != nil {
+		w.T.Fatalf("work create: %+v", bad)
+	}
+	// The coordinator's run id, when a session holds one, names the actor
+	// as a call from its checkout does.
+	pr := rpc.Principal{Kind: cli.PrincipalCoordinator, RunID: w.Srv.Sched.Coordinator().RunID, Project: Project}
+	call := &rpc.Call{Inv: inv, Principal: pr}
+	res := w.pl.Pipeline.Handlers()["work create"](context.Background(), call)
+	cr, ok := res.Data.(pipeline.CreateResult)
+	if res.Refusal != nil || !ok || cr.Item == "" {
+		w.T.Fatalf("work create = %+v", res)
+	}
+	return cr.Item
+}
 
 // Run is one run the scheduler started.
 type Run struct {
