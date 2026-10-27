@@ -38,20 +38,7 @@ func newWorld(t *testing.T, o acceptance.Options) *acceptance.World {
 // operator's request, and returns its id.
 func createTicket(w *acceptance.World, title, body string) string {
 	w.T.Helper()
-	args := []string{"work", "create", "--project", acceptance.Project, "--title", title,
-		"--request", "the operator asked for this ticket"}
-	if body != "" {
-		args = append(args, "--body", body)
-	}
-	r := w.Must(w.Coordinator(args...))
-	id := r.Str("item")
-	if id == "" {
-		id = r.Str("id")
-	}
-	if id == "" {
-		w.T.Fatalf("work create named no item: %s", r)
-	}
-	return id
+	return w.CreateTicket(title, body)
 }
 
 // implement starts an implementer run on the next ticket, commits files,
