@@ -14,8 +14,6 @@ type exemption struct {
 
 // handlerExemptions lists every server verb with no handler, in path order.
 var handlerExemptions = []exemption{
-	{"stage pause", "factorio-wd0"},
-	{"stage resume", "factorio-wd0"},
 	{"work block", "factorio-9wh"},
 }
 

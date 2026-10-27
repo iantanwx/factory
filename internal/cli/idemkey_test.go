@@ -302,8 +302,8 @@ func TestValidateChecksWireCalls(t *testing.T) {
 	if _, res := r.Validate("inbox defer", []string{"E-1"}, map[string]string{"until": "2026-10-21T10:00:00+02:00"}, "r"); res == nil {
 		t.Fatal("a non-canonical time must be refused")
 	}
-	inv, res := r.Validate("inbox defer", []string{"E-1"}, map[string]string{"until": "2026-10-21T08:00:00Z", "@content_hash": "h"}, "r")
-	if res != nil || inv.Extra["@content_hash"] != "h" || len(inv.Flags) != 1 {
+	inv, res := r.Validate("inbox defer", []string{"E-1"}, map[string]string{"until": "2026-10-21T08:00:00Z", "reason": "the deploy", "@content_hash": "h"}, "r")
+	if res != nil || inv.Extra["@content_hash"] != "h" || len(inv.Flags) != 2 {
 		t.Fatalf("Validate = %+v %v", inv, res)
 	}
 	if _, res := r.Validate("work show", nil, nil, "r"); res == nil || res.Refusal.Rule != "missing_argument" {

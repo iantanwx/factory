@@ -20,6 +20,7 @@ var requiredFlags = []struct {
 }{
 	{"loop work cancel", []string{"--reason"}},
 	{"loop decision file", []string{"--by", "--waits-for-a-person"}},
+	{"loop inbox defer", []string{"--reason"}},
 	{"loop work shape", []string{"--priority"}},
 }
 

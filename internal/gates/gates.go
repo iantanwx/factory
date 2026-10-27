@@ -116,6 +116,7 @@ func List(cfg *config.ProjectConfig) []Gate {
 		{Name: "runbooks", Docs: true, Check: Runbooks},
 		{Name: "adr", Docs: true, Check: ADR},
 		{Name: "prd", Docs: true, Check: PRD},
+		{Name: "spec", Docs: true, Check: Spec},
 		{Name: "lessons", Docs: true, Check: Lessons},
 		{Name: "prose", Docs: true, Check: Prose},
 		{Name: "citations", Docs: true, Check: Citations},
