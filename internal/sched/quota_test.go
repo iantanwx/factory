@@ -95,15 +95,15 @@ func (w *world) rejectTwice(id string) {
 }
 
 // Parity 1.15: after two code-review rejects, the next implementer run
-// starts on the stage's escalated profile, and its start waits for a
-// receipt that the harness runs that model. A ticket with no second reject
-// keeps the stage's own profile.
+// starts on the stage's escalated profile. A ticket with no second reject
+// keeps the stage's own profile. Both starts wait for a receipt that the
+// harness runs the requested model.
 func TestTwoRejectsStartTheNextImplementerRunOnTheEscalatedModel(t *testing.T) {
 	w := newWorld(t)
 	plain := w.ticket(machine.Todo)
 	st := w.dispatch(machine.StageImplementer)
 	spec := w.host.Launches()[0].Spec
-	if st.Item != plain || spec.Model != "claude-opus-5-5" || spec.Effort != "high" || spec.RequireVerifiedModel {
+	if st.Item != plain || spec.Model != "claude-opus-5-5" || spec.Effort != "high" || !spec.RequireVerifiedModel {
 		t.Fatalf("a ticket with no reject starts %+v", spec)
 	}
 
@@ -116,26 +116,6 @@ func TestTwoRejectsStartTheNextImplementerRunOnTheEscalatedModel(t *testing.T) {
 	}
 	if st.Profile.Model != spec.Model {
 		t.Fatalf("the run records profile %+v, and the session runs %s", st.Profile, spec.Model)
-	}
-}
-
-// An escalated start whose harness records no model fails as before, and
-// the scheduler closes the session the host left running. Ticket c of
-// factorio-jiv replaces this guard.
-func TestEscalatedStartWithNoReceiptClosesTheSession(t *testing.T) {
-	w := newWorld(t)
-	id := w.ticket(machine.InReview)
-	w.rejectTwice(id)
-	w.host.SetSilentModel(true)
-	if st, ref := w.s.Dispatch(context.Background(), prj, machine.StageImplementer); ref == nil || st != nil {
-		t.Fatalf("dispatch = %+v, %+v; want a refusal", st, ref)
-	}
-	l := w.host.Launches()
-	if len(l) != 1 || !l[0].Spec.RequireVerifiedModel {
-		t.Fatalf("launches = %+v", l)
-	}
-	if st, _ := w.host.Settle(context.Background(), l[0].ID); st.Liveness == agenthost.Live {
-		t.Fatal("the session with no model receipt still runs")
 	}
 }
 
