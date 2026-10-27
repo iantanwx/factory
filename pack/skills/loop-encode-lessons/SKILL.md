@@ -135,8 +135,12 @@ When you cannot build the mechanism now, record the row as `pending`. File a dec
 the answer, and name its id in `Where it lives`:
 
 ```bash
-loop decision file --title "Which rung holds: <lesson>" --trigger "<the event that forces it>"
+loop decision file --title "Which rung holds: <lesson>" --trigger "<the event that forces it>" \
+  --waits-for-a-person "<who notices the event>"
 ```
+
+When the trigger names a date, pass `--by <YYYY-MM-DD>` in place of `--waits-for-a-person`. The
+server refuses a decision with neither or both.
 
 The section of a `pending` lesson starts a paragraph with `**Trigger.**`, and states the event
 that forces the answer. A pending lesson with nothing that forces an answer stays pending. A
