@@ -37,6 +37,12 @@ type Installer struct {
 	Skills []pack.ThirdParty
 	// Fetcher fetches the skills when one is missing or drifted.
 	Fetcher SkillFetcher
+	// Requires are the rows of Requirements that this host checks. Install
+	// refuses before it writes anything when a required one is missing.
+	Requires []Requirement
+	// Home is the operator's home directory, where an installer can put a
+	// required binary off the path.
+	Home string
 }
 
 // InstallReport is the JSON of `loop install`.
@@ -67,6 +73,10 @@ func (in *Installer) Install(ctx context.Context) (InstallReport, error) {
 		return InstallReport{}, err
 	}
 	if err := checkVersionName(in.Meta.Version); err != nil {
+		return InstallReport{}, err
+	}
+	cfg, _ := config.LoadHost(in.Layout.HostConfig())
+	if err := checkRequired(in.Requires, HostFinder(in.Home, cfg)); err != nil {
 		return InstallReport{}, err
 	}
 	for _, d := range []string{dir, in.Layout.join(VersionsDir), in.Layout.join(BinDir), in.Layout.Snapshots(), in.Layout.join("log")} {

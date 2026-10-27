@@ -171,10 +171,12 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 		return opts, cleanup, fmt.Errorf("beads: %w", err)
 	}
 	opts.Beads = resolver
-	// The overwatch part server reads the install drift check, then the
-	// GitHub doctor lines (ADR 0009).
+	// The overwatch part server reads the host lines of loop doctor, then
+	// the GitHub doctor lines (ADR 0009).
+	// With no home, orca is looked up on the path alone.
+	home, _ := os.UserHomeDir()
 	opts.Setup = append(opts.Setup, func(s *server.Server) error {
-		s.SetOverwatchDoctor(installCheck(dir), gh)
+		s.SetOverwatchDoctor(hostChecks(dir, cfg, home), gh)
 		return nil
 	})
 	cleanup = func() {
@@ -412,6 +414,17 @@ func installCheck(dir string) func(context.Context) github.CheckLine {
 			line.OK, line.Detail = true, "the service, binaries, host config, key file and credential match loop install"
 		}
 		return line
+	}
+}
+
+// hostChecks is the host lines of loop doctor: the install line, then
+// one line for each requirement of this host. The service's own path
+// finds each binary, because the server runs them from there.
+func hostChecks(dir string, cfg *config.HostConfig, home string) func(context.Context) []github.CheckLine {
+	install := installCheck(dir)
+	return func(ctx context.Context) []github.CheckLine {
+		return append([]github.CheckLine{install(ctx)},
+			release.RequirementLines(release.HostRequirements(runtime.GOOS), release.HostFinder(home, cfg))...)
 	}
 }
 

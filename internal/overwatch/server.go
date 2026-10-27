@@ -8,13 +8,14 @@ import (
 )
 
 // serverPart is the part server (C19): host drift. Each failed doctor
-// line, from the install drift check or from the GitHub checks, is work
-// keyed by its check name, and its line quotes the check's detail.
+// line, from the install drift check, a required binary or the GitHub
+// checks, is work keyed by its check name, and its line quotes the
+// check's detail.
 func serverPart() Part {
 	return Part{Name: "server", Command: "loop doctor", Read: readServer}
 }
 
-// readServer reads the doctor lines: install drift, then GitHub.
+// readServer reads the doctor lines: the host lines, then GitHub.
 func readServer(ctx context.Context, w World) (Reading, error) {
 	lines, err := w.Doctor(ctx)
 	if err != nil {

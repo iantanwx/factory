@@ -124,6 +124,7 @@ func List(cfg *config.ProjectConfig) []Gate {
 		{Name: "lessons", Docs: true, Check: Lessons},
 		{Name: "prose", Docs: true, Check: Prose},
 		{Name: "citations", Docs: true, Check: Citations},
+		{Name: "requirements", Docs: true, Check: Requirements},
 		{Name: "secrets", Check: Secrets},
 	}
 	stack := func(name string) Gate {
