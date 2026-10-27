@@ -268,7 +268,9 @@ func (m *Machine) workAsk(ctx context.Context, call *rpc.Call) cli.Result {
 	return m.Apply(ctx, request(call, prj, bug, "ask", map[string]string{"body": body}))
 }
 
-// workDuplicate closes a bug as a duplicate of another item.
+// workDuplicate closes a bug as a duplicate of another item. With
+// --unbuilt the bug waits for the item instead, a ticket or an epic that
+// is not terminal, because only those build a change (spec Decision 11).
 func (m *Machine) workDuplicate(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -281,10 +283,23 @@ func (m *Machine) workDuplicate(ctx context.Context, call *rpc.Call) cli.Result 
 	if of == "" || of == bug {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "bad_original", Item: bug, Hint: "--of names another item, the one the bug repeats"})
 	}
-	if _, r := m.Read(ctx, prj, of); r != nil {
+	it, r := m.Read(ctx, prj, of)
+	if r != nil {
 		return r.Result()
 	}
-	return m.Apply(ctx, request(call, prj, bug, "duplicate", map[string]string{"of": of}))
+	if call.Inv.Flags["unbuilt"] != "true" {
+		return m.Apply(ctx, request(call, prj, bug, "duplicate", map[string]string{"of": of}))
+	}
+	t, _ := TableFor(it.Kind)
+	switch {
+	case it.Kind != KindTicket && it.Kind != KindEpic:
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "build_kind", Item: of,
+			Hint: fmt.Sprintf("%s is a %s; a bug waits only for a ticket or an epic, which builds a change", of, it.Kind)})
+	case t.Terminal(it.Status):
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "build_terminal", Item: of,
+			Hint: fmt.Sprintf("%s is %s already, so it builds nothing more; close the bug without --unbuilt, or name the build in flight", of, it.Status)})
+	}
+	return m.Apply(ctx, request(call, prj, bug, VerbAwaitBuild, map[string]string{"of": of}))
 }
 
 // workCancel closes an escalated item, or a bug the reproducer routes as

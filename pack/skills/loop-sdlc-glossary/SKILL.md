@@ -48,7 +48,9 @@ eligible pull request to the project's merge mechanism. No agent merges.
 - **Epic**: `prd_review`, `prd_amending`, `prd_signoff`, `architecture`, `spec_needed`,
   `spec_drafting`, `spec_review`, `spec_signoff`, `spec_amending`, `spec_approved`, `decomposing`,
   `execution`, `escalated`, `done`.
-- **Bug**: `reported`, `reproducing`, `asked`, `escalated`, `shaped`, `duplicate`, `canceled`.
+- **Bug**: `reported`, `reproducing`, `asked`, `awaiting_build`, `escalated`, `shaped`, `duplicate`,
+  `canceled`. A bug in `awaiting_build` waits for the ticket or the epic that builds what it asks
+  for. No stage claims it.
 - **Decision**: `pending`, `needs_human`, `done`, `canceled`.
 
 `loop schema` prints every state and every move. A run never names a raw state in a write. It
