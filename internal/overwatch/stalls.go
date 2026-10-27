@@ -180,16 +180,9 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 	return classifyStalls(rows, w.Now(), w.DrainSince()), nil
 }
 
-// scheduleOf parses a stage's schedule in a project: the project's
-// override, else host config's.
+// scheduleOf parses a stage's schedule in force in a project.
 func scheduleOf(hc *config.HostConfig, cfg *config.ProjectConfig, stage string) (*sched.Cron, error) {
-	expr := hc.ThroughputFor(stage).Schedule
-	if cfg != nil {
-		if sc, ok := cfg.Stages[stage]; ok && sc.Schedule != "" {
-			expr = sc.Schedule
-		}
-	}
-	return sched.ParseCron(expr)
+	return sched.ParseCron(config.Effective(hc, cfg).Schedule(stage))
 }
 
 // pauseOf names the oldest pause that holds stage in project, its reason

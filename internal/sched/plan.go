@@ -37,8 +37,9 @@ type Firing struct {
 // agent job, enabled or not, and each registered project job. A run stage
 // or an agent job is enabled where the project's config lists it, except
 // intake, which runs in a room. snap returns a project's config, or nil
-// when it has none, so the project fires its jobs only. A schedule is host
-// config's entry, or the agent job's own, and the project's overrides it.
+// when it has none, so the project fires its jobs only. A project's
+// schedule is the one config.Effective puts in force. An instance job keeps
+// host config's.
 func Firings(hc *config.HostConfig, projects []config.Project, snap func(project string) *config.ProjectSnapshot, jobs Jobs) []Firing {
 	var out []Firing
 	for _, name := range config.NativeJobs() {
@@ -48,31 +49,34 @@ func Firings(hc *config.HostConfig, projects []config.Project, snap func(project
 	}
 	for _, p := range projects {
 		sn := snap(p.ID)
-		add := func(stage string, kind FiringKind, enabled bool, expr string) {
-			if sn != nil {
-				if sc, ok := sn.Config.Stages[stage]; ok && sc.Schedule != "" {
-					expr = sc.Schedule
-				}
-			}
-			out = append(out, Firing{Project: p.ID, Stage: stage, Kind: kind, Enabled: enabled, Schedule: expr})
+		t := config.Effective(hc, configOf(sn))
+		add := func(stage string, kind FiringKind, enabled bool) {
+			out = append(out, Firing{Project: p.ID, Stage: stage, Kind: kind, Enabled: enabled, Schedule: t.Schedule(stage)})
 		}
 		listed := func(stage string) bool {
 			return sn != nil && sn.Config.StageEnabled(stage) && stage != config.StageIntake
 		}
 		for _, stage := range config.RunStages() {
-			add(stage, FiringRun, listed(stage), hc.ThroughputFor(stage).Schedule)
+			add(stage, FiringRun, listed(stage))
 		}
 		for _, name := range hc.AgentJobNames() {
-			j, _ := hc.AgentJob(name)
-			add(name, FiringAgentJob, listed(name), j.Schedule)
+			add(name, FiringAgentJob, listed(name))
 		}
 		for _, name := range config.NativeJobs() {
 			if slices.Contains(jobs.Project, name) {
-				add(name, FiringJob, true, hc.ThroughputFor(name).Schedule)
+				add(name, FiringJob, true)
 			}
 		}
 	}
 	return out
+}
+
+// configOf returns a snapshot's config, or nil for no snapshot.
+func configOf(sn *config.ProjectSnapshot) *config.ProjectConfig {
+	if sn == nil {
+		return nil
+	}
+	return sn.Config
 }
 
 // StageRow is one firing with the values that start its runs: the caps

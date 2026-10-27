@@ -1008,3 +1008,48 @@ func TestOneFireFillsTheStagesFreeCap(t *testing.T) {
 		t.Fatalf("%d live runs, want 8", n)
 	}
 }
+
+// C11: runs per tick bounds one firing. With runs_per_tick 3, a cap of 8,
+// no live run and 5 candidates, one firing starts 3 runs. Unset, the same
+// firing starts 5. With runs_per_tick 3 and 7 live runs, it starts 1,
+// because admission refuses the second.
+func TestC11RunsPerTickBoundsOneFiring(t *testing.T) {
+	const perTick3 = "stages:\n  implementer: {runs_per_tick: 3}\n  code-reviewer: {}\nmerge:\n  mechanism: direct\n"
+	const unset = "stages:\n  implementer: {}\n  code-reviewer: {}\nmerge:\n  mechanism: direct\n"
+	cases := []struct {
+		name       string
+		cfg        string
+		live, todo int
+		want       int
+	}{
+		{"runs_per_tick 3", perTick3, 0, 5, 3},
+		{"runs_per_tick unset", unset, 0, 5, 5},
+		{"runs_per_tick 3 with 7 live runs", perTick3, 7, 5, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			w.writeHost(map[string]int{"implementer": 8}, map[string]string{"implementer": "0 * * * *"})
+			w.project.set(snapshot(t, c.cfg, ""))
+			w.rebuild()
+			for range c.live {
+				w.ticket(machine.Todo)
+				w.dispatch(machine.StageImplementer)
+			}
+			for range c.todo {
+				w.ticket(machine.Todo)
+			}
+			w.clock.Set(at(t, "2026-10-21T10:00:30Z"))
+			w.tick() // the first sight sets the deadline after now
+			before := len(w.host.Launches())
+			w.clock.Set(at(t, "2026-10-21T11:00:30Z"))
+			w.tick()
+			if n := len(w.host.Launches()) - before; n != c.want {
+				t.Fatalf("one firing with %d live runs and %d candidates started %d runs, want %d", c.live, c.todo, n, c.want)
+			}
+			if n := w.count(`SELECT count(*) FROM runs WHERE ended_at IS NULL`); n != c.live+c.want {
+				t.Fatalf("%d live runs, want %d", n, c.live+c.want)
+			}
+		})
+	}
+}
