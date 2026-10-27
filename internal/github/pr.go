@@ -115,6 +115,27 @@ func (s *Service) GetPR(ctx context.Context, p config.Project, number int) (PR, 
 	return pr, err
 }
 
+// Conflicts reports whether the head of pr does not merge cleanly with the
+// current head of its base. GitHub computes its mergeable state lazily, and
+// it can still say clean after the base moved (F-44). So the server fetches
+// both branches into the mirror and merges them there.
+func (s *Service) Conflicts(ctx context.Context, p config.Project, pr PR) (bool, error) {
+	unlock := s.lock(p.ID + "\x00" + pr.Head.Ref)
+	defer unlock()
+	m := s.Mirror(p)
+	if err := m.Init(ctx); err != nil {
+		return false, err
+	}
+	tok, err := s.Token(ctx, p, ScopeRead)
+	if err != nil {
+		return false, err
+	}
+	if err := m.Fetch(ctx, tok, pr.Base.Ref, pr.Head.Ref); err != nil {
+		return false, err
+	}
+	return m.Conflicts(ctx, remoteRef(pr.Base.Ref), pr.Head.SHA)
+}
+
 // OpenPR opens the PR of an item's branch as the App, or returns the PR
 // already open on that head branch, so `pr open` twice on one branch opens
 // one PR (KTD6: a PR's natural key is its head branch). branch is the

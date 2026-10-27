@@ -280,6 +280,17 @@ func (m *Mirror) Reaches(ctx context.Context, tip, sha string) (bool, error) {
 	return err == nil, err
 }
 
+// Conflicts reports whether head does not merge cleanly with base. git
+// merge-tree answers exit 1 for a conflict; any other failure is an error.
+func (m *Mirror) Conflicts(ctx context.Context, base, head string) (bool, error) {
+	_, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"merge-tree", "--write-tree", "--name-only", "--no-messages", base, head}})
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return true, nil
+	}
+	return false, err
+}
+
 // Lacking lists the commits of remote whose change head lacks, by patch
 // id, as `git cherry` reads it. A rebase of the same commits lacks none.
 // Ported from push in scripts/sdlc/machinery-publish-flow.ts:105-125

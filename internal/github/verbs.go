@@ -226,7 +226,8 @@ func (s *Service) itemPR(ctx context.Context, call *rpc.Call, item string) (conf
 
 // prShow shows the item's PR. GitHub's PR list carries no mergeable
 // state, and the implementer reads it here to learn whether to merge the
-// base, so an open PR is read again by number.
+// base, so an open PR is read again by number. GitHub's state can lag a
+// moved base, so a conflict in the mirror reports dirty (C-bug-1).
 func (s *Service) prShow(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, pr, res := s.itemPR(ctx, call, "")
 	if res != nil {
@@ -238,6 +239,15 @@ func (s *Service) prShow(ctx context.Context, call *rpc.Call) cli.Result {
 			return Refuse(err)
 		}
 		pr = &cur
+	}
+	if pr.State == "open" && pr.MergeableState != MergeableDirty {
+		conflict, err := s.Conflicts(ctx, prj, *pr)
+		if err != nil {
+			return Refuse(err)
+		}
+		if conflict {
+			pr.MergeableState = MergeableDirty
+		}
 	}
 	return cli.Found(pr.View())
 }
