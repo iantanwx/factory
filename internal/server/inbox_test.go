@@ -287,7 +287,8 @@ func TestCoordinatorSendRingsTheCoordinator(t *testing.T) {
 // `inbox note` records the root cause of an open alert, and the alert stays
 // open. A repeat of that alert after the finding rings no one: its entry
 // keeps the time it had at the note. An alert with no finding still rings
-// on each repeat, and a later note replaces the finding.
+// on each repeat, except run_start_failed (F-41), and a later note replaces
+// the finding.
 func TestInboxNoteHoldsAFindingAndARepeatDoesNotRing(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()

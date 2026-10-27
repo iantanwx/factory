@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/fault"
@@ -337,7 +338,7 @@ func (in *Inbox) rooms(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 }
 
 func (in *Inbox) alerts(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
-	rs, err := tx.QueryContext(ctx, `SELECT id, project, kind, subject, body, count, last_at, finding, finding_run,
+	rs, err := tx.QueryContext(ctx, `SELECT id, project, kind, subject, body, count, first_at, last_at, finding, finding_run,
 		coalesce(finding_count, 0), coalesce(finding_last_at, 0) FROM alerts WHERE state = 'open' ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -345,10 +346,10 @@ func (in *Inbox) alerts(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 	defer func() { _ = rs.Close() }()
 	var out []Entry
 	for rs.Next() {
-		var id, at, foundAt int64
+		var id, first, at, foundAt int64
 		var count, foundCount int
 		var project, kind, subject, body, finding, findingRun string
-		if err := rs.Scan(&id, &project, &kind, &subject, &body, &count, &at, &finding, &findingRun, &foundCount, &foundAt); err != nil {
+		if err := rs.Scan(&id, &project, &kind, &subject, &body, &count, &first, &at, &finding, &findingRun, &foundCount, &foundAt); err != nil {
 			return nil, err
 		}
 		e := Entry{ID: rowEntry(KindAlert, id), Kind: KindAlert, Awaits: AwaitsCoordinator, Project: project, Status: kind,
@@ -362,6 +363,15 @@ func (in *Inbox) alerts(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 				e.Text = fmt.Sprintf("%s\n\nRaised %d times, %d of them after the finding.", body, count, count-foundCount)
 			}
 			e.Text += "\n\nThe finding:\n\n" + AgentText(findingRun, finding)
+		case kind == sched.AlertStartFailed:
+			// A stage's cron raises this again at each refused dispatch,
+			// for one cause. The entry keeps the time of the first raise,
+			// so a repeat rings no one even before a finding (F-41). The
+			// text shows the count and the last raise.
+			e.At = first
+			if count > 1 {
+				e.Text = fmt.Sprintf("%s\n\nRaised %d times. Last raised at %s.", body, count, time.UnixMilli(at).UTC().Format(time.RFC3339))
+			}
 		case count > 1:
 			e.Text = fmt.Sprintf("%s\n\nRaised %d times.", body, count)
 		}
