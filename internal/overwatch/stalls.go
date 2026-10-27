@@ -19,8 +19,9 @@ import (
 // (ADR 0009, "Which parts port"): work that stopped moving. An escalation
 // that the fixer's panel passed by is work (C9). An item in a state that a
 // stage takes stalls at the second fire of that stage with no run since it
-// entered the state (C10). A fire that took only older items of the
-// stage's queue is the queue draining, and does not count. A ticket in
+// entered the state (C10), unless a live run of any stage holds its
+// lease. A fire that took only older items of the stage's queue is the
+// queue draining, and does not count. A ticket in
 // in_progress that no lease holds and no live run names is lost, and work
 // at once (C11). The stage claim states come from admission, so the part
 // lists no state of its own.
@@ -63,6 +64,7 @@ type itemRow struct {
 	// queue is each run of the stage in the project on another item that
 	// started at or after entered, oldest first.
 	queue []queueRun
+	lease string // the run that holds the item's lease and has not ended, such as "run r-c733f4f7982a of code-reviewer"
 	hold  string // the room or escalation that holds the item, such as "room room-r7"
 	alert string // an open retry_limit or run_blocked alert that names the item, such as "alert/7 retry_limit"
 }
@@ -201,9 +203,9 @@ func stageItems(ctx context.Context, w World, hc *config.HostConfig, project str
 	return out, nil
 }
 
-// readItem reads when the item entered its state, the newest run on it
-// since then, the runs of its stage on other items since then, a hold on
-// it and an open alert that names it. The entry is the item's last
+// readItem reads when the item entered its state, the live run that holds
+// its lease, the newest run on it since then, the runs of its stage on
+// other items since then, a hold on it and an open alert that names it. The entry is the item's last
 // transition that changed its status, as the work query dates it. When
 // that transition led elsewhere, or none exists, the item's last bead
 // write dates it.
@@ -218,6 +220,15 @@ func readItem(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 	case err == nil && to == it.Status:
 		row.entered = time.UnixMilli(enteredAt)
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return err
+	}
+	var owner, stage string
+	err = tx.QueryRowContext(ctx, `SELECT r.run_id, r.stage FROM leases l JOIN runs r ON r.run_id = l.owner_run_id
+		WHERE l.project = ? AND l.item = ? AND r.ended_at IS NULL`, it.Project, it.ID).Scan(&owner, &stage)
+	switch {
+	case err == nil:
+		row.lease = "run " + owner + " of " + stage
+	case !errors.Is(err, sql.ErrNoRows):
 		return err
 	}
 	var started int64
@@ -367,6 +378,8 @@ func classifyStalls(rows stallRows, now time.Time) Reading {
 		head := fmt.Sprintf("%s (%s of %s) waits in %s", it.ID, it.Kind, it.Project, it.Status)
 		var why, tookOlder string
 		switch {
+		case row.lease != "":
+			why = row.lease + " holds its lease"
 		case row.off != "":
 			why = row.off
 		case row.hold != "":
