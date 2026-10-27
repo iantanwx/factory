@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -882,7 +883,8 @@ func shapeKey(bug string) string { return "bug/" + bug }
 type Round struct {
 	Round   int    `json:"round"`
 	Verdict string `json:"verdict"` // pass or reject
-	// Head is the head a ticket's pass recorded; "" for any other verdict.
+	// Head is the head review submit --head named for the verdict; "" when
+	// it named none.
 	Head  string    `json:"head"`
 	Body  string    `json:"body"` // the review comment; "" when the verdict sent none
 	From  string    `json:"from"`
@@ -913,7 +915,7 @@ func (m *Machine) reviewRounds(ctx context.Context, call *rpc.Call) cli.Result {
 		if !ok {
 			continue
 		}
-		out = append(out, Round{Round: len(out) + 1, Verdict: verdict, Head: t.Set[factPrefix+FactReviewedHead],
+		out = append(out, Round{Round: len(out) + 1, Verdict: verdict, Head: cmp.Or(t.Fact(FactReviewedHead), t.Fact(FactRejectedHead)),
 			Body: t.Set[factPrefix+FactReview], From: t.From, To: t.To, Actor: t.Actor, RunID: t.RunID, At: t.At})
 	}
 	return cli.List(out)
