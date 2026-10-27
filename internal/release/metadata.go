@@ -40,6 +40,17 @@ var Platforms = []string{"linux/amd64", "linux/arm64", "darwin/arm64"}
 // AssetName is the release asset of one platform's binary.
 func AssetName(goos, goarch string) string { return "loop-" + goos + "-" + goarch }
 
+// OrcaContractAssetName and OrcaAcceptanceAssetName are the release assets
+// of one platform's orca lane binaries (ADR 0008): the compiled orca
+// contract test and the compiled acceptance scenarios.
+func OrcaContractAssetName(goos, goarch string) string {
+	return "loop-orca-contract-" + goos + "-" + goarch
+}
+
+func OrcaAcceptanceAssetName(goos, goarch string) string {
+	return "loop-orca-acceptance-" + goos + "-" + goarch
+}
+
 // Metadata describes one release. The checksum file covers it, so the
 // signature binds it.
 type Metadata struct {

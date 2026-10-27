@@ -115,7 +115,10 @@ release-dist:
 	@case "$(VERSION)" in v*.*.*) ;; *) echo "VERSION=$(VERSION) is not a release version vMAJOR.MINOR.PATCH" >&2; exit 1;; esac
 	rm -rf $(DIST) && mkdir -p $(DIST)
 	for p in $(PLATFORMS); do \
-		GOOS=$${p%/*} GOARCH=$${p#*/} $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-$${p%/*}-$${p#*/} ./cmd/loop || exit 1; \
+		os=$${p%/*} arch=$${p#*/}; \
+		GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-$$os-$$arch ./cmd/loop && \
+		GOOS=$$os GOARCH=$$arch $(GO) test -c -tags orca -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-orca-contract-$$os-$$arch ./internal/agenthost/orca/ && \
+		GOOS=$$os GOARCH=$$arch $(GO) test -c -tags 'acceptance orca' -trimpath -ldflags '$(LDFLAGS)' -o $(DIST)/loop-orca-acceptance-$$os-$$arch ./acceptance/scenarios/ || exit 1; \
 	done
 	$(RELEASE_TOOL) dist -dir $(DIST) -version $(VERSION) $(if $(MIN_FROM),-min-from $(MIN_FROM)) $(if $(NO_ROLLBACK),-no-rollback)
 

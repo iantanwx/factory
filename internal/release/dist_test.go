@@ -3,7 +3,9 @@ package release
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,6 +16,16 @@ import (
 	"github.com/iantanwx/loop/internal/hexid"
 )
 
+// laneAssets are the orca lane binaries a release ships, by their
+// literal asset names.
+var laneAssets = []string{
+	"loop-orca-contract-linux-amd64", "loop-orca-acceptance-linux-amd64",
+	"loop-orca-contract-linux-arm64", "loop-orca-acceptance-linux-arm64",
+	"loop-orca-contract-darwin-arm64", "loop-orca-acceptance-darwin-arm64",
+}
+
+// writeBinaries writes the loop binary and the lane binaries of every
+// platform.
 func writeBinaries(t *testing.T, dir, version string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -22,6 +34,9 @@ func writeBinaries(t *testing.T, dir, version string) {
 	for _, p := range Platforms {
 		goos, goarch, _ := strings.Cut(p, "/")
 		writeFile(t, filepath.Join(dir, AssetName(goos, goarch)), "binary "+version+" "+p)
+	}
+	for _, name := range laneAssets {
+		writeFile(t, filepath.Join(dir, name), "lane "+version+" "+name)
 	}
 }
 
@@ -203,5 +218,113 @@ func TestC16TheReleaseCarriesThePinsItsBinaryChecks(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dist, SignatureFile)); err == nil {
 		t.Fatal("SignDist wrote a signature for a release without third-party.json")
+	}
+}
+
+// TestC14EachReleaseShipsVerifiedLaneBinaries: WriteDist fails on a dist
+// that lacks a lane binary, and names it. With every lane binary present,
+// checksums.txt names each one. VerifyAssets still passes a release from
+// before the lane, whose checksum file names none.
+func TestC14EachReleaseShipsVerifiedLaneBinaries(t *testing.T) {
+	ctx := context.Background()
+	dist := filepath.Join(t.TempDir(), "v1.1.0")
+	writeBinaries(t, dist, "v1.1.0")
+	missing := filepath.Join(dist, "loop-orca-acceptance-darwin-arm64")
+	if err := os.Remove(missing); err != nil {
+		t.Fatal(err)
+	}
+	err := WriteDist(ctx, dist, DistOptions{Version: "v1.1.0"})
+	if err == nil || !strings.Contains(err.Error(), "loop-orca-acceptance-darwin-arm64") {
+		t.Fatalf("WriteDist over a dist without loop-orca-acceptance-darwin-arm64 = %v", err)
+	}
+
+	writeFile(t, missing, "lane v1.1.0 loop-orca-acceptance-darwin-arm64")
+	if err := WriteDist(ctx, dist, DistOptions{Version: "v1.1.0"}); err != nil {
+		t.Fatal(err)
+	}
+	sumsRaw, err := os.ReadFile(filepath.Join(dist, ChecksumsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums, err := ParseChecksums(sumsRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range laneAssets {
+		if want := hexid.SHA256([]byte("lane v1.1.0 " + name)); sums[name] != want {
+			t.Errorf("checksums.txt names %s as %q, want %q", name, sums[name], want)
+		}
+	}
+	if _, err := VerifyAssets(dist, sumsRaw); err != nil {
+		t.Fatal(err)
+	}
+
+	// The same release before the lane: no lane binary, and no line.
+	for _, name := range laneAssets {
+		if err := os.Remove(filepath.Join(dist, name)); err != nil {
+			t.Fatal(err)
+		}
+		delete(sums, name)
+	}
+	if _, err := VerifyAssets(dist, sums.Bytes()); err != nil {
+		t.Fatalf("VerifyAssets refused a release from before the lane: %v", err)
+	}
+}
+
+// TestC14ReleaseDistBuildsTheLaneBinaries runs make release-dist with a
+// go that records each build in place of compiling it. Every platform gets
+// both lane binaries, each built as its test package with its tags, the
+// release's -ldflags and CGO_ENABLED=0, and checksums.txt names both.
+func TestC14ReleaseDistBuildsTheLaneBinaries(t *testing.T) {
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	fakeGo := filepath.Join(bin, "go")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = run ]; then exec " + realGo + " \"$@\"; fi\n" +
+		"out=; prev=\n" +
+		"for a in \"$@\"; do [ \"$prev\" = -o ] && out=$a; prev=$a; done\n" +
+		"{ echo \"GOOS=$GOOS GOARCH=$GOARCH CGO_ENABLED=$CGO_ENABLED\"; printf '%s\\n' \"$@\"; } > \"$out\"\n"
+	if err := os.WriteFile(fakeGo, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dist := filepath.Join(t.TempDir(), "v9.9.9")
+	cmd := exec.Command("make", "--no-print-directory", "-C", filepath.Join("..", ".."), "release-dist",
+		"VERSION=v9.9.9", "DIST="+dist, "GO="+fakeGo)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("make release-dist: %v\n%s", err, out)
+	}
+
+	sumsRaw, err := os.ReadFile(filepath.Join(dist, ChecksumsFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sums, err := ParseChecksums(sumsRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ldflags := "-s -w -X github.com/iantanwx/loop/internal/cli.Version=v9.9.9"
+	for _, p := range Platforms {
+		goos, goarch, _ := strings.Cut(p, "/")
+		for _, lane := range []struct{ name, tags, pkg string }{
+			{"loop-orca-contract-" + goos + "-" + goarch, "orca", "./internal/agenthost/orca/"},
+			{"loop-orca-acceptance-" + goos + "-" + goarch, "acceptance orca", "./acceptance/scenarios/"},
+		} {
+			got, err := os.ReadFile(filepath.Join(dist, lane.name))
+			if err != nil {
+				t.Errorf("release-dist wrote no %s: %v", lane.name, err)
+				continue
+			}
+			want := fmt.Sprintf("GOOS=%s GOARCH=%s CGO_ENABLED=0\ntest\n-c\n-tags\n%s\n-trimpath\n-ldflags\n%s\n-o\n%s\n%s\n",
+				goos, goarch, lane.tags, ldflags, filepath.Join(dist, lane.name), lane.pkg)
+			if string(got) != want {
+				t.Errorf("%s was built as\n%s\nwant\n%s", lane.name, got, want)
+			}
+			if sums[lane.name] != hexid.SHA256(got) {
+				t.Errorf("checksums.txt names %s as %q", lane.name, sums[lane.name])
+			}
+		}
 	}
 }
