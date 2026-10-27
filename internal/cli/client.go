@@ -136,22 +136,31 @@ func (c *Client) prepare(inv Invocation) (*callCtx, *Result) {
 		}
 		cc.token, cc.checkout = &tf, checkout
 	}
-	if slices.Contains(inv.Verb.Callers, "host") {
+	// The token file routes a run's own call, and that call sends no
+	// host-admin credential. A host verb is a host-admin call. It ignores
+	// the file, so the credential never reaches another instance.
+	switch {
+	case cc.token != nil && !isHostVerb(inv.Verb):
+		if res := c.route(cc); res != nil {
+			return nil, res
+		}
+	case slices.Contains(inv.Verb.Callers, "host"):
 		// The credential comes only from the instance's file. A missing
 		// file sends none, and the server refuses the verb.
 		if cred, err := ReadAdminCredential(cc.instance); err == nil {
 			cc.admin = cred
 		}
 	}
-	// The token file routes only a run's own call. A host-admin call
-	// ignores it, so the credential never reaches another instance.
-	if cc.token != nil && cc.admin == "" {
-		if res := c.route(cc); res != nil {
-			return nil, res
-		}
-	}
 	cc.socket = SocketPath(cc.instance)
 	return cc, nil
+}
+
+// isHostVerb reports whether every caller of v is a host label, the rule
+// by which DeriveMatrix names a host verb.
+func isHostVerb(v *Verb) bool {
+	return slices.Contains(v.Callers, "host") && !slices.ContainsFunc(v.Callers, func(c string) bool {
+		return !slices.Contains(hostVerbLabels, c)
+	})
 }
 
 // route follows the checkout's token file. A binary other than this one

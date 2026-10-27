@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -78,6 +79,23 @@ func isolate(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(InstanceEnv, "")
 	t.Setenv(CheckoutExecEnv, "")
+}
+
+// credentialAtDefault writes a host-admin credential into the instance
+// that the CLI calls without a token file, and returns that instance.
+func credentialAtDefault(t *testing.T) string {
+	t.Helper()
+	dir, err := InstanceDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(AdminCredentialPath(dir), []byte("admin-j\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // newInstance is a new 0700 instance directory, resolved through
@@ -161,33 +179,39 @@ func TestC8ARunCallReachesTheCheckoutsInstance(t *testing.T) {
 		{"no binary", ""},
 		{"the binary is the running executable", self},
 	} {
-		for _, envJ := range []bool{false, true} {
-			name := tc.name + ", LOOP_INSTANCE unset"
-			if envJ {
-				name = tc.name + ", LOOP_INSTANCE names another instance"
-			}
-			t.Run(name, func(t *testing.T) {
-				i, j := newInstance(t), newInstance(t)
-				atI, atJ := serveFake(t, i), serveFake(t, j)
-				isolate(t)
+		// fault list is a verb that the host may call too.
+		for _, args := range [][]string{{"work", "show", "T-1"}, {"fault", "list"}} {
+			for _, envJ := range []bool{false, true} {
+				name := tc.name + ", " + strings.Join(args, " ") + ", LOOP_INSTANCE unset"
 				if envJ {
-					t.Setenv(InstanceEnv, j)
+					name = tc.name + ", " + strings.Join(args, " ") + ", LOOP_INSTANCE names another instance"
 				}
-				ex := &execRecord{}
-				env := runFrom(t, newCheckout(t, i, tc.binary), ex, "work", "show", "T-1")
-				if env["ok"] != true {
-					t.Fatalf("work show: %v", env)
-				}
-				if got := atI.seen(); len(got) != 1 || got[0].token != "loopt_run" {
-					t.Fatalf("instance I saw %+v, want the one run call", got)
-				}
-				if got := atJ.seen(); len(got) != 0 {
-					t.Fatalf("instance J saw %+v, want no call", got)
-				}
-				if ex.n != 0 {
-					t.Fatalf("the client exec'd %s", ex.binary)
-				}
-			})
+				t.Run(name, func(t *testing.T) {
+					i := newInstance(t)
+					atI := serveFake(t, i)
+					isolate(t)
+					if envJ {
+						t.Setenv(InstanceEnv, newInstance(t))
+					}
+					// J is the instance the CLI calls without the token
+					// file, and it holds a host-admin credential.
+					atJ := serveFake(t, credentialAtDefault(t))
+					ex := &execRecord{}
+					env := runFrom(t, newCheckout(t, i, tc.binary), ex, args...)
+					if env["ok"] != true {
+						t.Fatalf("%v: %v", args, env)
+					}
+					if got := atI.seen(); len(got) != 1 || got[0] != (fakeCall{method: got[0].method, token: "loopt_run"}) {
+						t.Fatalf("instance I saw %+v, want the one run call with no host-admin credential", got)
+					}
+					if got := atJ.seen(); len(got) != 0 {
+						t.Fatalf("instance J saw %+v, want no call", got)
+					}
+					if ex.n != 0 {
+						t.Fatalf("the client exec'd %s", ex.binary)
+					}
+				})
+			}
 		}
 	}
 }
@@ -225,22 +249,25 @@ func TestC9ABinaryOutsideTheInstanceNeverRuns(t *testing.T) {
 		},
 	}
 	for name, binary := range cases {
-		t.Run(name, func(t *testing.T) {
-			i := newInstance(t)
-			atI := serveFake(t, i)
-			isolate(t)
-			ex := &execRecord{}
-			env := runFrom(t, newCheckout(t, i, binary(t, i)), ex, "work", "show", "T-1")
-			if env["code"] != CodeUsage || env["rule"] != "binary_outside_instance" {
-				t.Fatalf("want USAGE binary_outside_instance, got %v", env)
-			}
-			if ex.n != 0 {
-				t.Fatalf("the client exec'd %s", ex.binary)
-			}
-			if got := atI.seen(); len(got) != 0 {
-				t.Fatalf("the server saw %+v, want no call", got)
-			}
-		})
+		for _, args := range [][]string{{"work", "show", "T-1"}, {"fault", "list"}} {
+			t.Run(name+", "+strings.Join(args, " "), func(t *testing.T) {
+				i := newInstance(t)
+				atI := serveFake(t, i)
+				isolate(t)
+				credentialAtDefault(t)
+				ex := &execRecord{}
+				env := runFrom(t, newCheckout(t, i, binary(t, i)), ex, args...)
+				if env["code"] != CodeUsage || env["rule"] != "binary_outside_instance" {
+					t.Fatalf("want USAGE binary_outside_instance, got %v", env)
+				}
+				if ex.n != 0 {
+					t.Fatalf("the client exec'd %s", ex.binary)
+				}
+				if got := atI.seen(); len(got) != 0 {
+					t.Fatalf("the server saw %+v, want no call", got)
+				}
+			})
+		}
 	}
 }
 
