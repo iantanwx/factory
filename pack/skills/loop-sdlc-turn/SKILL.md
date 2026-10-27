@@ -63,6 +63,14 @@ codes cannot.
   `.gitattributes`. Or your branch changes the merge queue's config, such as `.mergify.yml`,
   against the base. Only the operator makes that change. Escalate it with `loop escalation raise`.
   A merge of the base that brings in the operator's config change is no change of yours.
+- `SETTINGS_CHANGE`: your stage run's push changes a setting, the `stages`, `pools` or `merge`
+  section of `.loop/config.yaml`. Only the coordinator changes a setting, with
+  `loop settings set`. The server reads each commit of the push, so a commit on top that reverts
+  the change does not end the refusal. Run `git reset --soft` to the item head that
+  `loop branch sync` names, or to `origin/<base>` when the item has no head. It keeps your work in
+  the index. Revert your change to those sections, so that they match the merge base. Then commit
+  again, and push. When your ticket needs that setting, escalate by section 6, and name the
+  setting and its value.
 - `GITHUB_REFUSED`: GitHub refused the request, and `hint` holds its answer. Never send the same
   request again. Escalate it with `loop escalation raise`.
 - `SHAPE_REFUSED`: the text you sent does not hold the shape that the `rule` names. The verb wrote
