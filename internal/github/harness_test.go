@@ -113,6 +113,12 @@ func (e *env) push(item, head string) (PushResult, error) {
 		Checkout: e.checkout, Head: head, RunID: "run-1"})
 }
 
+// pushAs pushes as a caller of one principal kind, such as cli.PrincipalRun.
+func (e *env) pushAs(kind, item, head string) (PushResult, error) {
+	return e.svc.Push(context.Background(), PushRequest{Project: testProject, Item: item, Branch: BranchFor(item),
+		Checkout: e.checkout, Head: head, RunID: "run-1", Caller: kind})
+}
+
 func (e *env) remoteSHA(branch string) string { return e.git.RemoteSHA(branch) }
 
 // withWorld attaches a machine over fake beads, and returns the API's PR

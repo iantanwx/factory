@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -54,6 +55,7 @@ func TestRefusalCodeTable(t *testing.T) {
 		CodeBodyRefused:          {3, codes.FailedPrecondition, false},
 		CodeAskLimit:             {3, codes.FailedPrecondition, false},
 		CodeShapeRefused:         {3, codes.FailedPrecondition, false},
+		CodeSettingsChange:       {3, codes.FailedPrecondition, false},
 	}
 	r := New()
 	got := r.RefusalCodes()
@@ -119,5 +121,17 @@ func TestExitCodeTable(t *testing.T) {
 		if int(e.Exit) != i || e.Name == "" || e.Meaning == "" {
 			t.Errorf("row %d is %+v", i, e)
 		}
+	}
+}
+
+// A run branches on SETTINGS_CHANGE, and its meaning in loop schema points
+// to the one command that changes a setting.
+func TestSettingsChangeMeaningNamesTheCommand(t *testing.T) {
+	c, ok := New().Refusal(CodeSettingsChange)
+	if !ok {
+		t.Fatalf("%s is not registered", CodeSettingsChange)
+	}
+	if !strings.Contains(c.Meaning, "loop settings set") {
+		t.Fatalf("meaning %q names no loop settings set", c.Meaning)
 	}
 }
