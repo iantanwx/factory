@@ -158,7 +158,7 @@ What changes:
   `epicResume` map names where each new state returns.
 - **The verbs.** `loop epic create` gains `--request` and `--blocked-by`. With no
   `--architecture` it needs `--request`, and creates a PRD epic. `loop prd submit` gains the run
-  caller. The CLI surface regenerates `gen/` with `make proto`.
+  caller.
 - **The PRD submit.** `internal/pipeline/prd.go`: `prdSubmit` accepts a run principal of stage
   `prd-author` that holds the epic, and applies `prd_submit` to it.
 - **Config and admission.** `internal/config/throughput.go` adds the `prd-author` run stage.

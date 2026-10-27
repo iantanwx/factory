@@ -85,7 +85,7 @@ A second slice of the same loop already exists but does not run. `apps/slothbot`
 - **One self-contained binary for each platform.** Governs R40. (session-settled: user-approved — chosen over a global npm install and over a build from a checkout: hosts need no Node, and a merge is not a deploy)
 - **Upgrades run only on command.** Governs R41. (session-settled: user-directed — chosen over coordinator-driven and automatic upgrades. A host may run the command from its own cron)
 - **Work enters through the coordinator.** Governs R44. (session-settled: user-approved — chosen over an intake source declared in project config and over both: the coordinator is already the only human interface)
-- **Intake is an interactive brainstorm session that produces the PRD.** Governs R44, R45, R47. (session-settled: user-directed — chosen over the coordinator creating an epic from a short description for an unattended PRD author)
+- **Intake is an interactive brainstorm session that produces the PRD.** Governs R44, R45, R47. (session-settled: user-directed — chosen over the coordinator creating an epic from a short description for an unattended PRD author) ADR 0001 amends it. The brainstorm holds for work that the triage rubric scores at level 4 or 5, or the Choice outside. At level 1 to 3 the coordinator creates the epic with `loop epic create --request`, and the unattended `prd-author` stage writes its PRD from the operator's quoted request.
 - **A session's PRD still passes review and the operator's sign-off.** Governs R46. (session-settled: user-directed — chosen over sign-off only and over approval at session end: review catches gaps the session missed)
 - **A rejected PRD goes to the amender once, then to an intake room.** Governs R52. (session-settled: user-directed — chosen over reopening the intake room on every rejection: most review findings need no person)
 - **Breakout rooms are a core primitive, and intake runs in one.** Governs R44, R49, R50. (session-settled: user-directed — chosen over holding the intake session in the coordinator's chat: a room leaves the main thread undisturbed)
@@ -195,7 +195,7 @@ A second slice of the same loop already exists but does not run. `apps/slothbot`
 
 **Work entry**
 
-- R44. Work starts with a PRD. The operator and an agent write it together in a brainstorm session inside an intake room (R50), and the session's output is the PRD. On this path no unattended stage drafts the PRD.
+- R44. Work starts with a PRD. Work that the triage rubric scores at level 4 or 5, or the Choice outside, enters through an intake room. The operator and an agent write the PRD together in a brainstorm session inside an intake room (R50), and the session's output is the PRD. On this path no unattended stage drafts the PRD. Work at level 1 to 3 enters by a second path (ADR 0001). The coordinator creates a PRD epic with `loop epic create --request`, and the unattended `prd-author` stage drafts its PRD from the operator's quoted request.
 - R45. A PRD states requirements from the end user's view as user stories, and each story carries a stable label (US-01, US-02 …). Specs and tickets cite the story labels they implement.
 - R46. A session's PRD enters the loop as an epic with its PRD in review. The doc-reviewer stage reviews it, and the operator signs it off by merging its PR. Only then does the spec stage start. A spec passes the same review and the same sign-off by merge.
 - R52. When the doc-reviewer rejects a PRD for the first time, the amender stage revises it once from the review findings, unattended. A second rejection puts the epic in the operator's inbox for an intake room.
@@ -257,7 +257,7 @@ flowchart TB
 - F4. A PRD from intake to tickets
   - **Trigger:** The operator asks the coordinator to start new work.
   - **Actors:** A1, A2, A8, A3, A4
-  - **Steps:** The coordinator opens an intake room. The operator and the room agent write the PRD, and the room submits it. The doc-reviewer reviews it. A first rejection goes to the amender, and a second goes to the operator's inbox. The operator merges the PRD PR, and the spec follows the same review and sign-off. The decomposer turns the approved spec into tickets that cite story labels.
+  - **Steps:** The coordinator scores the request against the triage rubric. At level 4 or 5, or the Choice outside, it opens an intake room. The operator and the room agent write the PRD, and the room submits it. At level 1 to 3, it runs `loop epic create --request`, and a `prd-author` run writes the PRD and submits it. The doc-reviewer reviews the PRD from either path. A first rejection goes to the amender, and a second goes to the operator's inbox. The operator merges the PRD PR, and the spec follows the same review and sign-off. The decomposer turns the approved spec into tickets that cite story labels.
   - **Covered by:** R44, R45, R46, R47, R49, R50, R52
 
 ### Acceptance Examples

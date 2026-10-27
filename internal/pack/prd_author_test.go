@@ -92,3 +92,116 @@ func TestPRDAuthorRunbookHoldsTheSourceRule(t *testing.T) {
 		}
 	}
 }
+
+// repoFile reads a file of the repository outside the pack, such as the
+// project policy, the plan or an ADR.
+func repoFile(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+// joined returns the text from the first line that starts with start up to
+// the next line that starts with end, with each run of white space as one
+// space, so a wrapped line still matches.
+func joined(t *testing.T, name, text, start, end string) string {
+	t.Helper()
+	i := strings.Index(text, "\n"+start)
+	if i < 0 {
+		t.Fatalf("%s holds no line that starts with %q", name, start)
+	}
+	rest := text[i+1:]
+	if j := strings.Index(rest[len(start):], "\n"+end); j >= 0 {
+		rest = rest[:j+len(start)]
+	}
+	return strings.Join(strings.Fields(rest), " ")
+}
+
+// C16: the coordinator routes level 1 to 3 product work to the PRD author,
+// and parks a request that the intake cap refuses on a pending decision,
+// so the request waits in the record and never in the chat.
+func TestCoordinatorRoutesProductWorkToThePRDAuthor(t *testing.T) {
+	coordinator := read(t, "runbooks/coordinator.md")
+	route := section(t, coordinator, "8. New work")
+	for _, want := range []string{
+		"loop epic create --request",
+		"--blocked-by",
+		"`prd_author_disabled`",
+		"`prd-author: {}`",
+		"`CAP_FULL`",
+		"loop decision file",
+		"--blocked-by <decision>",
+		"which epics hold the cap",
+		"Level 4 or 5, or the Choice outside",
+		"intake room",
+	} {
+		if !strings.Contains(route, want) {
+			t.Errorf("coordinator section 8 does not name %q", want)
+		}
+	}
+	wake := section(t, coordinator, "6. Decisions")
+	for _, want := range []string{"intake cap", "loop decision moot <decision>", "raises the cap"} {
+		if !strings.Contains(wake, want) {
+			t.Errorf("coordinator section 6 does not name %q", want)
+		}
+	}
+	policy := repoFile(t, ".loop/policy/coordinator.md")
+	row := joined(t, ".loop/policy/coordinator.md", policy, "| Product", "|")
+	for _, want := range []string{"`loop epic create --request` at level 1 to 3", "level 4 or 5"} {
+		if !strings.Contains(row, want) {
+			t.Errorf("the policy's product route row does not name %q: %s", want, row)
+		}
+	}
+}
+
+// C19: the shared instructions name the PRD author, its states and its
+// check, and the plan and ADR 0001 hold the second entry path.
+func TestSharedInstructionsNameThePRDAuthor(t *testing.T) {
+	review := section(t, read(t, "runbooks/doc-reviewer.md"), "2. Review a PRD")
+	for _, want := range []string{"the `request` fact", "the `amendment` fact", "each story"} {
+		if !strings.Contains(review, want) {
+			t.Errorf("doc-reviewer section 2 does not name %q", want)
+		}
+	}
+
+	glossary := read(t, "skills/loop-sdlc-glossary/SKILL.md")
+	if !strings.Contains(section(t, glossary, "Stages"), "| `prd-author` |") {
+		t.Error("the glossary's stage table names no `prd-author`")
+	}
+	epic := joined(t, "glossary", glossary, "- **Epic**:", "- **")
+	for _, want := range []string{"`backlog`", "`prd_needed`", "`prd_drafting`"} {
+		if !strings.Contains(epic, want) {
+			t.Errorf("the glossary's epic states do not name %s: %s", want, epic)
+		}
+	}
+	if prd := joined(t, "glossary", glossary, "- **PRD**:", "- **"); !strings.Contains(prd, "a PRD author or an intake room") {
+		t.Errorf("the glossary's PRD entry does not name its two writers: %s", prd)
+	}
+
+	split := read(t, splitSkill)
+	if !strings.Contains(section(t, split, "3. Who splits"), "The PRD author never splits") {
+		t.Error("split skill section 3 does not say that the PRD author never splits")
+	}
+	never := section(t, split, "10. Never")
+	if !strings.Contains(never, "the coordinator, with `loop epic create`") {
+		t.Error("split skill section 10 does not name `loop epic create` as the coordinator's create")
+	}
+	if strings.Contains(never, "`loop epic create --architecture`") {
+		t.Error("split skill section 10 still names `loop epic create --architecture` as the coordinator's only create")
+	}
+
+	if stages := joined(t, "loop-init", read(t, "skills/loop-init/SKILL.md"), "stages:", "signoff:"); !strings.Contains(stages, "prd-author: {}") {
+		t.Error("the loop-init config template does not list `prd-author: {}` under stages")
+	}
+
+	plan := repoFile(t, "docs/plans/2026-10-21-1328-feat-standalone-sdlc-loop-plan.md")
+	if r44 := joined(t, "the plan", plan, "- R44.", "- R45."); !strings.Contains(r44, "prd-author") {
+		t.Errorf("the plan's R44 does not name prd-author: %s", r44)
+	}
+	if n := strings.Count(repoFile(t, "docs/adr/0001-unattended-prd-author.md"), "make proto"); n != 0 {
+		t.Errorf("ADR 0001 names make proto %d times, want 0", n)
+	}
+}
