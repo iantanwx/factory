@@ -148,3 +148,35 @@ func TestC7PauseSurvivesARestart(t *testing.T) {
 		t.Fatalf("the paused stage launched %d sessions", n-launches)
 	}
 }
+
+// C11: stage list answers the rows of the project --project names, with
+// the pause that holds a stage. An unknown project refuses.
+func TestC11StageListAnswersTheProjectsRows(t *testing.T) {
+	w := newHumanWorld(t, "")
+	if env, code := w.coordinator("stage", "pause", machine.StageImplementer, "--project", "alpha", "--reason", "hold for the upgrade"); code != 0 {
+		t.Fatalf("stage pause = %d %v", code, env)
+	}
+	env, code := w.coordinator("stage", "list", "--project", "alpha")
+	if code != 0 {
+		t.Fatalf("stage list = %d %v", code, env)
+	}
+	var impl map[string]any
+	for _, r := range env["data"].([]any) {
+		row := r.(map[string]any)
+		if row["project"] != "alpha" {
+			t.Fatalf("stage list --project alpha answered %v", row)
+		}
+		if row["stage"] == machine.StageImplementer {
+			impl = row
+		}
+	}
+	if impl == nil || impl["enabled"] != true || impl["kind"] != "run" {
+		t.Fatalf("the implementer row = %v", impl)
+	}
+	if pauses, _ := impl["pauses"].([]any); len(pauses) != 1 || pauses[0].(map[string]any)["reason"] != "hold for the upgrade" {
+		t.Fatalf("the implementer row's pauses = %v", impl["pauses"])
+	}
+	if env, _ := w.coordinator("stage", "list", "--project", "nope"); env["code"] != cli.CodeNotFound || env["rule"] != "project_not_found" {
+		t.Fatalf("stage list --project nope = %v", env)
+	}
+}

@@ -100,6 +100,21 @@ func TestSchemaListsPrPending(t *testing.T) {
 	}
 }
 
+// C17: loop schema lists stage list, a read of the coordinator and of the
+// operator's shell over every project or the one --project names.
+func TestSchemaListsStageList(t *testing.T) {
+	env, code := runJSON(t, New(), "schema", "--json")
+	if code != 0 {
+		t.Fatalf("schema failed: %v", env)
+	}
+	v := findVerb(t, env["data"].(map[string]any), "stage list")
+	flags := v["flags"].([]any)
+	if v["rpc"] != "/loop.v1.StageService/List" || v["write"] != false || !slices.Equal(v["callers"].([]any), []any{"coordinator", "host"}) ||
+		len(flags) != 1 || flags[0].(map[string]any)["name"] != "project" {
+		t.Fatalf("stage list = %v", v)
+	}
+}
+
 func findVerb(t *testing.T, schema map[string]any, path string) map[string]any {
 	t.Helper()
 	for _, v := range schema["verbs"].([]any) {

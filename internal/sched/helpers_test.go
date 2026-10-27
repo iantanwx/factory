@@ -216,6 +216,7 @@ func snapshot(t *testing.T, cfg, manifest string) *config.ProjectSnapshot {
 type projectSource struct {
 	mu   sync.Mutex
 	snap *config.ProjectSnapshot
+	err  error
 }
 
 func (p *projectSource) set(s *config.ProjectSnapshot) {
@@ -224,10 +225,17 @@ func (p *projectSource) set(s *config.ProjectSnapshot) {
 	p.snap = s
 }
 
+// failWith makes each read of the project's config fail with err.
+func (p *projectSource) failWith(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.snap, p.err = nil, err
+}
+
 func (p *projectSource) load(context.Context, string) (*config.ProjectSnapshot, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.snap, nil
+	return p.snap, p.err
 }
 
 // makeProjectRepo makes a bare origin with one commit on main that tracks

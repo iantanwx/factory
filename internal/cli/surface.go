@@ -283,6 +283,8 @@ var surface = []Verb{
 		Flag{Name: "reason", Type: FlagString, Description: "required: why the stage pauses"})),
 	write(server("stage", "resume", "end the pause of one scope", coordinator, []Arg{stageArg},
 		Flag{Name: "project", Type: FlagString, Description: "the project id of the pause; the pause of every project when absent"})),
+	server("stage", "list", "list each run stage, agent job and native job of each project, enabled or not, and each instance job once: its schedule, limits, profiles, pauses, last and next fire and live runs", coordinatorOrHost, nil,
+		Flag{Name: "project", Type: FlagString, Description: "only this project's rows; every project and the instance jobs when absent"}),
 
 	server("secret", "check", "say whether a secret is present: the project's own value, or a global one", runOnly, []Arg{secretArg}, projectFlag),
 	write(server("secret", "set", "store a secret; the value comes from stdin only", hostOnly, []Arg{secretArg},

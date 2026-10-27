@@ -3337,6 +3337,7 @@ var EpicService_ServiceDesc = grpc.ServiceDesc{
 const (
 	StageService_Pause_FullMethodName  = "/loop.v1.StageService/Pause"
 	StageService_Resume_FullMethodName = "/loop.v1.StageService/Resume"
+	StageService_List_FullMethodName   = "/loop.v1.StageService/List"
 )
 
 // StageServiceClient is the client API for StageService service.
@@ -3345,6 +3346,7 @@ const (
 type StageServiceClient interface {
 	Pause(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Resume(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	List(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type stageServiceClient struct {
@@ -3375,12 +3377,23 @@ func (c *stageServiceClient) Resume(ctx context.Context, in *VerbRequest, opts .
 	return out, nil
 }
 
+func (c *stageServiceClient) List(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, StageService_List_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // StageServiceServer is the server API for StageService service.
 // All implementations must embed UnimplementedStageServiceServer
 // for forward compatibility.
 type StageServiceServer interface {
 	Pause(context.Context, *VerbRequest) (*Envelope, error)
 	Resume(context.Context, *VerbRequest) (*Envelope, error)
+	List(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedStageServiceServer()
 }
 
@@ -3396,6 +3409,9 @@ func (UnimplementedStageServiceServer) Pause(context.Context, *VerbRequest) (*En
 }
 func (UnimplementedStageServiceServer) Resume(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Resume not implemented")
+}
+func (UnimplementedStageServiceServer) List(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method List not implemented")
 }
 func (UnimplementedStageServiceServer) mustEmbedUnimplementedStageServiceServer() {}
 func (UnimplementedStageServiceServer) testEmbeddedByValue()                      {}
@@ -3454,6 +3470,24 @@ func _StageService_Resume_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StageService_List_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StageServiceServer).List(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StageService_List_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StageServiceServer).List(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // StageService_ServiceDesc is the grpc.ServiceDesc for StageService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3468,6 +3502,10 @@ var StageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Resume",
 			Handler:    _StageService_Resume_Handler,
+		},
+		{
+			MethodName: "List",
+			Handler:    _StageService_List_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
