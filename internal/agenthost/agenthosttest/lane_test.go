@@ -8,11 +8,13 @@ import (
 	"go/ast"
 	"go/build/constraint"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -181,8 +183,8 @@ func TestEveryLaneTestDeclaresItsSessions(t *testing.T) {
 			t.Errorf("scenario %s declares %d sessions; the plan holds %d (present %v)", sc.name, sc.sessions, n, inPlan)
 		}
 	}
-	if total != 11 {
-		t.Fatalf("the lane plan totals %d sessions; want 11", total)
+	if total != 13 {
+		t.Fatalf("the lane plan totals %d sessions; want 13", total)
 	}
 }
 
@@ -266,11 +268,77 @@ func TestDeclaredReadsThePlan(t *testing.T) {
 	if got := Declared(t, "TestOrcaAgentRunsShellCommands"); got != 1 {
 		t.Fatalf("Declared(TestOrcaAgentRunsShellCommands) = %d; want 1", got)
 	}
+	if got := Declared(t, f1Name); got != 2 {
+		t.Fatalf("Declared(%s) = %d; want 2", f1Name, got)
+	}
 	rec := &recTB{TB: t}
 	Declared(rec, "TestNoSuchLaneTest")
 	if !rec.failed {
 		t.Fatal("Declared of a name outside the plan left the test green")
 	}
+}
+
+// f1Name is the real-agent F1 scenario, and f1File holds it.
+const (
+	f1Name = "TestF1RealAgentsTakeATicketFromClaimToMerge"
+	f1File = "../../../acceptance/scenarios/f1_orca_test.go"
+)
+
+// C28: F1 runs only under the lane's tags, and builds its world with
+// OrcaHost(Declared(t, <its own name>)), so the world's Counting refuses a
+// third start.
+func TestF1IsBoundedByThePlan(t *testing.T) {
+	src, err := os.ReadFile(f1File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first, _, _ := strings.Cut(string(src), "\n"); first != "//go:build acceptance && orca" {
+		t.Fatalf("%s starts with %q; want //go:build acceptance && orca", f1File, first)
+	}
+	f, err := parser.ParseFile(token.NewFileSet(), f1File, src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fn *ast.FuncDecl
+	for _, d := range f.Decls {
+		if d, ok := d.(*ast.FuncDecl); ok && d.Recv == nil && d.Name.Name == f1Name {
+			fn = d
+		}
+	}
+	if fn == nil {
+		t.Fatalf("%s defines no %s", f1File, f1Name)
+	}
+	var args []string
+	ast.Inspect(fn, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok && callee(c) == "acceptance.OrcaHost" && len(c.Args) == 1 {
+			args = append(args, exprString(c.Args[0]))
+		}
+		return true
+	})
+	want := "agenthosttest.Declared(t, " + strconv.Quote(f1Name) + ")"
+	if len(args) != 1 || args[0] != want {
+		t.Fatalf("%s calls OrcaHost with %q; want one call with %s", f1Name, args, want)
+	}
+}
+
+func callee(c *ast.CallExpr) string {
+	sel, ok := c.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return pkg.Name + "." + sel.Sel.Name
+}
+
+func exprString(e ast.Expr) string {
+	var b bytes.Buffer
+	if err := printer.Fprint(&b, token.NewFileSet(), e); err != nil {
+		return ""
+	}
+	return b.String()
 }
 
 // laneDriver offers only the capabilities the orca contract driver offers.
