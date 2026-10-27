@@ -37,7 +37,7 @@ func TestC19TheWorldDoctorIsInstallThenGitHub(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.api.World.SetFile("main", config.ProjectConfigPath, "merge: direct\n")
-	w.srv.SetOverwatchDoctor(func(context.Context) github.CheckLine { return driftLine }, w.gh)
+	w.srv.SetOverwatchDoctor(func(context.Context) []github.CheckLine { return []github.CheckLine{driftLine} }, w.gh)
 
 	got, err := w.srv.overwatch.world.Doctor(ctx)
 	if err != nil {
@@ -74,8 +74,8 @@ func TestC19AFailedGitHubCheckIsWork(t *testing.T) {
 	if err := w.srv.Projects.Add(ctx, config.Project{ID: "alpha", Repo: gt.Repo, Path: w.checkout}); err != nil {
 		t.Fatal(err)
 	}
-	w.srv.SetOverwatchDoctor(func(context.Context) github.CheckLine {
-		return github.CheckLine{Check: "install", OK: true, Detail: "the service, binaries, host config, key file and credential match loop install"}
+	w.srv.SetOverwatchDoctor(func(context.Context) []github.CheckLine {
+		return []github.CheckLine{{Check: "install", OK: true, Detail: "the service, binaries, host config, key file and credential match loop install"}}
 	}, w.gh)
 	r := overwatch.Sweep(ctx, w.srv.overwatch.world, []overwatch.Part{serverPartOf(t)})
 	want := "alpha/project_config failed: merge .loop/config.yaml to main; loop project add proposes it (overwatch:server:alpha/project_config)"
@@ -100,5 +100,23 @@ func TestTheWorldDoctorFailsAMissingCheck(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Doctor =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+// The host lines of loop doctor reach the server part: a failed
+// requirement line rings with key overwatch:server:requires_<bin>.
+func TestAFailedRequirementLineIsServerWork(t *testing.T) {
+	w := newGHWorld(t)
+	ctx := context.Background()
+	w.srv.SetOverwatchDoctor(func(context.Context) []github.CheckLine {
+		return []github.CheckLine{
+			{Check: "install", OK: true, Detail: "the service, binaries, host config, key file and credential match loop install"},
+			{Check: "requires_orca", Detail: "put orca on the path, for the agent host: install the Orca app"},
+		}
+	}, w.gh)
+	r := overwatch.Sweep(ctx, w.srv.overwatch.world, []overwatch.Part{serverPartOf(t)})
+	want := "requires_orca failed: put orca on the path, for the agent host: install the Orca app (overwatch:server:requires_orca)"
+	if r.Parts[0].Code != overwatch.Work || !slices.Equal(r.Parts[0].Lines, []string{want}) {
+		t.Fatalf("the server part = %+v", r.Parts[0])
 	}
 }

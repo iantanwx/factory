@@ -206,8 +206,12 @@ func (h *hostVerbs) installer(ctx context.Context, dir string) (*release.Install
 	if err != nil {
 		return nil, err
 	}
+	home, err := h.home()
+	if err != nil {
+		return nil, err
+	}
 	return &release.Installer{Layout: release.Layout{Dir: dir}, Service: svc, Prov: h.prov, Pins: pins, Self: self, Meta: meta,
-		Skills: pack.ThirdPartyPins(), Fetcher: h.fetcher}, nil
+		Skills: pack.ThirdPartyPins(), Fetcher: h.fetcher, Requires: release.HostRequirements(strings.Split(h.platform, "/")[0]), Home: home}, nil
 }
 
 func (h *hostVerbs) install(ctx context.Context, inv cli.Invocation) cli.Result {
@@ -452,7 +456,7 @@ func (h *hostVerbs) doctor(ctx context.Context, inv cli.Invocation) cli.Result {
 	if err != nil {
 		return fail(err)
 	}
-	d := &release.Doctor{Layout: in.Layout, Installer: in, Home: home, Repos: release.OrcaRepos(execOutput),
+	d := &release.Doctor{Layout: in.Layout, Installer: in, Home: home, Requires: in.Requires, Repos: release.OrcaRepos(execOutput),
 		Remote: func(ctx context.Context) ([]release.DoctorLine, error) { return h.githubLines(ctx, ctl), nil }}
 	lines := append(d.Run(ctx), h.envLines(ctx, ctl, inv.Flags["fix"] == "true")...)
 	if failed := release.Failed(lines); len(failed) > 0 {

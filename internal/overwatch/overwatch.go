@@ -131,7 +131,7 @@ type World interface {
 	Inventory(ctx context.Context) (agenthost.Inventory, error)
 	Coordinator() sched.CoordinatorState
 	GitHub() GitHubReads
-	Doctor(ctx context.Context) ([]github.CheckLine, error) // install drift, then GitHub.Doctor
+	Doctor(ctx context.Context) ([]github.CheckLine, error) // host lines, then GitHub.Doctor
 	LastRing(ctx context.Context) (RingOutcome, bool, error)
 	// Inbox is every entry of the inbox, as `loop inbox list` prints it.
 	Inbox(ctx context.Context) ([]inbox.Entry, error)

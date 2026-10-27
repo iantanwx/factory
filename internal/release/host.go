@@ -36,6 +36,7 @@ const (
 	CodeDrift              = "DRIFT"
 	CodeDoctorFailed       = "DOCTOR_FAILED"
 	CodeAppNotCreated      = "APP_NOT_CREATED"
+	CodeMissingBinary      = "MISSING_BINARY"
 )
 
 // Refusals are the codes the host verbs add to the registry.
@@ -49,6 +50,7 @@ func Refusals() []cli.RefusalCode {
 		{Code: CodeDrift, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "the installed service, binaries or config differ from what loop install writes; the hint lists each difference"},
 		{Code: CodeDoctorFailed, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "a loop doctor check failed; the hint lists each failed check"},
 		{Code: CodeAppNotCreated, Exit: cli.ExitWait, GRPC: codes.Unavailable, Retryable: true, Meaning: "loop install waited, and no GitHub App was created; run loop install again"},
+		{Code: CodeMissingBinary, Exit: cli.ExitRefused, GRPC: codes.FailedPrecondition, Meaning: "loop install found a required binary missing and wrote nothing; the hint names each one and how to install it"},
 	}
 }
 

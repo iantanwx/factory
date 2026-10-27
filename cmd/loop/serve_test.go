@@ -533,3 +533,58 @@ func TestC21TheOrcaLaneJobExistsOnlyOnAnOrcaHost(t *testing.T) {
 		})
 	}
 }
+
+// The server part reads the host lines of loop doctor: the install line,
+// then one requirement line for each host row. orca is found where host
+// config names it.
+func TestServeHostChecksHoldTheRequirementLines(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	agent := filepath.Join(t.TempDir(), "orca")
+	if err := os.WriteFile(agent, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.HostConfig{AgentHost: config.AgentHostConfig{Kind: "orca", Binary: agent}}
+
+	lines := hostChecks(dir, cfg, home)(context.Background())
+	if len(lines) == 0 || lines[0].Check != "install" {
+		t.Fatalf("host lines = %+v", lines)
+	}
+	got := map[string]bool{}
+	for _, l := range lines[1:] {
+		got[l.Check] = l.OK
+	}
+	if ok, found := got["requires_git"]; !found || ok {
+		t.Fatalf("requires_git with an empty PATH = %v %v: %+v", ok, found, lines)
+	}
+	if !got["requires_orca"] {
+		t.Fatalf("requires_orca with host config naming %s: %+v", agent, lines)
+	}
+}
+
+// The server part checks only the rows that the server process runs. A
+// host CLI verb runs gh and systemd-run with the operator's own path, so a
+// line on the service's path would ring for a binary the server never runs.
+func TestServeHostChecksSkipTheRowsOnlyHostVerbsRun(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "instance")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+
+	var got []string
+	for _, l := range hostChecks(dir, nil, home)(context.Background())[1:] {
+		got = append(got, l.Check)
+	}
+	want := []string{"requires_git", "requires_python3", "requires_orca", "requires_op"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("server requirement lines = %v, want %v", got, want)
+	}
+}

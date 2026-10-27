@@ -28,11 +28,11 @@ type overwatchState struct {
 	world overwatch.World
 	mu    sync.Mutex
 	parts []overwatch.Part
-	// install and github are the checks World.Doctor reads. A Setup step
+	// host and github are the checks World.Doctor reads. A Setup step
 	// sets them, before the job ticks or the verb answers.
-	install func(ctx context.Context) github.CheckLine
-	github  *GitHub
-	reads   overwatch.GitHubReads // nil until the GitHub setup runs
+	host   func(ctx context.Context) []github.CheckLine
+	github *GitHub
+	reads  overwatch.GitHubReads // nil until the GitHub setup runs
 }
 
 // composeOverwatch builds the production World, serves `overwatch sweep`,
@@ -52,12 +52,13 @@ func (s *Server) composeOverwatch() error {
 	})
 }
 
-// SetOverwatchDoctor gives the server part its checks: install, the
-// install drift line of `loop doctor`, and gh, the GitHub actor, nil when
-// the host has no App. internal/release imports this package, so `loop
-// serve` builds the install check and calls this in a Setup step.
-func (s *Server) SetOverwatchDoctor(install func(ctx context.Context) github.CheckLine, gh *GitHub) {
-	s.overwatch.install, s.overwatch.github = install, gh
+// SetOverwatchDoctor gives the server part its checks: host, the host
+// lines of `loop doctor` (install drift, then one line for each required
+// binary), and gh, the GitHub actor, nil when the host has no App.
+// internal/release imports this package, so `loop serve` builds the host
+// checks and calls this in a Setup step.
+func (s *Server) SetOverwatchDoctor(host func(ctx context.Context) []github.CheckLine, gh *GitHub) {
+	s.overwatch.host, s.overwatch.github = host, gh
 }
 
 func (s *Server) setOverwatchParts(parts []overwatch.Part) {
@@ -320,16 +321,15 @@ func (w *serverWorld) GitHub() overwatch.GitHubReads {
 	return w.s.overwatch.reads
 }
 
-// Doctor is the install drift line, then each project's GitHub doctor
-// lines, each check named <project>/<check> as loop doctor names it, so
-// one project's finding key differs from another's. A check that cannot
-// run is a failed line, never a pass.
+// Doctor is the host lines, then each project's GitHub doctor lines,
+// each check named <project>/<check> as loop doctor names it, so one
+// project's finding key differs from another's. A check that cannot run
+// is a failed line, never a pass.
 func (w *serverWorld) Doctor(ctx context.Context) ([]github.CheckLine, error) {
-	line := github.CheckLine{Check: "install", Detail: "this server was started with no install check; run it with loop serve"}
-	if install := w.s.overwatch.install; install != nil {
-		line = install(ctx)
+	lines := []github.CheckLine{{Check: "install", Detail: "this server was started with no install check; run it with loop serve"}}
+	if host := w.s.overwatch.host; host != nil {
+		lines = host(ctx)
 	}
-	lines := []github.CheckLine{line}
 	ps, err := w.s.Projects.List()
 	if err != nil {
 		return nil, err

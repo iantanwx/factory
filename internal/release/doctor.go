@@ -37,6 +37,8 @@ type Doctor struct {
 	Repos func(ctx context.Context, cfg *config.HostConfig) ([]string, error)
 	// Remote runs the server-side checks. Nil, or an error, fails one line.
 	Remote func(ctx context.Context) ([]DoctorLine, error)
+	// Requires are the rows of Requirements that this host checks.
+	Requires []Requirement
 }
 
 // Run returns every line, failed or not.
@@ -57,6 +59,7 @@ func (d *Doctor) Run(ctx context.Context) []DoctorLine {
 		}
 	}
 	cfg, err := config.LoadHost(d.Layout.HostConfig())
+	lines = append(lines, RequirementLines(d.Requires, HostFinder(d.Home, cfg))...)
 	if err != nil {
 		add("host_config", false, "the host config cannot be read: %v", err)
 		return lines
