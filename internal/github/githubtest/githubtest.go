@@ -255,7 +255,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 		a.mints = append(a.mints, body)
 		a.mu.Unlock()
 		WriteJSON(w, 201, map[string]any{"token": tok, "expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
-			"repositories": []any{map[string]string{"full_name": Repo}}})
+			"permissions": body["permissions"], "repositories": []any{map[string]string{"full_name": Repo}}})
 	case !a.ValidToken(auth):
 		WriteJSON(w, 401, map[string]string{"message": "Bad credentials"})
 	case key == "GET /repos/"+Repo:

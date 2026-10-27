@@ -30,6 +30,20 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("github: %s %s answered %d: %s", e.Method, e.Path, e.Status, e.Message)
 }
 
+// RepoHiddenError is a 404 that GitHub answered for the project
+// repository itself: the installation token cannot reach it. Grant is
+// what GitHub granted that token at its last mint.
+type RepoHiddenError struct {
+	Repo   string
+	Status int
+	Grant  Grant
+}
+
+func (e *RepoHiddenError) Error() string {
+	return fmt.Sprintf("github: the installation token cannot reach the repository %s: GET /repos/%s answered %d; at its last mint GitHub granted it %s",
+		e.Repo, e.Repo, e.Status, e.Grant)
+}
+
 // Transient reports whether a retry can cure the answer: a 500, 502, 503
 // or 504. GitHub answers 500 during an incident, and the same call later
 // succeeds.
