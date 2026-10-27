@@ -65,6 +65,45 @@ func TestEscalateStoresTheResumeTargetAndAnswerReturnsToIt(t *testing.T) {
 	}
 }
 
+// C10: an answer returns a ticket to backlog when it was escalated from
+// backlog. Every other state resumes to todo: rework when a pull request
+// was open, resume otherwise.
+func TestC10EscalatedTicketResumesByItsEscalateState(t *testing.T) {
+	w := newWorld(t)
+	cases := []struct {
+		from      string
+		make      func() string
+		to, entry string
+	}{
+		{Backlog, func() string { return w.create(KindTicket, "create", map[string]string{"blocked": "true"}) }, Backlog, ""},
+		{Todo, func() string { return w.create(KindTicket, "create", nil) }, Todo, EntryResume},
+		{InProgress, func() string {
+			id := w.create(KindTicket, "create", nil)
+			w.claim(id, StageImplementer, "r-impl")
+			return id
+		}, Todo, EntryResume},
+		{InReview, func() string { return w.ticketInReview("h1") }, Todo, EntryRework},
+		{Repair, func() string {
+			id := w.ticketInReview("h1")
+			w.must(id, VerbCIRed, nil)
+			return id
+		}, Todo, EntryRework},
+	}
+	for _, c := range cases {
+		id := c.make()
+		if got := w.show(id).Status; got != c.from {
+			t.Fatalf("%s: the setup left the ticket in %s", c.from, got)
+		}
+		w.must(id, "escalate", nil)
+		w.must(id, "answer", nil)
+		it := w.show(id)
+		if it.Status != c.to || it.Fact(FactEntry) != c.entry || it.Fact(FactResume) != "" {
+			t.Fatalf("escalated from %s, answered: status %s entry %q resume %q, want %s entry %q",
+				c.from, it.Status, it.Fact(FactEntry), it.Fact(FactResume), c.to, c.entry)
+		}
+	}
+}
+
 func TestSecondReviewRejectEscalatesTheModel(t *testing.T) {
 	w := newWorld(t)
 	id := w.ticketInReview("h1")
