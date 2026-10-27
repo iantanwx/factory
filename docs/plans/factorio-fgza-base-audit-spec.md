@@ -88,10 +88,12 @@ rewritten base. Each one is here with its rejected alternative.
   its own, and the audit judges that commit too. We rejected a record that a later clear deletes,
   because the walk can reach a commit after the clear when a partial read held it, and the same
   commit would then pass on one tick and fail on another.
-- **When two rows record one commit, `MergeOf` returns the row with the lowest `seq`.** One ADR
-  pull request can add two ADRs for two epics, so two `adr_landed` rows hold one commit. We
-  rejected a scan in store order, because a later fact could then make the verdict depend on that
-  order.
+- **When two rows record one commit, `MergeOf` returns the row with the lowest `intent_id`.** One
+  ADR pull request can add two ADRs for two epics, so two `adr_landed` rows hold one commit.
+  `intent_id` is the primary key of `transitions` and an `AUTOINCREMENT` key of `intents`, so it
+  orders every row of a project. We rejected a scan in store order, because a later fact could
+  then make the verdict depend on that order. We rejected the lowest `seq`, because the store
+  counts `seq` for each item, so two items' rows can hold the same `seq`.
 - **A document merge that outran its review fails the audit, whatever its parents.** The record
   says so in `MergeRecord.Outran`: the item's history holds a `doc_merged` row from that
   document's review or amending state (`prd_review` or `prd_amending` for a PRD, `spec_review` or
@@ -181,7 +183,7 @@ the four record facts. It replays that item's history up to the row, and returns
 head that the item held at that moment. For a PRD or a spec, it sets `Outran` when a `doc_merged`
 row from that document's review or amending state comes before the merge row. For `adr_merged`,
 `Outran` is false and the reviewed head is not read. When two rows hold the commit, it uses the
-row with the lowest `seq`.
+row with the lowest `intent_id`.
 
 **The adding commit.** `Mirror.AddedBy` answers the newest first-parent commit, reachable from a
 tip, whose diff against its first parent adds a path. `Reactor.adrs` calls it for each epic that
@@ -471,9 +473,10 @@ merged from `in_review` returns an empty reviewed head. An unknown sha returns n
 is true for a PRD merged from `prd_review` or `prd_amending`, and for a spec merged from
 `spec_review` or `spec_amending`. It is false for a document merged from sign-off, and for a spec
 merged from sign-off after its PRD outran its own review. When two epics record one commit as
-`adr_merged`, `MergeOf` returns the epic whose row has the lower `seq`.
+`adr_merged`, `MergeOf` returns the epic whose row has the lower `intent_id`.
 *Example tests on a store with history rows, one for each of the six `Outran` cases, and one with
-two `adr_landed` rows for one commit.*
+two `adr_landed` rows for one commit. The two rows hold the same `seq`, and the test inserts the
+row with the higher `intent_id` first, so it fails on a `seq` order and on a store order.*
 
 **C5. Behaviour: a commit with no merge record raises one alert, once.** Proves A1. A
 first-parent commit on the base that no item records raises one `unreviewed_merge` alert, with
