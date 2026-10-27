@@ -1,0 +1,57 @@
+# A host config as v0.0.58 wrote it: DefaultHost of that release, with the
+# operator's store, agent host and credentials. It holds no overwatch and no
+# orca-acceptance entry.
+state_dir: /var/lib/loop
+store:
+    path: /var/lib/loop/loop.db
+    identity: devbox-1
+key_file: /etc/loop/keys/kek
+agent_host:
+    kind: orca
+    binary: /usr/local/bin/orca
+credentials:
+    github_app:
+        app_id: 12345
+        private_key_secret: GITHUB_APP_PRIVATE_KEY
+throughput:
+    amender:
+        cap: 2
+        schedule: 16,46 * * * *
+    code-reviewer:
+        cap: 8
+        schedule: '*/5 * * * *'
+    decision-timers:
+        cap: 1
+        schedule: '* * * * *'
+    decomposer:
+        cap: 2
+        schedule: 10,40 * * * *
+    dependency-advance:
+        cap: 1
+        schedule: '*/5 * * * *'
+    doc-reviewer:
+        cap: 10
+        schedule: 26,56 * * * *
+    fixer:
+        cap: 1
+        schedule: 14,44 * * * *
+    github-reactor:
+        cap: 1
+        schedule: '* * * * *'
+    implementer:
+        cap: 8
+        schedule: 3,8,13,18,23,28,33,38,43,48,53,58 * * * *
+    intake:
+        cap: 8
+        schedule: 20,50 * * * *
+    merge-handoff:
+        cap: 1
+        schedule: '*/5 * * * *'
+    reproducer:
+        cap: 2
+        schedule: 12,42 * * * *
+    reviewers:
+        cap: 10
+    spec-author:
+        cap: 2
+        schedule: 25,55 * * * *
