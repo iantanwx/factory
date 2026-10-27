@@ -224,3 +224,17 @@ func TestEmptyRegistriesPrintStableKeys(t *testing.T) {
 		}
 	}
 }
+
+// C14: work list --help names the epic flag.
+func TestC14WorkListHelpListsEpic(t *testing.T) {
+	env, code := runJSON(t, New(), "work", "list", "--help")
+	if code != 0 {
+		t.Fatalf("work list --help exited %d: %v", code, env)
+	}
+	for _, f := range env["data"].(map[string]any)["flags"].([]any) {
+		if f.(map[string]any)["name"] == "epic" {
+			return
+		}
+	}
+	t.Fatalf("work list --help lists no epic flag: %v", env["data"])
+}
