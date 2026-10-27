@@ -20,7 +20,8 @@ import (
 // that the fixer's panel passed by is work (C9). An item in a state that a
 // stage takes stalls at the second fire of that stage with no run since it
 // entered the state (C10). A fire that took only older items of the
-// stage's queue is the queue draining, and does not count. A ticket in
+// stage's queue is the queue draining, and does not count. A fire while the
+// server drains admits no run, and does not count either. A ticket in
 // in_progress that no lease holds and no live run names is lost, and work
 // at once (C11). The stage claim states come from admission, so the part
 // lists no state of its own.
@@ -151,7 +152,7 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("read escalations and runs: %w", err)
 	}
-	return classifyStalls(rows, w.Now()), nil
+	return classifyStalls(rows, w.Now(), w.DrainSince()), nil
 }
 
 // scheduleOf parses a stage's schedule in a project: the project's
@@ -341,9 +342,9 @@ func readPanels(ctx context.Context, tx *sql.Tx, fixer func(project string) (*sc
 	return out, nil
 }
 
-// classifyStalls is the stalls part's rule: the rows and the clock in, the
-// reading out.
-func classifyStalls(rows stallRows, now time.Time) Reading {
+// classifyStalls is the stalls part's rule: the rows, the clock and the
+// start of a drain in, the reading out. A zero drain means none is on.
+func classifyStalls(rows stallRows, now, drain time.Time) Reading {
 	var r Reading
 	for _, p := range rows.panels {
 		key := Key("stalls", fmt.Sprintf("escalation-%d", p.id))
@@ -376,7 +377,7 @@ func classifyStalls(rows stallRows, now time.Time) Reading {
 		case row.run != "":
 			why = fmt.Sprintf("run %s started at %s, after it entered at %s", row.run, stamp(row.runAt), stamp(row.entered))
 		default:
-			n, drained := queueFires(row, now)
+			n, drained := queueFires(row, now, drain)
 			if len(drained) > 0 {
 				tookOlder = "; the fires that took only older items of its queue started " + tookList(drained)
 			}
@@ -384,6 +385,9 @@ func classifyStalls(rows stallRows, now time.Time) Reading {
 				why = fmt.Sprintf("%s of %s since it entered at %s", fireCount(n), row.stage, stamp(row.entered))
 				if tookOlder != "" {
 					why += " counts against it" + tookOlder
+				}
+				if !drain.IsZero() {
+					why += fmt.Sprintf("; the server drains since %s and admits no run, so no fire since then counts against it", stamp(drain))
 				}
 			}
 		}
@@ -425,11 +429,12 @@ func fires(c *sched.Cron, since, now time.Time) int {
 // runs of the fires that did not count. A fire counts unless the runs that
 // started from it until the next fire all took items that entered the
 // queue before the row did: that is the queue draining. An item that no
-// transition dates counts as younger. A schedule that no date holds never
-// fires.
-func queueFires(row itemRow, now time.Time) (n int, drained []queueRun) {
+// transition dates counts as younger. A fire at or after a non-zero drain
+// never counts: the drain lasts until the server restarts, and admits no
+// run. A schedule that no date holds never fires.
+func queueFires(row itemRow, now, drain time.Time) (n int, drained []queueRun) {
 	next, err := row.cron.Next(row.entered)
-	for n < stallFires && err == nil && !next.After(now) {
+	for n < stallFires && err == nil && !next.After(now) && (drain.IsZero() || next.Before(drain)) {
 		fire := next
 		next, err = row.cron.Next(fire)
 		var took []queueRun

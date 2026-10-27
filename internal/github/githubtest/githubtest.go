@@ -7,6 +7,7 @@
 package githubtest
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -106,7 +107,9 @@ type API struct {
 	rules   []any
 	// noRulesStatus is what the rules endpoint answers with nil rules.
 	noRulesStatus int
-	World         *World
+	// others answer for the other repositories of Owner (Serve).
+	others map[string]*API
+	World  *World
 }
 
 // NewAPI starts the API with a good installation and good branch rules,
@@ -116,7 +119,7 @@ func NewAPI(t testing.TB) *API {
 		install: map[string]any{"id": InstallID, "repository_selection": "selected", "suspended_at": nil,
 			"permissions": map[string]string{"contents": "write", "pull_requests": "write", "statuses": "write",
 				"workflows": "write", "checks": "read", "actions": "read", "metadata": "read"}},
-		rules: GoodRules(), noRulesStatus: 404,
+		rules: GoodRules(), noRulesStatus: 404, others: map[string]*API{},
 		World: NewWorld()}
 	a.srv = httptest.NewServer(http.HandlerFunc(a.serve))
 	t.Cleanup(a.srv.Close)
@@ -206,6 +209,47 @@ func (a *API) SetNoRulesStatus(status int) {
 	a.noRulesStatus = status
 }
 
+// Serve makes the API answer for repo, a second repository of Owner,
+// through other: each request on /repos/<repo>, and each token mint for
+// repo. other serves the request as Repo, and logs it in its own Calls.
+func (a *API) Serve(repo string, other *API) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.others[repo] = other
+}
+
+// other is the API that answers r for another repository, with r's path
+// moved to Repo, or nil.
+func (a *API) other(r *http.Request) *API {
+	a.mu.Lock()
+	others := maps.Clone(a.others)
+	a.mu.Unlock()
+	if len(others) == 0 {
+		return nil
+	}
+	var minted []string
+	if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/access_tokens") {
+		b, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(b))
+		var body struct {
+			Repositories []string `json:"repositories"`
+		}
+		_ = json.Unmarshal(b, &body)
+		minted = body.Repositories
+	}
+	for repo, o := range others {
+		prefix := "/repos/" + repo
+		if r.URL.Path == prefix || strings.HasPrefix(r.URL.Path, prefix+"/") {
+			r.URL.Path = "/repos/" + Repo + strings.TrimPrefix(r.URL.Path, prefix)
+			return o
+		}
+		if _, name, _ := strings.Cut(repo, "/"); slices.Contains(minted, name) {
+			return o
+		}
+	}
+	return nil
+}
+
 // ValidToken reports whether the API minted tok.
 func (a *API) ValidToken(tok string) bool {
 	a.mu.Lock()
@@ -214,6 +258,10 @@ func (a *API) ValidToken(tok string) bool {
 }
 
 func (a *API) serve(w http.ResponseWriter, r *http.Request) {
+	if o := a.other(r); o != nil {
+		o.serve(w, r)
+		return
+	}
 	key := r.Method + " " + r.URL.Path
 	a.mu.Lock()
 	a.calls = append(a.calls, r.Method+" "+r.URL.RequestURI())
@@ -254,12 +302,24 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 		a.tokens = append(a.tokens, tok)
 		a.mints = append(a.mints, body)
 		a.mu.Unlock()
+		// The token reaches the repositories the mint names.
+		repos := []any{}
+		names, _ := body["repositories"].([]any)
+		for _, n := range names {
+			repos = append(repos, map[string]string{"full_name": fmt.Sprintf("%s/%v", Owner, n)})
+		}
+		if len(repos) == 0 {
+			repos = append(repos, map[string]string{"full_name": Repo})
+		}
 		WriteJSON(w, 201, map[string]any{"token": tok, "expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
-			"permissions": body["permissions"], "repositories": []any{map[string]string{"full_name": Repo}}})
+			"permissions": body["permissions"], "repositories": repos})
 	case !a.ValidToken(auth):
 		WriteJSON(w, 401, map[string]string{"message": "Bad credentials"})
 	case key == "GET /repos/"+Repo:
 		WriteJSON(w, 200, map[string]any{"full_name": Repo, "default_branch": "main"})
+	case key == "GET /rate_limit":
+		full := map[string]any{"limit": 5000, "remaining": 5000, "reset": time.Now().Add(time.Hour).Unix()}
+		WriteJSON(w, 200, map[string]any{"resources": map[string]any{"core": full, "graphql": full}})
 	case key == "GET /repos/"+Repo+"/rules/branches/main":
 		a.mu.Lock()
 		rules, status := a.rules, a.noRulesStatus
@@ -351,6 +411,13 @@ func NewWorld() *World {
 
 func (w *World) tick() time.Time {
 	w.clock = w.clock.Add(time.Second)
+	return w.clock
+}
+
+// Now is the world's clock: the time of the last PR or comment it stored.
+func (w *World) Now() time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return w.clock
 }
 

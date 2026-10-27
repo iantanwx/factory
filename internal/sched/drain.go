@@ -32,6 +32,13 @@ func (s *Scheduler) Draining() bool {
 	return s.draining
 }
 
+// DrainSince is when the drain began, and zero when no drain is on.
+func (s *Scheduler) DrainSince() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.drainFrom
+}
+
 // Drain stops admission (AE6): admission refuses every run with DRAINING
 // and no tick dispatches. It then waits up to wait for the runs in flight
 // to finish. The drain ends when they finish or DrainTimeout passes. It
@@ -41,7 +48,8 @@ func (s *Scheduler) Drain(ctx context.Context, wait time.Duration) DrainState {
 	s.mu.Lock()
 	if !s.draining {
 		s.draining = true
-		s.drainEnd = s.now().Add(s.cfg.DrainTimeout)
+		s.drainFrom = s.now()
+		s.drainEnd = s.drainFrom.Add(s.cfg.DrainTimeout)
 	}
 	s.mu.Unlock()
 	s.cfg.Admission.SetDraining(true)
