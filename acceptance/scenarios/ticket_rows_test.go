@@ -127,7 +127,12 @@ func TestTicketRowsEndToEnd(t *testing.T) {
 	if w.Entry("escalation/"+acceptance.Project+"/"+a) == nil {
 		t.Fatal("a closed PR put no escalation in the inbox")
 	}
-	w.Must(w.Coordinator("work", "cancel", a, "--project", acceptance.Project))
+	// C12: a cancel with no reason exits 2 with USAGE, and the item stays.
+	if r := w.Coordinator("work", "cancel", a, "--project", acceptance.Project); r.Code != 2 || r.RefusalCode() != cli.CodeUsage {
+		t.Fatalf("a cancel with no reason: %s", r)
+	}
+	wantStatus(w, a, machine.Escalated)
+	w.Must(w.Coordinator("work", "cancel", a, "--reason", "The operator dropped ticket A.", "--project", acceptance.Project))
 	wantStatus(w, a, machine.Canceled)
 
 	// B waits in review while C fails twice at implementation.

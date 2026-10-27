@@ -180,7 +180,8 @@ func ticketTable() *Table {
 			set: escalateTo(ticketResume), Facts: []string{FactResume, FactResumeEntry, FactEscalation}},
 		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: []string{Todo},
 			set: answerResume, Facts: []string{FactEntry, FactResume, FactResumeEntry, FactEscalation, FactAnswer, FactAmendment}},
-		{Verb: "cancel", From: []string{Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop},
+		{Verb: "cancel", From: []string{Escalated}, To: Canceled, Command: "work cancel", Lease: LeaseDrop,
+			set: needCopy("reason", FactCancelReason), Facts: []string{FactCancelReason}},
 		// A ticket that the base, a done item or an ADR already answers has
 		// no work left. A state that holds a pull request never closes so.
 		{Verb: VerbSupersede, From: []string{Backlog, Todo, InProgress}, To: Canceled, Command: "work supersede",

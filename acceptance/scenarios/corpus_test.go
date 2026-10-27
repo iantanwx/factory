@@ -181,7 +181,7 @@ func TestCorpusRoutesEveryFindingToItsLabel(t *testing.T) {
 		if c.Route == "person" {
 			wantStatus(w, item, machine.Escalated)
 			w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "blocked"))
-			w.Must(w.Coordinator("work", "cancel", item, "--project", acceptance.Project))
+			w.Must(w.Coordinator("work", "cancel", item, "--reason", "The person drops case "+c.ID+".", "--project", acceptance.Project))
 			continue
 		}
 		// A loop case keeps its run and its lease, as a run whose finding

@@ -36,7 +36,7 @@ func (m *Machine) Handlers() map[string]rpc.Handler {
 		"work list":       m.workList,
 		"work note":       m.verb("note", "item"),
 		"work edit":       m.workEdit,
-		"work cancel":     m.verb("cancel", "item"),
+		"work cancel":     m.workCancel,
 		"work unblock":    m.verb("unblock", "item"),
 		"work shape":      m.workShape,
 		"work ask":        m.workAsk,
@@ -284,6 +284,25 @@ func (m *Machine) workDuplicate(ctx context.Context, call *rpc.Call) cli.Result 
 		return r.Result()
 	}
 	return m.Apply(ctx, request(call, prj, bug, "duplicate", map[string]string{"of": of}))
+}
+
+// workCancel closes an escalated item, or a bug the reproducer routes as
+// a loop fault. The reason says why, and the item keeps it for a person.
+func (m *Machine) workCancel(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := call.Project(ownProject)
+	if r != nil {
+		return r.Result()
+	}
+	item := call.Inv.Arg("item")
+	if r := borrowed(call, item); r != nil {
+		return r.Result()
+	}
+	reason := strings.TrimSpace(call.Inv.Flags["reason"])
+	if reason == "" {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "no_reason", Item: item,
+			Hint: "--reason says why the item closes; a person reads it"})
+	}
+	return m.Apply(ctx, request(call, prj, item, "cancel", map[string]string{"reason": reason}))
 }
 
 // SupersedeChecker reads the evidence of `work supersede` back from GitHub

@@ -48,6 +48,7 @@ const (
 	// work left: "commit <sha>", "done <item>" or "adr <path>".
 	FactSupersededBy    = "superseded_by"
 	FactSupersedeReason = "supersede_reason" // how that evidence answers the ticket
+	FactCancelReason    = "cancel_reason"    // why work cancel closed the item
 )
 
 // Entry values of a todo ticket (R6).
