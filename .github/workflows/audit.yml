@@ -1,0 +1,22 @@
+name: audit
+
+# The scheduled audit of the base. On a pull request the audit gate runs
+# only when the change touches a lock file, so an advisory published after
+# a dependency landed reaches nobody there. This job audits every
+# dependency of the default branch each day, and on demand.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: depot-ubuntu-24.04-4
+    steps:
+      - uses: actions/checkout@v5
+      # Builds loop from this checkout and puts it on PATH.
+      - uses: ./
+      - run: loop gates --only audit --full

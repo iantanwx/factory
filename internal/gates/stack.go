@@ -28,10 +28,11 @@ var lockfiles = []string{
 // prints keys on stdout and ends them with EndLine; its stderr streams to
 // the log, and ratchetStack holds the keys to the baseline.
 //
-// audit runs only when the change touches a lock file. An advisory
-// database moves on its own, so a blanket audit fails a change for news
-// its author cannot fix. A change to the dependency graph owns what it
-// brings in.
+// audit runs only when the change touches a lock file, unless r.Full is
+// set. An advisory database moves on its own, so a blanket audit fails a
+// change for news its author cannot fix. A change to the dependency graph
+// owns what it brings in. The scheduled audit sets r.Full to read that
+// news on the base.
 func stackGate(name string) func(context.Context, *Repo) ([]Finding, error) {
 	return func(ctx context.Context, r *Repo) ([]Finding, error) {
 		if r.Config == nil {
@@ -41,7 +42,7 @@ func stackGate(name string) func(context.Context, *Repo) ([]Finding, error) {
 		if i < 0 {
 			return []Finding{{File: ".loop/config.yaml", Rule: "gate_missing", Message: "gates names no " + name + " command; every project runs " + strings.Join(StackGates, ", ")}}, nil
 		}
-		if name == "audit" {
+		if name == "audit" && !r.Full {
 			changed, err := r.Changed(ctx)
 			if err != nil {
 				return nil, err
