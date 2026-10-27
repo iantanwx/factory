@@ -87,6 +87,8 @@ type Machine struct {
 	// supersedeCheck reads the evidence of `work supersede` back from
 	// GitHub. Nil refuses every supersede.
 	supersedeCheck SupersedeChecker
+	// wait reads why an item waits, for work show. Nil reads nothing.
+	wait WaitReader
 }
 
 type itemLock struct {
@@ -217,6 +219,52 @@ type Item struct {
 	// Updated is when beads last wrote the item. The work query dates an
 	// item's entry into Status by it when no transition records that entry.
 	Updated time.Time `json:"-"`
+	// Wait is why the item waits, and WaitError why that read failed. Only
+	// work show sets them.
+	Wait      *Wait  `json:"wait,omitempty"`
+	WaitError string `json:"wait_error,omitempty"`
+}
+
+// Wait is the wait of one item: the lease, the holds, the counted failures
+// with the limit, and the open alerts that name the item.
+type Wait struct {
+	Lease    *WaitLease    `json:"lease"`    // nil when no run holds the item
+	Holds    []WaitHold    `json:"holds"`    // [] when none
+	Failures []WaitFailure `json:"failures"` // counted rows only, oldest first
+	Limit    int           `json:"failure_limit"`
+	Alerts   []WaitAlert   `json:"alerts"` // open alerts that name the item
+}
+
+// WaitLease is the run that holds the item's lease.
+type WaitLease struct {
+	Run     string    `json:"run"`
+	Epoch   int64     `json:"epoch"`
+	Granted time.Time `json:"granted_at"`
+	Renewed time.Time `json:"renewed_at"`
+}
+
+// WaitHold is a room or an escalation that holds the item.
+type WaitHold struct {
+	Holder string    `json:"holder"`
+	Kind   string    `json:"kind"`
+	Since  time.Time `json:"since"`
+}
+
+// WaitFailure is one counted failure of the item.
+type WaitFailure struct {
+	Run    string    `json:"run"`
+	Stage  string    `json:"stage"`
+	Class  string    `json:"class"`
+	Inputs string    `json:"inputs"`
+	Note   string    `json:"note,omitempty"`
+	At     time.Time `json:"recorded_at"`
+}
+
+// WaitAlert is one open alert that names the item.
+type WaitAlert struct {
+	Entry   string `json:"entry"` // alert/<id>, as the inbox names it
+	Kind    string `json:"kind"`
+	Subject string `json:"subject"`
 }
 
 // Fact returns one fact by name.
