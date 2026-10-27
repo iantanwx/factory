@@ -15,9 +15,17 @@ import (
 
 // tableOnly names each ticket or epic row that no CLI verb, reactor path
 // or scheduler path performs in v1, with the unit test that applies it.
+// A key is "kind verb", or "kind verb[selector]" for one row of a verb.
 // Every other row of the two tables must be applied end to end by a
 // scenario of a full run.
-var tableOnly = map[string]string{}
+var tableOnly = map[string]string{
+	// factorio-4n0: no verb creates a PRD epic or a blocked epic until
+	// `epic create --request` and `--blocked-by` land, so no epic reaches
+	// backlog for `work unblock` to move.
+	"epic create_prd": "TestEpicEntersByItsBlockers",
+	"epic create_architecture[open_dependency]": "TestEpicEntersByItsBlockers",
+	"epic unblock": "TestUnblockLandsOnTheRecordedEntry",
+}
 
 // rowName names one row: its kind, verb and selector, and its edge.
 func rowName(k machine.Kind, r machine.Row) string {
@@ -57,7 +65,11 @@ func checkCatalogue() int {
 		for _, r := range tb.Rows {
 			rows++
 			name := rowName(tb.Kind, r)
-			if _, ok := tableOnly[string(tb.Kind)+" "+r.Verb]; ok {
+			key := string(tb.Kind) + " " + r.Verb
+			if _, ok := tableOnly[key]; ok {
+				continue
+			}
+			if _, ok := tableOnly[key+"["+r.When+"]"]; ok && r.When != "" {
 				continue
 			}
 			hit := slices.ContainsFunc(observed, func(t acceptance.Transition) bool {

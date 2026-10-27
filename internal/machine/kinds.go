@@ -50,6 +50,7 @@ const (
 	VerbCIRed              = "ci_red"
 	VerbCreate             = "create"
 	VerbCreateArchitecture = "create_architecture"
+	VerbCreatePRD          = "create_prd"
 	VerbDecomposed         = "decomposed"
 	VerbDefer              = "defer"
 	VerbEnqueue            = "enqueue"

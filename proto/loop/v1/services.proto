@@ -56,6 +56,7 @@ service PrService {
   rpc Checks(VerbRequest) returns (Envelope);
   rpc Logs(VerbRequest) returns (Envelope);
   rpc Rerun(VerbRequest) returns (Envelope);
+  rpc Pending(VerbRequest) returns (Envelope);
 }
 
 service MergeService {

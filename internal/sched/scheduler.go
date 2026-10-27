@@ -145,6 +145,7 @@ type Scheduler struct {
 	mu        sync.Mutex
 	inflight  map[string]int
 	draining  bool
+	drainFrom time.Time
 	drainEnd  time.Time
 	lastCall  map[string]time.Time
 	lastClean time.Time // zero at a start, so the first Tick runs the cleanup pass

@@ -14,6 +14,7 @@ import (
 
 // Epic and document states (the epic diagram of the plan).
 const (
+	PRDNeeded    = "prd_needed"
 	PRDReview    = "prd_review"
 	PRDAmending  = "prd_amending"
 	SpecAmending = "spec_amending"
@@ -35,6 +36,8 @@ const (
 // sends it back to review (AE7). Ported from escalationTargetFor in
 // scripts/sdlc/handoff.ts (alpha).
 var epicResume = map[string]string{
+	Backlog:      Backlog,
+	PRDNeeded:    PRDNeeded,
 	PRDReview:    PRDReview,
 	PRDAmending:  PRDAmending,
 	PRDSignoff:   PRDSignoff,
@@ -50,6 +53,11 @@ var epicResume = map[string]string{
 }
 
 func epicResumeFor(status string) (string, string) { return epicResume[status], "" }
+
+// setEpicEntry records where unblock sends a blocked epic.
+func setEpicEntry(state string) setter {
+	return func(c *change) *cli.Refusal { c.setFact(FactEpicEntry, state); return nil }
+}
 
 // amendingFor is where a person's unanswered comment sends a document in
 // review or in sign-off: the amender answers it, and no stage writes the
@@ -182,27 +190,49 @@ func childrenTerminal(c *change) *cli.Refusal {
 		return beadsRefusal(c.item.ID, err)
 	}
 	if len(open) > 0 {
+		named := make([]string, len(open))
+		for i, k := range open {
+			named[i] = k.ID + " (" + k.Status + ")"
+		}
 		return &cli.Refusal{Code: cli.CodeDependencyOpen, Rule: "children_open", Item: c.item.ID, CurrentStatus: c.item.Status,
-			Hint: fmt.Sprintf("%s closes only when every child is terminal; open: %s", c.item.ID, strings.Join(open, ", "))}
+			Hint: fmt.Sprintf("%s closes only when every child is terminal; open: %s", c.item.ID, strings.Join(named, ", "))}
 	}
 	return nil
 }
 
-// children counts an epic's children and names each open one with its
-// status.
-func children(ctx context.Context, bc beadsx.Client, epic string) (int, []string, error) {
+// children counts an epic's children and lists each open one.
+func children(ctx context.Context, bc beadsx.Client, epic string) (int, []beadsx.Issue, error) {
 	kids, err := bc.List(ctx, beadsx.Filter{Metadata: map[string]string{factPrefix + FactEpic: epic}})
 	if err != nil {
 		return 0, nil, err
 	}
-	var open []string
+	var open []beadsx.Issue
 	for _, k := range kids {
 		t, ok := kindOfType(k.Type)
 		if !ok || !t.Terminal(k.Status) {
-			open = append(open, k.ID+" ("+k.Status+")")
+			open = append(open, k)
 		}
 	}
 	return len(kids), open, nil
+}
+
+// OpenChildren lists the ids of the epic's children whose status is not
+// terminal, by the rule that refuses complete. The inbox's architecture
+// entry reads it.
+func (m *Machine) OpenChildren(ctx context.Context, project, epic string) ([]string, *cli.Refusal) {
+	bc, err := m.cfg.Beads(project)
+	if err != nil {
+		return nil, cli.InternalRefusal(err)
+	}
+	_, open, err := children(ctx, bc, epic)
+	if err != nil {
+		return nil, beadsRefusal(epic, err)
+	}
+	ids := make([]string, len(open))
+	for i, k := range open {
+		ids[i] = k.ID
+	}
+	return ids, nil
 }
 
 // CompleteEpics applies complete to each epic of the project in execution
@@ -248,6 +278,8 @@ func (m *Machine) CompleteEpics(ctx context.Context, project string) error {
 
 func epicTable() *Table {
 	states := []State{
+		{Name: Backlog, Category: beadsx.CategoryFrozen},
+		{Name: PRDNeeded, Category: beadsx.CategoryActive},
 		{Name: PRDReview, Category: beadsx.CategoryActive},
 		{Name: PRDAmending, Category: beadsx.CategoryActive},
 		{Name: PRDSignoff, Category: beadsx.CategoryActive},
@@ -263,7 +295,7 @@ func epicTable() *Table {
 		{Name: Escalated, Category: beadsx.CategoryFrozen},
 		{Name: Done, Category: beadsx.CategoryDone, Terminal: true},
 	}
-	live := []string{PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+	live := []string{Backlog, PRDNeeded, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 	claim := func(from, to, stage string) Row {
 		return Row{Verb: "claim", From: []string{from}, To: to, Stage: stage, when: stageIs(stage),
@@ -272,7 +304,18 @@ func epicTable() *Table {
 	rows := []Row{
 		{Verb: VerbPRDSubmit, From: []string{Initial}, To: PRDReview, Command: "prd submit",
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
-		{Verb: VerbCreateArchitecture, From: []string{Initial}, To: Architecture},
+		{Verb: VerbCreatePRD, From: []string{Initial}, To: PRDNeeded, When: "no_open_dependency", when: paramIs("blocked", "")},
+		{Verb: VerbCreatePRD, From: []string{Initial}, To: Backlog, When: "open_dependency", when: paramIs("blocked", "true"),
+			set: setEpicEntry(PRDNeeded), Facts: []string{FactEpicEntry}},
+		{Verb: VerbCreateArchitecture, From: []string{Initial}, To: Architecture, When: "no_open_dependency", when: paramIs("blocked", "")},
+		{Verb: VerbCreateArchitecture, From: []string{Initial}, To: Backlog, When: "open_dependency", when: paramIs("blocked", "true"),
+			set: setEpicEntry(Architecture), Facts: []string{FactEpicEntry}},
+		// An epic with no epic_entry matches neither row, so unblock never
+		// lands it on a guessed state.
+		{Verb: VerbUnblock, From: []string{Backlog}, To: PRDNeeded, Command: "work unblock",
+			When: "prd_entry", when: factIs(FactEpicEntry, PRDNeeded)},
+		{Verb: VerbUnblock, From: []string{Backlog}, To: Architecture, Command: "work unblock",
+			When: "architecture_entry", when: factIs(FactEpicEntry, Architecture)},
 
 		claim(PRDReview, ToSame, StageDocReviewer),
 		claim(PRDAmending, ToSame, StageAmender),
@@ -368,6 +411,6 @@ func uniqueValues(m map[string]string) []string {
 }
 
 func epicStateOrder() []string {
-	return []string{PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+	return []string{Backlog, PRDNeeded, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution}
 }

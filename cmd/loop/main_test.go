@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -116,6 +117,9 @@ func want(t *testing.T, r result, exit int, code string) {
 func TestBinary(t *testing.T) {
 	bin := binary(t, testVersion)
 	instance := filepath.Join(t.TempDir(), "instance") // no server
+	// An empty release directory: version reads no newest release, and
+	// never reaches GitHub.
+	t.Setenv(release.ReleaseBaseEnv, t.TempDir())
 	cases := []struct {
 		args []string
 		exit int
@@ -130,8 +134,12 @@ func TestBinary(t *testing.T) {
 		r := loop(t, bin, instance, t.TempDir(), "", tc.args...)
 		want(t, r, tc.exit, tc.code)
 		if tc.args[0] == "version" {
-			if v := r.env["data"].(map[string]any)["version"]; v != testVersion {
+			data := r.env["data"].(map[string]any)
+			if v := data["version"]; v != testVersion {
 				t.Errorf("ldflags version = %v", v)
+			}
+			if data["latest"] != "" || data["behind"] != false || data["latest_error"] == nil {
+				t.Errorf("version with no newest release = %v", data)
 			}
 		}
 	}

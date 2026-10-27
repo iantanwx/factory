@@ -51,9 +51,14 @@ func (h *Host) Quota(ctx context.Context, hs agenthost.Harness) (agenthost.Quota
 	for _, k := range keys {
 		var w struct {
 			UsedPercent *float64 `json:"usedPercent"`
+			ResetsAt    float64  `json:"resetsAt"`
 		}
 		if json.Unmarshal(row[k], &w) == nil && w.UsedPercent != nil {
-			q.Windows = append(q.Windows, agenthost.QuotaWindow{Name: k, UsedPercent: *w.UsedPercent})
+			win := agenthost.QuotaWindow{Name: k, UsedPercent: *w.UsedPercent}
+			if w.ResetsAt > 0 {
+				win.ResetsAt = time.UnixMilli(int64(w.ResetsAt))
+			}
+			q.Windows = append(q.Windows, win)
 		}
 	}
 	q.OK = status == "ok" && len(q.Windows) > 0

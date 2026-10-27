@@ -3,6 +3,7 @@ package agenthosttest
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,10 @@ import (
 // asks Driver for a capability interface, and it skips when the driver has
 // none. The fake implements every capability. A real host implements the
 // ones it can drive without a person.
+//
+// In lane mode the suite runs no fake-only scenario, and it fails any other
+// scenario that skips. It wraps Host in Counting with the sessions that the
+// scenario declares.
 type ContractEnv struct {
 	Host agenthost.Host
 	// NewCheckout makes a fresh checkout inside the checkout root and
@@ -39,6 +44,8 @@ type ContractEnv struct {
 	OutsideRoot string
 	// Driver offers the optional capability interfaces below.
 	Driver any
+	// Lane runs the contract in lane mode, against a real host.
+	Lane bool
 }
 
 // ContractFactory builds one environment for one scenario.
@@ -84,33 +91,51 @@ func RunContract(t *testing.T, f ContractFactory) {
 	for _, sc := range scenarios {
 		t.Run(sc.name, func(t *testing.T) {
 			env := f(t)
+			if env.Lane {
+				if sc.fakeOnly != "" {
+					_, _ = fmt.Fprintf(laneOut, "fake-only: %s needs %s\n", sc.name, sc.fakeOnly)
+					return
+				}
+				env.Host = Counting(t, env.Host, sc.sessions)
+				defer func() {
+					if t.Skipped() {
+						t.Errorf("lane mode refuses a skip of %s", sc.name)
+					}
+				}()
+			}
 			sc.run(t, newContract(t, env))
 		})
 	}
 }
 
+// scenario is one contract scenario. sessions counts the calls to Start it
+// makes on a real host, refused ones included. fakeOnly names the capability
+// interface that only the fake offers, or is empty when the scenario runs on
+// a real host. A fake-only scenario declares 0 sessions.
 type scenario struct {
-	name string
-	run  func(t *testing.T, c *contract)
+	name     string
+	sessions int
+	fakeOnly string
+	run      func(t *testing.T, c *contract)
 }
 
 var scenarios = []scenario{
-	{"start_inventory_settle", scStart},
-	{"run_id_is_a_stable_lease_owner", scRunID},
-	{"prompt_never_in_process_args", scArgv},
-	{"incomplete_inventory_never_absent", scIncomplete},
-	{"stale_handle_settles_unknown", scStale},
-	{"never_ready_yields_not_ready", scNotReady},
-	{"quiet_after_ended_turn_reads_ended", scEndedQuiet},
-	{"tool_call_running_never_ended", scToolRunning},
-	{"real_session_ends_on_its_own", scEndedReal},
-	{"close_keeps_checkout", scCloseKeeps},
-	{"dropped_model_reads_unverified", scDroppedModel},
-	{"requested_model_reads_verified", scVerified},
-	{"notify_idle_coordinator", scNotify},
-	{"notify_refused_is_an_error", scNotifyRefused},
-	{"stop_reports_exit_only_when_proven", scStop},
-	{"outside_root_refused", scOutsideRoot},
+	{name: "start_inventory_settle", sessions: 1, run: scStart},
+	{name: "run_id_is_a_stable_lease_owner", sessions: 1, run: scRunID},
+	{name: "prompt_never_in_process_args", sessions: 1, run: scArgv},
+	{name: "incomplete_inventory_never_absent", fakeOnly: "InventoryBreaker", run: scIncomplete},
+	{name: "stale_handle_settles_unknown", sessions: 1, run: scStale},
+	{name: "never_ready_yields_not_ready", fakeOnly: "ReadinessBreaker", run: scNotReady},
+	{name: "quiet_after_ended_turn_reads_ended", fakeOnly: "TurnDriver", run: scEndedQuiet},
+	{name: "tool_call_running_never_ended", fakeOnly: "TurnDriver", run: scToolRunning},
+	{name: "real_session_ends_on_its_own", sessions: 1, run: scEndedReal},
+	{name: "close_keeps_checkout", sessions: 1, run: scCloseKeeps},
+	{name: "dropped_model_reads_unverified", fakeOnly: "ModelDropper", run: scDroppedModel},
+	{name: "requested_model_reads_verified", sessions: 1, run: scVerified},
+	{name: "notify_idle_coordinator", sessions: 1, run: scNotify},
+	{name: "notify_refused_is_an_error", fakeOnly: "NotifyRefuser", run: scNotifyRefused},
+	{name: "stop_reports_exit_only_when_proven", sessions: 1, run: scStop},
+	{name: "outside_root_refused", sessions: 1, run: scOutsideRoot},
 }
 
 type contract struct {
