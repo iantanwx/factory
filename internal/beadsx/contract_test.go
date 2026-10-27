@@ -398,3 +398,25 @@ func TestHeadSurvivesAPruneReal(t *testing.T) {
 		t.Fatalf("tail from the head after the prune: %+v %v", evs, err)
 	}
 }
+
+// TestDepRemoveMissingEdgeReal pins the bd 1.3.1 `dep remove` behaviour
+// that RemoveDependency relies on and works around. It deletes the edge of
+// the pair whatever its type, and it reports success for a missing edge and
+// for a target with another prefix, which it reads as a cross-repo id. Two
+// replays of one unblock can both reach bd after the edge is gone, and the
+// second one must succeed.
+func TestDepRemoveMissingEdgeReal(t *testing.T) {
+	in := startInstance(t, beadsx.DoltConfig{})
+	b := in.workspace(t, "dr")
+	ctx := context.Background()
+	a, r := mustCreate(t, b, "a"), mustCreate(t, b, "r")
+	if err := b.AddDependency(ctx, a.ID, r.ID, beadsx.DepRelated); err != nil {
+		t.Fatal(err)
+	}
+	raw(t, b, "dep", "remove", a.ID, r.ID, "--json")
+	if deps, err := b.Dependencies(ctx, a.ID); err != nil || len(deps) != 0 {
+		t.Fatalf("after dep remove of a related edge: %+v %v; want no edge", deps, err)
+	}
+	raw(t, b, "dep", "remove", a.ID, r.ID, "--json")
+	raw(t, b, "dep", "remove", a.ID, "zz-nope", "--json")
+}

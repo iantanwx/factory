@@ -27,7 +27,7 @@ func TestTheLastTerminalChildClosesItsEpic(t *testing.T) {
 	}
 
 	w.force(canceled, Escalated, nil)
-	w.must(canceled, "cancel", nil)
+	w.must(canceled, "cancel", map[string]string{"reason": "dropped"})
 	if got := w.show(ep).Status; got != Done {
 		t.Fatalf("the epic is %s after its last child finished", got)
 	}

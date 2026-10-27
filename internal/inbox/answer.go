@@ -99,7 +99,8 @@ func (in *Inbox) waitVerb(ctx context.Context, call *rpc.Call) cli.Result {
 }
 
 // answer is `loop inbox answer`: the operator's answer, as the coordinator
-// relays it. An escalated item resumes to its stored target, and an answer
+// relays it. An escalated item resumes to its stored target once each
+// question prepared about its entry has an answer (D17), and an answer
 // with --amend enters the item's inputs, so a twice-failed item is
 // admitted again (R10). An asked bug report returns to reported with its
 // reporter's answer. A fired decision settles as answered. A sign-off
@@ -134,6 +135,18 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		want := machine.Escalated
 		if kind == KindDecision {
 			want = machine.NeedsHuman
+		} else {
+			var open []string
+			if err := in.cfg.Store.Read(ctx, func(tx *sql.Tx) (err error) {
+				open, err = openQuestions(ctx, tx, id)
+				return err
+			}); err != nil {
+				return cli.Internal(err)
+			}
+			if len(open) > 0 {
+				return cli.Reject(cli.CodeTransitionNotAllowed, "question_open",
+					"answer each open question about "+id+" first: "+questionCommands(open))
+			}
 		}
 		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: machine.VerbAnswer, Params: params,
 			Actor: actor, ExpectedStatus: want})

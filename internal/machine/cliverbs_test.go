@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -404,13 +405,71 @@ func TestWorkSupersedeClosesOnCheckedEvidence(t *testing.T) {
 // stays.
 func TestWorkCancelEndsALoopFaultReport(t *testing.T) {
 	w := newWorld(t)
+	reason := map[string]string{"reason": "loop fault F-9"}
 	raw := w.create(KindBug, "file", nil)
-	wantCode(t, w.call("work cancel", coord(), []string{raw}, nil), cli.CodeTransitionNotAllowed)
+	wantCode(t, w.call("work cancel", coord(), []string{raw}, reason), cli.CodeTransitionNotAllowed)
 	bug := w.create(KindBug, "file", nil)
 	run := w.claimAs(bug, StageReproducer, "repro")
-	mustOK(t, w.call("work cancel", run, []string{bug}, nil))
+	mustOK(t, w.call("work cancel", run, []string{bug}, reason))
 	if it := w.show(bug); it.Status != Canceled || it.Owner != "" {
 		t.Fatalf("after cancel: %s, owner %q", it.Status, it.Owner)
+	}
+}
+
+// TestC12WorkCancelNeedsAReason proves C12: with no reason, or a blank
+// one, the cancel refuses with USAGE and the item stays. With a reason,
+// the move to canceled records it as cancel_reason, and the server refuses
+// a reason that holds a secret.
+func TestC12WorkCancelNeedsAReason(t *testing.T) {
+	w := newWorld(t)
+	w.red.SetLive("alpha/API_KEY", liveSecret)
+	id := w.create(KindTicket, "create", nil)
+	w.force(id, Escalated, nil)
+	before := w.show(id)
+	for _, flags := range []map[string]string{nil, {"reason": " \n\t"}} {
+		if ref := wantCode(t, w.call("work cancel", coord(), []string{id}, flags), cli.CodeUsage); ref.Item != id {
+			t.Fatalf("the refusal names %q", ref.Item)
+		}
+	}
+	wantCode(t, w.call("work cancel", coord(), []string{id}, map[string]string{"reason": "the key is " + liveSecret}),
+		cli.CodeSecretInOutput)
+	if after := w.show(id); after.Status != Escalated || after.Seq != before.Seq {
+		t.Fatalf("a refused cancel changed the item: %+v", after)
+	}
+
+	mustOK(t, w.call("work cancel", coord(), []string{id}, map[string]string{"reason": "The operator dropped the feature."}))
+	hist := w.history(id)
+	last := hist[len(hist)-1]
+	if last.Verb != "cancel" || last.To != Canceled || last.Set[factPrefix+"cancel_reason"] != "The operator dropped the feature." {
+		t.Fatalf("the cancel transition: %+v", last)
+	}
+}
+
+// TestC12CancelStartsOnlyFromTheNamedStates proves C12 over every state of
+// the ticket and the bug tables: a reasoned cancel lands from escalated for
+// a ticket, and from reproducing and escalated for a bug. Every other
+// state refuses it with TRANSITION_NOT_ALLOWED.
+func TestC12CancelStartsOnlyFromTheNamedStates(t *testing.T) {
+	named := map[Kind][]string{KindTicket: {Escalated}, KindBug: {Reproducing, Escalated}}
+	for kind, from := range named {
+		tbl, _ := TableFor(kind)
+		w := newWorld(t)
+		for _, s := range tbl.States {
+			if s.Name == Initial {
+				continue
+			}
+			id := w.create(kind, firstCreate(tbl), nil)
+			w.force(id, s.Name, nil)
+			res := w.call("work cancel", coord(), []string{id}, map[string]string{"reason": "dropped"})
+			if !slices.Contains(from, s.Name) {
+				wantCode(t, res, cli.CodeTransitionNotAllowed)
+				continue
+			}
+			mustOK(t, res)
+			if it := w.show(id); it.Status != Canceled || it.Fact("cancel_reason") != "dropped" {
+				t.Fatalf("%s cancel from %s: %s, cancel_reason %q", kind, s.Name, it.Status, it.Fact("cancel_reason"))
+			}
+		}
 	}
 }
 
@@ -428,7 +487,7 @@ func TestABorrowedItemTakesANoteOnly(t *testing.T) {
 	}
 	for path, flags := range map[string]map[string]string{
 		"work edit":     {"title": "x"},
-		"work cancel":   nil,
+		"work cancel":   {"reason": "dropped"},
 		"work unblock":  nil,
 		"review submit": {"verdict": "reject"},
 	} {

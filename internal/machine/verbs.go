@@ -36,7 +36,7 @@ func (m *Machine) Handlers() map[string]rpc.Handler {
 		"work list":       m.workList,
 		"work note":       m.verb("note", "item"),
 		"work edit":       m.workEdit,
-		"work cancel":     m.verb("cancel", "item"),
+		"work cancel":     m.workCancel,
 		"work unblock":    m.verb("unblock", "item"),
 		"work shape":      m.workShape,
 		"work ask":        m.workAsk,
@@ -286,6 +286,25 @@ func (m *Machine) workDuplicate(ctx context.Context, call *rpc.Call) cli.Result 
 	return m.Apply(ctx, request(call, prj, bug, "duplicate", map[string]string{"of": of}))
 }
 
+// workCancel closes an escalated item, or a bug the reproducer routes as
+// a loop fault. The reason says why, and the item keeps it for a person.
+func (m *Machine) workCancel(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := call.Project(ownProject)
+	if r != nil {
+		return r.Result()
+	}
+	item := call.Inv.Arg("item")
+	if r := borrowed(call, item); r != nil {
+		return r.Result()
+	}
+	reason := strings.TrimSpace(call.Inv.Flags["reason"])
+	if reason == "" {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "no_reason", Item: item,
+			Hint: "--reason says why the item closes; a person reads it"})
+	}
+	return m.Apply(ctx, request(call, prj, item, "cancel", map[string]string{"reason": reason}))
+}
+
 // SupersedeChecker reads the evidence of `work supersede` back from GitHub
 // and the project's base branch. kind is an Evidence constant. It refuses
 // when the ticket's branch holds an open pull request, whatever the
@@ -352,7 +371,8 @@ type ShapeResult struct {
 // workShape shapes a bug into a ticket: it creates the ticket, which
 // names the bug, then closes the bug as shaped with the ticket's id. The
 // ticket's create key is the bug, so a retry after a crash between the
-// two writes finds the ticket it made.
+// two writes finds the ticket it made. With --blocked-by the ticket waits
+// in backlog on each blocker, which is checked before any write.
 func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
@@ -373,6 +393,7 @@ func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 		return r.Result()
 	}
 	t, _ := TableFor(it.Kind)
+	blockers := ParseBlockers(call.Inv.Flags["blocked-by"])
 	switch {
 	case it.Kind != KindBug:
 		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "not_a_bug", Item: bug, Hint: fmt.Sprintf("%s is a %s; only a bug is shaped", bug, it.Kind)})
@@ -380,7 +401,10 @@ func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "no_edge", Item: bug, CurrentStatus: it.Status,
 			AllowedNext: it.AllowedNext, Hint: fmt.Sprintf("a bug in %s has no shape move", it.Status)})
 	}
-	ticket, r := m.shapedTicket(ctx, prj, bug, title, body, call)
+	if r := m.CheckBlockers(ctx, prj, "", blockers); r != nil {
+		return r.Result()
+	}
+	ticket, r := m.shapedTicket(ctx, prj, bug, title, body, blockers, call)
 	if r != nil {
 		return r.Result()
 	}
@@ -393,8 +417,9 @@ func (m *Machine) workShape(ctx context.Context, call *rpc.Call) cli.Result {
 }
 
 // shapedTicket finds the ticket a bug was shaped into, or creates it in
-// todo. The caller holds the bug's lock.
-func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body string, call *rpc.Call) (string, *cli.Refusal) {
+// todo, or in backlog with an edge to each blocker. The caller holds the
+// bug's lock.
+func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body string, blockers []string, call *rpc.Call) (string, *cli.Refusal) {
 	key := shapeKey(bug)
 	found, r := m.List(ctx, prj, ListFilter{Kind: KindTicket, Facts: map[string]string{FactCreateKey: key}})
 	if r != nil {
@@ -414,8 +439,15 @@ func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body string
 		}
 	}
 	if tk.Status == Initial {
+		params := map[string]string{}
+		if len(blockers) > 0 {
+			if r := m.addBlockers(ctx, prj, tk.ID, blockers); r != nil {
+				return "", r
+			}
+			params["blocked"] = "true"
+		}
 		p := call.Principal
-		res := m.Apply(ctx, Request{Project: prj, Item: tk.ID, Verb: VerbCreate, ExpectedStatus: Initial,
+		res := m.Apply(ctx, Request{Project: prj, Item: tk.ID, Verb: VerbCreate, Params: params, ExpectedStatus: Initial,
 			RequestID: call.Inv.RequestID, Actor: Actor{Name: p.Actor(), RunID: p.RunID}})
 		if res.Refusal != nil {
 			return "", res.Refusal

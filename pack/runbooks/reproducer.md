@@ -93,8 +93,8 @@ Run one command for the outcome:
   and run `loop work duplicate <item> --of <that item>`.
 - **Missing fact**: ask the reporter by section 6.
 - **Loop fault**: record the fault id with `loop work note <item> --body "loop fault F-<n>"`. Then
-  run `loop work cancel <item>`. The report closes as `canceled`, and the coordinator owns the
-  fault. A report that goes back to `reported` only runs again.
+  run `loop work cancel <item> --reason "loop fault F-<n>"`. The report closes as `canceled`, and
+  the coordinator owns the fault. A report that goes back to `reported` only runs again.
 
 A retry of the same `work shape` after exit 4 finds the ticket that it made, and makes no second
 ticket.
