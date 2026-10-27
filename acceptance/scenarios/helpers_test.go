@@ -58,15 +58,16 @@ func implement(w *acceptance.World, item string, files map[string]string) (accep
 }
 
 // review starts a code-reviewer run on item and submits verdict at the
-// PR's current head, which the run reads with `loop pr show`.
-func review(w *acceptance.World, item, verdict string) acceptance.Run {
+// PR's current head, which the run reads with `loop pr show`. flags go to
+// `review submit` as they are, such as a body that names each contract.
+func review(w *acceptance.World, item, verdict string, flags ...string) acceptance.Run {
 	w.T.Helper()
 	run := w.Dispatch(machine.StageCodeReviewer)
 	if run.Item != item {
 		w.T.Fatalf("the code-reviewer took %s, want %s", run.Item, item)
 	}
 	head := w.Must(w.In(run.Checkout, "pr", "show")).Str("head_sha")
-	w.Must(w.In(run.Checkout, "review", "submit", item, "--verdict", verdict, "--head", head))
+	w.Must(w.In(run.Checkout, append([]string{"review", "submit", item, "--verdict", verdict, "--head", head}, flags...)...))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 	return run
 }

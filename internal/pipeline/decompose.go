@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/shape"
 )
 
 // Decomposition is the file of `loop epic decompose --file`.
@@ -91,15 +92,25 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 	// ADR stands in for the PRD, so its tickets cite no story label, and
 	// a ticket that names one cites a PRD that does not exist.
 	arch := epic.Fact(machine.FactADR) != "" && epic.Fact(machine.FactPRDMerged) == ""
+	if ref := p.specDecided(ctx, epic); ref != nil {
+		return ref.Result()
+	}
 	var labels []string
 	if !arch {
 		if labels, ref = p.prdLabels(ctx, epic); ref != nil {
 			return ref.Result()
 		}
 	}
-	var faults []string
+	var faults, misshaped []string
 	var texts []string
 	for _, t := range d.Tickets {
+		if fs := shape.CheckBody(shape.Ticket, t.Body); len(fs) > 0 {
+			each := make([]string, len(fs))
+			for i, f := range fs {
+				each[i] = f.String()
+			}
+			misshaped = append(misshaped, fmt.Sprintf("ticket %s: %s", t.Key, strings.Join(each, "; ")))
+		}
 		switch {
 		case arch && len(t.Stories) > 0:
 			faults = append(faults, fmt.Sprintf("ticket %s cites %s, and an architecture epic has no PRD to hold a story",
@@ -118,6 +129,10 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		return cli.Refuse(cli.Refusal{Code: cli.CodeStoryUnknown, Rule: rule, Item: epic.ID,
 			Hint: "the batch is refused, and no ticket was created: " + strings.Join(faults, "; ")})
+	}
+	if len(misshaped) > 0 {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeShapeRefused, Rule: "ticket_shape", Item: epic.ID,
+			Hint: "the batch is refused, and no ticket was created. Each body needs the ticket shape: " + strings.Join(misshaped, ". ")})
 	}
 	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", texts...); ref != nil {
 		return ref.Result()
@@ -142,7 +157,7 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 		it, ref := p.findOrCreate(ctx, machine.CreateRequest{Project: epic.Project, Kind: machine.KindTicket, Title: t.Title,
 			Description: t.Body, Facts: map[string]string{
 				machine.FactCreateKey: epic.ID + "/" + t.Key, machine.FactEpic: epic.ID,
-				machine.FactStories: strings.Join(t.Stories, ","),
+				machine.FactStories: strings.Join(t.Stories, ","), machine.FactShape: shape.Ticket.Name,
 			}})
 		if ref != nil {
 			return ref.Result()
@@ -186,6 +201,50 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 		return res
 	}
 	return p.landed(ctx, epic, order)
+}
+
+// specDecided refuses a batch whose epic has no one spec on the base
+// branch, or whose spec holds an undecided open question. The spec is at
+// the epic's spec_path. An epic whose spec merged before that fact existed
+// has none, and its spec is the one base file docs/plans/<epic>-*-spec.md.
+func (p *Pipeline) specDecided(ctx context.Context, epic machine.Item) *cli.Refusal {
+	noSpec := func(hint string) *cli.Refusal {
+		return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "no_spec", Item: epic.ID,
+			Hint: hint + ", so no ticket was created. Decompose reads the spec that the operator signed off"}
+	}
+	path := epic.Fact(machine.FactSpecPath)
+	if path == "" {
+		pattern := "docs/plans/" + epic.ID + "-*-spec.md"
+		base, err := p.cfg.GitHub.Files(ctx, epic.Project, []string{"docs/plans/" + epic.ID + "-"})
+		if err != nil {
+			return noSpec(fmt.Sprintf("the base branch could not be read for %s: %v", pattern, err))
+		}
+		var files []shape.ChangedFile
+		for f := range base {
+			files = append(files, shape.ChangedFile{Path: f})
+		}
+		var n int
+		if path, n = shape.SpecFile(epic.ID, files); path == "" {
+			return noSpec(fmt.Sprintf("%s holds no spec_path, and the base branch holds %d files that match %s, not one",
+				epic.ID, n, pattern))
+		}
+	}
+	data, _, err := p.cfg.GitHub.ReadAtBase(ctx, epic.Project, path)
+	if err != nil {
+		return noSpec(fmt.Sprintf("the base branch holds no readable %s: %v", path, err))
+	}
+	qs := shape.Undecided(string(data))
+	if len(qs) == 0 {
+		return nil
+	}
+	each := make([]string, len(qs))
+	for i, q := range qs {
+		each[i] = fmt.Sprintf("line %d: %s", q.Line, q.Text)
+	}
+	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "open_questions", Item: epic.ID,
+		Hint: fmt.Sprintf("%s holds %d undecided open questions, so no ticket was created: %s. An entry is decided "+
+			"by a bold **Answered or **Deferred run under it. Escalate each one, and never answer it yourself",
+			path, len(qs), strings.Join(each, "; "))}
 }
 
 // landed answers a batch whose every ticket exists.

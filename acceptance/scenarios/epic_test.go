@@ -112,11 +112,17 @@ func draftSpec(w *acceptance.World, epic, version string) {
 	}
 	wantStatus(w, epic, machine.SpecDrafting)
 	syncItem(w, run.Checkout)
-	w.Commit(run.Checkout, "spec "+version, map[string]string{"docs/specs/widgets.md": "# Widgets spec\n\n" + version + "\n"})
+	w.Commit(run.Checkout, "spec "+version, map[string]string{"docs/plans/" + epic + "-widgets-spec.md": "# Widgets spec\n\n" + version + "\n"})
 	w.Must(w.In(run.Checkout, "branch", "push"))
 	w.Must(w.In(run.Checkout, "pr", "open", "--title", "Spec: widgets", "--body", "The spec of "+epic+"."))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 	wantStatus(w, epic, machine.SpecReview)
+}
+
+// ticketBody is a body of the ticket shape whose Change is change.
+func ticketBody(change string) string {
+	return "## Source\n\nThe widgets spec.\n\n## Change\n\n" + change + "\n\n## Contracts to prove\n\n- C1. The file holds its line.\n\n" +
+		"## Files\n\n- May change: `widgets/`.\n\n## Done means\n\nThe gates pass.\n\n## Out of scope\n\nNothing.\n"
 }
 
 // F4 and AE7: a PRD from intake to tickets. The doc-reviewer rejects the
@@ -190,8 +196,8 @@ func TestF4AE7APRDFromIntakeToTicketsAndDone(t *testing.T) {
 	}
 	wantStatus(w, epic, machine.Decomposing)
 	batch, _ := json.Marshal(map[string]any{"tickets": []map[string]any{
-		{"key": "list", "title": "List widgets", "body": "Create `widgets/list.txt` holding the line `list`.", "stories": []string{"US-01"}},
-		{"key": "name", "title": "Name a widget", "body": "Create `widgets/name.txt` holding the line `name`.", "stories": []string{"US-02"},
+		{"key": "list", "title": "List widgets", "body": ticketBody("Create `widgets/list.txt` holding the line `list`."), "stories": []string{"US-01"}},
+		{"key": "name", "title": "Name a widget", "body": ticketBody("Create `widgets/name.txt` holding the line `name`."), "stories": []string{"US-02"},
 			"blocked_by": []string{"list"}},
 	}})
 	r := w.Must(w.In(dec.Checkout, "epic", "decompose", "--file", w.WriteFile("decomposition.json", string(batch))))
@@ -223,13 +229,13 @@ func TestF4AE7APRDFromIntakeToTicketsAndDone(t *testing.T) {
 	// Both tickets land, and the last one closes the epic.
 	_, head := implement(w, ids["list"], map[string]string{"widgets/list.txt": "list\n"})
 	w.CI(head, "success")
-	review(w, ids["list"], "pass")
+	review(w, ids["list"], "pass", "--body", "C1 holds: the file holds its line.")
 	merge(w, ids["list"])
 	wantStatus(w, epic, machine.Execution)
 	w.Must(w.Coordinator("work", "unblock", ids["name"], "--project", acceptance.Project))
 	_, head = implement(w, ids["name"], map[string]string{"widgets/name.txt": "name\n"})
 	w.CI(head, "success")
-	review(w, ids["name"], "pass")
+	review(w, ids["name"], "pass", "--body", "C1 holds: the file holds its line.")
 	merge(w, ids["name"])
 	wantStatus(w, epic, machine.Done)
 	if n := w.DoneWriters(epic); n != 1 {
