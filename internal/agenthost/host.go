@@ -468,6 +468,8 @@ type ModelReceipt struct {
 type QuotaWindow struct {
 	Name        string  `json:"name"`
 	UsedPercent float64 `json:"used_percent"`
+	// ResetsAt is when the window resets, or zero when the host does not say.
+	ResetsAt time.Time `json:"resets_at,omitzero"`
 }
 
 // Quota is the host's reading of one harness's usage.
