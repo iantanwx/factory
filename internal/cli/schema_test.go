@@ -85,6 +85,21 @@ func TestSchemaListsEveryVerbFlagExitAndRefusalCode(t *testing.T) {
 	}
 }
 
+// C17: loop schema lists pr pending, a read of the coordinator over
+// every project or the one --project names.
+func TestSchemaListsPrPending(t *testing.T) {
+	env, code := runJSON(t, New(), "schema", "--json")
+	if code != 0 {
+		t.Fatalf("schema failed: %v", env)
+	}
+	v := findVerb(t, env["data"].(map[string]any), "pr pending")
+	flags := v["flags"].([]any)
+	if v["rpc"] != "/loop.v1.PrService/Pending" || v["write"] != false || !slices.Equal(v["callers"].([]any), []any{"coordinator"}) ||
+		len(flags) != 1 || flags[0].(map[string]any)["name"] != "project" {
+		t.Fatalf("pr pending = %v", v)
+	}
+}
+
 func findVerb(t *testing.T, schema map[string]any, path string) map[string]any {
 	t.Helper()
 	for _, v := range schema["verbs"].([]any) {
@@ -127,8 +142,8 @@ func TestHelpIgnoresMissingRequiredFlagsButNotUnknownOnes(t *testing.T) {
 func TestNounHelpAndRootHelp(t *testing.T) {
 	r := New()
 	env, code := runJSON(t, r, "pr", "--help")
-	if code != 0 || len(env["data"].([]any)) != 9 {
-		t.Fatalf("pr --help should list 9 verbs: %v", env)
+	if code != 0 || len(env["data"].([]any)) != 10 {
+		t.Fatalf("pr --help should list 10 verbs: %v", env)
 	}
 	env, code = runJSON(t, r, "--help")
 	if code != 0 || env["data"].(map[string]any)["verbs"] == nil {
