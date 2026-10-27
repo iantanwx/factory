@@ -297,87 +297,107 @@ with `loop run finish`, as every stage run does.
 
 ## The orca acceptance lane
 
-The orca acceptance lane runs real agents on this host's orca (ADR 0008).
-It runs the agent-host contract, then the F1 scenario: a real implementer
-and a real code-reviewer take one ticket from claim to merge. The lane
-spends harness quota, so it never runs in CI.
+The orca acceptance lane proves the loop against this host's real orca
+(ADR 0008). It runs two test binaries. The contract binary runs the
+agent-host contract, and the scenario binary runs the F1 scenario: a real
+implementer and a real code-reviewer take one fixture ticket from claim
+to merge. One lane run starts 13 real sessions and spends harness quota.
 
-The native job `orca-acceptance` runs the lane. Its throughput entry is
-`orca-acceptance: {cap: 1, schedule: "30 17 * * *"}`, so it runs once a
-day at 17:30 UTC. A `host.yaml` with no entry for it runs on that default.
-The server registers the job only when `agent_host.kind` is `orca`. The job
-needs no operator step. Each tick does these steps:
+### The job
 
-1. It fetches `orca-contract.test` and `orca-acceptance.test` of the
-   installed release into `versions/<v>/`, verified against the release's
-   signed `checksums.txt`.
-2. It makes the fixture `orca-acceptance/fixture` in the instance
-   directory when it is absent, and registers it with orca.
-3. It removes each orca worktree of the fixture, runs the contract binary,
-   then the scenario binary, under one 120-minute deadline, and removes
-   each worktree again.
-4. It writes one log to `orca-acceptance/logs/<UTC stamp>.log` in the
-   instance directory, and keeps the 30 newest. The log holds the job's own
-   lines, then the output of each binary under a header that names its
-   exit, such as `== orca-acceptance.test exit 0 ==`.
+The native job `orca-acceptance` runs the lane. The job needs no operator
+step. It registers only when `agent_host.kind` in `host.yaml` is `orca`.
 
-A green lane raises no fault. A lane that is not green raises one loop
-fault, reported by the host, in the coordinator's inbox:
+- **Throughput entry.** `orca-acceptance`, cap 1, schedule `30 17 * * *`,
+  which is 01:30 +08. A `host.yaml` with no entry reads this default, and
+  nothing writes the entry into the file.
+- **Binaries.** The job runs `versions/<v>/orca-contract.test` and
+  `versions/<v>/orca-acceptance.test` of the installed release. When they
+  are absent, it fetches them from the release and verifies them against
+  its signed checksum file.
+- **Fixture.** `orca-acceptance/fixture` in the instance directory. The
+  job makes it when it is absent, and registers it with `orca repo add`
+  when `orca repo show` does not find it. Before and after each lane, the
+  job removes every orca worktree of the fixture.
+- **Deadline.** 120 minutes for both binaries.
+- **Logs.** `orca-acceptance/logs/<UTC stamp>.log` in the instance
+  directory, mode 0600. One log for each tick holds the job's own lines,
+  then the output of each binary under a header with its exit code. The
+  job keeps the 30 newest logs.
+- **Faults.** A green lane adds no fault, and neither does a lane that a
+  server stop cancels. Each other tick adds one loop fault, reported by
+  the `host` principal, so it reaches the coordinator's inbox. Its first
+  line is `orca-acceptance <outcome> on loop <version>, orca <version>.`,
+  where the outcome is `skipped`, `failed` or `timed out`. Then one line
+  names each failed test, or the quota line, or the stop reason. The last
+  line names the log path. The fault never holds lane output, so read the
+  log.
 
-| Outcome | Cause |
-| --- | --- |
-| `skipped` | A binary exited 3 on a spent quota window, or the release ships no lane binaries |
-| `failed` | A binary exited other than 0 or 3, or a fetch or setup step failed |
-| `timed out` | The lane passed its 120-minute deadline |
-
-The fault's first line is `orca-acceptance <outcome> on loop <version>,
-orca <orca version>.` The next lines name each `--- FAIL:` test, the quota
-line or the stop reason. The last line names the log. A tick that a server
-stop ends raises no fault, and the next tick runs the lane again.
+A lane skips when a quota window of the harness is at 90 % or more. The
+skip fault holds the quota line, such as
+`quota: claude window session at 93% resets 2026-10-27T18:00:00Z`.
+The next tick runs the lane again. When orca has no quota reading, the
+lane prints the reason after `quota:` and runs.
 
 ### Run the lane by hand
 
-`make orca-acceptance` runs the same lane from a loop source checkout. It
-starts up to 13 real sessions, so run it only when you need a result
-before the next tick. It needs a lane fixture of its own. Do not use the
-job's fixture, because the job can run at the same time. Make one:
+`make orca-acceptance` runs both lanes from a checkout of this repository
+with `go test`. It also starts 13 real sessions, so run it only when you
+need a lane run before the job's next tick.
+
+The scenario binary rewrites the `main` branch of the repository that
+`LOOP_ORCA_REPO` names. So it refuses a repository that is not a lane
+fixture. A lane fixture holds the marker file `.git/loop-orca-fixture`.
+Make one once, outside the instance directory:
 
 ```sh
-fixture=$HOME/orca/lane-fixture
-git init -b main "$fixture"
-git -C "$fixture" commit --allow-empty -m "orca acceptance lane fixture"
-touch "$fixture/.git/loop-orca-fixture"
-orca repo add --path "$fixture"
+F=$HOME/orca-lane-fixture
+git init -b main "$F"
+git -C "$F" commit --allow-empty -m 'orca acceptance lane fixture'
+touch "$F/.git/loop-orca-fixture"
+orca repo add --path "$F"
 ```
 
-The real world refuses a clone with no `.git/loop-orca-fixture` marker
-before it changes anything. Each run resets the fixture's `main`, so never
-mark a clone that holds work.
+`orca repo` has no command that removes a repository, so reuse this
+fixture for each later hand run.
 
 Then run the lane with these values:
 
 ```sh
-LOOP_ORCA_ROOT=$HOME/orca/workspaces \
-LOOP_ORCA_REPO=path:$fixture \
+LOOP_ORCA_ROOT=/home/operator/orca/workspaces \
+LOOP_ORCA_REPO=path:$HOME/orca-lane-fixture \
 LOOP_ORCA_MODEL=claude-opus-5-5 \
+LOOP_ORCA_BIN=$HOME/.config/orca/cli/bin/orca \
 LOOP_BD=$HOME/.local/state/loop/bin/bd \
 LOOP_DOLT=$HOME/.local/state/loop/bin/dolt \
+GOFLAGS=-v \
 make orca-acceptance
 ```
 
-- `LOOP_ORCA_ROOT` is the agent host's `agent_host.checkout_root` in
-  `host.yaml`.
-- `LOOP_ORCA_MODEL` is a full model id, because the session's receipt
-  never verifies an alias.
-- Set `LOOP_ORCA_BIN` too when `host.yaml` sets `agent_host.binary`.
-- `LOOP_BD` and `LOOP_DOLT` name the pinned binaries. Without them the
-  scenario looks in `~/.cache/loop-dev/bin`.
+| Value | What it names |
+| --- | --- |
+| `LOOP_ORCA_ROOT` | `agent_host.checkout_root` in `host.yaml` |
+| `LOOP_ORCA_REPO` | The lane fixture, in the form `path:<absolute path>` |
+| `LOOP_ORCA_MODEL` | A full model id. The receipt never verifies an alias such as `opus` |
+| `LOOP_ORCA_BIN` | `agent_host.binary` in `host.yaml`. Optional |
+| `LOOP_BD`, `LOOP_DOLT` | The pinned beads and Dolt binaries |
+| `GOFLAGS=-v` | Optional. It prints a `--- PASS` line for each test |
 
-Each missing `LOOP_ORCA_*` value prints `LOOP_ORCA_<NAME> is not set`, and
-the lane fails before it starts a session. A quota window at or above the
-limit prints its `quota:` line and its reset time, and the lane starts no
-session. Wait for the reset. A lane plan above 20 sessions also starts
-nothing.
+A missing `LOOP_ORCA_ROOT`, `LOOP_ORCA_REPO` or `LOOP_ORCA_MODEL` prints
+`LOOP_ORCA_<NAME> is not set`, and the lane starts no session. A spent
+quota window prints the quota line, and `make` exits non-zero. The real
+agents run the `loop` on `PATH`, so install the release that holds the
+code under test first.
+
+A failed F1 can leave a worktree of the fixture and its live terminal.
+No job sweeps a hand fixture, so list them and remove each one that is
+not the fixture itself:
+
+```sh
+orca worktree list --repo path:$HOME/orca-lane-fixture --json
+orca terminal close --worktree path:<worktree> --all
+orca worktree rm --worktree path:<worktree> --force
+```
 
 ## The gates
 
