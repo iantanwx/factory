@@ -23,9 +23,10 @@ type Profile struct {
 }
 
 // DefaultModels is the model a harness runs when project config names
-// none for the stage. "opus" is Claude Code's model alias.
+// none for the stage. Each is the full id the harness records, so a later
+// reader can compare it with the model receipt.
 var DefaultModels = map[agenthost.Harness]string{
-	agenthost.Claude: "opus",
+	agenthost.Claude: "claude-opus-5-5",
 	agenthost.Codex:  "gpt-5-codex",
 }
 

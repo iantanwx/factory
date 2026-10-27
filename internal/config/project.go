@@ -169,6 +169,9 @@ func (c *ProjectConfig) validate() error {
 		if HasControl(s.Model) || HasControl(s.Schedule) {
 			ck.fail(f, "must not hold a control character")
 		}
+		if (s.Harness == "" || s.Harness == "claude") && s.Model != "" && !ClaudeModelID(s.Model) {
+			ck.fail(f+".model", "must be a full Claude model id, such as claude-opus-5-5, and not an alias")
+		}
 		if s.RunBudget < 0 {
 			ck.fail(f+".run_budget", "must not be negative")
 		}
