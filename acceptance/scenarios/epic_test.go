@@ -229,13 +229,13 @@ func TestF4AE7APRDFromIntakeToTicketsAndDone(t *testing.T) {
 	// Both tickets land, and the last one closes the epic.
 	_, head := implement(w, ids["list"], map[string]string{"widgets/list.txt": "list\n"})
 	w.CI(head, "success")
-	review(w, ids["list"], "pass")
+	review(w, ids["list"], "pass", "--body", "C1 holds: the file holds its line.")
 	merge(w, ids["list"])
 	wantStatus(w, epic, machine.Execution)
 	w.Must(w.Coordinator("work", "unblock", ids["name"], "--project", acceptance.Project))
 	_, head = implement(w, ids["name"], map[string]string{"widgets/name.txt": "name\n"})
 	w.CI(head, "success")
-	review(w, ids["name"], "pass")
+	review(w, ids["name"], "pass", "--body", "C1 holds: the file holds its line.")
 	merge(w, ids["name"])
 	wantStatus(w, epic, machine.Done)
 	if n := w.DoneWriters(epic); n != 1 {
