@@ -88,6 +88,10 @@ rewritten base. Each one is here with its rejected alternative.
   its own, and the audit judges that commit too. We rejected a record that a later clear deletes,
   because the walk can reach a commit after the clear when a partial read held it, and the same
   commit would then pass on one tick and fail on another.
+- **When two rows record one commit, `MergeOf` returns the row with the lowest `seq`.** One ADR
+  pull request can add two ADRs for two epics, so two `adr_landed` rows hold one commit. We
+  rejected a scan in store order, because a later fact could then make the verdict depend on that
+  order.
 - **A document merge that outran its review fails the audit, whatever its parents.** The record
   says so in `MergeRecord.Outran`: the item's history holds a `doc_merged` row from that
   document's review or amending state (`prd_review` or `prd_amending` for a PRD, `spec_review` or
@@ -176,7 +180,8 @@ from its new `added` parameter, and refuses with code `USAGE` and rule `missing_
 the four record facts. It replays that item's history up to the row, and returns the reviewed
 head that the item held at that moment. For a PRD or a spec, it sets `Outran` when a `doc_merged`
 row from that document's review or amending state comes before the merge row. For `adr_merged`,
-`Outran` is false and the reviewed head is not read.
+`Outran` is false and the reviewed head is not read. When two rows hold the commit, it uses the
+row with the lowest `seq`.
 
 **The adding commit.** `Mirror.AddedBy` answers the newest first-parent commit, reachable from a
 tip, whose diff against its first parent adds a path. `Reactor.adrs` calls it for each epic that
@@ -393,7 +398,9 @@ sequenceDiagram
    `adr_merged`. Add `Mirror.AddedBy`. `Reactor.adrs` passes its answer as `added`, and no `sha`.
    - Files: `internal/machine/epic.go`, `internal/machine/*_test.go`, `internal/github/git.go`,
      `internal/github/reactor.go`, `internal/github/adr_ticket_test.go`,
-     `internal/github/git_test.go`
+     `internal/github/git_test.go`, `internal/inbox/entries_test.go`,
+     `internal/pipeline/archdecompose_test.go`, `acceptance/scenarios/entry_test.go`. Each of the
+     last three applies `adr_landed` with `path` only, so each passes `added` beside `path`.
    - Needs: 1, because C2 reads the record back with `MergeOf`
    - Proves: C2, C3
    - Done when: on a test base where a ticket merge follows an ADR commit, one tick lands
@@ -463,8 +470,10 @@ passes review, `MergeOf` of the PRD's commit still returns the PRD's reviewed he
 merged from `in_review` returns an empty reviewed head. An unknown sha returns not found. `Outran`
 is true for a PRD merged from `prd_review` or `prd_amending`, and for a spec merged from
 `spec_review` or `spec_amending`. It is false for a document merged from sign-off, and for a spec
-merged from sign-off after its PRD outran its own review.
-*Example tests on a store with history rows, one for each of the six `Outran` cases.*
+merged from sign-off after its PRD outran its own review. When two epics record one commit as
+`adr_merged`, `MergeOf` returns the epic whose row has the lower `seq`.
+*Example tests on a store with history rows, one for each of the six `Outran` cases, and one with
+two `adr_landed` rows for one commit.*
 
 **C5. Behaviour: a commit with no merge record raises one alert, once.** Proves A1. A
 first-parent commit on the base that no item records raises one `unreviewed_merge` alert, with
