@@ -154,7 +154,8 @@ var fakeOnly = map[string]string{
 	"never_ready_yields_not_ready":       "ReadinessBreaker",
 	"quiet_after_ended_turn_reads_ended": "TurnDriver",
 	"tool_call_running_never_ended":      "TurnDriver",
-	"dropped_model_reads_unverified":     "ModelDropper",
+	"recorded_mismatch_refuses_start":    "ModelDropper",
+	"missing_receipt_starts_session":     "ModelSilencer",
 	"notify_refused_is_an_error":         "NotifyRefuser",
 }
 

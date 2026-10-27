@@ -98,9 +98,12 @@ var (
 	// ErrNotReady: the agent never appeared within the readiness window. The
 	// run class is not-ready (KTD8), which never counts against the budget.
 	ErrNotReady = errors.New("agent did not become ready")
-	// ErrModelUnverified: a role that requires a verified model got an
-	// unverified receipt, so the session was closed and did not start.
-	ErrModelUnverified = errors.New("model receipt unverified")
+	// ErrModelMismatch: the harness records another model than the start
+	// requested. The host tried to close the session, and it did not start.
+	ErrModelMismatch = errors.New("the harness records another model")
+	// ErrNoModelReceipt: no transcript named a model inside the receipt
+	// window. The session runs, and Start returns it.
+	ErrNoModelReceipt = errors.New("no transcript named a model")
 	// ErrStaleHandle: the host no longer resolves the session's handle, or
 	// resolves it to another incarnation.
 	ErrStaleHandle = errors.New("session handle is stale")
@@ -199,8 +202,9 @@ type StartSpec struct {
 	// Title labels the session in the host's UI and opens its first
 	// message. It names the session's work; Label makes it one line.
 	Title string `json:"title,omitempty"`
-	// RequireVerifiedModel marks an escalated-model role. Such a session
-	// does not start unless its model receipt reads Verified.
+	// RequireVerifiedModel makes Start read the model receipt before it
+	// returns. A recorded mismatch returns ErrModelMismatch. No model in the
+	// window returns the running session and ErrNoModelReceipt.
 	RequireVerifiedModel bool `json:"require_verified_model,omitempty"`
 }
 
@@ -488,10 +492,11 @@ type Host interface {
 	CreateCheckout(ctx context.Context, spec CheckoutSpec) (Checkout, error)
 	// Start starts one session from a prompt file in an existing checkout and
 	// waits for the agent to appear. A session that never appears returns
-	// ErrNotReady. A role with RequireVerifiedModel whose receipt reads
-	// Unverified returns ErrModelUnverified. On both errors the returned
-	// Session names the identity, if the host made one, and the host has
-	// tried to close it.
+	// ErrNotReady. With RequireVerifiedModel, a recorded mismatch returns
+	// ErrModelMismatch. On both errors the returned Session names the
+	// identity, if the host made one, and the host has tried to close it.
+	// No model in the receipt window returns ErrNoModelReceipt with the
+	// running session, which the host does not close.
 	Start(ctx context.Context, spec StartSpec) (Session, error)
 	// Inventory lists every session. Complete is false when the host could
 	// not list everything, and the error then says why when a read failed.

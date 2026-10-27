@@ -138,7 +138,8 @@ func assistant(dir, model string, at time.Time) map[string]any {
 		"message": map[string]any{"model": model, "content": []any{map[string]any{"type": "text"}}}}
 }
 
-func TestDroppedModelUnverifiedAndEscalatedDoesNotStart(t *testing.T) {
+// C1: a recorded mismatch refuses the start, and the host closes the session.
+func TestRecordedMismatchRefusesTheStart(t *testing.T) {
 	w := newWorld(t)
 	// Orca drops the model argument: the harness runs its default model.
 	w.claudeTranscript("s1.jsonl", assistant(w.checkout, "claude-default-model", w.now.Add(time.Second)))
@@ -150,20 +151,58 @@ func TestDroppedModelUnverifiedAndEscalatedDoesNotStart(t *testing.T) {
 	w.sim.closed, w.sim.created = false, false
 	spec := w.spec(agenthost.Claude)
 	spec.RequireVerifiedModel = true
-	if _, err := w.host.Start(context.Background(), spec); !errors.Is(err, agenthost.ErrModelUnverified) {
-		t.Fatalf("escalated Start = %v; want ErrModelUnverified", err)
+	if _, err := w.host.Start(context.Background(), spec); !errors.Is(err, agenthost.ErrModelMismatch) {
+		t.Fatalf("Start = %v; want ErrModelMismatch", err)
 	}
 	if !w.sim.closed {
-		t.Fatal("an escalated role with an unverified model was left running")
+		t.Fatal("a session that records another model was left running")
 	}
 }
 
-func TestEscalatedWithNoRecordTimesOutUnverified(t *testing.T) {
+// C3, K-1: a requested alias never matches the full id the harness records.
+func TestAliasRequestAgainstAFullIdRecordIsAMismatch(t *testing.T) {
 	w := newWorld(t)
+	w.claudeTranscript("s1.jsonl", assistant(w.checkout, "claude-opus-5-5", w.now.Add(time.Second)))
 	spec := w.spec(agenthost.Claude)
-	spec.RequireVerifiedModel = true
-	if _, err := w.host.Start(context.Background(), spec); !errors.Is(err, agenthost.ErrModelUnverified) {
-		t.Fatalf("Start = %v; want ErrModelUnverified", err)
+	spec.Model, spec.RequireVerifiedModel = "opus", true
+	if _, err := w.host.Start(context.Background(), spec); !errors.Is(err, agenthost.ErrModelMismatch) {
+		t.Fatalf("Start of opus against a claude-opus-5-5 record = %v; want ErrModelMismatch", err)
+	}
+	if !w.sim.closed {
+		t.Fatal("the mismatched session was left running")
+	}
+}
+
+// C2, K-2: no model inside the receipt window starts the session. A failed
+// transcript read counts as no model read.
+func TestNoModelInTheWindowStartsTheSession(t *testing.T) {
+	for name, setup := range map[string]func(w *world){
+		"no transcript": func(*world) {},
+		"read fails": func(w *world) {
+			// A file where the subagents directory belongs fails every read.
+			w.claudeTranscript("s1.jsonl", assistant(w.checkout, "<synthetic>", w.now.Add(time.Second)))
+			bad := filepath.Join(w.claude, orca.TranscriptName(w.checkout), "s1", "subagents")
+			if err := os.MkdirAll(filepath.Dir(bad), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(bad, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			setup(w)
+			spec := w.spec(agenthost.Claude)
+			spec.RequireVerifiedModel = true
+			s, err := w.host.Start(context.Background(), spec)
+			if !errors.Is(err, agenthost.ErrNoModelReceipt) {
+				t.Fatalf("Start = %v; want ErrNoModelReceipt", err)
+			}
+			if s.ID != idA || w.sim.closed {
+				t.Fatalf("session %+v, closed %v; want the live session", s, w.sim.closed)
+			}
+		})
 	}
 }
 
