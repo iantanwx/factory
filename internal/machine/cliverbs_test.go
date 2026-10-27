@@ -534,3 +534,42 @@ func TestReviewRoundsListsEachVerdict(t *testing.T) {
 		t.Fatalf("round 2 = %+v", r)
 	}
 }
+
+// C14: work list --epic lists the items whose epic fact names the id, and
+// combines with --status. An id that no item names lists nothing.
+func TestC14WorkListEpicListsTheEpicsChildren(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	ep := w.create(KindEpic, "create_architecture", nil)
+	var kids []string
+	for range 2 {
+		id, res := w.m.Create(ctx, CreateRequest{Project: prj, Kind: KindTicket, Title: "c", Verb: "create",
+			Actor: Server("test"), Facts: map[string]string{FactEpic: ep}})
+		mustOK(t, res)
+		kids = append(kids, id)
+	}
+	w.create(KindTicket, "create", nil)
+	w.force(kids[1], InProgress, nil)
+	ids := func(flags map[string]string) []string {
+		t.Helper()
+		res := w.call("work list", coord(), nil, flags)
+		if res.Refusal != nil {
+			t.Fatalf("work list %v: %+v", flags, res.Refusal)
+		}
+		items, _ := res.Data.([]Item)
+		var got []string
+		for _, it := range items {
+			got = append(got, it.ID)
+		}
+		return got
+	}
+	if got := ids(map[string]string{"epic": ep}); strings.Join(got, ",") != strings.Join(kids, ",") {
+		t.Errorf("--epic %s = %v, want %v", ep, got, kids)
+	}
+	if got := ids(map[string]string{"epic": ep, "status": "todo"}); strings.Join(got, ",") != kids[0] {
+		t.Errorf("--epic %s --status todo = %v, want [%s]", ep, got, kids[0])
+	}
+	if res := w.call("work list", coord(), nil, map[string]string{"epic": "factorio-none"}); res.Exit != cli.ExitNothing {
+		t.Errorf("--epic of an id no item names = %+v, want exit %d", res, cli.ExitNothing)
+	}
+}

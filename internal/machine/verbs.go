@@ -485,7 +485,11 @@ func (m *Machine) workList(ctx context.Context, call *rpc.Call) cli.Result {
 	if r != nil {
 		return r.Result()
 	}
-	items, r := m.List(ctx, prj, ListFilter{Kind: Kind(call.Inv.Flags["kind"]), Status: call.Inv.Flags["status"]})
+	f := ListFilter{Kind: Kind(call.Inv.Flags["kind"]), Status: call.Inv.Flags["status"]}
+	if ep := call.Inv.Flags["epic"]; ep != "" {
+		f.Facts = map[string]string{FactEpic: ep}
+	}
+	items, r := m.List(ctx, prj, f)
 	if r != nil {
 		return r.Result()
 	}
