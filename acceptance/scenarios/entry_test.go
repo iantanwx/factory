@@ -25,6 +25,13 @@ func fileBug(w *acceptance.World, title, body string) string {
 	return bug
 }
 
+// shapedBug is a bug body that holds the Bug shape, as the reproducer
+// writes it.
+const shapedBug = "## Contract C-bug-1\n\nThe list page shows every widget the API returns.\n\n" +
+	"## Source\n\nThe widgets PRD.\n\n## Reproduction\n\n```go\nfunc TestListShowsEveryWidget(t *testing.T) {}\n```\n\n" +
+	"## What was seen\n\nThe list page drops each widget.\n\n## Priority\n\n2\n\n## Files\n\n`web/list.go`\n\n" +
+	"## Done means\n\nThe test passes.\n\n## Out of scope\n\nThe sort order.\n"
+
 // R48 and U5: the coordinator files the operator's bug report. The
 // reproducer stage takes it, and its run shapes it into a ticket that the
 // implementer stage then takes.
@@ -38,7 +45,7 @@ func TestCoordinatorFilesABugAndTheReproducerShapesIt(t *testing.T) {
 	}
 	wantStatus(w, bug, machine.Reproducing)
 	r := w.Must(w.In(run.Checkout, "work", "shape", bug, "--title", "Show every widget on the list page",
-		"--body", "The list page drops each widget. Render every widget the API returns.", "--priority", "2"))
+		"--body", shapedBug, "--priority", "2"))
 	ticket := r.Str("ticket")
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 	wantStatus(w, bug, machine.Shaped)

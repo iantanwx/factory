@@ -41,7 +41,7 @@ func TestC3ABugShapedWithBlockersMakesATicketThatWaits(t *testing.T) {
 	x := w.create(KindTicket, "create", nil)
 	d := w.create(KindDecision, "file", nil)
 	bug, run := w.shapeRun("repro")
-	res := w.call("work shape", run, []string{bug}, map[string]string{"title": "Fix it", "body": "b", "priority": "2", "blocked-by": x + ", " + d})
+	res := w.call("work shape", run, []string{bug}, map[string]string{"title": "Fix it", "body": shapedBug, "priority": "2", "blocked-by": x + ", " + d})
 	mustOK(t, res)
 	ticket := res.Data.(ShapeResult).Ticket
 	if it := w.show(bug); it.Status != Shaped || it.Fact(FactTicket) != ticket {
@@ -62,7 +62,7 @@ func TestC2WorkShapeRefusesABadBlockerBeforeAnyWrite(t *testing.T) {
 	epic := w.create(KindEpic, "create_architecture", nil)
 	raw := w.create(KindBug, "file", nil)
 	shaped, run0 := w.shapeRun("repro-0")
-	mustOK(t, w.call("work shape", run0, []string{shaped}, map[string]string{"title": "T", "body": "b", "priority": "2"}))
+	mustOK(t, w.call("work shape", run0, []string{shaped}, map[string]string{"title": "T", "body": shapedBug, "priority": "2"}))
 	shapedInto := w.show(shaped).Fact(FactTicket)
 	done := w.create(KindTicket, "create", nil)
 	w.force(done, Done, nil)
@@ -81,7 +81,7 @@ func TestC2WorkShapeRefusesABadBlockerBeforeAnyWrite(t *testing.T) {
 		{"a done ticket", done, cli.CodeUsage, "blocker_terminal", done},
 		{"a canceled decision", canceled, cli.CodeUsage, "blocker_terminal", canceled},
 	} {
-		flags := map[string]string{"title": "T", "body": "b", "priority": "2", "blocked-by": c.blocker}
+		flags := map[string]string{"title": "T", "body": shapedBug, "priority": "2", "blocked-by": c.blocker}
 		r := wantCode(t, w.call("work shape", run, []string{bug}, flags), c.code)
 		if r.Rule != c.rule || !strings.Contains(r.Hint, c.hint) {
 			t.Errorf("%s: rule %q, hint %q; want rule %q and a hint that names %s", c.name, r.Rule, r.Hint, c.rule, c.hint)
@@ -103,7 +103,7 @@ func TestC8AWorkShapeCrashLeavesNoClaimableTicket(t *testing.T) {
 	w := newWorld(t)
 	x := w.create(KindTicket, "create", nil)
 	bug, run := w.shapeRun("repro")
-	flags := map[string]string{"title": "Fix it", "body": "b", "priority": "2", "blocked-by": x}
+	flags := map[string]string{"title": "Fix it", "body": shapedBug, "priority": "2", "blocked-by": x}
 	w.m.hook = func(p string) bool { return p == pointBlockers }
 	wantCode(t, w.call("work shape", run, []string{bug}, flags), cli.CodeInternal)
 	w.m.hook = nil

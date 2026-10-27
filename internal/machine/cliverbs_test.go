@@ -251,9 +251,9 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 	w := newWorld(t)
 	bug := w.create(KindBug, "file", nil)
 	run := w.claimAs(bug, StageReproducer, "repro")
-	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": " ", "body": "b", "priority": "2"}), cli.CodeUsage)
+	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": " ", "body": shapedBug, "priority": "2"}), cli.CodeUsage)
 
-	res := w.call("work shape", run, []string{bug}, map[string]string{"title": "Fix the crash", "body": "## Files\n", "priority": "2"})
+	res := w.call("work shape", run, []string{bug}, map[string]string{"title": "Fix the crash", "body": shapedBug, "priority": "2"})
 	mustOK(t, res)
 	data, _ := res.Data.(ShapeResult)
 	ticket := data.Ticket
@@ -266,7 +266,7 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 		t.Fatalf("the shaped ticket: %+v", tk)
 	}
 	// A second shape of a closed bug is refused, and makes no ticket.
-	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": "Again", "body": "b", "priority": "2"}), cli.CodeTransitionNotAllowed)
+	wantCode(t, w.call("work shape", run, []string{bug}, map[string]string{"title": "Again", "body": shapedBug, "priority": "2"}), cli.CodeTransitionNotAllowed)
 	if n := len(w.items(KindTicket)); n != 1 {
 		t.Fatalf("%d tickets, want 1", n)
 	}
@@ -279,7 +279,7 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 	if ref != nil {
 		t.Fatal(ref)
 	}
-	res = w.call("work shape", run2, []string{bug2}, map[string]string{"title": "Fix it", "body": "b", "priority": "2"})
+	res = w.call("work shape", run2, []string{bug2}, map[string]string{"title": "Fix it", "body": shapedBug, "priority": "2"})
 	mustOK(t, res)
 	if got := w.show(bug2).Fact(FactTicket); got != made {
 		t.Fatalf("the retry shaped %q, want the ticket %s it made before", got, made)
@@ -288,7 +288,7 @@ func TestWorkShapeCreatesTheTicket(t *testing.T) {
 		t.Fatalf("the reused ticket is in %s", it.Status)
 	}
 	// Only a bug is shaped.
-	wantCode(t, w.call("work shape", coord(), []string{made}, map[string]string{"title": "x", "body": "b", "priority": "2"}), cli.CodeUsage)
+	wantCode(t, w.call("work shape", coord(), []string{made}, map[string]string{"title": "x", "body": shapedBug, "priority": "2"}), cli.CodeUsage)
 }
 
 // TestC18AShapedTicketCarriesAPriority proves C18: with no priority, or
@@ -300,7 +300,7 @@ func TestC18AShapedTicketCarriesAPriority(t *testing.T) {
 	bug, run := w.shapeRun("repro")
 	before := w.show(bug)
 	for _, p := range []string{"", " ", "0", "5", "high"} {
-		flags := map[string]string{"title": "T", "body": "b"}
+		flags := map[string]string{"title": "T", "body": shapedBug}
 		if p != "" {
 			flags["priority"] = p
 		}
@@ -317,7 +317,7 @@ func TestC18AShapedTicketCarriesAPriority(t *testing.T) {
 
 	for _, p := range []string{"1", "2", "3", "4"} {
 		bug, run := w.shapeRun("repro-" + p)
-		res := w.call("work shape", run, []string{bug}, map[string]string{"title": "T", "body": "b", "priority": p})
+		res := w.call("work shape", run, []string{bug}, map[string]string{"title": "T", "body": shapedBug, "priority": p})
 		mustOK(t, res)
 		ticket := res.Data.(ShapeResult).Ticket
 		if got := w.show(ticket).Fact(FactPriority); got != p {

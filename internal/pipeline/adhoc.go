@@ -9,6 +9,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/shape"
 )
 
 // CreateResult is what work create answers.
@@ -28,7 +29,9 @@ type CreateResult struct {
 // coordinator files the operator's bug report in reported, the state the
 // reproducer stage claims from, under the same rule. With --blocked-by
 // the ticket waits in backlog on each blocker, which is checked before any
-// write. A bug takes no blocker.
+// write. A bug takes no blocker. A ticket under an epic with a PRD holds
+// the Ticket shape, and records it as its shape fact. PRD-less work and a
+// bug are not checked.
 func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	prj, ref := call.Project(ownProject)
@@ -98,6 +101,10 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		if m := citeCheck("the ticket", stories, labels); m != "" {
 			return cli.Reject(cli.CodeStoryUnknown, "story_not_in_prd", m)
 		}
+		if r := machine.BodyRefusal(shape.Ticket, "", body); r != nil {
+			return r.Result()
+		}
+		facts[machine.FactShape] = shape.Ticket.Name
 		facts[machine.FactEpic] = epicID
 		facts[machine.FactStories] = strings.Join(stories, ",")
 		if request != "" {

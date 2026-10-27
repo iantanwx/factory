@@ -368,7 +368,7 @@ func TestWorkCreateIsPRDFirst(t *testing.T) {
 	}
 
 	epic, _ := w.submitted()
-	underEpic := map[string]string{"title": "List widgets", "epic": epic, "story": "US-01"}
+	underEpic := map[string]string{"title": "List widgets", "epic": epic, "story": "US-01", "body": ticketBody}
 	wantCode(t, w.call(run, "", "work create", underEpic), cli.CodePRDRequired)
 	w.review(epic, "pass")
 	w.merge(w.prOf(epic))
