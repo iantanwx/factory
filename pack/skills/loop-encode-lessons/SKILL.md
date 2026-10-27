@@ -111,8 +111,8 @@ The ledger table has these nine columns, in this order:
   file, or names a file or a directory that reaches it. The word `make` reaches the Makefile. The
   name of a package manager reaches the script lines of `package.json`. A Go package pattern such
   as `./...` reaches each Go file under its directory, so a test that names the file reaches it.
-  A `pending` row names the one decision id that `loop decision file` printed. A `document` row
-  writes `-`.
+  A `pending` row names the one id of the decision that the section of its lesson files. A
+  `document` row writes `-`.
 
 No two rows hold the same channel, date and words.
 
@@ -135,8 +135,12 @@ When you cannot build the mechanism now, record the row as `pending`. File a dec
 the answer, and name its id in `Where it lives`:
 
 ```bash
-loop decision file --title "Which rung holds: <lesson>" --trigger "<the event that forces it>"
+loop decision file --title "Which rung holds: <lesson>" --trigger "<the event that forces it>" \
+  --waits-for-a-person "<who notices the event>"
 ```
+
+When the trigger names a date, pass `--by <YYYY-MM-DD>` in place of `--waits-for-a-person`. The
+server refuses a decision with neither or both.
 
 The section of a `pending` lesson starts a paragraph with `**Trigger.**`, and states the event
 that forces the answer. A pending lesson with nothing that forces an answer stays pending. A

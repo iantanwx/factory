@@ -15,6 +15,7 @@ import (
 // Epic and document states (the epic diagram of the plan).
 const (
 	PRDNeeded    = "prd_needed"
+	PRDDrafting  = "prd_drafting"
 	PRDReview    = "prd_review"
 	PRDAmending  = "prd_amending"
 	SpecAmending = "spec_amending"
@@ -38,6 +39,7 @@ const (
 var epicResume = map[string]string{
 	Backlog:      Backlog,
 	PRDNeeded:    PRDNeeded,
+	PRDDrafting:  PRDNeeded,
 	PRDReview:    PRDReview,
 	PRDAmending:  PRDAmending,
 	PRDSignoff:   PRDSignoff,
@@ -280,6 +282,7 @@ func epicTable() *Table {
 	states := []State{
 		{Name: Backlog, Category: beadsx.CategoryFrozen},
 		{Name: PRDNeeded, Category: beadsx.CategoryActive},
+		{Name: PRDDrafting, Category: beadsx.CategoryWIP},
 		{Name: PRDReview, Category: beadsx.CategoryActive},
 		{Name: PRDAmending, Category: beadsx.CategoryActive},
 		{Name: PRDSignoff, Category: beadsx.CategoryActive},
@@ -295,7 +298,7 @@ func epicTable() *Table {
 		{Name: Escalated, Category: beadsx.CategoryFrozen},
 		{Name: Done, Category: beadsx.CategoryDone, Terminal: true},
 	}
-	live := []string{Backlog, PRDNeeded, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+	live := []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 	claim := func(from, to, stage string) Row {
 		return Row{Verb: "claim", From: []string{from}, To: to, Stage: stage, when: stageIs(stage),
@@ -317,6 +320,7 @@ func epicTable() *Table {
 		{Verb: VerbUnblock, From: []string{Backlog}, To: Architecture, Command: "work unblock",
 			When: "architecture_entry", when: factIs(FactEpicEntry, Architecture)},
 
+		claim(PRDNeeded, PRDDrafting, StagePRDAuthor),
 		claim(PRDReview, ToSame, StageDocReviewer),
 		claim(PRDAmending, ToSame, StageAmender),
 		specClaim(claim(SpecNeeded, SpecDrafting, StageSpecAuthor)),
@@ -353,7 +357,8 @@ func epicTable() *Table {
 		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop,
 			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_reject", From: []string{SpecReview}, To: SpecNeeded, Command: "review submit", Lease: LeaseDrop},
-		{Verb: "doc_merged", From: []string{SpecSignoff}, To: SpecApproved},
+		{Verb: "doc_merged", From: []string{SpecSignoff}, To: SpecApproved, set: copyParam("spec_path", FactSpecPath),
+			Facts: []string{FactSpecPath}},
 		{Verb: VerbDecomposed, From: []string{Decomposing}, To: Execution, Lease: LeaseDrop},
 		{Verb: "complete", From: []string{Execution}, To: Done, guard: childrenTerminal},
 		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: uniqueValues(epicResume),
@@ -391,7 +396,7 @@ func epicTable() *Table {
 		editRow(live),
 	}
 	rows = withReviews(rows)
-	pairs := [][2]string{{SpecDrafting, SpecNeeded}, {Decomposing, SpecApproved},
+	pairs := [][2]string{{PRDDrafting, PRDNeeded}, {SpecDrafting, SpecNeeded}, {Decomposing, SpecApproved},
 		{PRDReview, PRDReview}, {PRDAmending, PRDAmending}, {SpecReview, SpecReview}, {SpecAmending, SpecAmending}}
 	rows = append(rows, releaseRows("release", false, pairs, nil)...)
 	rows = append(rows, releaseRows("reclaim", true, pairs, nil)...)
@@ -411,6 +416,6 @@ func uniqueValues(m map[string]string) []string {
 }
 
 func epicStateOrder() []string {
-	return []string{Backlog, PRDNeeded, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
+	return []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution}
 }

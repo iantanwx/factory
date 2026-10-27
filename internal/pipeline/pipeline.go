@@ -1,6 +1,8 @@
 // Package pipeline is the document pipeline and work entry. Work
 // enters as a PRD that an intake room submits: the server pushes its
-// branch, opens its PR and creates the epic in prd_review in one call. The
+// branch, opens its PR and creates the epic in prd_review in one call. Or
+// the coordinator creates a PRD epic from the operator's request with epic
+// create, and it waits in prd_needed for its PRD author. The
 // doc-reviewer reviews it, the amender revises it once after a first
 // reject, and the operator signs it off by merging its PR, which the
 // GitHub reactor observes. The spec follows the same review and sign-off.
@@ -47,6 +49,13 @@ type Config struct {
 	// write. An empty redactor when nil.
 	Redactor *secrets.Redactor
 	Logger   *slog.Logger
+	// IntakeCap refuses a new PRD epic with CAP_FULL while the project's
+	// epics in counted states fill the intake cap. Admission.IntakeCap is
+	// one. Required.
+	IntakeCap func(ctx context.Context, project string) *cli.Refusal
+	// StageEnabled says whether the project's config lists a stage.
+	// Required.
+	StageEnabled func(ctx context.Context, project, stage string) (bool, error)
 }
 
 // Pipeline serves prd submit, epic create, epic decompose and work create.
@@ -62,8 +71,9 @@ type Pipeline struct {
 
 // New returns the pipeline.
 func New(cfg Config) (*Pipeline, error) {
-	if cfg.Store == nil || cfg.Machine == nil || cfg.Beads == nil || cfg.GitHub == nil || cfg.Projects == nil {
-		return nil, errors.New("pipeline: the pipeline needs a store, the machine, beads, GitHub and the projects")
+	if cfg.Store == nil || cfg.Machine == nil || cfg.Beads == nil || cfg.GitHub == nil || cfg.Projects == nil ||
+		cfg.IntakeCap == nil || cfg.StageEnabled == nil {
+		return nil, errors.New("pipeline: the pipeline needs a store, the machine, beads, GitHub, the projects, the intake cap and the stage list")
 	}
 	if cfg.Redactor == nil {
 		cfg.Redactor = secrets.NewRedactor()

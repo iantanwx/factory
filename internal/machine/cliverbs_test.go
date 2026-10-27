@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -665,5 +666,58 @@ func TestC14WorkListEpicListsTheEpicsChildren(t *testing.T) {
 	}
 	if res := w.call("work list", coord(), nil, map[string]string{"epic": "factorio-none"}); res.Exit != cli.ExitNothing {
 		t.Errorf("--epic of an id no item names = %+v, want exit %d", res, cli.ExitNothing)
+	}
+}
+
+// C13: work show answers the wait that the reader builds, and work list
+// and Show read none. A failed read still answers the item, with
+// wait_error.
+func TestC13WorkShowAnswersTheWait(t *testing.T) {
+	w := newWorld(t)
+	id := w.create(KindTicket, "create", nil)
+	other := w.create(KindTicket, "create", nil)
+	var reads []string
+	wait := Wait{Lease: &WaitLease{Run: "r-live", Epoch: 3}, Holds: []WaitHold{{Holder: "room-1", Kind: "room"}},
+		Failures: []WaitFailure{{Run: "r-1", Stage: StageImplementer, Class: "crashed", Inputs: "h1"}}, Limit: 2,
+		Alerts: []WaitAlert{{Entry: "alert/1", Kind: "retry_limit"}}}
+	w.m.SetWaitReader(func(_ context.Context, project, item string) (Wait, error) {
+		reads = append(reads, project+"/"+item)
+		if item == other {
+			return Wait{}, errors.New("store: database is locked")
+		}
+		return wait, nil
+	})
+
+	res := w.call("work show", coord(), []string{id}, nil)
+	it, _ := res.Data.(Item)
+	if res.Refusal != nil || it.ID != id || it.WaitError != "" || it.Wait == nil {
+		t.Fatalf("work show = %+v", res)
+	}
+	if got := *it.Wait; got.Lease.Run != "r-live" || got.Holds[0].Holder != "room-1" || got.Failures[0].Class != "crashed" ||
+		got.Limit != 2 || got.Alerts[0].Entry != "alert/1" {
+		t.Fatalf("wait = %+v", got)
+	}
+
+	res = w.call("work show", coord(), []string{other}, nil)
+	it, _ = res.Data.(Item)
+	if res.Refusal != nil || it.ID != other || it.Status != Todo || it.Wait != nil || it.WaitError != "store: database is locked" {
+		t.Fatalf("work show with a failed wait read = %+v", res)
+	}
+
+	reads = nil
+	if res := w.call("work list", coord(), nil, nil); res.Refusal != nil {
+		t.Fatalf("work list: %+v", res.Refusal)
+	} else {
+		for _, it := range res.Data.([]Item) {
+			if it.Wait != nil || it.WaitError != "" {
+				t.Fatalf("work list answers a wait: %+v", it)
+			}
+		}
+	}
+	if it := w.show(id); it.Wait != nil {
+		t.Fatalf("Show answers a wait: %+v", it.Wait)
+	}
+	if len(reads) != 0 {
+		t.Fatalf("work list and Show read the wait: %v", reads)
 	}
 }

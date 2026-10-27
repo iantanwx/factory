@@ -18,6 +18,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/shape"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -542,6 +543,13 @@ func (r *Reactor) handle(ctx context.Context, p config.Project, base string, pr 
 		// status miss and answers Nothing for a terminal item. Any other
 		// refusal keeps the cursor, so the merge is read again.
 		ev := machine.MergeEvent{Project: p.ID, Item: item, Base: base, Into: pr.Base.Ref, SHA: pr.MergeCommitSHA}
+		if it.Kind == machine.KindEpic && SpecEpicOf(pr.Head.Ref) == item && slices.Contains(specDocStates, it.Status) {
+			path, err := r.specPath(ctx, p, item, pr.Number)
+			if err != nil {
+				return fmt.Errorf("%s merged as #%d: %w", item, pr.Number, err)
+			}
+			ev.SpecPath = path
+		}
 		res := r.m.MergeObserved(ctx, ev)
 		if it.Kind == machine.KindEpic && res.Refusal == nil && res.Exit == cli.ExitDone {
 			// A document that outran its review landed on sign-off. The
@@ -557,6 +565,24 @@ func (r *Reactor) handle(ctx context.Context, p config.Project, base string, pr 
 		return r.closed(ctx, p, it, pr)
 	}
 	return r.head(ctx, p, it, pr)
+}
+
+// specDocStates are the epic states whose document PR is the spec's.
+var specDocStates = []string{machine.SpecReview, machine.SpecAmending, machine.SpecSignoff}
+
+// specPath is the path of epic's spec among the changed files of PR n, or ""
+// when no single file is the spec.
+func (r *Reactor) specPath(ctx context.Context, p config.Project, epic string, n int) (string, error) {
+	files, err := r.s.PRFiles(ctx, p, n)
+	if err != nil {
+		return "", err
+	}
+	changed := make([]shape.ChangedFile, len(files))
+	for i, f := range files {
+		changed[i] = shape.ChangedFile{Path: f.Path, Removed: f.Status == "removed"}
+	}
+	path, _ := shape.SpecFile(epic, changed)
+	return path, nil
 }
 
 // closed escalates an item whose PR closed without merge (R8). The loop

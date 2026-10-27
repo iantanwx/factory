@@ -48,10 +48,18 @@ func (s staticProjects) Show(id string) (config.Project, error) {
 	return config.Project{}, config.ErrProjectNotFound
 }
 
-type hostSource struct{}
+// hostSource is the default host config, with the intake cap of *cap
+// when it is above 0.
+type hostSource struct{ cap *int }
 
-func (hostSource) Load(context.Context) (*config.HostConfig, error) {
-	return config.DefaultHost("/nonexistent"), nil
+func (h hostSource) Load(context.Context) (*config.HostConfig, error) {
+	cfg := config.DefaultHost("/nonexistent")
+	if *h.cap > 0 {
+		e := cfg.Throughput[config.StageIntake]
+		e.Cap = *h.cap
+		cfg.Throughput[config.StageIntake] = e
+	}
+	return cfg, nil
 }
 
 // world is one project over synthetic GitHub: a store, a machine over fake
@@ -74,12 +82,16 @@ type world struct {
 	projects staticProjects
 	red      *secrets.Redactor
 	n        int
+	// intakeCap is the host's intake cap, the default when 0.
+	intakeCap int
+	// disabled lists the stages the project's config does not enable.
+	disabled map[string]bool
 }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	ctx := context.Background()
-	w := &world{t: t, ctx: ctx, api: gt.NewAPI(t), reg: cli.Surface(), red: secrets.NewRedactor()}
+	w := &world{t: t, ctx: ctx, api: gt.NewAPI(t), reg: cli.Surface(), red: secrets.NewRedactor(), disabled: map[string]bool{}}
 	w.git = gt.NewGitServer(t, w.api)
 	w.api.World.HeadOf = w.git.RemoteSHA
 	w.checkout = t.TempDir()
@@ -115,13 +127,14 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w.reactor = github.NewReactor(w.svc)
-	w.adm, err = admission.New(admission.Config{Store: st, Host: hostSource{}, Beads: beads, Base: w.svc, Release: "test"})
+	w.adm, err = admission.New(admission.Config{Store: st, Host: hostSource{cap: &w.intakeCap}, Beads: beads, Base: w.svc, Release: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	w.adm.Attach(w.m)
 	w.p, err = pipeline.New(pipeline.Config{Store: st, Machine: w.m, Beads: beads, GitHub: w.svc, Projects: w.projects,
-		Redactor: w.red, Logger: quiet})
+		Redactor: w.red, Logger: quiet, IntakeCap: w.adm.IntakeCap,
+		StageEnabled: func(_ context.Context, _, stage string) (bool, error) { return !w.disabled[stage], nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

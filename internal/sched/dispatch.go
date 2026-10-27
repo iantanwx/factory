@@ -197,6 +197,11 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt, RequireVerifiedModel: prof.Escalated,
 		Title: sessionTitle(ad, title)})
 	if err != nil {
+		if errors.Is(err, agenthost.ErrNoModelReceipt) {
+			// The host leaves a session with no model receipt running, and
+			// the start fails, so no record would watch it. Close it.
+			_ = s.cfg.Agents.Close(context.WithoutCancel(ctx), sess.ID)
+		}
 		return fail(cli.InternalRefusal(fmt.Errorf("sched: start the session: %w", err)), false, AlertStartFailed, err)
 	}
 	if err := s.setRun(ctx, ad.RunID, RunRunning, hostRecord{Session: &sess}); err != nil {

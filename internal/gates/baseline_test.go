@@ -3,6 +3,7 @@ package gates
 import (
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -56,5 +57,21 @@ func TestStandardsRatchetMessagesAfterTheMove(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("findings =\n%q\nwant\n%q", got, want)
+	}
+}
+
+// parseKeys reads a key from each non-blank line before the one end line.
+// A line that is too long or holds a control character is no key, and the
+// gate reports it.
+func TestParseKeys(t *testing.T) {
+	long := strings.Repeat("k", 513)
+	keys, ok, bad := parseKeys(" a::r \n\nb::r\n" + long + "\nc\x1b::r\nloop:end\n\n")
+	if !ok || !slices.Equal(keys, []string{"a::r", "b::r"}) || !slices.Equal(rules(bad), []string{"bad_key", "bad_key"}) {
+		t.Fatalf("parseKeys = %q, %v, %v; want [a::r b::r], true, two bad_key", keys, ok, bad)
+	}
+	for _, stdout := range []string{"", "a::r\n", "loop:end\na::r\n", "loop:end\nloop:end\n"} {
+		if _, ok, _ := parseKeys(stdout); ok {
+			t.Errorf("parseKeys(%q) ok, want no end line", stdout)
+		}
 	}
 }

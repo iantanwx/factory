@@ -171,3 +171,22 @@ func TestDocumentPassNeedsAHead(t *testing.T) {
 		})
 	}
 }
+
+// C2: the spec's merge records its path. The doc_merged row from
+// spec_signoff copies spec_path to the epic's fact, and a merge with no
+// path sets no fact and still approves the spec.
+func TestSpecMergeRecordsTheSpecPath(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct{ name, path string }{{"a path", "docs/plans/x-cache-spec.md"}, {"no path", ""}} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			ep := w.create(KindEpic, "prd_submit", map[string]string{"pr": "7"})
+			w.force(ep, SpecSignoff, nil)
+			mustOK(t, w.m.MergeObserved(ctx, MergeEvent{Project: prj, Item: ep, Base: "main", Into: "main", SHA: "m1", SpecPath: c.path}))
+			it := w.show(ep)
+			if _, set := it.Facts[FactSpecPath]; it.Status != SpecApproved || it.Fact(FactSpecPath) != c.path || set != (c.path != "") {
+				t.Fatalf("after the spec merge: %s %v", it.Status, it.Facts)
+			}
+		})
+	}
+}

@@ -152,17 +152,17 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Found(CreateResult{Item: it.ID, Status: it.Status, Epic: epicID})
 }
 
-// addBlockers writes one blocks edge from a ticket in Initial to each
-// blocker, before its create move, as decompose does: a crash between
-// leaves the ticket in Initial, in no queue.
-func (p *Pipeline) addBlockers(ctx context.Context, prj, ticket string, blockers []string) *cli.Refusal {
+// addBlockers writes one blocks edge from a ticket or an epic in Initial
+// to each blocker, before its create move, as decompose does: a crash
+// between leaves the item in Initial, in no queue.
+func (p *Pipeline) addBlockers(ctx context.Context, prj, item string, blockers []string) *cli.Refusal {
 	bc, err := p.cfg.Beads(prj)
 	if err != nil {
 		return cli.InternalRefusal(err)
 	}
 	for _, b := range blockers {
-		if err := bc.AddDependency(ctx, ticket, b, beadsx.DepBlocks); err != nil {
-			return cli.InternalRefusal(fmt.Errorf("pipeline: record that %s waits on %s: %w", ticket, b, err))
+		if err := bc.AddDependency(ctx, item, b, beadsx.DepBlocks); err != nil {
+			return cli.InternalRefusal(fmt.Errorf("pipeline: record that %s waits on %s: %w", item, b, err))
 		}
 	}
 	if p.stop("blockers_added") {
@@ -174,9 +174,8 @@ func (p *Pipeline) addBlockers(ctx context.Context, prj, ticket string, blockers
 // create makes the item of cr. A run's keyed write records its key, under
 // scope, as a fact, so a retry of the same write finds the item it made.
 func (p *Pipeline) create(ctx context.Context, call *rpc.Call, scope string, cr machine.CreateRequest) (machine.Item, *cli.Refusal) {
-	pr := call.Principal
-	if key := call.Request.GetIdempotencyKey(); key != "" && pr.RunID != "" {
-		cr.Facts[machine.FactCreateKey] = scope + "/" + pr.RunID + "/" + key
+	if key := createKey(call, scope); key != "" {
+		cr.Facts[machine.FactCreateKey] = key
 		return p.findOrCreate(ctx, cr)
 	}
 	id, ref := p.cfg.Machine.CreateBead(ctx, cr)
@@ -184,6 +183,15 @@ func (p *Pipeline) create(ctx context.Context, call *rpc.Call, scope string, cr 
 		return machine.Item{}, ref
 	}
 	return p.cfg.Machine.Read(ctx, cr.Project, id)
+}
+
+// createKey is the create key of a run's keyed write under scope, or ""
+// for a write with no key.
+func createKey(call *rpc.Call, scope string) string {
+	if key := call.Request.GetIdempotencyKey(); key != "" && call.Principal.RunID != "" {
+		return scope + "/" + call.Principal.RunID + "/" + key
+	}
+	return ""
 }
 
 // splitStories reads --story: labels separated by commas.
@@ -203,43 +211,123 @@ type EpicResult struct {
 	Status string `json:"status"`
 }
 
-// epicCreate is `loop epic create --architecture`: the coordinator creates
-// an epic that follows an ADR, not a PRD. It waits in architecture until
-// the GitHub reactor sees an ADR whose Ticket line names it on the base
-// branch, and that ADR is the operator's sign-off (R46). A PRD epic
-// starts with prd submit in an intake room instead.
+// epicCreate is `loop epic create`, the coordinator's one verb for a new
+// epic. With --architecture the epic follows an ADR, not a PRD: it waits
+// in architecture until the GitHub reactor sees an ADR whose Ticket line
+// names it on the base branch, and that ADR is the operator's sign-off
+// (R46). With none, it is a PRD epic that waits in prd_needed for a
+// prd-author run, and it carries the operator's words in its request fact.
+// With --blocked-by either waits in backlog on each blocker, and records
+// in epic_entry where unblock sends it. Every refusal comes before any
+// write. A PRD epic with no blocker asks the intake cap, after a replay
+// found no epic under its create key, so a cap that filled after the
+// first call does not refuse its replay.
 func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	if pr.Kind != cli.PrincipalCoordinator {
-		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator creates an architecture epic")
-	}
-	if inv.Flags["architecture"] != "true" {
-		return cli.Reject(cli.CodeUsage, "architecture_only",
-			"epic create makes an architecture epic only, so pass --architecture; a PRD epic starts with prd submit in an intake room")
+		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator creates an epic")
 	}
 	prj, ref := call.Project(ownProject)
 	if ref != nil {
 		return ref.Result()
 	}
-	title, body := strings.TrimSpace(inv.Flags["title"]), inv.Flags["body"]
+	title, body, request := strings.TrimSpace(inv.Flags["title"]), inv.Flags["body"], inv.Flags["request"]
 	if title == "" {
 		return cli.Reject(cli.CodeUsage, "no_title", "--title names the epic")
 	}
-	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", title, body); ref != nil {
+	arch := inv.Flags["architecture"] == "true"
+	verb, to := machine.VerbCreateArchitecture, machine.Architecture
+	if !arch {
+		verb, to = machine.VerbCreatePRD, machine.PRDNeeded
+		if strings.TrimSpace(request) == "" {
+			return cli.Reject(cli.CodePRDRequired, "no_operator_request",
+				"a PRD epic needs the operator's request: quote the operator's own words with --request, or pass --architecture for an epic that follows an ADR")
+		}
+		on, err := p.cfg.StageEnabled(ctx, prj, prdAuthorStage)
+		if err != nil {
+			return cli.Internal(err)
+		}
+		if !on {
+			return cli.Reject(cli.CodeUsage, "prd_author_disabled",
+				fmt.Sprintf("no stage writes the PRD in %s: add `%s: {}` under stages in its .loop/config.yaml, then create the epic again", prj, prdAuthorStage))
+		}
+	}
+	blockers := machine.ParseBlockers(inv.Flags["blocked-by"])
+	if ref := p.epicBlockers(ctx, prj, blockers); ref != nil {
 		return ref.Result()
 	}
-	cr := machine.CreateRequest{Project: prj, Kind: machine.KindEpic, Title: title, Description: body, Facts: map[string]string{}}
+	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", title, body, request); ref != nil {
+		return ref.Result()
+	}
+	facts := map[string]string{}
+	if request != "" {
+		facts[machine.FactRequest] = request
+	}
+	cr := machine.CreateRequest{Project: prj, Kind: machine.KindEpic, Title: title, Description: body, Facts: facts}
+	if !arch && len(blockers) == 0 {
+		if ref := p.intakeCap(ctx, call, cr); ref != nil {
+			return ref.Result()
+		}
+	}
 	it, ref := p.create(ctx, call, "epic", cr)
 	if ref != nil {
 		return ref.Result()
 	}
 	if it.Status == machine.Initial {
-		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: machine.VerbCreateArchitecture,
+		params := map[string]string{}
+		if len(blockers) > 0 {
+			if ref := p.addBlockers(ctx, prj, it.ID, blockers); ref != nil {
+				return ref.Result()
+			}
+			params["blocked"], to = "true", machine.Backlog
+		}
+		res := p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: it.ID, Verb: verb, Params: params,
 			ExpectedStatus: machine.Initial, RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
 		if res.Refusal != nil {
 			return res
 		}
-		it.Status = machine.Architecture
+		it.Status = to
 	}
 	return cli.Found(EpicResult{Epic: it.ID, Status: it.Status})
+}
+
+// prdAuthorStage is the run stage that writes a PRD epic's PRD. A project
+// whose config does not list it gets no PRD epic, because no run would
+// ever claim one there.
+const prdAuthorStage = "prd-author"
+
+// intakeCap asks the intake cap for the PRD epic of cr, unless a replay
+// finds the epic its create key already made.
+func (p *Pipeline) intakeCap(ctx context.Context, call *rpc.Call, cr machine.CreateRequest) *cli.Refusal {
+	if key := createKey(call, "epic"); key != "" {
+		it, ref := p.byKey(ctx, cr.Project, cr.Kind, key)
+		if ref != nil || it != nil {
+			return ref
+		}
+	}
+	return p.cfg.IntakeCap(ctx, cr.Project)
+}
+
+// epicBlockers refuses a blocker list for a new epic before any write: an
+// id that is no item of the project, or a bug. A bug ends shaped or
+// duplicate, never done, so dependency-advance would read it as open
+// forever. A ticket, an epic and a decision each reach a landed state.
+func (p *Pipeline) epicBlockers(ctx context.Context, prj string, blockers []string) *cli.Refusal {
+	for _, id := range blockers {
+		it, ref := p.cfg.Machine.Read(ctx, prj, id)
+		if ref != nil && ref.Code == cli.CodeNotFound {
+			return &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_blocker", Item: id,
+				Hint: fmt.Sprintf("%s is no item of %s; nothing was written", id, prj)}
+		}
+		if ref != nil {
+			return ref
+		}
+		switch it.Kind {
+		case machine.KindTicket, machine.KindEpic, machine.KindDecision:
+		default:
+			return &cli.Refusal{Code: cli.CodeUsage, Rule: "blocker_kind", Item: id,
+				Hint: fmt.Sprintf("%s is a %s, which never lands; an epic waits on a ticket, an epic or a decision; nothing was written", id, it.Kind)}
+		}
+	}
+	return nil
 }
