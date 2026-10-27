@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/iantanwx/loop/internal/cli"
@@ -62,5 +63,24 @@ func TestRoomOpenAtOwnerOnlyOrOutsideOpensTheRoom(t *testing.T) {
 	env, code = open("review", todoTicket(t, w.bx), "--score", "owner-only")
 	if code != 0 || env["data"].(map[string]any)["room"].(map[string]any)["state"] != room.Live {
 		t.Fatalf("a room at level 5 = %d %v", code, env)
+	}
+}
+
+// C16: the ROUTED_TO_LOOP hint of an intake room at level 1 to 3 names
+// `loop epic create --request`, the route for new product work, and no
+// room opens.
+func TestC16RoomOpenRoutesNewProductWorkToEpicCreateRequest(t *testing.T) {
+	w := newRoomWorld(t)
+	for _, score := range []string{"1", "2", "3"} {
+		env, _ := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "port the watchlist", "--score", score)
+		if env["code"] != cli.CodeRoutedToLoop {
+			t.Fatalf("an intake room at level %s = %v, want %s", score, env, cli.CodeRoutedToLoop)
+		}
+		if hint, _ := env["hint"].(string); !strings.Contains(hint, "`loop epic create --request`") {
+			t.Errorf("the hint at level %s names no `loop epic create --request`: %q", score, hint)
+		}
+	}
+	if n := w.count(`SELECT count(*) FROM rooms`); n != 0 {
+		t.Fatalf("refused opens left %d rooms", n)
 	}
 }

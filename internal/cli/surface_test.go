@@ -40,3 +40,28 @@ func TestC18WorkShapeRefusesAMissingOrUnknownPriority(t *testing.T) {
 		}
 	}
 }
+
+// C12: `loop epic create --help` lists request and blocked-by, and the
+// capability matrix admits only the coordinator on epic create.
+func TestC12EpicCreateListsRequestAndBlockedByForTheCoordinatorOnly(t *testing.T) {
+	help, code := runJSON(t, New(), "epic", "create", "--help")
+	if code != 0 {
+		t.Fatalf("epic create --help exited %d: %v", code, help)
+	}
+	flags := map[any]bool{}
+	for _, f := range help["data"].(map[string]any)["flags"].([]any) {
+		flags[f.(map[string]any)["name"]] = true
+	}
+	for _, want := range []string{"request", "blocked-by"} {
+		if !flags[want] {
+			t.Errorf("epic create --help lists no %s", want)
+		}
+	}
+	m, err := DeriveMatrix(Surface())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Verbs["epic create"]; len(got) != 1 || got[0] != PrincipalCoordinator {
+		t.Errorf("epic create admits %v, want only %s", got, PrincipalCoordinator)
+	}
+}
