@@ -225,16 +225,17 @@ func readDefers(ctx context.Context, tx *sql.Tx) (map[string]deferRow, error) {
 	return out, rs.Err()
 }
 
-// enteredAt is when the item last entered its status.
-func enteredAt(ctx context.Context, tx *sql.Tx, it machine.Item) (int64, string, error) {
-	var at sql.NullInt64
-	var says sql.NullString
-	err := tx.QueryRowContext(ctx, `SELECT at, says FROM transitions WHERE project = ? AND item = ? AND to_status = ?
-		ORDER BY seq DESC LIMIT 1`, it.Project, it.ID, it.Status).Scan(&at, &says)
+// enteredAt is when the item last entered its status, what that move
+// says, and who made it: the run, or the actor when no run made it.
+func enteredAt(ctx context.Context, tx *sql.Tx, it machine.Item) (at int64, says, by string, err error) {
+	var a sql.NullInt64
+	var s, b sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT at, says, coalesce(nullif(run_id, ''), actor) FROM transitions
+		WHERE project = ? AND item = ? AND to_status = ? ORDER BY seq DESC LIMIT 1`, it.Project, it.ID, it.Status).Scan(&a, &s, &b)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, "", nil
+		return 0, "", "", nil
 	}
-	return at.Int64, says.String, err
+	return a.Int64, s.String, b.String, err
 }
 
 // openRoom reports whether a room that is not closed serves the item.
@@ -246,7 +247,7 @@ func openRoom(ctx context.Context, tx *sql.Tx, it machine.Item) (bool, error) {
 }
 
 func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it machine.Item) (Entry, error) {
-	at, says, err := enteredAt(ctx, tx, it)
+	at, says, movedBy, err := enteredAt(ctx, tx, it)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -279,6 +280,12 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 	case KindDecision:
 		e.Next = "loop inbox answer " + e.ID + " --body <the operator's answer>"
 		text = append(text, "The decision's trigger fired. The trigger, as filed:", AgentText(it.Fact(FactFiledBy), it.Fact(FactTrigger)))
+		if why := it.Fact(machine.FactWhy); why != "" {
+			text = append(text, "Why it fired:", AgentText(movedBy, why))
+		}
+		// decision-timers closed the defer row when it fired, so the
+		// reason comes from the fire (spec Decision 19).
+		e.DeferReason = it.Fact(machine.FactDeferReason)
 	case KindAsk:
 		e.Next = "loop inbox answer " + e.ID + " --body <the reporter's answer, in the reporter's own words>"
 		text = append(text, fmt.Sprintf("The reproducer cannot reproduce this bug report without a fact only its reporter holds. "+

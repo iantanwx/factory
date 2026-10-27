@@ -246,15 +246,21 @@ them.
 On each wake, the `decisions` part of the sweep prints one note for each `pending` decision. Each
 note quotes the decision's trigger. Read the trigger of each one.
 
-- The event happened: `loop decision fire <decision>`. The decision moves to `needs_human`.
-- The question no longer exists: `loop decision moot <decision>`.
+- The event happened: `loop decision fire <decision> --why "<the event and where you saw it>"`.
+  The decision moves to `needs_human`.
+- The question no longer exists: `loop decision moot <decision> --note "<why>"`.
 
-A decision in `needs_human` waits on the operator. Bring it to the operator by section 5.
+A decision in `needs_human` waits on the operator. Bring it to the operator by section 5. Its
+inbox entry shows why it fired. When it returned from an inbox defer, the entry also shows the
+defer's reason in `defer_reason`.
 
-- The operator answered it: `loop decision settle <decision>`.
-- The operator dropped the question: `loop decision settle <decision> --dropped`.
-- The question no longer exists: `loop decision moot <decision>`.
-- The trigger did not really fire: `loop decision defer <decision>` moves it from `needs_human` back to `pending`.
+- The operator answered it: `loop decision settle <decision> --note "<the operator's answer>"`.
+- The operator dropped the question: `loop decision settle <decision> --dropped --note "<why>"`.
+- The question no longer exists: `loop decision moot <decision> --note "<why>"`.
+- The trigger did not really fire: `loop decision defer <decision> --why "<why>"` moves it from `needs_human` to `pending`.
+
+Each of these commands refuses with `USAGE` without its `--why` or `--note`, and moves nothing. The
+decision keeps the text, and a person reads it.
 
 A date is the one trigger a machine reads alone. Nothing else tells the operator that a decision
 is due.

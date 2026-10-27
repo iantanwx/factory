@@ -286,7 +286,7 @@ func TestParityDecisionMoves(t *testing.T) {
 	}
 	w := newWorld(t)
 	d := w.create(KindDecision, "file", nil)
-	w.must(d, "moot", nil)
+	w.must(d, "moot", map[string]string{"note": "the question went away"})
 	if h := w.history(d); h[len(h)-1].Says != "It stopped being a question." {
 		t.Fatalf("the history does not record the claim: %+v", h)
 	}

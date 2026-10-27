@@ -46,9 +46,9 @@ func (m *Machine) Handlers() map[string]rpc.Handler {
 		"work supersede":  m.workSupersede,
 		"review submit":   m.reviewSubmit,
 		"review rounds":   m.reviewRounds,
-		"decision fire":   m.verb("fire", "decision"),
-		"decision defer":  m.verb("defer", "decision"),
-		"decision moot":   m.verb("moot", "decision"),
+		"decision fire":   m.decisionMove("fire", "why", "why"),
+		"decision defer":  m.decisionMove("defer", "why", "why"),
+		"decision moot":   m.decisionMove("moot", "note", "note"),
 		"decision settle": m.decisionSettle,
 	}
 }
@@ -538,16 +538,40 @@ func (m *Machine) shapedTicket(ctx context.Context, prj, bug, title, body, prior
 	return tk.ID, nil
 }
 
+// decisionMove is the handler of a decision verb that records one text:
+// the flag's value goes to the row as param.
+func (m *Machine) decisionMove(verb, flag, param string) rpc.Handler {
+	return func(ctx context.Context, call *rpc.Call) cli.Result {
+		if r := borrowed(call, call.Inv.Arg("decision")); r != nil {
+			return r.Result()
+		}
+		return m.decisionText(ctx, call, verb, flag, param)
+	}
+}
+
+// decisionSettle stores the note as the answer, or as the close note of a
+// drop.
 func (m *Machine) decisionSettle(ctx context.Context, call *rpc.Call) cli.Result {
+	if call.Inv.Flags["dropped"] == "true" {
+		return m.decisionText(ctx, call, "drop", "note", "note")
+	}
+	return m.decisionText(ctx, call, VerbAnswer, "note", "answer")
+}
+
+// decisionText refuses a decision move with no text before it reaches the
+// table, so the hint names the flag and not the row's parameter.
+func (m *Machine) decisionText(ctx context.Context, call *rpc.Call, verb, flag, param string) cli.Result {
 	prj, r := call.Project(ownProject)
 	if r != nil {
 		return r.Result()
 	}
-	verb := "answer"
-	if call.Inv.Flags["dropped"] == "true" {
-		verb = "drop"
+	target := call.Inv.Arg("decision")
+	text := strings.TrimSpace(call.Inv.Flags[flag])
+	if text == "" {
+		return cli.Refuse(cli.Refusal{Code: cli.CodeUsage, Rule: "no_" + flag, Item: target,
+			Hint: fmt.Sprintf("%s needs --%s, the text the decision keeps; a person reads it", call.Inv.Verb.Path, flag)})
 	}
-	return m.Apply(ctx, request(call, prj, call.Inv.Arg("decision"), verb, nil))
+	return m.Apply(ctx, request(call, prj, target, verb, map[string]string{param: text}))
 }
 
 func (m *Machine) workShow(ctx context.Context, call *rpc.Call) cli.Result {

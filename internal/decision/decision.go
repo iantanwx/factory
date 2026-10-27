@@ -118,6 +118,7 @@ func (s *Service) file(ctx context.Context, call *rpc.Call) cli.Result {
 	status := machine.DecisionPending
 	if now {
 		if res := s.Machine.Apply(ctx, machine.Request{Project: project, Item: id, Verb: machine.VerbFire, Actor: actor,
+			Params:         map[string]string{"why": "decision file --now: the trigger already fired when it was filed"},
 			ExpectedStatus: machine.DecisionPending}); res.Refusal != nil {
 			return res
 		}
@@ -130,26 +131,33 @@ func (s *Service) file(ctx context.Context, call *rpc.Call) cli.Result {
 // Tick is the decision-timers job for one project. It fires each pending
 // decision whose inbox defer ended, and each pending decision whose --by
 // date has come and has not fired before. A decision a person closed meanwhile
-// is left alone.
+// is left alone. Each fire records why, and a fire that ends an inbox defer
+// carries that defer's reason (spec Decision 19).
 func (s *Service) Tick(ctx context.Context, project string) error {
 	now := s.now()
 	type due struct {
 		id             int64
 		item, kind, by string
+		params         map[string]string
 	}
 	var dues []due
 	err := s.Store.Read(ctx, func(tx *sql.Tx) error {
-		rs, err := tx.QueryContext(ctx, `SELECT id, item FROM schedule WHERE kind = ? AND project = ? AND state = 'active'
-			AND due_at <= ? AND stage LIKE 'decision/%' ORDER BY due_at, id`, inbox.DeferKind, project, now.UnixMilli())
+		rs, err := tx.QueryContext(ctx, `SELECT id, item, due_at, coalesce(json_extract(payload, '$.reason'), '') FROM schedule
+			WHERE kind = ? AND project = ? AND state = 'active' AND due_at <= ? AND stage LIKE 'decision/%' ORDER BY due_at, id`,
+			inbox.DeferKind, project, now.UnixMilli())
 		if err != nil {
 			return err
 		}
 		defer func() { _ = rs.Close() }()
 		for rs.Next() {
 			d := due{kind: inbox.DeferKind}
-			if err := rs.Scan(&d.id, &d.item); err != nil {
+			var at int64
+			var reason string
+			if err := rs.Scan(&d.id, &d.item, &at, &reason); err != nil {
 				return err
 			}
+			d.params = map[string]string{"defer_reason": reason,
+				"why": "decision-timers fired it: the inbox defer until " + time.UnixMilli(at).UTC().Format(time.RFC3339) + " ended"}
 			dues = append(dues, d)
 		}
 		return rs.Err()
@@ -179,13 +187,14 @@ func (s *Service) Tick(ctx context.Context, project string) error {
 			return err
 		}
 		if !fired && !deferred {
-			dues = append(dues, due{kind: ByFiredKind, item: it.ID, by: by})
+			dues = append(dues, due{kind: ByFiredKind, item: it.ID, by: by,
+				params: map[string]string{"why": "decision-timers fired it: its --by date " + by + " came"}})
 		}
 	}
 	var errs []string
 	for _, d := range dues {
-		res := s.Machine.Apply(ctx, machine.Request{Project: project, Item: d.item, Verb: machine.VerbFire, Actor: machine.Server(JobName),
-			ExpectedStatus: machine.DecisionPending})
+		res := s.Machine.Apply(ctx, machine.Request{Project: project, Item: d.item, Verb: machine.VerbFire, Params: d.params,
+			Actor: machine.Server(JobName), ExpectedStatus: machine.DecisionPending})
 		settled := res.Refusal == nil || res.Refusal.Code == cli.CodeTransitionNotAllowed || res.Refusal.Code == cli.CodeStatusChanged ||
 			res.Refusal.Code == cli.CodeNotFound
 		if !settled {
