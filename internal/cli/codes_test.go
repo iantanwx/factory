@@ -56,6 +56,8 @@ func TestRefusalCodeTable(t *testing.T) {
 		CodeAskLimit:             {3, codes.FailedPrecondition, false},
 		CodeShapeRefused:         {3, codes.FailedPrecondition, false},
 		CodeSettingsChange:       {3, codes.FailedPrecondition, false},
+		CodeInvalidSetting:       {3, codes.FailedPrecondition, false},
+		CodeSettingsPending:      {3, codes.FailedPrecondition, false},
 	}
 	r := New()
 	got := r.RefusalCodes()

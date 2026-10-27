@@ -283,3 +283,26 @@ func TestSchemaListsSettingsShow(t *testing.T) {
 		t.Fatalf("settings show = %v", v)
 	}
 }
+
+// C19 and C20: loop schema lists settings set, a write of the coordinator
+// alone, whose --reason is required.
+func TestSchemaListsSettingsSet(t *testing.T) {
+	env, code := runJSON(t, New(), "schema", "--json")
+	if code != 0 {
+		t.Fatalf("schema failed: %v", env)
+	}
+	v := findVerb(t, env["data"].(map[string]any), "settings set")
+	var args []string
+	for _, a := range v["args"].([]any) {
+		args = append(args, a.(map[string]any)["name"].(string))
+	}
+	flags := map[string]bool{}
+	for _, f := range v["flags"].([]any) {
+		f := f.(map[string]any)
+		flags[f["name"].(string)] = f["required"].(bool)
+	}
+	if v["rpc"] != "/loop.v1.SettingsService/Set" || v["write"] != true || !slices.Equal(v["callers"].([]any), []any{"coordinator"}) ||
+		!slices.Equal(args, []string{"project", "key"}) || !flags["reason"] || flags["value"] || flags["unset"] {
+		t.Fatalf("settings set = %v", v)
+	}
+}

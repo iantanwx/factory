@@ -3514,6 +3514,7 @@ var StageService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	SettingsService_Show_FullMethodName = "/loop.v1.SettingsService/Show"
+	SettingsService_Set_FullMethodName  = "/loop.v1.SettingsService/Set"
 )
 
 // SettingsServiceClient is the client API for SettingsService service.
@@ -3521,6 +3522,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SettingsServiceClient interface {
 	Show(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Set(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type settingsServiceClient struct {
@@ -3541,11 +3543,22 @@ func (c *settingsServiceClient) Show(ctx context.Context, in *VerbRequest, opts 
 	return out, nil
 }
 
+func (c *settingsServiceClient) Set(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, SettingsService_Set_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SettingsServiceServer is the server API for SettingsService service.
 // All implementations must embed UnimplementedSettingsServiceServer
 // for forward compatibility.
 type SettingsServiceServer interface {
 	Show(context.Context, *VerbRequest) (*Envelope, error)
+	Set(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedSettingsServiceServer()
 }
 
@@ -3558,6 +3571,9 @@ type UnimplementedSettingsServiceServer struct{}
 
 func (UnimplementedSettingsServiceServer) Show(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Show not implemented")
+}
+func (UnimplementedSettingsServiceServer) Set(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Set not implemented")
 }
 func (UnimplementedSettingsServiceServer) mustEmbedUnimplementedSettingsServiceServer() {}
 func (UnimplementedSettingsServiceServer) testEmbeddedByValue()                         {}
@@ -3598,6 +3614,24 @@ func _SettingsService_Show_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SettingsService_Set_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SettingsServiceServer).Set(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SettingsService_Set_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SettingsServiceServer).Set(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SettingsService_ServiceDesc is the grpc.ServiceDesc for SettingsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3608,6 +3642,10 @@ var SettingsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Show",
 			Handler:    _SettingsService_Show_Handler,
+		},
+		{
+			MethodName: "Set",
+			Handler:    _SettingsService_Set_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

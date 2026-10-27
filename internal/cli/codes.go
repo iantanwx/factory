@@ -78,6 +78,8 @@ const (
 	CodeAskLimit             = "ASK_LIMIT"
 	CodeShapeRefused         = "SHAPE_REFUSED"
 	CodeSettingsChange       = "SETTINGS_CHANGE"
+	CodeInvalidSetting       = "INVALID_SETTING"
+	CodeSettingsPending      = "SETTINGS_PENDING"
 )
 
 // RefusalCode maps one refusal code to exactly one exit code and one gRPC
@@ -131,6 +133,8 @@ var baseRefusals = []RefusalCode{
 	{CodeAskLimit, ExitRefused, codes.FailedPrecondition, false, "the bug report already holds two asks of its reporter; escalate the missing fact at level 5"},
 	{CodeShapeRefused, ExitRefused, codes.FailedPrecondition, false, "the text does not hold the shape that the rule names; the hint names the rule and each fault, and the verb wrote nothing"},
 	{CodeSettingsChange, ExitRefused, codes.FailedPrecondition, false, "the push changes a setting in .loop/config.yaml; only the coordinator changes settings, with loop settings set"},
+	{CodeInvalidSetting, ExitRefused, codes.FailedPrecondition, false, "the setting or its value does not validate; the hint names the setting and the rule"},
+	{CodeSettingsPending, ExitRefused, codes.FailedPrecondition, false, "the project already has an open settings change; the hint names its pull request"},
 }
 
 var codePattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$`)

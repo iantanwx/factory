@@ -291,6 +291,11 @@ var surface = []Verb{
 		Flag{Name: "project", Type: FlagString, Description: "only this project's rows; every project and the instance jobs when absent"}),
 
 	server("settings", "show", "list each setting of a project in force: its value, its source, and for a project value the newest commit that changed it; stale names the problem when the default branch's config does not load", coordinatorOrHost, []Arg{projectArg}),
+	write(server("settings", "set", "change one setting of a project through its own pull request, which the project's merge mechanism merges after CI; the answer is the change, open, or proposed when the pull request did not open yet", coordinator,
+		[]Arg{projectArg, arg("key", "the setting, such as stages.implementer.cap")},
+		Flag{Name: "value", Type: FlagString, Description: "the new value; a comma-separated list for merge.required_checks; not with --unset"},
+		Flag{Name: "unset", Type: FlagBool, Description: "remove the setting from .loop/config.yaml, so the host value or the default applies; not with --value"},
+		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the setting changes; the commit and the notice carry it, and a person reads it"})),
 
 	server("secret", "check", "say whether a secret is present: the project's own value, or a global one", runOnly, []Arg{secretArg}, projectFlag),
 	write(server("secret", "set", "store a secret; the value comes from stdin only", hostOnly, []Arg{secretArg},

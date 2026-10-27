@@ -1,6 +1,7 @@
 package githubtest
 
 import (
+	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -37,6 +38,17 @@ type mergeWorld struct {
 	refs      map[string]string // branch -> sha
 	merges    []MergeCall
 	mutations []string
+	commits   map[string][]FileCommit // branch -> each commit the contents API made on it
+}
+
+// FileCommit is one commit that a contents API write made on a branch.
+type FileCommit struct {
+	SHA, Parent, Path, Content, Message string
+}
+
+// blobSHA is git's blob id of content, as the contents API names a file.
+func blobSHA(content string) string {
+	return fmt.Sprintf("%x", sha1.Sum([]byte(fmt.Sprintf("blob %d\x00%s", len(content), content))))
 }
 
 func nodeID(n int) string { return fmt.Sprintf("PR_%d", n) }
@@ -98,6 +110,14 @@ func (w *World) File(branch, path string) (string, bool) {
 	defer w.mu.Unlock()
 	c, ok := w.merge.files[branch+"\x00"+path]
 	return c, ok
+}
+
+// Commits lists the commits that the contents API made on branch, oldest
+// first.
+func (w *World) Commits(branch string) []FileCommit {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.Clone(w.merge.commits[branch])
 }
 
 // Merges lists every merge request, refused or not.
@@ -234,14 +254,17 @@ func (w *World) serveMerge(rw http.ResponseWriter, r *http.Request) bool {
 			}
 			return true
 		}
-		WriteJSON(rw, 200, map[string]any{"path": p, "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(c))})
+		WriteJSON(rw, 200, map[string]any{"path": p, "sha": blobSHA(c), "encoding": "base64", "content": base64.StdEncoding.EncodeToString([]byte(c))})
 	case r.Method == http.MethodPut && reContents.MatchString(path):
 		p := reContents.FindStringSubmatch(path)[1]
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		key := body["branch"] + "\x00" + p
-		if _, ok := w.merge.files[key]; ok && body["sha"] == "" {
+		if c, ok := w.merge.files[key]; ok && body["sha"] == "" {
 			WriteJSON(rw, 422, map[string]string{"message": "sha wasn't supplied"})
+			return true
+		} else if ok && body["sha"] != blobSHA(c) {
+			WriteJSON(rw, 409, map[string]string{"message": "sha does not match"})
 			return true
 		}
 		raw, err := base64.StdEncoding.DecodeString(body["content"])
@@ -253,7 +276,21 @@ func (w *World) serveMerge(rw http.ResponseWriter, r *http.Request) bool {
 			w.merge.files = map[string]string{}
 		}
 		w.merge.files[key] = string(raw)
-		WriteJSON(rw, 201, map[string]any{"content": map[string]any{"path": p}})
+		// The commit moves a branch that the refs API made.
+		b := body["branch"]
+		n := 0
+		for _, cs := range w.merge.commits {
+			n += len(cs)
+		}
+		c := FileCommit{SHA: fmt.Sprintf("%040x", 0xc0000+n), Parent: w.merge.refs[b], Path: p, Content: string(raw), Message: body["message"]}
+		if w.merge.commits == nil {
+			w.merge.commits = map[string][]FileCommit{}
+		}
+		w.merge.commits[b] = append(w.merge.commits[b], c)
+		if _, ok := w.merge.refs[b]; ok {
+			w.merge.refs[b] = c.SHA
+		}
+		WriteJSON(rw, 201, map[string]any{"content": map[string]any{"path": p, "sha": blobSHA(c.Content)}, "commit": map[string]any{"sha": c.SHA}})
 	default:
 		return false
 	}
