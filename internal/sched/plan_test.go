@@ -44,7 +44,10 @@ func rowOf(t *testing.T, rows []StageRow, project, stage string) StageRow {
 func TestC11StageListPrintsEachFiringWithItsEffectiveValues(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t)
-	w.writeHost(nil, nil, nightlyQA)
+	// A codex login gives each stage a fallback profile after its own.
+	w.writeHost(nil, nil, nightlyQA, func(c *config.HostConfig) {
+		c.Harnesses = []config.HarnessLogin{{Name: "claude"}, {Name: "codex"}}
+	})
 	w.project.set(snapshot(t, listedProject, ""))
 	w.rebuild()
 	if err := w.s.RegisterJob("merge-handoff", func(context.Context, string) error { return nil }); err != nil {
@@ -95,9 +98,12 @@ func TestC11StageListPrintsEachFiringWithItsEffectiveValues(t *testing.T) {
 	hold.At = impl.Pauses[0].At
 	next := at(t, "2026-10-21T01:10:00Z")
 	wantImpl := StageRow{
-		Firing:    want[1],
-		Limits:    []config.Limit{{Name: "implementer", Cap: 8, Stages: []string{"implementer"}}},
-		Profiles:  []Profile{{Harness: agenthost.Claude, Model: "opus", Effort: "high"}},
+		Firing: want[1],
+		Limits: []config.Limit{{Name: "implementer", Cap: 8, Stages: []string{"implementer"}}},
+		Profiles: []Profile{
+			{Harness: agenthost.Claude, Model: "opus", Effort: "high"},
+			{Harness: agenthost.Codex, Model: "gpt-5-codex", Effort: "high"},
+		},
 		Escalated: &Profile{Harness: agenthost.Claude, Model: "claude-opus-5-5", Effort: "high", Escalated: true},
 		Pauses:    []admission.StagePause{hold},
 		LastFire:  &fired,
@@ -119,7 +125,7 @@ func TestC11StageListPrintsEachFiringWithItsEffectiveValues(t *testing.T) {
 
 	qa := rowOf(t, rows, prj, "nightly-qa")
 	if want := []config.Limit{{Name: "nightly-qa", Cap: 1, Stages: []string{"nightly-qa"}}}; !reflect.DeepEqual(qa.Limits, want) ||
-		!reflect.DeepEqual(qa.Profiles, []Profile{{Harness: agenthost.Claude, Model: "opus"}}) {
+		!reflect.DeepEqual(qa.Profiles, []Profile{{Harness: agenthost.Claude, Model: "opus"}, {Harness: agenthost.Codex, Model: "gpt-5-codex"}}) {
 		t.Fatalf("nightly-qa row = %+v", qa)
 	}
 
