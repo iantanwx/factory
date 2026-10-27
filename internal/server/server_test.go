@@ -443,3 +443,27 @@ func TestShutdownDeadlineStopsAStuckCall(t *testing.T) {
 	}
 	s.done <- nil
 }
+
+// compose, which Run calls, gives the token issuer the instance and
+// Options.LoopBinary, so each token file names both.
+func TestC10ARunsTokenFileNamesTheServersInstanceAndLoopBinary(t *testing.T) {
+	dir := instanceDir(t)
+	var srv *Server
+	start(t, dir, Options{
+		LoopBinary: "/opt/loop/current/loop",
+		Setup:      []func(*Server) error{func(s *Server) error { srv = s; return nil }},
+	}, true)
+	checkout := t.TempDir()
+	if _, err := srv.Tokens.IssueToCheckout(context.Background(), rpc.IssueRequest{
+		RunID: "run-1", Kind: cli.PrincipalRun, Project: "alpha", Item: "T-1", Checkout: checkout,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tf, err := cli.ReadTokenFile(checkout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tf.Instance != dir || tf.Binary != "/opt/loop/current/loop" {
+		t.Fatalf("the token file names instance %q and binary %q, want %s and /opt/loop/current/loop", tf.Instance, tf.Binary, dir)
+	}
+}

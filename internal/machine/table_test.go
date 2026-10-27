@@ -8,6 +8,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 )
 
@@ -218,6 +219,12 @@ func bugEdges() []edge {
 		{Reproducing, "release", Reported}, {Reproducing, "reclaim", Reported},
 		{Reported, "shape", Shaped}, {Reproducing, "shape", Shaped},
 		{Reported, "duplicate", Duplicate}, {Reproducing, "duplicate", Duplicate},
+		// A report that a build answers waits for it. The build's end routes
+		// it, and the coordinator may still route it by hand (D9).
+		{Reported, "await_build", "awaiting_build"}, {Reproducing, "await_build", "awaiting_build"},
+		{"awaiting_build", "build_landed", Duplicate}, {"awaiting_build", "build_canceled", Reported},
+		{"awaiting_build", "shape", Shaped}, {"awaiting_build", "duplicate", Duplicate},
+		{"awaiting_build", "note", "awaiting_build"}, {"awaiting_build", "edit", "awaiting_build"},
 		{Reported, "escalate", Escalated}, {Reproducing, "escalate", Escalated},
 		{Escalated, "answer", Reported},
 		{Reproducing, "ask", Asked}, {Asked, "answer", Reported},
@@ -354,6 +361,11 @@ func TestStatusesAreConfigurableInBeads(t *testing.T) {
 	}
 	if len(Statuses()) == 0 {
 		t.Fatal("no custom statuses")
+	}
+	// The server registers each status at workspace open, so a waiting bug
+	// needs its status in the list, frozen so that no stage claims it.
+	if !slices.Contains(Statuses(), beadsx.StatusDef{Name: "awaiting_build", Category: beadsx.CategoryFrozen}) {
+		t.Fatalf("Statuses() = %v; want awaiting_build, frozen", Statuses())
 	}
 }
 

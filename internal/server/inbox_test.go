@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 // fileDecision files a decision as the coordinator and returns its id.
@@ -38,7 +39,7 @@ func TestDecisionVerbsKeepTheDecisionStates(t *testing.T) {
 	if entryByID(w.entries(""), "decision/alpha/"+d) != nil {
 		t.Fatal("a pending decision waits on a person")
 	}
-	moot := w.fileDecision("which queue")
+	moot := w.fileDecision("which queue", "--waits-for-a-person", "the operator")
 	if env, code := w.coordinator("decision", "moot", moot, "--project", "alpha"); code != 0 || w.show(moot).Status != machine.Canceled {
 		t.Fatalf("moot from pending = %d %v", code, env)
 	}
@@ -55,10 +56,46 @@ func TestDecisionVerbsKeepTheDecisionStates(t *testing.T) {
 	if it := w.show(d); it.Status != machine.Done || it.Fact(machine.FactAnswer) != "postgres" {
 		t.Fatalf("answered = %s %v", it.Status, it.Facts)
 	}
-	dropped := w.fileDecision("which cache")
+	dropped := w.fileDecision("which cache", "--waits-for-a-person", "the operator")
 	w.coordinator("decision", "fire", dropped, "--project", "alpha")
 	if env, code := w.coordinator("decision", "settle", dropped, "--project", "alpha", "--dropped"); code != 0 || w.show(dropped).Status != machine.Canceled {
 		t.Fatalf("a dropped decision = %d %v, %s", code, env, w.show(dropped).Status)
+	}
+}
+
+// C13: a decision names its notice. `decision file` takes exactly one of
+// --by and --waits-for-a-person, and neither or both refuse with USAGE and
+// file nothing. A decision that waits for a person holds waits_for, makes
+// no inbox entry while it is pending, and decision-timers never fires it.
+func TestDecisionFileNamesItsNotice(t *testing.T) {
+	w := newHumanWorld(t, "")
+	ctx := context.Background()
+	for _, notice := range [][]string{nil, {"--by", "2000-01-01", "--waits-for-a-person", "the operator"}} {
+		args := append([]string{"decision", "file", "--project", "alpha", "--title", "which store", "--trigger", "the first paying user"}, notice...)
+		if env, code := w.coordinator(args...); code != 2 || env["code"] != cli.CodeUsage {
+			t.Fatalf("decision file %v = %d %v", notice, code, env)
+		}
+	}
+	if its, ref := w.srv.Machine.List(ctx, "alpha", machine.ListFilter{Kind: machine.KindDecision}); ref != nil || len(its) != 0 {
+		t.Fatalf("a refused decision file filed %v %v", its, ref)
+	}
+	byDate := w.fileDecision("which queue", "--by", "2000-01-01")
+	if it := w.show(byDate); it.Status != machine.DecisionPending || it.Fact("by") != "2000-01-01" || it.Fact("waits_for") != "" {
+		t.Fatalf("filed with --by = %s %v", it.Status, it.Facts)
+	}
+	waits := w.fileDecision("which cache", "--waits-for-a-person", "the operator reads the cost report")
+	if it := w.show(waits); it.Status != machine.DecisionPending || it.Fact("waits_for") != "the operator reads the cost report" || it.Fact("by") != "" {
+		t.Fatalf("filed with --waits-for-a-person = %s %v", it.Status, it.Facts)
+	}
+	if entryByID(w.entries(""), "decision/alpha/"+waits) != nil {
+		t.Fatal("a pending decision that waits for a person makes an inbox entry")
+	}
+	w.clock.Advance(100 * 365 * 24 * time.Hour)
+	if err := w.srv.Decisions.Tick(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if w.show(byDate).Status != machine.NeedsHuman || w.show(waits).Status != machine.DecisionPending {
+		t.Fatalf("a hundred years on: --by %s, --waits-for-a-person %s", w.show(byDate).Status, w.show(waits).Status)
 	}
 }
 
@@ -106,7 +143,7 @@ func TestDecisionFiledNowWaitsOnAPersonAtOnce(t *testing.T) {
 		t.Fatalf("a run fired a decision it does not hold: %v", env)
 	}
 	env, code := w.as(rev, "decision", "file", "--title", "the spec names no backoff", "--trigger", "the code-reviewer passed a ticket on a spec defect",
-		"--body", "spec section 4.2 names no backoff", "--now")
+		"--body", "spec section 4.2 names no backoff", "--waits-for-a-person", "the operator", "--now")
 	if code != 0 {
 		t.Fatalf("decision file --now = %d %v", code, env)
 	}
@@ -130,7 +167,7 @@ func TestDecisionFiledNowWaitsOnAPersonAtOnce(t *testing.T) {
 // that it waits in pending with no inbox entry.
 func (w *humanWorld) fileDecisionAs(checkout, title string) string {
 	w.t.Helper()
-	env, code := w.as(checkout, "decision", "file", "--title", title, "--trigger", "the first paying user")
+	env, code := w.as(checkout, "decision", "file", "--title", title, "--trigger", "the first paying user", "--waits-for-a-person", "the operator")
 	if code != 0 {
 		w.t.Fatalf("decision file = %d %v", code, env)
 	}
@@ -148,14 +185,14 @@ func (w *humanWorld) fileDecisionAs(checkout, title string) string {
 func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()
-	d := w.fileDecision("which store")
+	d := w.fileDecision("which store", "--waits-for-a-person", "the operator")
 	w.coordinator("decision", "fire", d, "--project", "alpha")
 	env, _ := w.coordinator("inbox", "prepare", "--body", "ship on Friday? options: yes, costs a weekend; no, costs a week",
 		"--entry", "decision/alpha/"+d)
 	q := env["data"].(map[string]any)["entry"].(string)
 	until := w.clock.Now().Add(time.Hour).UTC().Format(time.RFC3339)
 	for _, id := range []string{"decision/alpha/" + d, q} {
-		if env, code := w.coordinator("inbox", "defer", id, "--until", until); code != 0 {
+		if env, code := w.coordinator("inbox", "defer", id, "--until", until, "--reason", "the operator decides on Friday"); code != 0 {
 			t.Fatalf("defer %s = %d %v", id, code, env)
 		}
 	}
@@ -165,7 +202,7 @@ func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	if es := w.entries(""); entryByID(es, q) != nil || entryByID(es, "decision/alpha/"+d) != nil {
 		t.Fatalf("deferred entries show: %v", es)
 	}
-	if env, _ := w.coordinator("inbox", "defer", q, "--until", "2000-01-01T00:00:00Z"); env["code"] != cli.CodeUsage {
+	if env, _ := w.coordinator("inbox", "defer", q, "--until", "2000-01-01T00:00:00Z", "--reason", "the past"); env["code"] != cli.CodeUsage {
 		t.Fatalf("a past --until = %v", env)
 	}
 
@@ -187,6 +224,52 @@ func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	}
 	if body, answer, err := w.srv.Inbox.Question(ctx, 1); err != nil || answer != "yes" || !strings.Contains(body, "Friday") {
 		t.Fatalf("question = %q %q %v", body, answer, err)
+	}
+}
+
+// C16, spec Work 7: `inbox defer` requires --reason. An entry that is no
+// decision is absent until --until, then returns with defer_reason equal
+// to the reason. A reason that holds the value of a secret is refused, and
+// each refusal defers nothing. A defer row written before the reason
+// existed holds {}, and its entry returns with no defer_reason.
+func TestC16ADeferredEscalationReturnsWithItsReason(t *testing.T) {
+	w := newHumanWorld(t, "")
+	w.srv.Redactor.SetLive("test/value", humanSecret)
+	id, old := "escalation/alpha/"+w.ticketIn(machine.Escalated), "escalation/alpha/"+w.ticketIn(machine.Escalated)
+	until := w.clock.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	if env, code := w.coordinator("inbox", "defer", id, "--until", until); code != 2 || env["code"] != cli.CodeUsage {
+		t.Fatalf("a defer with no --reason = %d %v", code, env)
+	}
+	if env, code := w.coordinator("inbox", "defer", id, "--until", until, "--reason", "the key is "+humanSecret); code != 3 ||
+		env["code"] != cli.CodeSecretInOutput {
+		t.Fatalf("a reason that holds a secret = %d %v", code, env)
+	}
+	if entryByID(w.entries(""), id) == nil || w.count(`SELECT count(*) FROM schedule WHERE kind = 'inbox_defer'`) != 0 {
+		t.Fatal("a refused defer deferred the entry")
+	}
+	const reason = "the operator rotates the deploy key on Friday"
+	for _, e := range []string{id, old} {
+		if env, code := w.coordinator("inbox", "defer", e, "--until", until, "--reason", reason); code != 0 {
+			t.Fatalf("defer %s = %d %v", e, code, env)
+		}
+	}
+	if err := w.srv.Store.Write(context.Background(), func(tx *store.Tx) error {
+		_, err := tx.Exec(`UPDATE schedule SET payload = '{}' WHERE kind = 'inbox_defer' AND stage = ?`, old)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if es := w.entries(""); entryByID(es, id) != nil || entryByID(es, old) != nil {
+		t.Fatalf("a deferred entry shows before its time: %v", es)
+	}
+
+	w.clock.Advance(2 * time.Hour)
+	es := w.entries("")
+	if e := entryByID(es, id); e == nil || e["defer_reason"] != reason {
+		t.Fatalf("the returned entry = %v", e)
+	}
+	if e := entryByID(es, old); e == nil || e["defer_reason"] != nil {
+		t.Fatalf("the entry of a defer row with no reason = %v", e)
 	}
 }
 

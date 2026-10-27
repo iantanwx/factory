@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -346,6 +347,58 @@ func TestWorkDuplicateClosesTheBug(t *testing.T) {
 	}
 }
 
+// TestC19DuplicateUnbuiltWaitsForTheBuild proves C19: a report that a
+// build answers moves from reported or reproducing to awaiting_build, with
+// built_by naming the build. The build is a ticket or an epic that is not
+// terminal. Any other item refuses with USAGE, and the report stays.
+func TestC19DuplicateUnbuiltWaitsForTheBuild(t *testing.T) {
+	w := newWorld(t)
+	unbuilt := func(of string) map[string]string { return map[string]string{"of": of, "unbuilt": "true"} }
+	ticket := w.create(KindTicket, "create", nil)
+	epic := w.create(KindEpic, "create_architecture", nil)
+
+	reported := w.create(KindBug, "file", nil)
+	mustOK(t, w.call("work duplicate", coord(), []string{reported}, unbuilt(ticket)))
+	bug := w.create(KindBug, "file", nil)
+	run := w.claimAs(bug, StageReproducer, "repro")
+	mustOK(t, w.call("work duplicate", run, []string{bug}, unbuilt(epic)))
+	for id, build := range map[string]string{reported: ticket, bug: epic} {
+		if it := w.show(id); it.Status != "awaiting_build" || it.Fact("built_by") != build || it.Fact(FactDuplicateOf) != "" || it.Owner != "" {
+			t.Fatalf("%s after --unbuilt: %s, owner %q, facts %v; want awaiting_build, built_by %s", id, it.Status, it.Owner, it.Facts, build)
+		}
+	}
+
+	done, canceled := w.create(KindTicket, "create", nil), w.create(KindTicket, "create", nil)
+	w.force(done, Done, nil)
+	w.force(canceled, Canceled, nil)
+	other := w.create(KindBug, "file", nil)
+	decision := w.create(KindDecision, "file", nil)
+	g := w.create(KindBug, "file", nil)
+	before := w.show(g)
+	for _, of := range []string{done, canceled, other, decision} {
+		if ref := wantCode(t, w.call("work duplicate", coord(), []string{g}, unbuilt(of)), cli.CodeUsage); ref.Item != of {
+			t.Fatalf("the refusal of %s names %q", of, ref.Item)
+		}
+	}
+	if after := w.show(g); after.Status != Reported || after.Seq != before.Seq {
+		t.Fatalf("a refused --unbuilt changed the report: %+v", after)
+	}
+}
+
+// TestC12WaitingBugRefusesCancel proves the awaiting_build part of C12:
+// no cancel row starts from the waiting state (Decision 24), so a reasoned
+// cancel refuses with TRANSITION_NOT_ALLOWED and the report keeps waiting.
+func TestC12WaitingBugRefusesCancel(t *testing.T) {
+	w := newWorld(t)
+	build := w.create(KindTicket, "create", nil)
+	bug := w.create(KindBug, "file", nil)
+	mustOK(t, w.call("work duplicate", coord(), []string{bug}, map[string]string{"of": build, "unbuilt": "true"}))
+	wantCode(t, w.call("work cancel", coord(), []string{bug}, map[string]string{"reason": "dropped"}), cli.CodeTransitionNotAllowed)
+	if it := w.show(bug); it.Status != "awaiting_build" || it.Fact("built_by") != build {
+		t.Fatalf("after the refused cancel: %s, built_by %q", it.Status, it.Fact("built_by"))
+	}
+}
+
 type evidenceLog struct {
 	calls []string
 	fail  *cli.Refusal
@@ -613,5 +666,58 @@ func TestC14WorkListEpicListsTheEpicsChildren(t *testing.T) {
 	}
 	if res := w.call("work list", coord(), nil, map[string]string{"epic": "factorio-none"}); res.Exit != cli.ExitNothing {
 		t.Errorf("--epic of an id no item names = %+v, want exit %d", res, cli.ExitNothing)
+	}
+}
+
+// C13: work show answers the wait that the reader builds, and work list
+// and Show read none. A failed read still answers the item, with
+// wait_error.
+func TestC13WorkShowAnswersTheWait(t *testing.T) {
+	w := newWorld(t)
+	id := w.create(KindTicket, "create", nil)
+	other := w.create(KindTicket, "create", nil)
+	var reads []string
+	wait := Wait{Lease: &WaitLease{Run: "r-live", Epoch: 3}, Holds: []WaitHold{{Holder: "room-1", Kind: "room"}},
+		Failures: []WaitFailure{{Run: "r-1", Stage: StageImplementer, Class: "crashed", Inputs: "h1"}}, Limit: 2,
+		Alerts: []WaitAlert{{Entry: "alert/1", Kind: "retry_limit"}}}
+	w.m.SetWaitReader(func(_ context.Context, project, item string) (Wait, error) {
+		reads = append(reads, project+"/"+item)
+		if item == other {
+			return Wait{}, errors.New("store: database is locked")
+		}
+		return wait, nil
+	})
+
+	res := w.call("work show", coord(), []string{id}, nil)
+	it, _ := res.Data.(Item)
+	if res.Refusal != nil || it.ID != id || it.WaitError != "" || it.Wait == nil {
+		t.Fatalf("work show = %+v", res)
+	}
+	if got := *it.Wait; got.Lease.Run != "r-live" || got.Holds[0].Holder != "room-1" || got.Failures[0].Class != "crashed" ||
+		got.Limit != 2 || got.Alerts[0].Entry != "alert/1" {
+		t.Fatalf("wait = %+v", got)
+	}
+
+	res = w.call("work show", coord(), []string{other}, nil)
+	it, _ = res.Data.(Item)
+	if res.Refusal != nil || it.ID != other || it.Status != Todo || it.Wait != nil || it.WaitError != "store: database is locked" {
+		t.Fatalf("work show with a failed wait read = %+v", res)
+	}
+
+	reads = nil
+	if res := w.call("work list", coord(), nil, nil); res.Refusal != nil {
+		t.Fatalf("work list: %+v", res.Refusal)
+	} else {
+		for _, it := range res.Data.([]Item) {
+			if it.Wait != nil || it.WaitError != "" {
+				t.Fatalf("work list answers a wait: %+v", it)
+			}
+		}
+	}
+	if it := w.show(id); it.Wait != nil {
+		t.Fatalf("Show answers a wait: %+v", it.Wait)
+	}
+	if len(reads) != 0 {
+		t.Fatalf("work list and Show read the wait: %v", reads)
 	}
 }

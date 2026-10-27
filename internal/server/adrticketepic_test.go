@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/machine"
 )
@@ -66,5 +68,24 @@ func TestArchitectureEpicTicketCitesNoStory(t *testing.T) {
 		"--request", "Ian: write the ADR")
 	if env["code"] != cli.CodePRDRequired {
 		t.Fatalf("a run's ticket under an architecture epic = %v; want %s", env, cli.CodePRDRequired)
+	}
+}
+
+// C4 through the server: the pipeline reads the project's own config, so
+// `epic create --request` in a project that does not enable prd-author is
+// refused with prd_author_disabled, and no epic is created.
+func TestEpicCreateRequestRefusesAProjectWithoutAPRDAuthor(t *testing.T) {
+	w, _, _ := newDocWorld(t)
+	env, code := w.coordinator("epic", "create", "--project", "alpha", "--title", "Watchlists",
+		"--request", "Ian: port the tickertown watchlist")
+	if code == 0 || env["code"] != cli.CodeUsage || env["rule"] != "prd_author_disabled" {
+		t.Fatalf("epic create --request = %d %v, want USAGE prd_author_disabled", code, env)
+	}
+	beads, err := w.bx.List(context.Background(), beadsx.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(beads) != 0 {
+		t.Fatalf("a refused epic create made %d beads", len(beads))
 	}
 }

@@ -20,7 +20,7 @@ merge:
   mechanism: mergify
 stages:
   implementer:
-    model: opus
+    model: claude-opus-5-5
     harness: claude
     run_budget: 90m
     schedule: 5m
@@ -77,7 +77,7 @@ func TestParseProjectConfig(t *testing.T) {
 func TestParseProjectConfigRefuses(t *testing.T) {
 	cases := map[string]string{
 		"unknown field":               validProjectConfig + "organisation: acme\n",
-		"unknown stage field":         strings.Replace(validProjectConfig, "model: opus", "model: opus\n    modle: sonnet", 1),
+		"unknown stage field":         strings.Replace(validProjectConfig, "harness: claude", "harness: claude\n    modle: sonnet", 1),
 		"unknown mechanism":           strings.Replace(validProjectConfig, "mechanism: mergify", "mechanism: bors", 1),
 		"no mechanism":                strings.Replace(validProjectConfig, "mechanism: mergify", "", 1),
 		"escaping manifest":           validProjectConfig + "manifest: ../secrets.yaml\n",
@@ -106,6 +106,53 @@ func TestParseProjectConfigRefuses(t *testing.T) {
 		if _, err := ParseProjectConfig([]byte(doc)); err != nil {
 			t.Fatalf("mechanism %s refused: %v", m, err)
 		}
+	}
+}
+
+// C7: a Claude stage, or a stage that names no harness, takes a full
+// Claude model id. A Claude Code alias resolves to a model the loop cannot
+// compare with the receipt, so config refuses it. A Codex model is not
+// checked.
+func TestC7StageConfigRefusesAClaudeCodeAlias(t *testing.T) {
+	cases := []struct {
+		harness, model string
+		ok             bool
+	}{
+		{"claude", "opus", false},
+		{"claude", "sonnet", false},
+		{"claude", "haiku", false},
+		{"claude", "default", false},
+		{"claude", "opusplan", false},
+		{"claude", "opus[1m]", false},
+		{"", "opus", false},
+		{"", "sonnet", false},
+		{"", "haiku", false},
+		{"", "default", false},
+		{"", "opusplan", false},
+		{"", "opus[1m]", false},
+		{"claude", "claude-opus-5-5", true},
+		{"claude", "claude-haiku-4-5-20251001", true},
+		{"", "claude-opus-5-5", true},
+		{"", "claude-haiku-4-5-20251001", true},
+		{"codex", "gpt-5-codex", true},
+	}
+	for _, c := range cases {
+		t.Run(c.harness+"/"+c.model, func(t *testing.T) {
+			doc := "merge:\n  mechanism: mergify\nstages:\n  implementer:\n    model: \"" + c.model + "\"\n"
+			if c.harness != "" {
+				doc += "    harness: " + c.harness + "\n"
+			}
+			_, err := ParseProjectConfig([]byte(doc))
+			if c.ok {
+				if err != nil {
+					t.Fatalf("ParseProjectConfig: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "stages.implementer.model") {
+				t.Fatalf("err = %v, want ErrInvalid naming stages.implementer.model", err)
+			}
+		})
 	}
 }
 

@@ -2,6 +2,7 @@ package gates
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"path"
 	"slices"
@@ -21,6 +22,10 @@ var lockfiles = []string{
 // stackGate runs the command that the project config names for the gate.
 // A config with no such command fails the gate: every project runs every
 // stack gate.
+//
+// A command with no baseline passes on exit 0. A command with a baseline
+// prints keys on stdout and ends them with EndLine; its stderr streams to
+// the log, and ratchetStack holds the keys to the baseline.
 //
 // audit runs only when the change touches a lock file. An advisory
 // database moves on its own, so a blanket audit fails a change for news
@@ -47,6 +52,15 @@ func stackGate(name string) func(context.Context, *Repo) ([]Finding, error) {
 		}
 		c := exec.CommandContext(ctx, "sh", "-c", r.Config.Gates[i].Run)
 		c.Dir, c.Stdout, c.Stderr = r.Root, r.Out, r.Out
+		if r.Config.Gates[i].Baseline != "" {
+			var stdout strings.Builder
+			c.Stdout = &stdout
+			err := c.Run()
+			if _, ok := err.(*exec.ExitError); err != nil && !ok {
+				return nil, err
+			}
+			return ratchetStack(r.Root, r.Config.Gates[i], stdout.String(), err)
+		}
 		if err := c.Run(); err != nil {
 			if _, ok := err.(*exec.ExitError); ok {
 				return []Finding{{Rule: "command_failed", Message: r.Config.Gates[i].Run + ": " + err.Error()}}, nil
@@ -55,4 +69,34 @@ func stackGate(name string) func(context.Context, *Repo) ([]Finding, error) {
 		}
 		return nil, nil
 	}
+}
+
+// ratchetStack holds the keys of a ratcheted gate's stdout to the gate's
+// baseline. The exit code decides nothing: oxlint exits 1 and govulncheck
+// exits 3 when they find something. The end line tells a clean run from a
+// silent one, and exit names the exit status in that finding.
+func ratchetStack(root string, gate config.Command, stdout string, exit error) ([]Finding, error) {
+	keys, ok, bad := parseKeys(stdout)
+	if !ok {
+		msg := fmt.Sprintf("%s: the last non-blank line of stdout is not %s, so the gate cannot tell a clean run from a silent one", gate.Run, EndLine)
+		if exit != nil {
+			msg += " (" + exit.Error() + ")"
+		}
+		return []Finding{{Rule: "no_end_line", Message: msg}}, nil
+	}
+	baseline, exists, err := readCounts(root, gate.Baseline)
+	if err != nil {
+		return nil, err
+	}
+	found := Counts{}
+	for _, k := range keys {
+		found[k]++
+	}
+	findings := ratchet(found, baseline, gate.Baseline, "new_finding", "findings")
+	if !exists {
+		for i := range findings {
+			findings[i].Message += fmt.Sprintf(". %s does not exist: adopt the ratchet with loop gates --only %s --update", gate.Baseline, gate.Name)
+		}
+	}
+	return append(bad, findings...), nil
 }

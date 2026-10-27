@@ -444,7 +444,7 @@ func TestSecretsAreRefusedInEveryHumanWrite(t *testing.T) {
 	for _, args := range [][]string{
 		{"inbox", "answer", "escalation/alpha/" + item, "--body", leak},
 		{"inbox", "prepare", "--body", leak},
-		{"decision", "file", "--project", "alpha", "--title", "q", "--trigger", leak},
+		{"decision", "file", "--project", "alpha", "--title", "q", "--trigger", leak, "--waits-for-a-person", "the operator"},
 	} {
 		if env, code := w.coordinator(args...); code != 3 || env["code"] != cli.CodeSecretInOutput {
 			t.Fatalf("%v = %d %v", args, code, env)

@@ -157,6 +157,7 @@ var (
 	credentialRefRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 	identRe         = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 	effortRe        = regexp.MustCompile(`^[a-z]+$`) // agenthost's effort pattern
+	claudeModelRe   = regexp.MustCompile(`^claude(-[a-z0-9]+)+$`)
 )
 
 // ValidSecretName reports whether name can be a manifest entry and a .env
@@ -166,6 +167,10 @@ func ValidSecretName(name string) bool { return secretNameRe.MatchString(name) }
 // ValidCredentialRef reports whether name can name a platform credential in
 // host config.
 func ValidCredentialRef(name string) bool { return credentialRefRe.MatchString(name) }
+
+// ClaudeModelID reports whether m is a full Claude model id: "claude-", then
+// lower-case letters and digits in groups that single dashes join.
+func ClaudeModelID(m string) bool { return claudeModelRe.MatchString(m) }
 
 func validIdent(s string) bool { return identRe.MatchString(s) }
 

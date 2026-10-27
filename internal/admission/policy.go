@@ -246,10 +246,10 @@ func (a *Admission) inputsOf(ctx context.Context, project, item, stage string) (
 	return computeInputs(ctx, a.cfg.Base, project, t, a.cfg.Release)
 }
 
-// Admit admits one run: the dependency rule, the stage mutex, the holds,
-// the caps and the retry limit, in that order. It reserves the run in the runs table,
-// then claims the item through the machine. A refused claim drops the
-// reservation. A crash between the two leaves a run row with no lease,
+// Admit admits one run: the stage pause, the dependency rule, the stage
+// mutex, the holds, the caps and the retry limit, in that order. It
+// reserves the run in the runs table, then claims the item through the
+// machine. A refused claim drops the reservation. A crash between the two leaves a run row with no lease,
 // which the scheduler's reconcile settles as not-ready.
 func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusal) {
 	if r.Project == "" || r.Stage == "" || r.RunID == "" {
@@ -260,6 +260,12 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 	}
 	if a.draining.Load() {
 		return Admitted{}, drainingRefusal()
+	}
+	if paused, err := a.Paused(ctx, r.Project, r.Stage); err != nil || paused {
+		if err != nil {
+			return Admitted{}, cli.InternalRefusal(err)
+		}
+		return Admitted{}, pausedRefusal(r.Project, r.Stage)
 	}
 	limits, ref := a.limitsFor(ctx, r.Stage)
 	if ref != nil {
@@ -516,6 +522,12 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 		return nil, cli.InternalRefusal(errors.New("admission: no machine attached"))
 	}
 	if a.draining.Load() {
+		return nil, nil
+	}
+	if paused, err := a.Paused(ctx, project, stage); err != nil || paused {
+		if err != nil {
+			return nil, cli.InternalRefusal(err)
+		}
 		return nil, nil
 	}
 	limits, ref := a.limitsFor(ctx, stage)

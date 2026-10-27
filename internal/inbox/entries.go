@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/fault"
@@ -19,7 +20,8 @@ import (
 )
 
 // DeferKind is the schedule row kind of `inbox defer --until`. Its stage
-// column holds the entry id and its due_at the time the entry returns.
+// column holds the entry id, its due_at the time the entry returns, and
+// its payload {"reason": "..."}. A row written before the reason holds {}.
 const DeferKind = "inbox_defer"
 
 // Alert kinds that wait on a person: only the operator stores a secret or
@@ -33,17 +35,26 @@ func itemEntry(kind, project, item string) string { return kind + "/" + project 
 
 func rowEntry(kind string, id int64) string { return kind + "/" + strconv.FormatInt(id, 10) }
 
-// parseEntry splits an entry id.
+// pauseEntry is `pause/<project>/<stage>`, or `pause/<stage>` for a pause
+// of every project.
+func pauseEntry(project, stage string) string {
+	if project == "" {
+		return KindPause + "/" + stage
+	}
+	return itemEntry(KindPause, project, stage)
+}
+
+// parseEntry splits an entry id. A pause entry names its stage as item.
 func parseEntry(id string) (kind, project, item string, row int64, ok bool) {
 	parts := strings.Split(id, "/")
 	switch {
 	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindDecision || parts[0] == KindSignoff || parts[0] == KindAsk ||
-		parts[0] == KindArchitecture):
+		parts[0] == KindArchitecture || parts[0] == KindPause):
 		return parts[0], parts[1], parts[2], 0, parts[1] != "" && parts[2] != ""
 	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel):
 		n, err := strconv.ParseInt(parts[1], 10, 64)
 		return parts[0], "", "", n, err == nil && n > 0
-	case len(parts) == 2 && parts[0] == KindRoom:
+	case len(parts) == 2 && (parts[0] == KindRoom || parts[0] == KindPause):
 		return parts[0], "", parts[1], 0, parts[1] != ""
 	}
 	return "", "", "", 0, false
@@ -127,7 +138,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			items = append(items, got...)
 		}
 	}
-	defers := map[string]int64{}
+	defers := map[string]deferRow{}
 	err := in.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		var err error
 		if defers, err = readDefers(ctx, tx); err != nil {
@@ -150,7 +161,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			e.Link = it.link
 			out = append(out, e)
 		}
-		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults} {
+		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults, in.pauses} {
 			es, err := read(ctx, tx)
 			if err != nil {
 				return err
@@ -170,11 +181,12 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	}
 	shown := out[:0]
 	for _, e := range out {
-		if due, ok := defers[e.ID]; ok {
-			if due > now {
+		if d, ok := defers[e.ID]; ok {
+			if d.due > now {
 				continue
 			}
-			e.At = max(e.At, due)
+			e.At = max(e.At, d.due)
+			e.DeferReason = d.reason
 		}
 		e.Cursor = strconv.FormatInt(e.At, 10)
 		shown = append(shown, e)
@@ -188,20 +200,27 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 	return shown, nil
 }
 
-func readDefers(ctx context.Context, tx *sql.Tx) (map[string]int64, error) {
-	rs, err := tx.QueryContext(ctx, `SELECT stage, due_at FROM schedule WHERE kind = ? AND state = 'active'`, DeferKind)
+// deferRow is one active defer: when its entry returns, and why.
+type deferRow struct {
+	due    int64
+	reason string
+}
+
+func readDefers(ctx context.Context, tx *sql.Tx) (map[string]deferRow, error) {
+	rs, err := tx.QueryContext(ctx, `SELECT stage, due_at, coalesce(json_extract(payload, '$.reason'), '') FROM schedule
+		WHERE kind = ? AND state = 'active'`, DeferKind)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rs.Close() }()
-	out := map[string]int64{}
+	out := map[string]deferRow{}
 	for rs.Next() {
-		var id string
+		var id, reason string
 		var due sql.NullInt64
-		if err := rs.Scan(&id, &due); err != nil {
+		if err := rs.Scan(&id, &due, &reason); err != nil {
 			return nil, err
 		}
-		out[id] = due.Int64
+		out[id] = deferRow{due: due.Int64, reason: reason}
 	}
 	return out, rs.Err()
 }
@@ -300,9 +319,10 @@ func askCount(it machine.Item) int {
 
 // Decision facts that `decision file` writes (internal/decision).
 const (
-	FactTrigger = "trigger"
-	FactBy      = "by"
-	FactFiledBy = "filed_by"
+	FactTrigger  = "trigger"
+	FactBy       = "by"
+	FactWaitsFor = "waits_for"
+	FactFiledBy  = "filed_by"
 )
 
 func docOf(status string) string {
@@ -503,4 +523,35 @@ func (in *Inbox) faults(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 			At: f.ReportedAt})
 	}
 	return out, nil
+}
+
+// pauses shows each stage pause (ADR 0004 D3). It waits on the
+// coordinator, and only `loop stage resume` ends it. A pause has no item,
+// so its entry has no link. It is dated when the stage paused.
+func (in *Inbox) pauses(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
+	ps, err := admission.Pauses(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Entry, 0, len(ps))
+	for _, p := range ps {
+		scope := "every project"
+		if p.Project != "" {
+			scope = "project " + p.Project
+		}
+		out = append(out, Entry{ID: pauseEntry(p.Project, p.Stage), Kind: KindPause, Awaits: AwaitsCoordinator, Project: p.Project,
+			Title: fmt.Sprintf("stage %s is paused in %s", p.Stage, scope),
+			Text: fmt.Sprintf("No new run of %s starts in %s, and a live run continues. Paused by %s. The reason:", p.Stage, scope, p.By) +
+				"\n\n" + AgentText(p.By, p.Reason),
+			Next: resumeCommand(p.Project, p.Stage), At: p.At.UnixMilli()})
+	}
+	return out, nil
+}
+
+// resumeCommand is the one act that ends a pause entry.
+func resumeCommand(project, stage string) string {
+	if project == "" {
+		return "loop stage resume " + stage
+	}
+	return "loop stage resume " + stage + " --project " + project
 }

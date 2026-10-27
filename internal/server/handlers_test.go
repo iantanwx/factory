@@ -13,10 +13,7 @@ type exemption struct {
 }
 
 // handlerExemptions lists every server verb with no handler, in path order.
-var handlerExemptions = []exemption{
-	{"stage pause", "factorio-wd0"},
-	{"stage resume", "factorio-wd0"},
-}
+var handlerExemptions = []exemption{}
 
 // inventoryFaults compares the unhandled server verbs with the exemptions.
 // It names each unhandled verb with no exemption, each exempt verb with a
