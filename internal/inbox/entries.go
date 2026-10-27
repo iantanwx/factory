@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/fault"
@@ -34,17 +35,26 @@ func itemEntry(kind, project, item string) string { return kind + "/" + project 
 
 func rowEntry(kind string, id int64) string { return kind + "/" + strconv.FormatInt(id, 10) }
 
-// parseEntry splits an entry id.
+// pauseEntry is `pause/<project>/<stage>`, or `pause/<stage>` for a pause
+// of every project.
+func pauseEntry(project, stage string) string {
+	if project == "" {
+		return KindPause + "/" + stage
+	}
+	return itemEntry(KindPause, project, stage)
+}
+
+// parseEntry splits an entry id. A pause entry names its stage as item.
 func parseEntry(id string) (kind, project, item string, row int64, ok bool) {
 	parts := strings.Split(id, "/")
 	switch {
 	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindDecision || parts[0] == KindSignoff || parts[0] == KindAsk ||
-		parts[0] == KindArchitecture):
+		parts[0] == KindArchitecture || parts[0] == KindPause):
 		return parts[0], parts[1], parts[2], 0, parts[1] != "" && parts[2] != ""
 	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel):
 		n, err := strconv.ParseInt(parts[1], 10, 64)
 		return parts[0], "", "", n, err == nil && n > 0
-	case len(parts) == 2 && parts[0] == KindRoom:
+	case len(parts) == 2 && (parts[0] == KindRoom || parts[0] == KindPause):
 		return parts[0], "", parts[1], 0, parts[1] != ""
 	}
 	return "", "", "", 0, false
@@ -151,7 +161,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			e.Link = it.link
 			out = append(out, e)
 		}
-		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults} {
+		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults, in.pauses} {
 			es, err := read(ctx, tx)
 			if err != nil {
 				return err
@@ -513,4 +523,35 @@ func (in *Inbox) faults(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 			At: f.ReportedAt})
 	}
 	return out, nil
+}
+
+// pauses shows each stage pause (ADR 0004 D3). It waits on the
+// coordinator, and only `loop stage resume` ends it. A pause has no item,
+// so its entry has no link. It is dated when the stage paused.
+func (in *Inbox) pauses(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
+	ps, err := admission.Pauses(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Entry, 0, len(ps))
+	for _, p := range ps {
+		scope := "every project"
+		if p.Project != "" {
+			scope = "project " + p.Project
+		}
+		out = append(out, Entry{ID: pauseEntry(p.Project, p.Stage), Kind: KindPause, Awaits: AwaitsCoordinator, Project: p.Project,
+			Title: fmt.Sprintf("stage %s is paused in %s", p.Stage, scope),
+			Text: fmt.Sprintf("No new run of %s starts in %s, and a live run continues. Paused by %s. The reason:", p.Stage, scope, p.By) +
+				"\n\n" + AgentText(p.By, p.Reason),
+			Next: resumeCommand(p.Project, p.Stage), At: p.At.UnixMilli()})
+	}
+	return out, nil
+}
+
+// resumeCommand is the one act that ends a pause entry.
+func resumeCommand(project, stage string) string {
+	if project == "" {
+		return "loop stage resume " + stage
+	}
+	return "loop stage resume " + stage + " --project " + project
 }

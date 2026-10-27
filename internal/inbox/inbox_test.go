@@ -47,13 +47,15 @@ func TestEntryIDsRoundTrip(t *testing.T) {
 		{"panel/2", KindPanel, "", "", 2},
 		{"room/room-ab", KindRoom, "", "room-ab", 0},
 		{"architecture/alpha/ep-1", KindArchitecture, "alpha", "ep-1", 0},
+		{"pause/alpha/implementer", "pause", "alpha", "implementer", 0},
+		{"pause/implementer", "pause", "", "implementer", 0},
 	} {
 		k, p, i, r, ok := parseEntry(tc.id)
 		if !ok || k != tc.kind || p != tc.project || i != tc.item || r != tc.row {
 			t.Errorf("%s = %s %s %s %d %v", tc.id, k, p, i, r, ok)
 		}
 	}
-	for _, bad := range []string{"", "escalation/alpha", "question/x", "question/0", "nope/1", "unread/alpha"} {
+	for _, bad := range []string{"", "escalation/alpha", "question/x", "question/0", "nope/1", "unread/alpha", "pause/", "pause/alpha/"} {
 		if _, _, _, _, ok := parseEntry(bad); ok {
 			t.Errorf("%q parsed", bad)
 		}
