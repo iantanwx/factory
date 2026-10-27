@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -176,6 +177,22 @@ func (s *Server) Handle(path string, h Handler) error {
 	}
 	s.handlers[path] = h
 	return nil
+}
+
+// Unhandled lists each server verb of the registry that has no handler,
+// in path order. A verb the registry answers itself, such as schema, has
+// one.
+func (s *Server) Unhandled() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var out []string
+	for _, v := range s.reg.Verbs() {
+		if v.Side == cli.SideServer && !v.Local() && s.handlers[v.Path] == nil {
+			out = append(out, v.Path)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // Logger is the server's redacting logger.
