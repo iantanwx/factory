@@ -442,19 +442,21 @@ func (s *Scheduler) fireDue(ctx context.Context, hc *config.HostConfig) error {
 	}
 	// A failed project list still fires the instance jobs.
 	projects, perr := s.cfg.Projects()
+	snaps := map[string]*config.ProjectSnapshot{}
 	snap := func(project string) *config.ProjectSnapshot {
 		sn, err := s.cfg.ProjectConfig(ctx, project)
 		if err != nil {
 			if !errors.Is(err, config.ErrConfigMissing) {
 				s.log.WarnContext(ctx, "project config", "project", project, "err", err)
 			}
-			return nil
+			sn = nil
 		}
+		snaps[project] = sn
 		return sn
 	}
 	for _, f := range Firings(hc, projects, snap, s.Jobs()) {
 		if f.Enabled && s.advance(ctx, rows, f.Project, f.Stage, f.Schedule, now) {
-			s.launch(ctx, f.Project, f.Stage, f.Kind, hc)
+			s.launch(ctx, f.Project, f.Stage, f.Kind, hc, config.Effective(hc, configOf(snaps[f.Project])).RunsPerTick(f.Stage))
 		}
 	}
 	return perr
@@ -513,8 +515,8 @@ func (s *Scheduler) advance(ctx context.Context, rows map[string]cronRow, projec
 
 // launch starts one firing in its own goroutine. A stage starts at most one
 // firing at a time for each project, and a job at most its cap of
-// concurrent calls. A run stage's firing fills its free cap.
-func (s *Scheduler) launch(ctx context.Context, project, stage string, kind FiringKind, hc *config.HostConfig) {
+// concurrent calls. A run stage's firing starts at most perTick runs.
+func (s *Scheduler) launch(ctx context.Context, project, stage string, kind FiringKind, hc *config.HostConfig, perTick int) {
 	key := stageKey(project, stage)
 	run := kind == FiringRun || kind == FiringAgentJob
 	limit := 1
@@ -538,7 +540,7 @@ func (s *Scheduler) launch(ctx context.Context, project, stage string, kind Firi
 		}()
 		switch kind {
 		case FiringRun, FiringAgentJob:
-			s.fill(ctx, project, stage, max(1, hc.Throughput[stage].Cap))
+			s.fill(ctx, project, stage, max(1, perTick))
 		case FiringJob:
 			if err := s.job(stage)(ctx, project); err != nil {
 				s.log.WarnContext(ctx, "native job", "project", project, "job", stage, "err", err)
@@ -552,11 +554,11 @@ func (s *Scheduler) launch(ctx context.Context, project, stage string, kind Firi
 }
 
 // fill starts runs of stage on project until admission refuses, no
-// candidate is left, or limit runs started. Admission holds the stage's
-// cap, so a firing fills the free cap. Tickertown runs four implementer
-// rows that each hold a window of runs, so 16 starts an hour reach its cap
-// of 8, shared by new and repair work (scripts/sdlc/timer-implementer-rows.ts,
-// alpha). A stage that claims no item starts one run a firing: its
+// candidate is left, or limit runs started. The limit is the project's
+// runs_per_tick, else the stage's cap in force, so with none set a firing
+// fills the free cap. Tickertown runs four implementer rows that each hold
+// a window of runs, so 16 starts an hour reach its cap of 8, shared by new
+// and repair work (scripts/sdlc/timer-implementer-rows.ts, alpha). A stage that claims no item starts one run a firing: its
 // candidate names no work that a second run would not repeat.
 func (s *Scheduler) fill(ctx context.Context, project, stage string, limit int) {
 	for range limit {
