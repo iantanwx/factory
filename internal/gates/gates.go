@@ -56,6 +56,8 @@ type Repo struct {
 	Out io.Writer
 	// Update lowers each baseline to what the gate found (--update).
 	Update bool
+	// Full skips the lock-file scope of the audit gate (--full).
+	Full bool
 }
 
 // Git runs git in the checkout and returns its stdout.

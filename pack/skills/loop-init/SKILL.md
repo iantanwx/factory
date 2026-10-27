@@ -86,6 +86,34 @@ jobs:
 Keep the job name `gates`. The loop ruleset requires the checks by name. The job needs no token: the
 loop's repository lets the repositories of its owner use its action.
 
+Write `.github/workflows/audit.yml` beside `ci.yml`. On a pull request, the `audit` gate runs only
+when the change touches a lock file. This workflow audits every dependency of the default branch
+each day, so a new advisory reaches the project. Put the same setup steps in it.
+
+```yaml
+name: audit
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: slothware-labs/factorio@v0
+      # <the stack's setup steps>
+      - name: Audit every dependency
+        run: loop gates --only audit --full
+```
+
+Add no `pull_request` or `push` trigger. The `gates` job already audits each change.
+
 ## 5. Project config
 
 Write `.loop/config.yaml`:
@@ -121,6 +149,25 @@ signoff:
 
 Name all six stack gates. `loop gates` fails a gate that the config does not name. Run
 `loop gates` in the clone, and fix each finding before you go on.
+
+A project that adopts the loop with lint findings it cannot fix now ratchets `lint`. Ask the
+operator first. A ratcheted gate names a `baseline` file. Its command prints one key for each
+finding on stdout, such as `<file>::<rule>`, and then the end line `loop:end`. The gate fails on
+a count above the baseline, on a count below it, and on a stdout with no end line. Pipe the lint
+tool's JSON output through `jq` in this one form, and write only the key filter:
+
+```yaml
+  - name: lint
+    run: <the lint command with JSON output> | jq -rn '[inputs] | select(length > 0) | (.[] | <keys>), "loop:end"'
+    baseline: .loop/lint-baseline.json
+```
+
+The form prints no end line when the tool prints nothing or prints broken JSON, so a crash fails
+the gate. Never put `?` or `// empty` in the key filter. They read a changed output shape as zero
+findings. Then run `loop gates --only lint --update` once. It writes the baseline from what the
+gate found. Commit the baseline with the config. The `audit` gate takes the same form for its
+advisory ids. Its baseline holds each accepted id with a reason and a date, and a person writes
+each entry.
 
 Ask the operator who signs the PRDs and the specs off. The server asks each reader for a review
 when it opens a PRD or a spec pull request, so GitHub notifies them. Name a person's login, never
