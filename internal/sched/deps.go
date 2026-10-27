@@ -31,10 +31,11 @@ const DependencyAdvanceJob = "dependency-advance"
 // epic that enters on prd_needed first asks the intake cap, and a full cap
 // leaves it in backlog for the next tick: the cap bounds the PRD epics in
 // flight (D6). An item that another writer moved meanwhile is left alone.
-// It then completes each epic in execution whose children are all
-// terminal, because a child's terminal write and its epic's complete write
-// are two writes (machine.CompleteEpics). Any other refusal or read error
-// is reported, and the next tick tries again.
+// It then routes each bug that waits for a build whose end it reads
+// (routeWaitingBugs), and completes each epic in execution whose children
+// are all terminal, because a child's terminal write and its epic's
+// complete write are two writes (machine.CompleteEpics). Any other refusal
+// or read error is reported, and the next tick tries again.
 func (s *Scheduler) advanceDependencies(ctx context.Context, project string) error {
 	bc, err := s.cfg.Beads(project)
 	if err != nil {
@@ -54,6 +55,7 @@ func (s *Scheduler) advanceDependencies(ctx context.Context, project string) err
 			}
 		}
 	}
+	errs = append(errs, s.routeWaitingBugs(ctx, project)...)
 	if err := s.cfg.Machine.CompleteEpics(ctx, project); err != nil {
 		errs = append(errs, err)
 	}
@@ -90,6 +92,46 @@ func (s *Scheduler) unblockLanded(ctx context.Context, bc beadsx.Client, project
 		return fmt.Errorf("sched: unblock %s: %s: %s", it.ID, r.Code, r.Hint)
 	}
 	return nil
+}
+
+// routeWaitingBugs reads the build of each bug in awaiting_build (D9). A
+// done build applies build_landed, which closes the bug as its duplicate.
+// A canceled build applies build_canceled, which returns the bug to
+// reported. A build in any other state leaves the bug waiting. A bug that
+// another writer moved meanwhile is left alone.
+func (s *Scheduler) routeWaitingBugs(ctx context.Context, project string) []error {
+	waiting, ref := s.cfg.Machine.List(ctx, project, machine.ListFilter{Kind: machine.KindBug, Status: machine.AwaitingBuild})
+	if ref != nil {
+		return []error{fmt.Errorf("sched: list the waiting bugs of %s: %s: %s", project, ref.Code, ref.Hint)}
+	}
+	var errs []error
+	for _, bug := range waiting {
+		build, ref := s.cfg.Machine.Read(ctx, project, bug.Fact(machine.FactBuiltBy))
+		if ref != nil {
+			errs = append(errs, fmt.Errorf("sched: read the build of %s: %s: %s", bug.ID, ref.Code, ref.Hint))
+			continue
+		}
+		var verb string
+		switch build.Status {
+		case machine.Done:
+			verb = machine.VerbBuildLanded
+		case machine.Canceled:
+			verb = machine.VerbBuildCanceled
+		default:
+			continue
+		}
+		res := s.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: bug.ID, Verb: verb,
+			ExpectedStatus: machine.AwaitingBuild, Actor: machine.Server(DependencyAdvanceJob)})
+		switch r := res.Refusal; {
+		case r == nil:
+			s.log.InfoContext(ctx, "build ended", "project", project, "item", bug.ID, "build", build.ID, "status", build.Status)
+		case r.Code == cli.CodeStatusChanged || r.Code == cli.CodeTransitionNotAllowed || r.Code == cli.CodeNotFound:
+			// Another writer routed the bug. Nothing waits.
+		default:
+			errs = append(errs, fmt.Errorf("sched: %s %s: %s: %s", verb, bug.ID, r.Code, r.Hint))
+		}
+	}
+	return errs
 }
 
 // openHeads answers the head branches of a project's open pull requests.

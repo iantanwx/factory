@@ -21,6 +21,7 @@ type line struct {
 // block starts a section.
 type section struct {
 	Heading string // the heading's text, trimmed
+	Line    int    // the heading's line number, or 0 for the text before it
 	Lines   []line
 }
 
@@ -41,7 +42,7 @@ func sections(text string) []section {
 			l.Fenced = true
 			fence = fenceOpen.FindString(t)
 		case strings.HasPrefix(l.Text, "## "):
-			out = append(out, section{Heading: strings.TrimSpace(l.Text[3:])})
+			out = append(out, section{Heading: strings.TrimSpace(l.Text[3:]), Line: l.N})
 			continue
 		}
 		out[len(out)-1].Lines = append(out[len(out)-1].Lines, l)
