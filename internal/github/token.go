@@ -49,6 +49,21 @@ const tokenMargin = 2 * time.Minute
 type cachedToken struct {
 	token   string
 	expires time.Time
+	grant   Grant
+}
+
+// Grant is what GitHub granted one installation token when it minted it.
+type Grant struct {
+	Repositories []string
+	Permissions  map[string]string
+}
+
+func (g Grant) String() string {
+	perms := make([]string, 0, len(g.Permissions))
+	for _, k := range slices.Sorted(maps.Keys(g.Permissions)) {
+		perms = append(perms, k+":"+g.Permissions[k])
+	}
+	return "repositories " + strings.Join(g.Repositories, ", ") + " and permissions " + strings.Join(perms, ", ")
 }
 
 // AppKey is one loop App that the service may act as.
@@ -258,8 +273,9 @@ func (s *Service) Token(ctx context.Context, p config.Project, scope Scope) (str
 	}
 	_, name, _ := strings.Cut(p.Repo, "/")
 	var minted struct {
-		Token        string    `json:"token"`
-		ExpiresAt    time.Time `json:"expires_at"`
+		Token        string            `json:"token"`
+		ExpiresAt    time.Time         `json:"expires_at"`
+		Permissions  map[string]string `json:"permissions"`
 		Repositories []struct {
 			FullName string `json:"full_name"`
 		} `json:"repositories"`
@@ -277,15 +293,25 @@ func (s *Service) Token(ctx context.Context, p config.Project, scope Scope) (str
 	// Register the token with the redactor before anything else can see
 	// it, and refuse one that reaches another repository.
 	s.cfg.Redactor.SetLive("github/installation_token/"+key, minted.Token)
+	grant := Grant{Permissions: minted.Permissions}
 	for _, r := range minted.Repositories {
 		if !strings.EqualFold(r.FullName, p.Repo) {
 			return "", fmt.Errorf("github: the token for %s also reaches %s; the loop refuses it", p.Repo, r.FullName)
 		}
+		grant.Repositories = append(grant.Repositories, r.FullName)
 	}
 	s.mu.Lock()
-	s.tokens[key] = cachedToken{token: minted.Token, expires: minted.ExpiresAt}
+	s.tokens[key] = cachedToken{token: minted.Token, expires: minted.ExpiresAt, grant: grant}
 	s.mu.Unlock()
 	return minted.Token, nil
+}
+
+// lastGrant is what GitHub granted the token of scope for p at its last
+// mint, or the zero Grant before any mint.
+func (s *Service) lastGrant(p config.Project, scope Scope) Grant {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.tokens[p.ID+"/"+string(scope)].grant
 }
 
 // allowedPermissions is the most the App may hold (KTD15). actions write

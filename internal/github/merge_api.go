@@ -244,17 +244,24 @@ func (s *Service) RequiredChecks(ctx context.Context, p config.Project) ([]strin
 	return names, nil
 }
 
-// FileAt reports whether path exists on branch.
+// FileAt reports whether path exists on branch. GitHub answers 404 for a
+// repository the token cannot reach as well as for a missing path, so on
+// a 404 it reads the repository too, and a 404 there is a RepoHiddenError.
 func (s *Service) FileAt(ctx context.Context, p config.Project, branch, path string) (bool, error) {
 	err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/contents/"+pathEscapeBranch(path)+"?ref="+url.QueryEscape(branch)), nil)
 	var api *APIError
 	switch {
 	case errors.As(err, &api) && api.Status == http.StatusNotFound:
-		return false, nil
 	case err != nil:
 		return false, err
+	default:
+		return true, nil
 	}
-	return true, nil
+	err = s.repoGet(ctx, p, ScopeRead, repoPath(p, ""), nil)
+	if errors.As(err, &api) && api.Status == http.StatusNotFound {
+		return false, &RepoHiddenError{Repo: p.Repo, Status: api.Status, Grant: s.lastGrant(p, ScopeRead)}
+	}
+	return false, err
 }
 
 // FilePR is one file the server proposes through its own pull request.
