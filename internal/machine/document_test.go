@@ -33,7 +33,7 @@ func TestSpecAuthorNeedsAMergedPRDOrADR(t *testing.T) {
 	w.claim(ep, StageSpecAuthor, "r-spec")
 
 	arch := w.create(KindEpic, "create_architecture", nil)
-	w.must(arch, "adr_landed", nil)
+	w.must(arch, "adr_landed", map[string]string{"path": "docs/adr/0001-x.md", "added": "a1"})
 	w.claim(arch, StageSpecAuthor, "r-arch")
 }
 
@@ -106,7 +106,7 @@ func TestListSelectsByFact(t *testing.T) {
 func TestADRMisjoinedNeedsTheADRItRead(t *testing.T) {
 	w := newWorld(t)
 	ep := w.create(KindEpic, "create_architecture", nil)
-	w.must(ep, "adr_landed", map[string]string{"path": "docs/adr/0007-x.md"})
+	w.must(ep, "adr_landed", map[string]string{"path": "docs/adr/0007-x.md", "added": "a1"})
 	r := wantCode(t, w.apply(ep, VerbADRMisjoined, map[string]string{"path": "docs/adr/0001-y.md"}), cli.CodeStatusChanged)
 	if r.Rule != "adr_changed" {
 		t.Fatalf("rule %q", r.Rule)

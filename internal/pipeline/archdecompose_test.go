@@ -17,7 +17,7 @@ func TestDecomposeAcceptsAnArchitectureEpic(t *testing.T) {
 		"project": testProject, "architecture": "true", "body": "An ADR records the decision."}))
 	epic := data["epic"].(string)
 	w.mustApply(machine.Request{Item: epic, Verb: machine.VerbADRLanded, ExpectedStatus: machine.Architecture,
-		Params: map[string]string{"path": "docs/adr/0003-quality-ratchets.md"}, Actor: machine.Server("test")})
+		Params: map[string]string{"path": "docs/adr/0003-quality-ratchets.md", "added": "a1"}, Actor: machine.Server("test")})
 	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageSpecAuthor, RunID: "run-spec"}); res.Refusal != nil {
 		t.Fatalf("spec author claim: %+v", *res.Refusal)
 	}

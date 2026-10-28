@@ -385,8 +385,18 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 		if i < 0 {
 			continue
 		}
+		// The tick's head is not always the commit that added the ADR, and
+		// ADR 0012 forbids recording it unless it is.
+		added, err := r.s.Mirror(p).AddedBy(ctx, sha, paths[i])
+		if err == nil && added == "" {
+			err = errors.New("no first-parent commit adds it")
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s adr_landed %s: %w", ep.ID, paths[i], err))
+			continue
+		}
 		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbADRLanded, ExpectedStatus: machine.Architecture,
-			Params: map[string]string{"path": paths[i], "sha": sha}, Actor: machine.Server("reactor")})
+			Params: map[string]string{"path": paths[i], "added": added}, Actor: machine.Server("reactor")})
 		if err := machine.Settled(res); err != nil {
 			errs = append(errs, fmt.Errorf("%s adr_landed: %w", ep.ID, err))
 		}

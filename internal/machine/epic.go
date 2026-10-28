@@ -351,11 +351,14 @@ func epicTable() *Table {
 		{Verb: "spec_amended", From: []string{SpecAmending}, To: SpecReview, Lease: LeaseDrop,
 			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
 		{Verb: "doc_merged", From: []string{PRDSignoff}, To: SpecNeeded, set: mark(FactPRDMerged, "sha"), Facts: []string{FactPRDMerged}},
-		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded, set: mark(FactADR, "path"), Facts: []string{FactADR}},
+		// adr_merged is the first-parent commit that added the ADR, which the
+		// base audit passes (ADR 0012). The tick's head is not always it.
+		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded,
+			set: all(needCopy("path", FactADR), needCopy("added", FactADRMerged)), Facts: []string{FactADR, FactADRMerged}},
 		// An epic that an ADR named only in prose returns to wait for its
 		// own ADR (F-10). The server alone performs it.
-		{Verb: VerbADRMisjoined, From: []string{SpecNeeded}, To: Architecture, guard: adrIs, set: clearFacts(FactADR),
-			Facts: []string{FactADR}},
+		{Verb: VerbADRMisjoined, From: []string{SpecNeeded}, To: Architecture, guard: adrIs, set: clearFacts(FactADR, FactADRMerged),
+			Facts: []string{FactADR, FactADRMerged}},
 		{Verb: "pr_open", From: []string{SpecDrafting}, To: SpecReview, Lease: LeaseDrop,
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
 		{Verb: "review_pass", From: []string{SpecReview}, To: SpecSignoff, Command: "review submit", Lease: LeaseDrop,

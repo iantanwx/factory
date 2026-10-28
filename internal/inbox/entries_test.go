@@ -116,7 +116,7 @@ func TestArchitectureEpicWithNoADRTicketWaitsOnTheCoordinator(t *testing.T) {
 	w := newArchWorld(t)
 	ep := w.create(machine.KindEpic, machine.VerbCreateArchitecture, nil)
 	landed := w.create(machine.KindEpic, machine.VerbCreateArchitecture, nil)
-	w.must(landed, machine.VerbADRLanded, map[string]string{"path": "docs/adr/0001-x.md"})
+	w.must(landed, machine.VerbADRLanded, map[string]string{"path": "docs/adr/0001-x.md", "added": "a1"})
 
 	es := w.entries()
 	if len(es) != 1 {
