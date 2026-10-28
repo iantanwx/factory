@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/iantanwx/loop/internal/store"
@@ -85,4 +88,70 @@ func (m *Machine) History(ctx context.Context, project, item string) ([]Transiti
 		return rows.Err()
 	})
 	return out, err
+}
+
+// mergeFacts are the facts that record a merge commit. A document's merge
+// outran its review when a doc_merged row from one of its states came
+// before the merge row.
+var mergeFacts = map[string][]string{
+	FactMergedSHA:  nil,
+	FactPRDMerged:  {PRDReview, PRDAmending},
+	FactSpecMerged: {SpecReview, SpecAmending},
+	FactADRMerged:  nil,
+}
+
+// MergeRecord is the transition row that recorded a merge commit.
+type MergeRecord struct {
+	Item         string
+	Kind         Kind
+	Verb         string // merged, doc_merged or adr_landed
+	Fact         string // merged_sha, prd_merged, spec_merged or adr_merged
+	ReviewedHead string // the item's reviewed_head at that transition, or ""
+	Outran       bool   // the document merged during its review or amendment
+	Seq          int64
+}
+
+// MergeOf finds the record of one commit. ok is false when no row of the
+// project set a record fact to sha. A later row that clears the fact
+// leaves the record, and of two rows that set one commit the lower
+// intent_id wins.
+func (m *Machine) MergeOf(ctx context.Context, project, sha string) (rec MergeRecord, ok bool, err error) {
+	keys := make([]any, 0, len(mergeFacts))
+	for f := range mergeFacts {
+		keys = append(keys, factPrefix+f)
+	}
+	var key string
+	err = m.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT t.item, t.kind, t.verb, t.seq, j.key FROM transitions t, json_each(t.facts, '$.set') j
+			WHERE t.project = ? AND j.value = ? AND j.key IN (?`+strings.Repeat(", ?", len(keys)-1)+`) ORDER BY t.intent_id LIMIT 1`,
+			append([]any{project, sha}, keys...)...).Scan(&rec.Item, &rec.Kind, &rec.Verb, &rec.Seq, &key)
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return MergeRecord{}, false, nil
+	}
+	if err != nil {
+		return MergeRecord{}, false, err
+	}
+	rec.Fact = strings.TrimPrefix(key, factPrefix)
+	if rec.Fact == FactADRMerged {
+		return rec, true, nil
+	}
+	h, err := m.History(ctx, project, rec.Item)
+	if err != nil {
+		return MergeRecord{}, false, err
+	}
+	for _, t := range h {
+		if t.Seq >= rec.Seq {
+			break
+		}
+		if v, set := t.Set[factPrefix+FactReviewedHead]; set {
+			rec.ReviewedHead = v
+		} else if slices.Contains(t.Unset, factPrefix+FactReviewedHead) {
+			rec.ReviewedHead = ""
+		}
+		if t.Verb == "doc_merged" && slices.Contains(mergeFacts[rec.Fact], t.From) {
+			rec.Outran = true
+		}
+	}
+	return rec, true, nil
 }
