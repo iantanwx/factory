@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/machine"
@@ -70,9 +71,15 @@ type auditAlert struct {
 // unreviewed lists the unreviewed_merge alerts, oldest first.
 func (e *env) unreviewed() []auditAlert {
 	e.t.Helper()
+	return e.auditAlerts(AlertUnreviewedMerge)
+}
+
+// auditAlerts lists the alerts of one kind, oldest first.
+func (e *env) auditAlerts(kind string) []auditAlert {
+	e.t.Helper()
 	var out []auditAlert
 	if err := e.st.Read(context.Background(), func(tx *sql.Tx) error {
-		rows, err := tx.Query(`SELECT subject, body, count FROM alerts WHERE kind = 'unreviewed_merge' ORDER BY id`)
+		rows, err := tx.Query(`SELECT subject, body, count FROM alerts WHERE kind = ? ORDER BY id`, kind)
 		if err != nil {
 			return err
 		}
@@ -463,4 +470,88 @@ func TestC14ADRMergePassesOnTheTickThatFirstSeesIt(t *testing.T) {
 	if got := e.auditCursor(); got != merge {
 		t.Fatalf("the cursor is at %q, want %s", got, merge)
 	}
+}
+
+// stallRow is the base audit's stall row: the commit that stops the walk
+// and the time of the first stop there, or "" with no row.
+func (e *env) stallRow() (string, time.Time) {
+	e.t.Helper()
+	var (
+		c  string
+		at int64
+	)
+	err := e.st.Read(context.Background(), func(tx *sql.Tx) error {
+		return tx.QueryRow(`SELECT cursor, updated_at FROM github_cursors WHERE project = ? AND stream = 'base_audit_stall'`,
+			testProject).Scan(&c, &at)
+	})
+	if err != nil && err != sql.ErrNoRows {
+		e.t.Fatal(err)
+	}
+	return c, time.UnixMilli(at)
+}
+
+// C13: a walk stopped for 15 minutes raises one alert. The pull list fails
+// on every tick, and the ticks run one minute apart. The walk stops at a
+// squash commit with no record for ten minutes, and raises nothing. Once
+// the squash has its record, the walk passes it and stops at a direct
+// push, which starts the 15 minutes again. The tick 15 minutes after the
+// first stop at the push raises one base_audit_stalled alert, and the
+// next tick raises no second one. A tick with a working pull list passes
+// the push, and the stall row is gone.
+func TestC13WalkStoppedFor15MinutesRaisesOneAlert(t *testing.T) {
+	e, r := startAudit(t)
+	sq := commit(t, e.checkout, "squash", map[string]string{"a.txt": "a\n"})
+	push := commit(t, e.checkout, "direct push", map[string]string{"b.txt": "b\n"})
+	e.pushBase()
+	e.api.Route("GET /repos/"+testRepo+"/pulls", func(w http.ResponseWriter, _ *http.Request) {
+		gt.WriteJSON(w, 422, map[string]string{"message": "synthetic failure"})
+	})
+	t0 := time.Now().Truncate(time.Millisecond)
+	stalled := func(minute int) []auditAlert {
+		t.Helper()
+		now := t0.Add(time.Duration(minute) * time.Minute)
+		e.svc.cfg.Now = func() time.Time { return now }
+		if err := r.Tick(context.Background()); err == nil {
+			t.Fatalf("the tick at minute %d with a failing pull list answered no error", minute)
+		}
+		return e.auditAlerts("base_audit_stalled")
+	}
+	for minute := range 10 {
+		if a := stalled(minute); len(a) != 0 {
+			t.Fatalf("minute %d at the squash raised %+v", minute, a)
+		}
+	}
+	if c, at := e.stallRow(); c != sq || !at.Equal(t0) {
+		t.Fatalf("the stall row is %q at %v, want %s at the first stop %v", c, at, sq, t0)
+	}
+	e.apply(e.ticket(machine.ReadyToMerge, shaA), "merged", map[string]string{"sha": sq})
+	for minute := 10; minute < 25; minute++ {
+		if a := stalled(minute); len(a) != 0 {
+			t.Fatalf("minute %d raised %+v, want none before 15 minutes at the push", minute, a)
+		}
+	}
+	first := t0.Add(10 * time.Minute)
+	if c, at := e.stallRow(); c != push || !at.Equal(first) {
+		t.Fatalf("the stall row is %q at %v, want %s at %v", c, at, push, first)
+	}
+	for _, minute := range []int{25, 26} {
+		a := stalled(minute)
+		if len(a) != 1 || a[0].Subject != testProject+"@"+push || a[0].Count != 1 {
+			t.Fatalf("minute %d left the alerts %+v, want one with subject %s@%s and count 1", minute, a, testProject, push)
+		}
+		for _, want := range []string{short(push), first.UTC().Format(time.RFC3339), "synthetic failure"} {
+			if !strings.Contains(a[0].Body, want) {
+				t.Fatalf("the alert body %q does not name %q", a[0].Body, want)
+			}
+		}
+		if strings.Contains(a[0].Body, "\n") {
+			t.Fatalf("the alert body %q holds more than the first line of the error", a[0].Body)
+		}
+	}
+	e.api.Route("GET /repos/"+testRepo+"/pulls", nil)
+	e.tick(r)
+	if c, _ := e.stallRow(); c != "" {
+		t.Fatalf("after the walk passed the push the stall row holds %s", c)
+	}
+	e.wantAlerts("no_record", push)
 }
