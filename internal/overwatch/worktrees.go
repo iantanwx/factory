@@ -8,10 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/sched"
 )
 
 // checkoutPrefix starts the name of every checkout the loop makes:
@@ -29,7 +31,8 @@ const coordinatorCheckoutName = "loop-coordinator"
 // worktreesPart holds work for each leaked checkout (C16): a checkouts row
 // whose run ended longer ago than the agent host's quiet period plus the
 // cleanup interval, a loop-* directory that no row names, and a row whose
-// path does not exist.
+// path does not exist. A worktree of a repository that no project
+// registers belongs to another loop server, and is no work (F-50).
 func worktreesPart() Part {
 	return Part{Name: "worktrees", Read: func(ctx context.Context, w World) (Reading, error) {
 		host, err := w.Host(ctx)
@@ -48,6 +51,15 @@ func worktreesPart() Part {
 		if err != nil {
 			return Reading{}, fmt.Errorf("list the checkout directories: %w", err)
 		}
+		projects, err := w.Projects(ctx)
+		if err != nil {
+			return Reading{}, fmt.Errorf("read the projects: %w", err)
+		}
+		dirs = slices.DeleteFunc(dirs, func(d string) bool {
+			// A directory git cannot read, such as a plain one, stays work.
+			common, project, err := sched.WorktreeOf(ctx, d, projects)
+			return err == nil && common != "" && project == ""
+		})
 		return classifyWorktrees(w.Now(), quiet+w.Intervals().Cleanup, rows, dirs, w.Coordinator().Checkout), nil
 	}}
 }

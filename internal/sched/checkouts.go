@@ -141,8 +141,10 @@ func (s *Scheduler) clearKept(ctx context.Context, id, path string) {
 // It holds checkoutMu, so a run's new checkout is never a stray: dispatch
 // records the row before it lets go. A room records its row after it makes
 // its checkout, so the loop-<room id> directory of each room that is not
-// closed is no stray either. A stray the project's host does not know goes
-// by git.
+// closed is no stray either. A worktree of a repository that no project
+// registers belongs to another loop server, so the pass never reads it
+// (F-50). A stray of a registered project that its host does not know
+// goes by git.
 func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 	hc, err := s.cfg.Host.Load(ctx)
 	if err != nil {
@@ -208,22 +210,13 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 		if base := filepath.Base(dir); named[dir] || opening[base] || base == coordinatorCheckout {
 			continue
 		}
-		gitDirs, err := checkoutGit(ctx, dir, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
+		common, project, err := WorktreeOf(ctx, dir, projects)
 		if err != nil {
 			rep.Errors[dir] = err.Error()
 			continue
 		}
-		gitDir, common, _ := strings.Cut(gitDirs, "\n")
-		if gitDir == common {
-			continue // a clone, not a checkout
-		}
-		// git names the common dir with each link resolved.
-		project := ""
-		for _, p := range projects {
-			if real, err := filepath.EvalSymlinks(p.Path); err == nil && filepath.Join(real, ".git") == common {
-				project = p.ID
-				break
-			}
+		if project == "" {
+			continue // a clone, or another server's checkout
 		}
 		why, err := s.keepReason(ctx, project, dir)
 		if err != nil {
@@ -235,10 +228,7 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 			s.alertKept(ctx, project, dir, "a run that no checkouts row names", dir, why)
 			continue
 		}
-		err = agenthost.ErrUnknownCheckout
-		if project != "" {
-			err = s.cfg.Checkouts(project).RemoveCheckout(ctx, dir)
-		}
+		err = s.cfg.Checkouts(project).RemoveCheckout(ctx, dir)
 		if errors.Is(err, agenthost.ErrUnknownCheckout) {
 			_, err = gitx.Run(ctx, common, "worktree", "remove", dir)
 		}
@@ -249,6 +239,28 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 		s.clearKept(ctx, dir, dir)
 		rep.Deleted = append(rep.Deleted, dir)
 	}
+}
+
+// WorktreeOf reads the git dirs of dir. common is the git common dir of
+// the repository that holds dir as a linked worktree, and "" when dir is a
+// clone. project is the ID of the one of projects whose repository that
+// is, and "" when no project registers it.
+func WorktreeOf(ctx context.Context, dir string, projects []config.Project) (common, project string, err error) {
+	gitDirs, err := checkoutGit(ctx, dir, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
+	if err != nil {
+		return "", "", err
+	}
+	gitDir, common, _ := strings.Cut(gitDirs, "\n")
+	if gitDir == common {
+		return "", "", nil
+	}
+	// git names the common dir with each link resolved.
+	for _, p := range projects {
+		if real, err := filepath.EvalSymlinks(p.Path); err == nil && filepath.Join(real, ".git") == common {
+			return common, p.ID, nil
+		}
+	}
+	return common, "", nil
 }
 
 // RoomCheckoutName names the checkout of the room id.
