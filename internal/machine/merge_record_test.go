@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -188,5 +189,36 @@ func TestC4MergeOfTwoRowsForOneCommit(t *testing.T) {
 	want := MergeRecord{Item: "ep-b", Kind: KindEpic, Verb: VerbADRLanded, Fact: "adr_merged", Seq: 2}
 	if !ok || rec != want {
 		t.Fatalf("MergeOf(c1) = %+v %v, want %+v", rec, ok, want)
+	}
+}
+
+// C2: adr_landed records the commit that added the ADR, and refuses
+// without one. adr_misjoined clears adr and adr_merged, and the record
+// that MergeOf returns stays as it was.
+func TestC2ADRLandedRecordsTheAddingCommit(t *testing.T) {
+	w := newWorld(t)
+	ep := w.create(KindEpic, VerbCreateArchitecture, nil)
+	r := wantCode(t, w.apply(ep, VerbADRLanded, map[string]string{"path": "docs/adr/0001-x.md"}), cli.CodeUsage)
+	if r.Rule != "missing_added" {
+		t.Fatalf("rule %q", r.Rule)
+	}
+	if it := w.show(ep); it.Status != Architecture || it.Fact(FactADR) != "" {
+		t.Fatalf("a refused adr_landed changed the epic: %s %v", it.Status, it.Facts)
+	}
+	w.must(ep, VerbADRLanded, map[string]string{"path": "docs/adr/0001-x.md", "added": "a1"})
+	if it := w.show(ep); it.Status != SpecNeeded || it.Fact(FactADR) != "docs/adr/0001-x.md" || it.Fact(FactADRMerged) != "a1" {
+		t.Fatalf("after adr_landed: %s %v", it.Status, it.Facts)
+	}
+	h := w.history(ep)
+	want := MergeRecord{Item: ep, Kind: KindEpic, Verb: VerbADRLanded, Fact: FactADRMerged, Seq: h[len(h)-1].Seq}
+	if rec, ok := w.mergeOf("a1"); !ok || rec != want {
+		t.Fatalf("MergeOf(a1) = %+v %v, want %+v", rec, ok, want)
+	}
+	w.must(ep, VerbADRMisjoined, map[string]string{"path": "docs/adr/0001-x.md"})
+	if it := w.show(ep); it.Status != Architecture || it.Fact(FactADR) != "" || it.Fact(FactADRMerged) != "" {
+		t.Fatalf("after adr_misjoined: %s %v", it.Status, it.Facts)
+	}
+	if rec, ok := w.mergeOf("a1"); !ok || rec != want {
+		t.Fatalf("MergeOf(a1) after adr_misjoined = %+v %v, want %+v", rec, ok, want)
 	}
 }

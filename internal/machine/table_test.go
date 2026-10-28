@@ -274,6 +274,9 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	if r.Verb == VerbPRDSubmit {
 		params["pr"], params["path"] = "7", "docs/prd/x.md" // a run's submit records both
 	}
+	if r.Verb == VerbADRLanded {
+		params["path"], params["added"] = "docs/adr/0001-x.md", "a1" // the commit that added the ADR
+	}
 	if r.Verb == VerbADRMisjoined {
 		params["path"] = "docs/adr/0001-x.md"
 		facts[FactADR] = "docs/adr/0001-x.md"

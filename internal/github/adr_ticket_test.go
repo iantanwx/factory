@@ -2,6 +2,9 @@ package github
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
@@ -80,7 +83,7 @@ func TestADRMisjoinedEpicReturnsToArchitecture(t *testing.T) {
 	// The reactor before the fix moved both epics: replay its two writes.
 	for _, id := range []string{x, y} {
 		mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: machine.VerbADRLanded,
-			ExpectedStatus: machine.Architecture, Params: map[string]string{"path": adr0007}, Actor: machine.Server("test")}))
+			ExpectedStatus: machine.Architecture, Params: map[string]string{"path": adr0007, "added": e.base}, Actor: machine.Server("test")}))
 	}
 	r := e.reactor()
 	e.land(r, map[string]string{adr0007: adrText(x, y)})
@@ -105,7 +108,7 @@ func TestADRMisjoinedIsServerOnly(t *testing.T) {
 	ctx := context.Background()
 	y := e.architectureEpic("Move the store to Postgres")
 	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: y, Verb: machine.VerbADRLanded,
-		ExpectedStatus: machine.Architecture, Params: map[string]string{"path": adr0007}, Actor: machine.Server("test")}))
+		ExpectedStatus: machine.Architecture, Params: map[string]string{"path": adr0007, "added": e.base}, Actor: machine.Server("test")}))
 	res := e.m.Apply(ctx, machine.Request{Project: testProject, Item: y, Verb: machine.VerbADRMisjoined, Command: "work edit",
 		ExpectedStatus: machine.SpecNeeded, Params: map[string]string{"path": adr0007}, Actor: machine.Server("test")})
 	if res.Refusal == nil {
@@ -113,5 +116,66 @@ func TestADRMisjoinedIsServerOnly(t *testing.T) {
 	}
 	if it := e.status(y); it.Status != machine.SpecNeeded {
 		t.Fatalf("a refused return moved %s to %s", y, it.Status)
+	}
+}
+
+// C3: the reactor passes the commit that added the ADR, not the tick's
+// head. Commit X adds the ADR, and a later first-parent commit Y edits
+// another file. One tick lands the epic with adr_merged equal to X.
+func TestC3ADRMergedIsTheAddingCommitNotTheHead(t *testing.T) {
+	e := newEnv(t)
+	e.withWorld()
+	ep := e.architectureEpic("Share the skill pack")
+	r := e.reactor()
+	x := commit(t, e.checkout, "adr", map[string]string{adr0007: adrText(ep)})
+	e.land(r, map[string]string{"README.md": "later\n"})
+	y := gitT(t, e.checkout, "rev-parse", "HEAD")
+	if it := e.status(ep); it.Status != machine.SpecNeeded || it.Fact(machine.FactADRMerged) != x {
+		t.Fatalf("epic %s: %s with adr_merged=%q, want %s (the head is %s)", ep, it.Status, it.Fact(machine.FactADRMerged), x, y)
+	}
+}
+
+// C3: an ADR that a merge commit brought in records that merge commit,
+// not the commit on its second parent.
+func TestC3ADRMergedIsTheMergeCommitOfItsBranch(t *testing.T) {
+	e := newEnv(t)
+	e.withWorld()
+	ep := e.architectureEpic("Share the skill pack")
+	r := e.reactor()
+	gitT(t, e.checkout, "checkout", "-q", "-b", "adr")
+	side := commit(t, e.checkout, "adr", map[string]string{adr0007: adrText(ep)})
+	gitT(t, e.checkout, "checkout", "-q", "work")
+	commit(t, e.checkout, "other", map[string]string{"x.txt": "x\n"})
+	gitT(t, e.checkout, "merge", "-q", "--no-ff", "-m", "Merge pull request #9", "adr")
+	merge := gitT(t, e.checkout, "rev-parse", "HEAD")
+	e.land(r, map[string]string{"README.md": "later\n"})
+	if it := e.status(ep); it.Status != machine.SpecNeeded || it.Fact(machine.FactADRMerged) != merge {
+		t.Fatalf("epic %s: %s with adr_merged=%q, want the merge %s (its second parent is %s)", ep, it.Status,
+			it.Fact(machine.FactADRMerged), merge, side)
+	}
+}
+
+// C3: when AddedBy fails, the tick returns an error that names the epic
+// and the path, and the epic stays in architecture.
+func TestC3FailedAddedByLandsNoEpic(t *testing.T) {
+	e := newEnv(t)
+	e.withWorld()
+	ep := e.architectureEpic("Share the skill pack")
+	r := e.reactor()
+	// A git whose log fails, and whose every other command runs.
+	bin := filepath.Join(t.TempDir(), "git")
+	writeFile(t, bin, "#!/bin/sh\nif [ \"$1\" = log ]; then echo 'log fails' >&2; exit 1; fi\nexec git \"$@\"\n")
+	if err := os.Chmod(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.git.Binary = bin
+	commit(t, e.checkout, "adr", map[string]string{adr0007: adrText(ep)})
+	gitT(t, e.checkout, "push", "-q", e.git.RemoteDir(), "HEAD:main")
+	err := r.Tick(context.Background())
+	if err == nil || !strings.Contains(err.Error(), ep) || !strings.Contains(err.Error(), adr0007) {
+		t.Fatalf("the tick answered %v, want an error that names %s and %s", err, ep, adr0007)
+	}
+	if it := e.status(ep); it.Status != machine.Architecture || it.Fact(machine.FactADR) != "" || it.Fact(machine.FactADRMerged) != "" {
+		t.Fatalf("epic %s landed with no adding commit: %s %v", ep, it.Status, it.Facts)
 	}
 }

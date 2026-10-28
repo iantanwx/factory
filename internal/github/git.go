@@ -353,3 +353,11 @@ func (m *Mirror) Show(ctx context.Context, ref, path string) ([]byte, error) {
 	}
 	return out, nil
 }
+
+// AddedBy is the newest first-parent commit reachable from tip whose diff
+// against its first parent adds path, or "" when none does. A rename
+// into path counts as an add.
+func (m *Mirror) AddedBy(ctx context.Context, tip, path string) (string, error) {
+	return m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"log", "--first-parent", "--diff-merges=first-parent", "--no-renames",
+		"--diff-filter=A", "--no-patch", "--format=%H", "-n", "1", "--end-of-options", tip, "--", path}})
+}

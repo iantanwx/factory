@@ -137,7 +137,7 @@ func TestMisjoinedEpicReturnsToArchitecture(t *testing.T) {
 	const adr = "docs/adr/0007-shared-skill-pack.md"
 	// Replay the write the reactor before the fix made for the cited epic.
 	res := w.Srv.Machine.Apply(context.Background(), machine.Request{Project: acceptance.Project, Item: cited,
-		Verb: machine.VerbADRLanded, ExpectedStatus: machine.Architecture, Params: map[string]string{"path": adr},
+		Verb: machine.VerbADRLanded, ExpectedStatus: machine.Architecture, Params: map[string]string{"path": adr, "added": "a1"},
 		Actor: machine.Server("test")})
 	if res.Refusal != nil {
 		t.Fatalf("adr_landed on %s: %+v", cited, res.Refusal)
