@@ -361,3 +361,37 @@ func (m *Mirror) AddedBy(ctx context.Context, tip, path string) (string, error) 
 	return m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"log", "--first-parent", "--diff-merges=first-parent", "--no-renames",
 		"--diff-filter=A", "--no-patch", "--format=%H", "-n", "1", "--end-of-options", tip, "--", path}})
 }
+
+// FirstParents lists the first-parent commits after from, through to,
+// oldest first. A commit that a merge brought in on another parent is not
+// listed.
+func (m *Mirror) FirstParents(ctx context.Context, from, to string) ([]string, error) {
+	out, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"rev-list", "--first-parent", "--reverse", "--end-of-options",
+		to, "^" + from}})
+	if err != nil || out == "" {
+		return nil, err
+	}
+	return strings.Split(out, "\n"), nil
+}
+
+// Commit is one commit as the base audit reads it.
+type Commit struct {
+	SHA     string
+	Parents []string
+	Subject string
+	Author  string
+}
+
+// Commit reads one commit of the mirror.
+func (m *Mirror) Commit(ctx context.Context, sha string) (Commit, error) {
+	out, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"show", "--no-patch", "--format=%H%x00%P%x00%an%x00%s",
+		"--end-of-options", sha}})
+	if err != nil {
+		return Commit{}, err
+	}
+	f := strings.SplitN(out, "\x00", 4)
+	if len(f) != 4 {
+		return Commit{}, fmt.Errorf("github: commit %s reads %q", sha, out)
+	}
+	return Commit{SHA: f[0], Parents: strings.Fields(f[1]), Author: f[2], Subject: f[3]}, nil
+}

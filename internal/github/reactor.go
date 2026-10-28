@@ -34,10 +34,18 @@ const (
 	// AlertCINotStarted: GitHub failed a check whose job it never
 	// started, such as for billing (F-18). One alert per cause.
 	AlertCINotStarted = "ci_not_started"
+	// AlertUnreviewedMerge: a first-parent commit of the base that no
+	// review passed (ADR 0003, G5). Its subject is "<project>@<sha>".
+	AlertUnreviewedMerge = "unreviewed_merge"
 )
 
-// StreamPulls is the reactor's cursor stream of updated PRs.
-const StreamPulls = "pulls"
+// The reactor's cursor streams in github_cursors.
+const (
+	// StreamPulls holds the update time of the newest PR read.
+	StreamPulls = "pulls"
+	// StreamBaseAudit holds the full sha of the last audited commit.
+	StreamBaseAudit = "base_audit"
+)
 
 // maxPullPages bounds one tick's walk back through updated PRs.
 const maxPullPages = 10
@@ -51,6 +59,7 @@ const maxPullPages = 10
 // is superseded, not red. An ADR on the base whose Ticket line names an
 // architecture epic moves the epic to spec_needed. A person's unanswered
 // comment on a document in review or sign-off moves its epic to the amender.
+// A first-parent commit of the base that no review passed raises an alert.
 type Reactor struct {
 	s   *Service
 	m   *machine.Machine
@@ -211,6 +220,9 @@ func (r *Reactor) tickProject(ctx context.Context, p config.Project) error {
 	if err := r.adrs(ctx, p, sha); err != nil {
 		errs = append(errs, err)
 	}
+	if err := r.auditBase(ctx, p, sha, errors.Join(errs...)); err != nil {
+		errs = append(errs, err)
+	}
 	if err := r.pollCI(ctx, p); err != nil {
 		errs = append(errs, err)
 	}
@@ -231,26 +243,36 @@ func (r *Reactor) eligibility(ctx context.Context, p config.Project) error {
 	return r.s.RunStatusEffects(ctx)
 }
 
-// cursor reads one stream's cursor, or the zero time.
+// cursor reads the PR stream's cursor, or the zero time.
 func (r *Reactor) cursor(ctx context.Context, project string) (time.Time, error) {
-	var raw string
-	err := r.s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT cursor FROM github_cursors WHERE project = ? AND stream = ?`, project, StreamPulls).Scan(&raw)
-	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return time.Time{}, nil
-	}
-	if err != nil {
+	raw, err := r.stream(ctx, project, StreamPulls)
+	if err != nil || raw == "" {
 		return time.Time{}, err
 	}
 	return time.Parse(time.RFC3339Nano, raw)
 }
 
 func (r *Reactor) advance(ctx context.Context, project string, t time.Time) error {
+	return r.setStream(ctx, project, StreamPulls, t.UTC().Format(time.RFC3339Nano))
+}
+
+// stream reads one stream's cursor, or "".
+func (r *Reactor) stream(ctx context.Context, project, stream string) (string, error) {
+	var raw string
+	err := r.s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT cursor FROM github_cursors WHERE project = ? AND stream = ?`, project, stream).Scan(&raw)
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return raw, err
+}
+
+func (r *Reactor) setStream(ctx context.Context, project, stream, cursor string) error {
 	return r.s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		_, err := tx.Exec(`INSERT INTO github_cursors (project, stream, cursor, updated_at) VALUES (?, ?, ?, ?)
 			ON CONFLICT (project, stream) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at`,
-			project, StreamPulls, t.UTC().Format(time.RFC3339Nano), tx.Now().UnixMilli())
+			project, stream, cursor, tx.Now().UnixMilli())
 		return err
 	})
 }
