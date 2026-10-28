@@ -58,8 +58,8 @@ func (w *world) mergeOf(sha string) (MergeRecord, bool) {
 }
 
 // C4: MergeOf returns the reviewed head a ticket held at its merge, and
-// an empty head for a ticket merged from in_review. An unknown commit
-// has no record.
+// an empty head for a ticket merged from in_review, also after a head
+// change cleared a pass. An unknown commit has no record.
 func TestC4MergeOfATicket(t *testing.T) {
 	w := newWorld(t)
 	reviewed := w.create(KindTicket, "create", nil)
@@ -69,6 +69,11 @@ func TestC4MergeOfATicket(t *testing.T) {
 	unreviewed := w.create(KindTicket, "create", nil)
 	w.force(unreviewed, InReview, nil)
 	w.must(unreviewed, "merged", map[string]string{"sha": "t2"})
+	cleared := w.create(KindTicket, "create", nil)
+	w.force(cleared, InReview, nil)
+	w.must(cleared, "review_pass", map[string]string{"head": "h1"})
+	w.must(cleared, "head_changed", map[string]string{"head": "h2"})
+	w.must(cleared, "merged", map[string]string{"sha": "t3"})
 
 	rec, ok := w.mergeOf("t1")
 	h := w.history(reviewed)
@@ -78,6 +83,9 @@ func TestC4MergeOfATicket(t *testing.T) {
 	}
 	if rec, ok := w.mergeOf("t2"); !ok || rec.Item != unreviewed || rec.ReviewedHead != "" || rec.Outran {
 		t.Fatalf("MergeOf(t2) = %+v %v", rec, ok)
+	}
+	if rec, ok := w.mergeOf("t3"); !ok || rec.Item != cleared || rec.ReviewedHead != "" || rec.Outran {
+		t.Fatalf("MergeOf(t3) after head_changed = %+v %v", rec, ok)
 	}
 	if rec, ok := w.mergeOf("unknown"); ok {
 		t.Fatalf("MergeOf(unknown) = %+v", rec)
