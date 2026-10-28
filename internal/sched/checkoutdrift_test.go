@@ -55,10 +55,10 @@ func TestCleanupFindsALoopDirectoryNoRowNames(t *testing.T) {
 }
 
 // Each loop directory that no row names goes through the content rules.
-// One that holds work stays and rings a person once. A clean one of a
-// repository that no project registers goes by git. The coordinator's
-// checkout, the operator's own worktree and a clone are never touched
-// (F-34).
+// One that holds work stays and rings a person once. One of a repository
+// that no project registers belongs to another server, so it stays and
+// rings nobody (F-50). The coordinator's checkout, the operator's own
+// worktree and a clone are never touched (F-34).
 func TestCleanupJudgesEachLoopDirectoryNoRowNames(t *testing.T) {
 	w := newWorld(t)
 	w.writeHost(nil, nil, func(c *config.HostConfig) { c.AgentHost.CheckoutRoot = w.root })
@@ -78,11 +78,11 @@ func TestCleanupJudgesEachLoopDirectoryNoRowNames(t *testing.T) {
 	foreign := add(beta, "foreign", filepath.Join(w.root, "beta", "loop-beta-implementer-r-6a7b8c9d0e1f"))
 	for range 2 {
 		rep := w.s.CleanCheckouts(context.Background())
-		if rep.Kept[dirty] != "it holds uncommitted work" || len(rep.Errors) != 0 {
+		if rep.Kept[dirty] != "it holds uncommitted work" || len(rep.Kept) != 1 || len(rep.Deleted) != 0 || len(rep.Errors) != 0 {
 			t.Fatalf("report = %+v", rep)
 		}
 	}
-	if !exists(dirty) || !exists(coordinator) || !exists(own) || !exists(clone) || exists(foreign) {
+	if !exists(dirty) || !exists(coordinator) || !exists(own) || !exists(clone) || !exists(foreign) {
 		t.Fatalf("after the passes: dirty %v, coordinator %v, own %v, clone %v, foreign %v",
 			exists(dirty), exists(coordinator), exists(own), exists(clone), exists(foreign))
 	}
