@@ -58,6 +58,8 @@ const (
 	FactDeferReason     = "defer_reason"     // the --reason of the inbox defer that the latest fire ended
 	FactCloseNote       = "close_note"       // why a decision was dropped or became moot
 	FactSpecPath        = "spec_path"        // the spec's path in the repository, set when the spec merges
+	FactSpecMerged      = "spec_merged"      // the merge commit of the epic's spec
+	FactADRMerged       = "adr_merged"       // the first-parent commit that added the epic's ADR
 	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
 )
 
