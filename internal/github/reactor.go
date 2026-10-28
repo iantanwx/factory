@@ -40,6 +40,9 @@ const (
 	// AlertBaseRewritten: the base head no longer reaches the base audit
 	// cursor, as after a forced push. Its subject is "<project>@<old cursor>".
 	AlertBaseRewritten = "base_rewritten"
+	// AlertBaseAuditStalled: the base audit stopped at one commit for
+	// baseAuditStallAfter (ADR 0003, G5). Its subject is "<project>@<sha>".
+	AlertBaseAuditStalled = "base_audit_stalled"
 )
 
 // The reactor's cursor streams in github_cursors.
@@ -48,6 +51,9 @@ const (
 	StreamPulls = "pulls"
 	// StreamBaseAudit holds the full sha of the last audited commit.
 	StreamBaseAudit = "base_audit"
+	// StreamBaseAuditStall holds the full sha of the commit that stops
+	// the base audit. Its updated_at is the time of the first stop there.
+	StreamBaseAuditStall = "base_audit_stall"
 )
 
 // maxPullPages bounds one tick's walk back through updated PRs.
@@ -273,11 +279,16 @@ func (r *Reactor) stream(ctx context.Context, project, stream string) (string, e
 
 func (r *Reactor) setStream(ctx context.Context, project, stream, cursor string) error {
 	return r.s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-		_, err := tx.Exec(`INSERT INTO github_cursors (project, stream, cursor, updated_at) VALUES (?, ?, ?, ?)
-			ON CONFLICT (project, stream) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at`,
-			project, stream, cursor, tx.Now().UnixMilli())
-		return err
+		return putStream(tx, project, stream, cursor, tx.Now())
 	})
+}
+
+// putStream writes one stream's cursor and its update time.
+func putStream(tx *store.Tx, project, stream, cursor string, at time.Time) error {
+	_, err := tx.Exec(`INSERT INTO github_cursors (project, stream, cursor, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT (project, stream) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at`,
+		project, stream, cursor, at.UnixMilli())
+	return err
 }
 
 // pollPulls reads the PRs updated at or after the cursor, newest first,

@@ -2,12 +2,22 @@ package github
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/store"
 )
+
+// baseAuditStallAfter is how long the walk may stop at one commit before
+// the stop raises an alert. A duration, not a count of ticks, because the
+// host's schedule sets the tick rate.
+const baseAuditStallAfter = 15 * time.Minute
 
 // The rules a first-parent commit of the base fails (ADR 0003, G5).
 const (
@@ -86,8 +96,10 @@ func judge(c Commit, rec machine.MergeRecord, ok, partial bool) (verdict, error)
 // the cursor. A head that does not reach the cursor, as after a forced
 // push, raises one base_rewritten alert, and the cursor moves to head
 // with no walk. partial is the joined error of pollPulls and adrs on this
-// tick: then a commit with no record stops the walk before it. The step
-// reads the mirror and the store, and sends no GitHub request.
+// tick: then a commit with no record stops the walk before it, and a stop
+// at one commit for baseAuditStallAfter raises one base_audit_stalled
+// alert. The step reads the mirror and the store, and sends no GitHub
+// request.
 func (r *Reactor) auditBase(ctx context.Context, p config.Project, head string, partial error) error {
 	if head == "" {
 		return nil
@@ -134,7 +146,7 @@ func (r *Reactor) auditBase(ctx context.Context, p config.Project, head string, 
 		if v.wait {
 			r.log.InfoContext(ctx, "the base audit waits at a commit with no record, because the tick's read was partial",
 				"project", p.ID, "sha", sha, "partial", partial)
-			return nil
+			return r.stall(ctx, p, sha, partial)
 		}
 		if v.rule != "" {
 			if err := r.alert(ctx, rpc.AuditAlert{Actor: "server:reactor", Project: p.ID, Kind: AlertUnreviewedMerge,
@@ -145,9 +157,55 @@ func (r *Reactor) auditBase(ctx context.Context, p config.Project, head string, 
 				return err
 			}
 		}
-		if err := r.setStream(ctx, p.ID, StreamBaseAudit, sha); err != nil {
+		if err := r.pass(ctx, p.ID, sha); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// pass moves the base_audit cursor to sha and deletes the stall row, in
+// one write.
+func (r *Reactor) pass(ctx context.Context, project, sha string) error {
+	return r.s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		if err := putStream(tx, project, StreamBaseAudit, sha, tx.Now()); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM github_cursors WHERE project = ? AND stream = ?`, project, StreamBaseAuditStall)
+		return err
+	})
+}
+
+// stall records that the walk stops at sha, and raises one
+// base_audit_stalled alert once the walk has stopped there for
+// baseAuditStallAfter. The stall row keeps the service clock's time of
+// the first stop at sha, and a stop at another commit starts it again.
+func (r *Reactor) stall(ctx context.Context, p config.Project, sha string, partial error) error {
+	now := r.s.cfg.Now()
+	since := now
+	err := r.s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		var (
+			held string
+			at   int64
+		)
+		err := tx.QueryRow(`SELECT cursor, updated_at FROM github_cursors WHERE project = ? AND stream = ?`,
+			p.ID, StreamBaseAuditStall).Scan(&held, &at)
+		if err == nil && held == sha {
+			since = time.UnixMilli(at)
+			return nil
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		return putStream(tx, p.ID, StreamBaseAuditStall, sha, now)
+	})
+	if err != nil || now.Sub(since) < baseAuditStallAfter {
+		return err
+	}
+	cause, _, _ := strings.Cut(partial.Error(), "\n")
+	return r.alert(ctx, rpc.AuditAlert{Actor: "server:reactor", Project: p.ID, Kind: AlertBaseAuditStalled,
+		Subject: p.ID + "@" + sha,
+		Body: fmt.Sprintf("The base audit of %s has stopped at commit %s since %s, because the tick's read was partial: %s",
+			p.ID, short(sha), since.UTC().Format(time.RFC3339), cause),
+		Detail: map[string]any{"sha": sha, "since": since.UTC().Format(time.RFC3339Nano)}})
 }
