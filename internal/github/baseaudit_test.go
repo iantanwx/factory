@@ -310,13 +310,16 @@ func TestC7ADRChangeWithNoRecordRaisesAnAlert(t *testing.T) {
 }
 
 // C10: on a tick whose pull list fails, the audit judges the recorded
-// merge and stops before the direct push. A later tick with a working
-// pull list raises one alert for the push.
+// merge and stops before the direct push. It never skips the push for
+// the recorded merge after it. A later tick with a working pull list
+// raises one alert for the push and passes the merge after it.
 func TestC10PartialPullListStopsBeforeACommitWithNoRecord(t *testing.T) {
 	e, r := startAudit(t)
 	sq := commit(t, e.checkout, "squash", map[string]string{"a.txt": "a\n"})
 	e.apply(e.ticket(machine.ReadyToMerge, shaA), "merged", map[string]string{"sha": sq})
 	push := commit(t, e.checkout, "direct push", map[string]string{"b.txt": "b\n"})
+	after := commit(t, e.checkout, "squash after", map[string]string{"c.txt": "c\n"})
+	e.apply(e.ticket(machine.ReadyToMerge, shaA), "merged", map[string]string{"sha": after})
 	e.pushBase()
 	e.api.Route("GET /repos/"+testRepo+"/pulls", func(w http.ResponseWriter, _ *http.Request) {
 		gt.WriteJSON(w, 422, map[string]string{"message": "synthetic failure"})
@@ -331,8 +334,8 @@ func TestC10PartialPullListStopsBeforeACommitWithNoRecord(t *testing.T) {
 	e.api.Route("GET /repos/"+testRepo+"/pulls", nil)
 	e.tick(r)
 	e.wantAlerts("no_record", push)
-	if got := e.auditCursor(); got != push {
-		t.Fatalf("the cursor is at %q, want %s", got, push)
+	if got := e.auditCursor(); got != after {
+		t.Fatalf("the cursor is at %q, want %s", got, after)
 	}
 }
 
