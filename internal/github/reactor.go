@@ -37,6 +37,9 @@ const (
 	// AlertUnreviewedMerge: a first-parent commit of the base that no
 	// review passed (ADR 0003, G5). Its subject is "<project>@<sha>".
 	AlertUnreviewedMerge = "unreviewed_merge"
+	// AlertBaseRewritten: the base head no longer reaches the base audit
+	// cursor, as after a forced push. Its subject is "<project>@<old cursor>".
+	AlertBaseRewritten = "base_rewritten"
 )
 
 // The reactor's cursor streams in github_cursors.

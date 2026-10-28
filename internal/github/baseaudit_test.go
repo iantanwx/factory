@@ -70,9 +70,15 @@ type auditAlert struct {
 // unreviewed lists the unreviewed_merge alerts, oldest first.
 func (e *env) unreviewed() []auditAlert {
 	e.t.Helper()
+	return e.alertsOf(AlertUnreviewedMerge)
+}
+
+// alertsOf lists the alerts of kind, oldest first.
+func (e *env) alertsOf(kind string) []auditAlert {
+	e.t.Helper()
 	var out []auditAlert
 	if err := e.st.Read(context.Background(), func(tx *sql.Tx) error {
-		rows, err := tx.Query(`SELECT subject, body, count FROM alerts WHERE kind = 'unreviewed_merge' ORDER BY id`)
+		rows, err := tx.Query(`SELECT subject, body, count FROM alerts WHERE kind = ? ORDER BY id`, kind)
 		if err != nil {
 			return err
 		}
@@ -306,6 +312,32 @@ func TestC7ADRChangeWithNoRecordRaisesAnAlert(t *testing.T) {
 			e.tick(r)
 			e.wantAlerts("no_record", sha)
 		})
+	}
+}
+
+// C9: a rewritten base raises one alert and moves the cursor. A forced
+// push replaces the audited head, so the new head does not reach the
+// cursor. The tick raises one base_rewritten alert that names the old
+// cursor and the new head, raises no unreviewed_merge for the new
+// commit, and writes the new head as the cursor. The next tick raises
+// no second alert.
+func TestC9RewrittenBaseRaisesOneAlertAndMovesTheCursor(t *testing.T) {
+	e, r := startAudit(t)
+	old := e.auditCursor()
+	gitT(t, e.checkout, "commit", "-q", "--amend", "--allow-empty", "-m", "Rewrite the base")
+	gitT(t, e.checkout, "push", "-q", e.git.RemoteDir(), "+HEAD:main")
+	head := gitT(t, e.checkout, "rev-parse", "HEAD")
+	e.tick(r)
+	e.tick(r)
+	got := e.alertsOf("base_rewritten")
+	if len(got) != 1 || got[0].Subject != testProject+"@"+old || got[0].Count != 1 ||
+		!strings.Contains(got[0].Body, short(old)) || !strings.Contains(got[0].Body, short(head)) {
+		t.Fatalf("base_rewritten alerts %+v, want one with subject %s@%s, count 1 and a body that names %s and %s",
+			got, testProject, old, short(old), short(head))
+	}
+	e.wantAlerts("")
+	if c := e.auditCursor(); c != head {
+		t.Fatalf("the cursor is at %q, want %s", c, head)
 	}
 }
 
