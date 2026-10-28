@@ -93,7 +93,9 @@ func judge(c Commit, rec machine.MergeRecord, ok, partial bool) (verdict, error)
 // raises one unreviewed_merge alert. The cursor moves past a commit once
 // the store holds its alert, so a failed write stops the walk and the
 // next tick judges that commit again. The first tick only writes head as
-// the cursor. partial is the joined error of pollPulls and adrs on this
+// the cursor. A head that does not reach the cursor, as after a forced
+// push, raises one base_rewritten alert, and the cursor moves to head
+// with no walk. partial is the joined error of pollPulls and adrs on this
 // tick: then a commit with no record stops the walk before it, and a stop
 // at one commit for baseAuditStallAfter raises one base_audit_stalled
 // alert. The step reads the mirror and the store, and sends no GitHub
@@ -110,6 +112,20 @@ func (r *Reactor) auditBase(ctx context.Context, p config.Project, head string, 
 		return r.setStream(ctx, p.ID, StreamBaseAudit, head)
 	}
 	mirror := r.s.Mirror(p)
+	reached, err := mirror.Reaches(ctx, head, cursor)
+	if err != nil {
+		return err
+	}
+	if !reached {
+		if err := r.alert(ctx, rpc.AuditAlert{Actor: "server:reactor", Project: p.ID, Kind: AlertBaseRewritten,
+			Subject: p.ID + "@" + cursor,
+			Body: fmt.Sprintf("The base of %s no longer holds the audited commit %s. Its head is now %s, and the audit starts there.",
+				p.ID, short(cursor), short(head)),
+			Detail: map[string]any{"cursor": cursor, "head": head}}); err != nil {
+			return err
+		}
+		return r.setStream(ctx, p.ID, StreamBaseAudit, head)
+	}
 	shas, err := mirror.FirstParents(ctx, cursor, head)
 	if err != nil {
 		return err
