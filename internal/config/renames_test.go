@@ -291,12 +291,15 @@ func TestC5ManifestOldStageNameRaisesTheAlert(t *testing.T) {
 // The table keeps its invariants: no rename chains, each new name is a
 // stage of this loop, and no old name is one.
 func TestStageRenamesKeepTheirInvariants(t *testing.T) {
-	current := slices.Concat(ThroughputKeys(), ProjectJobs(), InstanceJobs(), manifestStages)
+	// The room package imports this one, so the room stages are spelled
+	// here: room.Stage of each room.Kinds.
+	stages := append(RunStages(), "intake-room", "decision-room", "review-room", "architect-room")
+	current := slices.Concat(ThroughputKeys(), ProjectJobs(), InstanceJobs(), stages)
 	for _, p := range StageRenames() {
 		if _, chained := NewStageName(p[1]); chained {
 			t.Errorf("%s renames to %s, which is an old name too", p[0], p[1])
 		}
-		if !slices.Contains(manifestStages, p[1]) {
+		if !slices.Contains(stages, p[1]) {
 			t.Errorf("%s renames to %s, which is no stage of this loop", p[0], p[1])
 		}
 		if slices.Contains(current, p[0]) {
