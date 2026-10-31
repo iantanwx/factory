@@ -40,19 +40,24 @@ func (c raceRoomCheckout) CreateCheckout(ctx context.Context, spec agenthost.Che
 }
 
 // raceRoomStart restarts w with a checkout host that runs race during the
-// first room checkout.
-func raceRoomStart(w *humanWorld, race func(context.Context)) {
+// first room checkout. The flag it returns says whether race ran.
+func raceRoomStart(w *humanWorld, race func(context.Context)) *atomic.Bool {
 	orig := w.opts.Sched.Checkouts
 	raced, mu, made := &atomic.Bool{}, &sync.Mutex{}, map[string]bool{}
 	w.opts.Sched.Checkouts = func(p string) sched.CheckoutHost {
 		return raceRoomCheckout{CheckoutHost: orig(p), race: race, raced: raced, made: made, mu: mu}
 	}
 	w.restart()
+	return raced
+}
+
+func reviewArgs(item, reason string) []string {
+	return []string{"room", "open", "--kind", "review", "--project", "alpha", "--item", item,
+		"--reason", reason, "--score", "4"}
 }
 
 func openReview(w *humanWorld, item, reason string) (map[string]any, int) {
-	return w.coordinator("room", "open", "--kind", "review", "--project", "alpha", "--item", item,
-		"--reason", reason, "--score", "4")
+	return w.coordinator(reviewArgs(item, reason)...)
 }
 
 // startedOnce fails t unless alpha holds one room, live with one session
@@ -83,7 +88,7 @@ func startedOnce(t *testing.T, w *humanWorld) {
 // live with one session and its .env, and the open succeeds.
 func TestRoomStartsOnceWhenWatchRacesTheOpen(t *testing.T) {
 	w := newRoomWorld(t)
-	raceRoomStart(w, func(ctx context.Context) {
+	raced := raceRoomStart(w, func(ctx context.Context) {
 		if err := w.srv.Rooms.Watch(ctx); err != nil {
 			t.Errorf("watch: %v", err)
 		}
@@ -91,6 +96,9 @@ func TestRoomStartsOnceWhenWatchRacesTheOpen(t *testing.T) {
 	item := todoTicket(t, w.bx)
 	if env, code := openReview(w, item, "a design question"); code != 0 {
 		t.Errorf("room open = %d %v", code, env)
+	}
+	if !raced.Load() {
+		t.Fatal("no room checkout ran the watch pass")
 	}
 	startedOnce(t, w)
 }
@@ -102,19 +110,21 @@ func TestRoomStartsOnceWhenWatchRacesTheOpen(t *testing.T) {
 func TestRoomStartsOnceWhenASecondOpenArrivesDuringTheStart(t *testing.T) {
 	w := newRoomWorld(t)
 	type result struct {
-		env  map[string]any
+		out  string
 		code int
 	}
 	second := make(chan result, 1)
 	var item string
-	raceRoomStart(w, func(ctx context.Context) {
+	raced := raceRoomStart(w, func(ctx context.Context) {
+		// The goroutine never touches t, so a failure of the open comes
+		// back as its result and never ends the goroutine early.
 		go func() {
-			env, code := openReview(w, item, "a second question")
-			second <- result{env, code}
+			out, code := w.call(w.coord, reviewArgs(item, "a second question")...)
+			second <- result{out, code}
 		}()
 		// The second open writes its reason when it reads the room. Go on
 		// once it has, so the first start ends after that read.
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(10 * time.Second)
 		for {
 			rooms, err := w.srv.Rooms.Rooms(ctx, false)
 			if err == nil && len(rooms) == 1 && rooms[0].Reason == "a second question" {
@@ -131,8 +141,17 @@ func TestRoomStartsOnceWhenASecondOpenArrivesDuringTheStart(t *testing.T) {
 	if env, code := openReview(w, item, "a design question"); code != 0 {
 		t.Errorf("room open = %d %v", code, env)
 	}
-	if got := <-second; got.code != 0 {
-		t.Errorf("second room open = %d %v", got.code, got.env)
+	if !raced.Load() {
+		t.Fatal("no room checkout started the second open")
+	}
+	select {
+	case got := <-second:
+		args := reviewArgs(item, "a second question")
+		if env := w.envelope(args, got.out); got.code != 0 {
+			t.Errorf("second room open = %d %v", got.code, env)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the second room open did not end")
 	}
 	startedOnce(t, w)
 }

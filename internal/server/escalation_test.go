@@ -134,18 +134,32 @@ func (w *humanWorld) restart() {
 func (w *humanWorld) as(checkout string, args ...string) (map[string]any, int) {
 	w.t.Helper()
 	w.t.Chdir(checkout)
+	out, code := w.call(checkout, args...)
+	return w.envelope(args, out), code
+}
+
+// call runs the CLI from inside checkout and returns what it printed. It
+// never touches w.t, so a goroutine may call it.
+func (w *humanWorld) call(checkout string, args ...string) (string, int) {
 	r := cli.Surface()
 	(&cli.Client{Instance: w.dir, Budget: 5 * time.Second, Getwd: func() (string, error) { return checkout, nil }}).Attach(r)
 	var out bytes.Buffer
 	code := r.Run(context.Background(), args, &out, io.Discard)
+	return out.String(), code
+}
+
+// envelope parses what loop args printed, and fails the test unless it is
+// one envelope that holds no secret value.
+func (w *humanWorld) envelope(args []string, out string) map[string]any {
+	w.t.Helper()
 	var env map[string]any
-	if err := json.Unmarshal(out.Bytes(), &env); err != nil {
-		w.t.Fatalf("loop %v printed no envelope: %v\n%s", args, err, out.String())
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		w.t.Fatalf("loop %v printed no envelope: %v\n%s", args, err, out)
 	}
-	if strings.Contains(out.String(), humanSecret) {
-		w.t.Fatalf("loop %v printed the secret value: %s", args, out.String())
+	if strings.Contains(out, humanSecret) {
+		w.t.Fatalf("loop %v printed the secret value: %s", args, out)
 	}
-	return env, code
+	return env
 }
 
 func (w *humanWorld) coordinator(args ...string) (map[string]any, int) { return w.as(w.coord, args...) }
