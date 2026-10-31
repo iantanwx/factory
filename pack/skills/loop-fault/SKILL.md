@@ -30,6 +30,9 @@ These are no loop fault:
 - A test, a build or a gate of the project fails because of the project's code. Fix the code.
 - A refusal that names a verb that works. Read `allowed_next`, and use that verb.
 - A rule of the project that you want to change. The project's own files hold it.
+- A fault in a userspace skill is a fault of the project. A userspace skill is a skill that the
+  project declares, and its name does not start with `loop-`. Fix it in the project: edit the
+  policy, change the pin or the committed directory, or file a project ticket.
 
 ## 2. Look for the fault first
 

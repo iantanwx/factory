@@ -17,12 +17,17 @@ const adrDir = "docs/adr"
 // order the template sets.
 var adrSections = []string{"Context", "Decision", "Consequences", "Acceptance criteria"}
 
+// whyLabels are the four parts of the test that a new ADR's
+// `## Why an ADR` section answers, one list item each.
+var whyLabels = []string{"More than one epic", "Rejected alternative", "Costly to undo", "How, not what"}
+
 var (
 	adrName     = regexp.MustCompile(`^(\d{4})-`)
 	adrHeading  = regexp.MustCompile(`(?m)^#\s+ADR\s+(\d{4}):`)
 	adrStatus   = regexp.MustCompile(`(?m)^\*\*Status:\*\*\s*(?:Proposed|Accepted|Superseded by ADR \d{4})\s*$`)
 	adrDate     = regexp.MustCompile(`(?m)^\*\*Date:\*\*\s*\d{4}-\d{2}-\d{2}\s*$`)
 	adrTicket   = regexp.MustCompile(`(?m)^\*\*Ticket:\*\*\s*(\S+)`)
+	adrBinds    = regexp.MustCompile(`(?m)^\*\*Binds:\*\*[ \t]*(.*?)[ \t]*$`)
 	adrNone     = regexp.MustCompile(`(?i)^none\b`)
 	adrTemplate = regexp.MustCompile(`(?m)^>\s*Copy this file to`)
 	adrCite     = regexp.MustCompile(`docs/adr/(\d{4})`)
@@ -43,8 +48,16 @@ var (
 // rejected and a list item under Acceptance criteria, and no template
 // instructions. The Ticket line names the architecture epic, or says none.
 // No two ADRs share a number, and each docs/adr/NNNN it cites exists.
-func ADR(_ context.Context, r *Repo) ([]Finding, error) {
+//
+// A new ADR, one whose path the merge base with Base does not hold, also
+// holds the Binds line and the Why an ADR section. An ADR on the base
+// landed before the template asked for them, and nobody edits it.
+func ADR(ctx context.Context, r *Repo) ([]Finding, error) {
 	files, err := r.glob([]string{adrDir + "/*.md"})
+	if err != nil {
+		return nil, err
+	}
+	onBase, err := adrsOnBase(ctx, r)
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +71,9 @@ func ADR(_ context.Context, r *Repo) ([]Finding, error) {
 		}
 		texts[i] = string(raw)
 		out = append(out, checkADR(f, texts[i])...)
+		if onBase != nil && !onBase[filepath.ToSlash(f)] {
+			out = append(out, checkNewADR(f, texts[i])...)
+		}
 		n := adrNumber(f)
 		if n == "" {
 			continue
@@ -83,6 +99,25 @@ func ADR(_ context.Context, r *Repo) ([]Finding, error) {
 		}
 	}
 	return out, nil
+}
+
+// adrsOnBase is the set of ADR paths that the merge base of HEAD and Base
+// holds. It is nil with no merge base, and then every ADR counts as one on
+// the base.
+func adrsOnBase(ctx context.Context, r *Repo) (map[string]bool, error) {
+	mb, err := r.Git(ctx, "merge-base", "HEAD", r.Base)
+	if err != nil {
+		return nil, nil
+	}
+	list, err := r.Git(ctx, "ls-tree", "-r", "--name-only", strings.TrimSpace(mb), "--", adrDir)
+	if err != nil {
+		return nil, err
+	}
+	held := map[string]bool{}
+	for _, f := range strings.Fields(list) {
+		held[f] = true
+	}
+	return held, nil
 }
 
 // adrNumber is the NNNN an ADR's filename starts with, or "".
@@ -137,6 +172,50 @@ func checkADR(file, text string) []Finding {
 		add("criteria", "## Acceptance criteria holds no item; each line must be able to fail")
 	}
 	return out
+}
+
+// checkNewADR is what the template asks of an ADR that the base does not
+// hold yet: the Binds line, and the Why an ADR section with each of the
+// four labels and text after it.
+func checkNewADR(file, text string) []Finding {
+	var out []Finding
+	add := func(rule, msg string) { out = append(out, Finding{File: file, Rule: rule, Message: msg}) }
+
+	if m := adrBinds.FindStringSubmatch(text); m == nil {
+		add("binds", "the template's **Binds:** line is missing; name each epic the decision binds, comma-separated, or all")
+	} else if !bindsValue(m[1]) {
+		add("binds", "**Binds:** \""+m[1]+"\" is neither all nor a comma-separated list of work-item ids")
+	}
+
+	body, ok := sectionBody(text, "Why an ADR")
+	if !ok {
+		add("why_an_adr", "the template's ## Why an ADR section is missing; answer the four parts of the test, one line each")
+		return out
+	}
+	var missing []string
+	for _, l := range whyLabels {
+		re := regexp.MustCompile(`(?m)^\s*[-*]\s+\*\*` + regexp.QuoteMeta(l) + `:\*\*[ \t]*\S`)
+		if !re.MatchString(body) {
+			missing = append(missing, "**"+l+":**")
+		}
+	}
+	if len(missing) > 0 {
+		add("why_an_adr", "## Why an ADR lacks a list item with text after "+strings.Join(missing, ", "))
+	}
+	return out
+}
+
+// bindsValue reports whether v is all, or work-item ids split by commas.
+func bindsValue(v string) bool {
+	if v == "all" {
+		return true
+	}
+	for _, id := range strings.Split(v, ",") {
+		if !itemID.MatchString(strings.TrimSpace(id)) {
+			return false
+		}
+	}
+	return true
 }
 
 // sectionBody is the text under `## heading` up to the next `## `. ok is

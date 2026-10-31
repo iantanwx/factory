@@ -166,6 +166,11 @@ func specClaim(r Row) Row {
 	return r
 }
 
+// adrRequested holds when the PRD review found a requirement that needs
+// an ADR, or the operator sent the epic to the ADR stage: the PRD merge
+// then lands on architecture, not on spec_needed.
+func adrRequested(c *change) bool { return c.fact(FactADRNeeded) != "" || c.fact(FactADRSent) != "" }
+
 // adrIs refuses adr_misjoined unless the epic's adr fact is still the
 // path the caller read: an epic that a later write joined to another ADR
 // keeps it.
@@ -351,7 +356,17 @@ func epicTable() *Table {
 			When: "unchanged", when: amendedUnchanged(SpecSignoff), set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
 		{Verb: "spec_amended", From: []string{SpecAmending}, To: SpecReview, Lease: LeaseDrop,
 			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
+		{Verb: "doc_merged", From: []string{PRDSignoff}, To: Architecture, When: "adr_requested", when: adrRequested,
+			set: mark(FactPRDMerged, "sha"), Facts: []string{FactPRDMerged}},
 		{Verb: "doc_merged", From: []string{PRDSignoff}, To: SpecNeeded, set: mark(FactPRDMerged, "sha"), Facts: []string{FactPRDMerged}},
+		// The operator sends a PRD epic to the ADR stage. Before the PRD
+		// merges, the send only marks the epic, and the merge routes it. In
+		// the spec stage it moves the epic at once, and doc_pr keeps the
+		// open spec pull request for the next spec round.
+		{Verb: VerbADRSend, From: []string{PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff}, To: ToSame, Command: "epic adr",
+			set: needCopy("request", FactADRSent), Facts: []string{FactADRSent}},
+		{Verb: VerbADRSend, From: []string{SpecNeeded, SpecReview, SpecSignoff, SpecAmending}, To: Architecture, Command: "epic adr",
+			guard: unheld, set: needCopy("request", FactADRSent), Facts: []string{FactADRSent}},
 		// adr_merged is the first-parent commit that added the ADR, which the
 		// base audit passes (ADR 0012). The tick's head is not always it.
 		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded,

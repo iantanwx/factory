@@ -1835,6 +1835,108 @@ var EscalationService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	RetroService_Record_FullMethodName = "/loop.v1.RetroService/Record"
+)
+
+// RetroServiceClient is the client API for RetroService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type RetroServiceClient interface {
+	Record(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+}
+
+type retroServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewRetroServiceClient(cc grpc.ClientConnInterface) RetroServiceClient {
+	return &retroServiceClient{cc}
+}
+
+func (c *retroServiceClient) Record(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, RetroService_Record_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// RetroServiceServer is the server API for RetroService service.
+// All implementations must embed UnimplementedRetroServiceServer
+// for forward compatibility.
+type RetroServiceServer interface {
+	Record(context.Context, *VerbRequest) (*Envelope, error)
+	mustEmbedUnimplementedRetroServiceServer()
+}
+
+// UnimplementedRetroServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedRetroServiceServer struct{}
+
+func (UnimplementedRetroServiceServer) Record(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Record not implemented")
+}
+func (UnimplementedRetroServiceServer) mustEmbedUnimplementedRetroServiceServer() {}
+func (UnimplementedRetroServiceServer) testEmbeddedByValue()                      {}
+
+// UnsafeRetroServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to RetroServiceServer will
+// result in compilation errors.
+type UnsafeRetroServiceServer interface {
+	mustEmbedUnimplementedRetroServiceServer()
+}
+
+func RegisterRetroServiceServer(s grpc.ServiceRegistrar, srv RetroServiceServer) {
+	// If the following call panics, it indicates UnimplementedRetroServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&RetroService_ServiceDesc, srv)
+}
+
+func _RetroService_Record_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RetroServiceServer).Record(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RetroService_Record_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RetroServiceServer).Record(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// RetroService_ServiceDesc is the grpc.ServiceDesc for RetroService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var RetroService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "loop.v1.RetroService",
+	HandlerType: (*RetroServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Record",
+			Handler:    _RetroService_Record_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "loop/v1/services.proto",
+}
+
+const (
 	DecisionService_File_FullMethodName   = "/loop.v1.DecisionService/File"
 	DecisionService_Fire_FullMethodName   = "/loop.v1.DecisionService/Fire"
 	DecisionService_Defer_FullMethodName  = "/loop.v1.DecisionService/Defer"
@@ -3196,6 +3298,7 @@ var PrdService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	EpicService_Create_FullMethodName    = "/loop.v1.EpicService/Create"
+	EpicService_Adr_FullMethodName       = "/loop.v1.EpicService/Adr"
 	EpicService_Decompose_FullMethodName = "/loop.v1.EpicService/Decompose"
 )
 
@@ -3204,6 +3307,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EpicServiceClient interface {
 	Create(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Adr(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Decompose(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
@@ -3225,6 +3329,16 @@ func (c *epicServiceClient) Create(ctx context.Context, in *VerbRequest, opts ..
 	return out, nil
 }
 
+func (c *epicServiceClient) Adr(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, EpicService_Adr_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *epicServiceClient) Decompose(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Envelope)
@@ -3240,6 +3354,7 @@ func (c *epicServiceClient) Decompose(ctx context.Context, in *VerbRequest, opts
 // for forward compatibility.
 type EpicServiceServer interface {
 	Create(context.Context, *VerbRequest) (*Envelope, error)
+	Adr(context.Context, *VerbRequest) (*Envelope, error)
 	Decompose(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedEpicServiceServer()
 }
@@ -3253,6 +3368,9 @@ type UnimplementedEpicServiceServer struct{}
 
 func (UnimplementedEpicServiceServer) Create(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Create not implemented")
+}
+func (UnimplementedEpicServiceServer) Adr(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Adr not implemented")
 }
 func (UnimplementedEpicServiceServer) Decompose(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Decompose not implemented")
@@ -3296,6 +3414,24 @@ func _EpicService_Create_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EpicService_Adr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EpicServiceServer).Adr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EpicService_Adr_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EpicServiceServer).Adr(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _EpicService_Decompose_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(VerbRequest)
 	if err := dec(in); err != nil {
@@ -3324,6 +3460,10 @@ var EpicService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Create",
 			Handler:    _EpicService_Create_Handler,
+		},
+		{
+			MethodName: "Adr",
+			Handler:    _EpicService_Adr_Handler,
 		},
 		{
 			MethodName: "Decompose",

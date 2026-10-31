@@ -13,7 +13,8 @@
 //
 // The moves themselves are rows of the epic table in internal/machine.
 // This package serves the four verbs that create items: prd submit, epic
-// create, epic decompose and work create.
+// create, epic decompose and work create. It also serves epic adr, the
+// coordinator's send of a PRD epic to the ADR stage.
 package pipeline
 
 import (
@@ -58,7 +59,8 @@ type Config struct {
 	StageEnabled func(ctx context.Context, project, stage string) (bool, error)
 }
 
-// Pipeline serves prd submit, epic create, epic decompose and work create.
+// Pipeline serves prd submit, epic create, epic adr, epic decompose and
+// work create.
 type Pipeline struct {
 	cfg Config
 	log *slog.Logger
@@ -91,6 +93,7 @@ func (p *Pipeline) Handlers() map[string]rpc.Handler {
 		"prd submit":     p.prdSubmit,
 		"epic decompose": p.decompose,
 		"epic create":    p.epicCreate,
+		"epic adr":       p.epicADR,
 		"work create":    p.workCreate,
 	}
 }

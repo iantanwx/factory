@@ -69,6 +69,10 @@ service EscalationService {
   rpc Decisions(VerbRequest) returns (Envelope);
 }
 
+service RetroService {
+  rpc Record(VerbRequest) returns (Envelope);
+}
+
 service DecisionService {
   rpc File(VerbRequest) returns (Envelope);
   rpc Fire(VerbRequest) returns (Envelope);
@@ -116,6 +120,7 @@ service PrdService {
 
 service EpicService {
   rpc Create(VerbRequest) returns (Envelope);
+  rpc Adr(VerbRequest) returns (Envelope);
   rpc Decompose(VerbRequest) returns (Envelope);
 }
 

@@ -85,7 +85,7 @@ func (s *Service) Show(ctx context.Context, project string) (View, *cli.Refusal)
 	v := View{Project: project, Branch: repo.Branch, Head: repo.Head}
 	var pc *config.ProjectConfig
 	var raw []byte
-	l, err := s.Loader.Load(ctx, project, repo.read, repo.Branch)
+	l, err := s.Loader.Load(ctx, project, config.Refs{Read: repo.read, Tree: repo.tree}, repo.Branch)
 	switch {
 	case err == nil:
 		pc, raw = l.Config, l.ConfigRaw
@@ -174,4 +174,17 @@ func (r Repo) read(ctx context.Context, _, path string) ([]byte, error) {
 		return nil, err
 	}
 	return gitx.Run(ctx, r.Dir, "cat-file", "blob", spec)
+}
+
+// tree is the config.TreeReader of the fetched head. Like read, it lists
+// dir at Head, whatever ref the loader names.
+func (r Repo) tree(ctx context.Context, _, dir string) ([]config.TreeEntry, error) {
+	if _, err := gitx.Run(ctx, r.Dir, "rev-parse", "--verify", "--quiet", r.Head+"^{commit}"); err != nil {
+		return nil, nil
+	}
+	out, err := gitx.Run(ctx, r.Dir, "ls-tree", "--full-tree", "-z", r.Head, "--", dir+"/")
+	if err != nil {
+		return nil, err
+	}
+	return config.ParseTree(out), nil
 }

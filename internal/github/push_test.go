@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,6 +169,46 @@ func TestInjectedPathIsRefused(t *testing.T) {
 			err := firstErr(e.push("tk-1", head))
 			if got := refusalCode(t, err); got != cli.CodeSecretInDiff || Refusal(err).Rule != "injected_path" {
 				t.Fatalf("refusal %+v", Refusal(err))
+			}
+		})
+	}
+}
+
+// TestC16PushScanCoversEachPinDirectoryExactly proves C16: with the pin
+// neon in the last good config, the scan refuses a commit under
+// .claude/skills/neon/ or .agents/skills/neon/, and passes one under
+// .claude/skills/neon-postgres/. With no last good config it passes neon
+// and still refuses the loop- namespace.
+func TestC16PushScanCoversEachPinDirectoryExactly(t *testing.T) {
+	for _, tc := range []struct {
+		pins    []string
+		path    string
+		refused bool
+	}{
+		{[]string{"neon"}, ".claude/skills/neon/SKILL.md", true},
+		{[]string{"neon"}, ".agents/skills/neon/x.md", true},
+		{[]string{"neon"}, ".claude/skills/neon-postgres/SKILL.md", false},
+		{nil, ".claude/skills/neon/SKILL.md", false},
+		{nil, ".claude/skills/loop-x/SKILL.md", true},
+	} {
+		t.Run(fmt.Sprintf("%v %s", tc.pins, tc.path), func(t *testing.T) {
+			e := newEnv(t)
+			e.userSkills = tc.pins
+			e.restart()
+			head := commit(t, e.checkout, "add a skill file", map[string]string{tc.path: "x\n"})
+			_, err := e.push("tk-1", head)
+			if !tc.refused {
+				if err != nil {
+					t.Fatalf("push refused: %+v", Refusal(err))
+				}
+				return
+			}
+			var se *ScanError
+			if got := refusalCode(t, err); got != cli.CodeSecretInDiff || !errors.As(err, &se) || se.Rule != "injected_path" || se.Path != tc.path {
+				t.Fatalf("refusal %+v", Refusal(err))
+			}
+			if e.remoteSHA("loop/tk-1") != "" {
+				t.Fatal("the branch reached the remote")
 			}
 		})
 	}

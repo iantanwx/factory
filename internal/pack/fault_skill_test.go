@@ -96,3 +96,32 @@ func TestTurnSkillKeepsOnlyTheRunStepsOfAFault(t *testing.T) {
 		}
 	}
 }
+
+// A fault in a userspace skill is the project's, not the loop's: the
+// project declares the skill, so its own files hold the fix (C7).
+func TestFaultSkillSendsAUserspaceFaultToTheProject(t *testing.T) {
+	s := section(t, read(t, faultSkill), "1. What counts")
+	_, rest, ok := strings.Cut(s, "These are no loop fault:")
+	if !ok {
+		t.Fatal("section 1 of the fault skill holds no list of what is no loop fault")
+	}
+	var bullet string
+	for _, b := range strings.Split(rest, " - ")[1:] {
+		if strings.Contains(b, "userspace skill") {
+			bullet = b
+		}
+	}
+	if bullet == "" {
+		t.Fatal("no bullet under \"These are no loop fault\" names a userspace skill")
+	}
+	for _, want := range []string{
+		"A fault in a userspace skill is a fault of the project",
+		"the policy",
+		"the pin or the committed directory",
+		"a project ticket",
+	} {
+		if !strings.Contains(bullet, want) {
+			t.Errorf("the userspace bullet does not hold %q: %s", want, bullet)
+		}
+	}
+}

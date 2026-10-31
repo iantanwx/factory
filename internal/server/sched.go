@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/sched"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // SchedOptions holds the scheduler's optional parts. The server
@@ -36,11 +38,16 @@ type SchedOptions struct {
 	// sched.OriginBaseHead over the registered projects when nil. The
 	// GitHub mirror is the production source.
 	BaseHead sched.BaseHeadSource
+	// SkillStore keeps each project's fetched userspace skill pins.
+	SkillStore userspace.Store
+	// FetchSkill fetches one userspace pin. When nil, the server fetches
+	// no pin. `loop serve` builds it from release.SkillFetcher.
+	FetchSkill userspace.Fetch
 }
 
-// RefSource returns a reader of a project's committed files and its
-// default branch.
-type RefSource func(ctx context.Context, p config.Project) (config.RefReader, string, error)
+// RefSource returns the readers of a project's committed files and tree,
+// and its default branch.
+type RefSource func(ctx context.Context, p config.Project) (config.Refs, string, error)
 
 // composeSched builds the scheduler and registers run finish and drain.
 func (s *Server) composeSched() error {
@@ -113,8 +120,10 @@ func (c *configCaches) forget(project string) {
 
 // projectLoader reads a project's config and manifest from its default
 // branch through config.Loader, so an invalid commit keeps the last known
-// good config and raises an alert (KTD20). Server.caches drops its cached
-// copy of a project.
+// good config and raises an alert (KTD20). After each load it hands the
+// skill pins of the config in force to the syncer, which fetches in the
+// background (ADR 0013 decision 2). Server.caches drops its cached copy
+// of a project.
 func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 	loader := &config.Loader{LKG: config.StoreLKG(s.Store), Alerts: config.StoreAlerter(s.Store),
 		Check: config.StageCheck(&config.HostLoader{Path: s.HostPath})}
@@ -141,15 +150,18 @@ func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 		if err != nil {
 			return nil, err
 		}
-		read, branch, err := refs(ctx, p)
+		r, branch, err := refs(ctx, p)
 		if err != nil {
 			return nil, err
 		}
-		l, err := loader.Load(ctx, project, read, branch)
+		l, err := loader.Load(ctx, project, r, branch)
 		if err != nil {
 			return nil, err
 		}
 		snap := &l.ProjectSnapshot
+		if s.skills != nil {
+			s.skills.Observe(ctx, project, snap.Config.Skills)
+		}
 		mu.Lock()
 		if gen[project] == g {
 			cache[project] = cachedSnap{snap: snap, at: time.Now()}
@@ -159,11 +171,11 @@ func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 	}
 }
 
-// LocalRefs reads a project's committed files from its own directory at
-// origin/<its registered default branch>, with no user or system git
-// config. A server without the GitHub mirror uses it.
-func LocalRefs(_ context.Context, p config.Project) (config.RefReader, string, error) {
-	return func(ctx context.Context, ref, path string) ([]byte, error) {
+// LocalRefs reads a project's committed files and tree from its own
+// directory at origin/<its registered default branch>, with no user or
+// system git config. A server without the GitHub mirror uses it.
+func LocalRefs(_ context.Context, p config.Project) (config.Refs, string, error) {
+	read := func(ctx context.Context, ref, path string) ([]byte, error) {
 		run := func(args ...string) ([]byte, error) { return gitx.Run(ctx, p.Path, args...) }
 		if _, err := run("cat-file", "-e", ref+":"+path); err != nil {
 			if _, rerr := run("rev-parse", "--verify", "--quiet", ref+"^{commit}"); rerr == nil {
@@ -172,5 +184,17 @@ func LocalRefs(_ context.Context, p config.Project) (config.RefReader, string, e
 			return nil, err
 		}
 		return run("show", ref+":"+path)
-	}, p.BaseBranch(), nil
+	}
+	tree := func(ctx context.Context, ref, dir string) ([]config.TreeEntry, error) {
+		sha, err := gitx.Run(ctx, p.Path, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+		if err != nil {
+			return nil, nil
+		}
+		out, err := gitx.Run(ctx, p.Path, "ls-tree", "--full-tree", "-z", strings.TrimSpace(string(sha)), "--", dir+"/")
+		if err != nil {
+			return nil, err
+		}
+		return config.ParseTree(out), nil
+	}
+	return config.Refs{Read: read, Tree: tree}, p.BaseBranch(), nil
 }

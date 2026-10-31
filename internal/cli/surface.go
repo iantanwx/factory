@@ -201,6 +201,8 @@ var surface = []Verb{
 		Flag{Name: "forbids", Type: FlagString, Description: "with --release: the \"Must not change\" entry that covers the path, spelled as the body spells it"},
 		Flag{Name: "condition", Type: FlagString, Description: "with --release: what the implementer may do at the path, and nothing wider"})),
 
+	server("retro", "record", "bind the oldest pending retro of the run's project, or the one the run holds, and print its record: for the item and an epic's tickets, each review round, run, escalation, loop fault, pull request comment, note and signal, each with its case reference", []string{"retro"}, nil),
+
 	write(server("decision", "file", "file a decision that waits for its trigger", runOrCoordinator, nil, projectFlag,
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the question"},
 		Flag{Name: "trigger", Type: FlagString, Required: true, Description: "the event that forces the answer, in one sentence"},
@@ -278,6 +280,10 @@ var surface = []Verb{
 		Flag{Name: "blocked-by", Type: FlagString, Description: "item ids the epic waits on, comma-separated: tickets, epics or decisions of the project"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic title"},
 		Flag{Name: "body", Type: FlagString, Description: "what the epic delivers or the ADR decides, and why the operator asked for it"},
+		projectFlag)),
+	write(server("epic", "adr", "send a PRD epic to the ADR stage at the operator's word: before its PRD merges the merge lands it on architecture, and in the spec stage it returns to architecture now with its spec pull request still open", coordinator,
+		[]Arg{arg("item", "the epic id")},
+		Flag{Name: "request", Type: FlagString, Description: "required: the operator's own words that send the epic to the ADR stage, kept verbatim"},
 		projectFlag)),
 	write(server("epic", "decompose", "create an epic's tickets in one batch", []string{"decomposer"}, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the decomposition file: a JSON object whose tickets each hold key, title, body, stories and blocked_by"})),

@@ -5,13 +5,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
@@ -22,8 +25,10 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 func gitT(t *testing.T, dir string, args ...string) {
@@ -182,15 +187,15 @@ func TestRunFinishOverTheSocket(t *testing.T) {
 // file as fs.ErrNotExist, which the config loader needs.
 func TestLocalRefsReadsTheDefaultBranch(t *testing.T) {
 	repo := projectRepo(t, "merge:\n  mechanism: direct\n")
-	read, branch, err := LocalRefs(context.Background(), config.Project{ID: "alpha", Path: repo})
+	refs, branch, err := LocalRefs(context.Background(), config.Project{ID: "alpha", Path: repo})
 	if err != nil || branch != "main" {
 		t.Fatal(branch, err)
 	}
-	data, err := read(context.Background(), config.DefaultRef(branch), ".loop/config.yaml")
+	data, err := refs.Read(context.Background(), config.DefaultRef(branch), ".loop/config.yaml")
 	if err != nil || !strings.Contains(string(data), "direct") {
 		t.Fatalf("read = %q, %v", data, err)
 	}
-	snap, err := config.ReadProjectSnapshot(context.Background(), read, branch)
+	snap, err := config.ReadProjectSnapshot(context.Background(), refs.Read, branch)
 	if err != nil || len(snap.Manifest.Secrets) != 0 {
 		t.Fatalf("snapshot = %+v, %v", snap, err)
 	}
@@ -230,6 +235,54 @@ func TestC1SchedLoaderRefusesAnUnknownStageName(t *testing.T) {
 	})
 	if err != nil || !strings.Contains(body, "stages.implementr") {
 		t.Fatalf("alert body = %q, %v; want one that names stages.implementr", body, err)
+	}
+}
+
+// C4: the scheduler's project loader lists the default branch's tree
+// through LocalRefs. A commit that pins neon, on a default branch that
+// tracks .claude/skills/neon/SKILL.md, keeps the last good config in force,
+// and the project_config_invalid alert names neon and that path.
+func TestC4SchedLoaderRefusesAPinWhoseDirectoryIsTracked(t *testing.T) {
+	w := newSchedWorld(t, Options{})
+	ctx := context.Background()
+	p, err := w.srv.Projects.Show("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.srv.projectLoader(LocalRefs)(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "stages:\n  code-reviewer: {}\nmerge:\n  mechanism: direct\nskills:\n  - name: neon\n    repo: owner/repo\n" +
+		"    commit: 0123456789abcdef0123456789abcdef01234567\n    path: \"\"\n" +
+		"    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+	skill := filepath.Join(p.Path, ".claude", "skills", "neon", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, data := range map[string]string{filepath.Join(p.Path, config.ProjectConfigPath): cfg, skill: "neon\n"} {
+		if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitT(t, p.Path, "add", "-A")
+	gitT(t, p.Path, "commit", "-q", "-m", "pin neon and commit its directory")
+	gitT(t, p.Path, "push", "-q", "origin", "main")
+
+	w.srv.caches.forget("alpha")
+	snap, err := w.srv.projectLoader(LocalRefs)(ctx, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Config.Skills) != 0 {
+		t.Fatalf("skills in force = %+v, want the last good config", snap.Config.Skills)
+	}
+	var body string
+	err = w.srv.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT body FROM alerts WHERE project = 'alpha' AND kind = ? AND state = 'open'`,
+			config.AlertProjectConfigInvalid).Scan(&body)
+	})
+	if err != nil || !strings.Contains(body, `"neon"`) || !strings.Contains(body, ".claude/skills/neon") {
+		t.Fatalf("alert body = %q, %v; want one that names neon and .claude/skills/neon", body, err)
 	}
 }
 
@@ -287,5 +340,60 @@ func TestServerSchedulerReadsPullsForDependencyAdvance(t *testing.T) {
 	}
 	if n := p.reads.Load(); n != 1 {
 		t.Fatalf("%d reads of the open pull requests, want 1", n)
+	}
+}
+
+// C12: after each load, the project loader hands the Skills of the config
+// in force to the syncer. A pin the store lacks is fetched and stored
+// under the state directory, and the load does not wait for the fetch.
+func TestC12ProjectLoaderFetchesThePinsOfTheConfig(t *testing.T) {
+	tree := fstest.MapFS{"SKILL.md": {Data: []byte("---\nname: neon\n---\n"), Mode: 0o644}}
+	sum, err := pack.TreeHash(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := config.SkillPin{Name: "neon", Repo: "neondatabase/agent-skills",
+		Commit: "ccca3334a7542d3133134cc6926f2fafc6edeb1f", Path: "skills/neon", SHA256: sum}
+	st := userspace.Store{Dir: filepath.Join(t.TempDir(), "userspace-skills")}
+	release := make(chan struct{})
+	var fetches atomic.Int32
+	fetch := func(ctx context.Context, p config.SkillPin) (fs.FS, error) {
+		fetches.Add(1)
+		<-release
+		if p != pin {
+			return nil, errors.New("fetched another pin")
+		}
+		return tree, nil
+	}
+	w := newSchedWorld(t, Options{Sched: SchedOptions{SkillStore: st, FetchSkill: fetch}})
+	ctx := context.Background()
+	p, err := w.srv.Projects.Show("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := "stages:\n  code-reviewer: {}\nmerge:\n  mechanism: direct\nskills:\n  - name: neon\n    repo: " + pin.Repo +
+		"\n    commit: " + pin.Commit + "\n    path: " + pin.Path + "\n    sha256: " + pin.SHA256 + "\n"
+	if err := os.WriteFile(filepath.Join(p.Path, config.ProjectConfigPath), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, p.Path, "commit", "-q", "-am", "pin neon")
+	gitT(t, p.Path, "push", "-q", "origin", "main")
+
+	if _, err := w.srv.projectLoader(LocalRefs)(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, ok := st.Held("alpha", pin); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the store lacks neon after the load; fetches = %d", fetches.Load())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := fetches.Load(); n != 1 {
+		t.Fatalf("fetches = %d, want 1", n)
 	}
 }

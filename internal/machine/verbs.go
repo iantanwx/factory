@@ -923,6 +923,12 @@ func (m *Machine) reviewRounds(ctx context.Context, call *rpc.Call) cli.Result {
 	if err != nil {
 		return cli.Internal(err)
 	}
+	return cli.List(Rounds(hist))
+}
+
+// Rounds lists every verdict review submit recorded in an item's history,
+// in order. The retro's record reads the same rounds.
+func Rounds(hist []Transition) []Round {
 	var out []Round
 	for _, t := range hist {
 		verdict, ok := map[string]string{"review_pass": "pass", "review_reject": "reject"}[t.Verb]
@@ -932,5 +938,5 @@ func (m *Machine) reviewRounds(ctx context.Context, call *rpc.Call) cli.Result {
 		out = append(out, Round{Round: len(out) + 1, Verdict: verdict, Head: cmp.Or(t.Fact(FactReviewedHead), t.Fact(FactRejectedHead)),
 			Body: t.Set[factPrefix+FactReview], From: t.From, To: t.To, Actor: t.Actor, RunID: t.RunID, At: t.At})
 	}
-	return cli.List(out)
+	return out
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
 	"github.com/iantanwx/loop/internal/server/orcalane"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // serveVerb runs the server until SIGTERM or SIGINT, then stops it
@@ -142,15 +143,15 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 			}
 			return gh.Service.ManifestReader(ctx, p, branch)
 		}
-		opts.Sched.Refs = func(ctx context.Context, p config.Project) (config.RefReader, string, error) {
+		opts.Sched.Refs = func(ctx context.Context, p config.Project) (config.Refs, string, error) {
 			if gh.Service == nil {
-				return nil, "", errNoGitHub
+				return config.Refs{}, "", errNoGitHub
 			}
 			branch, err := gh.Service.DefaultBranch(ctx, p)
 			if err != nil {
-				return nil, "", err
+				return config.Refs{}, "", err
 			}
-			return gh.Service.RefReader(p.ID), branch, nil
+			return config.Refs{Read: gh.Service.RefReader(p.ID), Tree: gh.Service.TreeReader(p.ID)}, branch, nil
 		}
 		// Each checkout starts at the base head the mirror reads with the
 		// app token. The host clone's own origin may need a person's
@@ -208,6 +209,8 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 	}
 	opts.Sched.Pack = p
 	opts.Setup = append(opts.Setup, skillsAlert(ctx, left))
+	opts.Sched.SkillStore = userspace.Store{Dir: filepath.Join(cfg.StateDir, userSkillsDir)}
+	opts.Sched.FetchSkill = fetchSkill(release.SkillFetcher{})
 	opts.Sched.Coordinator = &sched.CoordinatorConfig{Harness: agenthost.Claude}
 	if cfg.AgentHost.Kind == "orca" {
 		opts.Setup = append(opts.Setup, orcaLane(dir, cfg))
@@ -259,10 +262,27 @@ func orcaLane(dir string, cfg *config.HostConfig) func(*server.Server) error {
 	}
 }
 
-// skillsAlert raises one alert that names each pinned skill the pack left
-// out, so the server serves without them and says so. With none left out,
-// it closes the alert. The server never fetches a skill: loop install does
-// (ADR 0007, decision 7).
+// userSkillsDir is the store of userspace skill pins under the state
+// directory (ADR 0013 decision 2).
+const userSkillsDir = "userspace-skills"
+
+// fetchSkill fetches one userspace pin with f, which checks its hash and
+// its name as it checks a kernel pin.
+func fetchSkill(f release.SkillFetcher) userspace.Fetch {
+	return func(ctx context.Context, pin config.SkillPin) (fs.FS, error) {
+		trees, err := f.Fetch(ctx, []pack.ThirdParty{pin})
+		if err != nil {
+			return nil, err
+		}
+		return trees[pin.Name], nil
+	}
+}
+
+// skillsAlert raises one alert that names each pinned kernel skill the
+// pack left out, so the server serves without them and says so. With none
+// left out, it closes the alert. The server never fetches a kernel skill:
+// loop install does (ADR 0007, decision 7). It fetches userspace pins
+// (ADR 0013), and their alert is project_skills_missing.
 func skillsAlert(ctx context.Context, left []pack.ThirdParty) func(*server.Server) error {
 	return func(s *server.Server) error {
 		alerts := config.StoreAlerter(s.Store)

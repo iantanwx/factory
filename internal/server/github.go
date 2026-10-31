@@ -11,6 +11,8 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
+	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/secrets"
@@ -75,7 +77,7 @@ func (g *GitHub) Setup(s *Server) error {
 		API: g.API, GitURL: g.GitURL, Protocols: g.Protocols, HTTP: g.HTTP, Sleep: g.Sleep,
 		MirrorRoot: filepath.Join(s.Instance, MirrorDir),
 		Store:      s.Store, Redactor: s.Redactor, Projects: s.Projects, Machine: s.Machine,
-		Logger: s.RPC.Logger(),
+		Logger: s.RPC.Logger(), UserSkills: s.userSkills,
 	})
 	if err != nil {
 		return err
@@ -111,6 +113,11 @@ func (g *GitHub) Setup(s *Server) error {
 		// A canceled epic's open document PR closes with no merge.
 		s.Machine.SetDocPRCloser(g.Reactor.CloseDocPR)
 	}
+	if s.Retro != nil {
+		// retro record reads the comments on each pull request of the
+		// retro's items.
+		s.Retro.Comments = retroComments(s.Projects, svc)
+	}
 	if s.Sched != nil {
 		// A repair's brief carries the parsed log of its red build.
 		s.Sched.SetRedBuildReader(svc.RedBuild)
@@ -124,6 +131,47 @@ func (g *GitHub) Setup(s *Server) error {
 		return fmt.Errorf("server: github: %w", err)
 	}
 	return s.RPC.Handle("doctor-github", g.doctorVerb(s))
+}
+
+// userSkills reads the pin names of project's last good config, never the
+// config of a pushed branch (ADR 0013 decision 1). A project with no last
+// good config has none.
+func (s *Server) userSkills(ctx context.Context, project string) ([]string, error) {
+	raw, _, err := config.StoreLKG(s.Store).LoadLKG(ctx, project)
+	if err != nil || raw == nil {
+		return nil, err
+	}
+	cfg, err := config.ParseProjectConfig(raw)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(cfg.Skills))
+	for _, p := range cfg.Skills {
+		names = append(names, p.Name)
+	}
+	return names, nil
+}
+
+// retroComments reads the comments on an item's pull requests for the
+// retro's record. A GitHub error is its refusal, so an outage answers WAIT.
+func retroComments(projects *config.Projects, svc *github.Service) retro.CommentReader {
+	return func(ctx context.Context, project string, it machine.Item) ([]retro.Comment, *cli.Refusal) {
+		p, err := projects.Show(project)
+		if err != nil {
+			r := github.Refusal(err)
+			return nil, &r
+		}
+		cs, err := svc.ItemComments(ctx, p, it)
+		if err != nil {
+			r := github.Refusal(err)
+			return nil, &r
+		}
+		out := make([]retro.Comment, len(cs))
+		for i, c := range cs {
+			out[i] = retro.Comment{ID: c.ID, Kind: c.Kind, Author: c.Author, Body: c.Body, At: c.CreatedAt}
+		}
+		return out, nil
+	}
 }
 
 // prPending answers `loop pr pending`: the item pull requests of each

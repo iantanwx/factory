@@ -288,6 +288,70 @@ func TestTrackedInjectedPathRefusesUncounted(t *testing.T) {
 	}
 }
 
+// trackLoopX commits .agents/skills/loop-x/SKILL.md, a loop- skill
+// directory the test pack lacks, to the project's base branch.
+func (w *world) trackLoopX() {
+	seed := filepath.Join(w.dir, "seed")
+	if err := os.MkdirAll(filepath.Join(seed, ".agents", "skills", "loop-x"), 0o755); err != nil {
+		w.t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(seed, ".agents", "skills", "loop-x", "SKILL.md"), []byte("# x\n"), 0o644); err != nil {
+		w.t.Fatal(err)
+	}
+	gitIn(w.t, seed, "add", "-A")
+	gitIn(w.t, seed, "commit", "-q", "-m", "track loop-x")
+	gitIn(w.t, seed, "push", "-q", w.origin, "main")
+	gitIn(w.t, w.repo, "fetch", "-q", "origin")
+}
+
+// C5: a stage run whose checkout tracks a loop- skill directory the pack
+// lacks is refused with CONFIG_CONFLICT and rule reserved_skill_name. The
+// hint names the directory, an alert is raised, and the attempt does not
+// count.
+func TestTrackedReservedSkillDirRefusesTheRunUncounted(t *testing.T) {
+	w := newWorld(t)
+	w.trackLoopX()
+	id := w.ticket(machine.Todo)
+	_, ref := w.s.Dispatch(context.Background(), prj, machine.StageImplementer)
+	if ref == nil || ref.Code != cli.CodeConfigConflict || ref.Rule != "reserved_skill_name" || !strings.Contains(ref.Hint, ".agents/skills/loop-x") {
+		t.Fatalf("dispatch = %+v", ref)
+	}
+	if w.failures(id) != 0 || w.status(id) != machine.Todo || len(w.host.Launches()) != 0 {
+		t.Fatalf("failures %d, status %s, launches %d", w.failures(id), w.status(id), len(w.host.Launches()))
+	}
+	run := w.str(`SELECT run_id FROM runs`)
+	if _, class := w.runState(run); class != "refused" {
+		t.Fatalf("class = %s, want refused", class)
+	}
+	if w.alerts(AlertConfigConflict) != 1 {
+		t.Fatal("no config conflict alert")
+	}
+}
+
+// C5: the coordinator does not start in a checkout that tracks a loop-
+// skill directory the pack lacks, and a config conflict alert names the
+// directory.
+func TestTrackedReservedSkillDirRefusesTheCoordinator(t *testing.T) {
+	w := newWorld(t)
+	w.cfg.Checkouts = func(string) CheckoutHost { return baseCheckouts{w.co} }
+	w.cfg.Coordinator = &CoordinatorConfig{Harness: agenthost.Claude, Model: "opus"}
+	w.rebuild()
+	w.trackLoopX()
+	if err := w.s.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	w.tick()
+	if cs := w.s.Coordinator(); cs.Session != nil {
+		t.Fatalf("the coordinator started: %+v", cs)
+	}
+	if n := w.alerts(AlertConfigConflict); n != 1 {
+		t.Fatalf("%d %s alerts, want 1", n, AlertConfigConflict)
+	}
+	if body := w.str(`SELECT body FROM alerts WHERE kind = ?`, AlertConfigConflict); !strings.Contains(body, ".agents/skills/loop-x") {
+		t.Fatalf("the alert body %q does not name the directory", body)
+	}
+}
+
 // AE8: a manifest secret with no stored value starts no run, puts one inbox
 // item naming it, and changes no failure count.
 func TestMissingSecretRefusesBeforeClaim(t *testing.T) {

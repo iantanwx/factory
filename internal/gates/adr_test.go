@@ -12,6 +12,12 @@ import (
 
 const adrFile = "docs/adr/0042-a-decision.md"
 
+// whyLines answer the four parts of the test, one line each.
+const whyLines = "- **More than one epic:** every epic that writes a gate.\n" +
+	"- **Rejected alternative:** the exciting option.\n" +
+	"- **Costly to undo:** it changes the stored format.\n" +
+	"- **How, not what:** it decides how, for US-01."
+
 // adrText is a minimal ADR that passes, so each case changes one part.
 func adrText(over map[string]string) string {
 	parts := []struct{ key, text string }{
@@ -19,8 +25,10 @@ func adrText(over map[string]string) string {
 		{"status", "**Status:** Accepted"},
 		{"date", "**Date:** 2026-09-28"},
 		{"ticket", "**Ticket:** loop-a3f8"},
+		{"binds", "**Binds:** all"},
 		{"context", "## Context\n\nSomething forced a choice."},
 		{"decision", "## Decision\n\nThe boring option. We rejected the exciting one, because it is slow."},
+		{"why", "## Why an ADR\n\n" + whyLines},
 		{"consequences", "## Consequences\n\nThis makes one thing easy and another hard."},
 		{"criteria", "## Acceptance criteria\n\n- `loop gates` passes."},
 	}
@@ -153,7 +161,8 @@ func TestADRGateReadsTheSet(t *testing.T) {
 }
 
 // The pack's ADR template and the gate agree: the raw template fails, and
-// the template with its block deleted and its header filled passes.
+// the template with its block deleted and its header filled passes, also
+// as a new ADR.
 func TestADRTemplateAgreesWithTheGate(t *testing.T) {
 	raw, err := fs.ReadFile(pack.Files, "skills/loop-sdlc-documents/adr.md")
 	if err != nil {
@@ -171,11 +180,12 @@ func TestADRTemplateAgreesWithTheGate(t *testing.T) {
 	}
 	filled := strings.NewReplacer(
 		"# ADR NNNN: <the decision, in one line>", "# ADR 0042: We choose the boring option",
-		"**Status:** Proposed | Accepted | Superseded by ADR NNNN", "**Status:** Proposed",
+		"**Status:** Proposed | Accepted", "**Status:** Proposed",
 		"**Date:** YYYY-MM-DD", "**Date:** 2026-10-23",
 		"**Ticket:** <epic id>", "**Ticket:** loop-a3f8",
+		"**Binds:** <epic ids, comma-separated> | all", "**Binds:** all",
 	).Replace(strings.Join(kept, "\n"))
-	if got := checkADR(adrFile, filled); len(got) != 0 {
+	if got := append(checkADR(adrFile, filled), checkNewADR(adrFile, filled)...); len(got) != 0 {
 		t.Fatalf("filled template = %v", got)
 	}
 }
@@ -184,5 +194,88 @@ func TestADRGateWithNoDirectory(t *testing.T) {
 	r := testRepo(t, nil)
 	if got, err := ADR(context.Background(), r); err != nil || len(got) != 0 {
 		t.Fatalf("no docs/adr = %v %v", got, err)
+	}
+}
+
+func newADRRules(text string) []string { return rules(checkNewADR(adrFile, text)) }
+
+func TestNewADRWellFormedReportsNothing(t *testing.T) {
+	if got := checkNewADR(adrFile, adrText(nil)); len(got) != 0 {
+		t.Fatal(got)
+	}
+}
+
+func TestC6NewADRWithNoBindsLineFails(t *testing.T) {
+	got := checkNewADR(adrFile, adrText(map[string]string{"binds": ""}))
+	if !slices.Equal(rules(got), []string{"binds"}) || !strings.Contains(got[0].Message, "**Binds:**") {
+		t.Fatalf("no Binds line = %v", got)
+	}
+	for _, v := range []string{"", "some epics", "ALL", "loop-a3f8 and loop-b1", "loop-a3f8,,loop-b1", "LOOP-42", "all, loop-a3f8"} {
+		got := checkNewADR(adrFile, adrText(map[string]string{"binds": "**Binds:** " + v}))
+		if !slices.Equal(rules(got), []string{"binds"}) || !strings.Contains(got[0].Message, "**Binds:**") {
+			t.Errorf("Binds %q = %v", v, got)
+		}
+	}
+	for _, v := range []string{"all", "loop-a3f8", "loop-a3f8, loop-b1.2", "loop-a3f8,factorio-ku99"} {
+		if got := checkNewADR(adrFile, adrText(map[string]string{"binds": "**Binds:** " + v})); len(got) != 0 {
+			t.Errorf("Binds %q = %v", v, got)
+		}
+	}
+}
+
+func TestC7NewADRWithNoCompleteWhyAnADRSectionFails(t *testing.T) {
+	cases := map[string]struct {
+		why     string
+		missing []string
+	}{
+		"no section":      {"", []string{"## Why an ADR"}},
+		"three of four":   {"## Why an ADR\n\n" + strings.Replace(whyLines, "- **Costly to undo:** it changes the stored format.\n", "", 1), []string{"**Costly to undo:**"}},
+		"one empty label": {"## Why an ADR\n\n" + strings.Replace(whyLines, "the exciting option.", "", 1), []string{"**Rejected alternative:**"}},
+		"labels as prose": {"## Why an ADR\n\nMore than one epic: all of them.", []string{"**More than one epic:**", "**Rejected alternative:**", "**Costly to undo:**", "**How, not what:**"}},
+	}
+	for name, c := range cases {
+		got := checkNewADR(adrFile, adrText(map[string]string{"why": c.why}))
+		if !slices.Equal(rules(got), []string{"why_an_adr"}) || !strings.Contains(got[0].Message, "## Why an ADR") {
+			t.Errorf("%s = %v", name, got)
+			continue
+		}
+		for _, m := range c.missing {
+			if !strings.Contains(got[0].Message, m) {
+				t.Errorf("%s: message %q does not name %s", name, got[0].Message, m)
+			}
+		}
+	}
+	// A label in another section does not answer the test.
+	moved := adrText(map[string]string{"why": "## Why an ADR\n\nSee below.", "consequences": "## Consequences\n\n" + whyLines})
+	if got := newADRRules(moved); !slices.Equal(got, []string{"why_an_adr"}) {
+		t.Errorf("labels under Consequences = %v", got)
+	}
+}
+
+func TestC8ADROnTheBasePassesWithNoEdit(t *testing.T) {
+	old := strings.Replace(adrText(map[string]string{"binds": "", "why": ""}), "ADR 0042", "ADR 0007", 1)
+	r := testRepo(t, map[string]string{"docs/adr/0007-earlier.md": old})
+	ctx := context.Background()
+	if got, err := ADR(ctx, r); err != nil || len(got) != 0 {
+		t.Fatalf("on the base = %v %v", got, err)
+	}
+	// An edit on the branch keeps an ADR on the base. A new ADR, committed
+	// or not, needs the Binds line and the Why an ADR section.
+	commit(t, r, "docs: edit an ADR and add one", map[string]string{
+		"docs/adr/0007-earlier.md": old + "\nA later note.\n",
+		adrFile:                    adrText(map[string]string{"binds": ""}),
+	})
+	write(t, r.Root, map[string]string{"docs/adr/0043-unstaged.md": strings.Replace(adrText(map[string]string{"why": ""}), "ADR 0042", "ADR 0043", 1)})
+	got, err := ADR(ctx, r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(rules(got), []string{"binds", "why_an_adr"}) || got[0].File != adrFile || got[1].File != "docs/adr/0043-unstaged.md" {
+		t.Fatalf("new ADRs = %v", got)
+	}
+	// With no merge base, every ADR counts as one on the base.
+	r.Base = "origin/nope"
+	if got, err := ADR(ctx, r); err != nil || len(got) != 0 {
+		t.Fatalf("no merge base = %v %v", got, err)
 	}
 }

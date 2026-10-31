@@ -18,7 +18,8 @@ import (
 // branch refs. Nothing here models a vendor's wording: a refusal carries
 // the status code, and a test asserts outcomes.
 
-// BaseSHA is the tip of main in the fake.
+// BaseSHA is the first tip of main in the fake. Each merge into main
+// moves the tip to the merge commit.
 var BaseSHA = strings.Repeat("b", 40)
 
 // MergeCall is one merge request the fake received.
@@ -39,6 +40,27 @@ type mergeWorld struct {
 	merges    []MergeCall
 	mutations []string
 	commits   map[string][]FileCommit // branch -> each commit the contents API made on it
+	main      []string                // each tip of main after BaseSHA, oldest first
+}
+
+// mainTip is the current tip of main. It runs under w.mu.
+func (w *World) mainTip() string {
+	if n := len(w.merge.main); n > 0 {
+		return w.merge.main[n-1]
+	}
+	return BaseSHA
+}
+
+// onMain is the place of sha in the history of main, or -1 when main
+// never held it. It runs under w.mu.
+func (w *World) onMain(sha string) int {
+	if sha == BaseSHA {
+		return 0
+	}
+	if i := slices.Index(w.merge.main, sha); i >= 0 {
+		return i + 1
+	}
+	return -1
 }
 
 // FileCommit is one commit that a contents API write made on a branch.
@@ -151,6 +173,7 @@ var (
 	reMatching   = regexp.MustCompile(`^/repos/` + Repo + `/git/matching-refs/heads/(.*)$`)
 	reRef        = regexp.MustCompile(`^/repos/` + Repo + `/git/ref/heads/(.+)$`)
 	reContents   = regexp.MustCompile(`^/repos/` + Repo + `/contents/(.+)$`)
+	reCompare    = regexp.MustCompile(`^/repos/` + Repo + `/compare/(.+)\.\.\.(.+)$`)
 	mergeRefused = []string{"dirty", "behind", "blocked"}
 )
 
@@ -215,13 +238,15 @@ func (w *World) serveMerge(rw http.ResponseWriter, r *http.Request) bool {
 		b := reRef.FindStringSubmatch(path)[1]
 		sha, ok := w.merge.refs[b]
 		if !ok && b == "main" {
-			sha, ok = BaseSHA, true
+			sha, ok = w.mainTip(), true
 		}
 		if !ok {
 			WriteJSON(rw, 404, map[string]string{"message": "Not Found"})
 			return true
 		}
 		WriteJSON(rw, 200, map[string]any{"ref": "refs/heads/" + b, "object": map[string]any{"sha": sha, "type": "commit"}})
+	case r.Method == http.MethodGet && reCompare.MatchString(path):
+		w.serveCompare(rw, reCompare.FindStringSubmatch(path))
 	case r.Method == http.MethodPost && path == "/repos/"+Repo+"/git/refs":
 		var body map[string]string
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -323,7 +348,33 @@ func (w *World) serveMergePR(rw http.ResponseWriter, r *http.Request, n string) 
 	}
 	p.Merged, p.State, p.MergeSHA = true, "closed", MergeSHA(p.Number)
 	p.UpdatedAt = w.tick()
+	if p.Base == "main" {
+		w.merge.main = append(w.merge.main, p.MergeSHA)
+	}
 	WriteJSON(rw, 200, map[string]any{"sha": p.MergeSHA, "merged": true, "message": "merged"})
+}
+
+// serveCompare answers the compare of a base and a head with the count of
+// base commits the head lacks. The base is main or a commit of main. The
+// head is a commit of main, or a PR's head, which holds the tip of main
+// that the PR's BaseSHA names. Any other head holds BaseSHA, as a head a
+// push replaced does. It runs under w.mu.
+func (w *World) serveCompare(rw http.ResponseWriter, m []string) {
+	base, head := m[1], m[2]
+	if base == "main" {
+		base = w.mainTip()
+	}
+	held := w.onMain(head)
+	if i := slices.IndexFunc(w.prs, func(p *PR) bool { return p.HeadSHA == head }); held < 0 && i >= 0 {
+		held = w.onMain(w.prs[i].BaseSHA)
+	}
+	held = max(held, 0)
+	at := w.onMain(base)
+	if at < 0 {
+		WriteJSON(rw, 404, map[string]string{"message": "Not Found"})
+		return
+	}
+	WriteJSON(rw, 200, map[string]any{"behind_by": max(at-held, 0)})
 }
 
 func (w *World) serveGraphQL(rw http.ResponseWriter, r *http.Request) {

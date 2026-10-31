@@ -58,6 +58,9 @@ type Config struct {
 	Logger    *slog.Logger
 	// Sleep waits between read retries; a test makes it instant.
 	Sleep func(ctx context.Context, d time.Duration) error
+	// UserSkills reads the pin names of a project's last good config, for
+	// the push scan (ADR 0013). Nil, or no last good config, means none.
+	UserSkills func(ctx context.Context, project string) ([]string, error)
 }
 
 // Service is the server's GitHub actor: one App for each owner, one shared cooldown,
@@ -314,6 +317,18 @@ func (s *Service) RefReader(project string) config.RefReader {
 			return nil, err
 		}
 		return s.Mirror(p).Show(ctx, ref, path)
+	}
+}
+
+// TreeReader lists directories of one project's mirror at a ref. The
+// config load checks the skill directories through it.
+func (s *Service) TreeReader(project string) config.TreeReader {
+	return func(ctx context.Context, ref, dir string) ([]config.TreeEntry, error) {
+		p, err := s.project(project)
+		if err != nil {
+			return nil, err
+		}
+		return s.Mirror(p).Tree(ctx, ref, dir)
 	}
 }
 

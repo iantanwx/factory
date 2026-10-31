@@ -229,7 +229,7 @@ func (e *leaseError) Error() string { return fmt.Sprintf("machine: the lease is 
 // answer that settles the intent is the answer a retry replays (AE4).
 func (m *Machine) record(ctx context.Context, c *change, epoch int64, expectFence string) (store.Intent, error) {
 	f := facts{Set: c.set, Unset: c.unset, Epoch: c.epoch, Owner: c.owner, Kind: c.item.Kind,
-		Command: c.req.Command, Request: c.req.RequestID, Says: c.row.Says, Fence: expectFence}
+		Command: c.req.Command, Request: c.req.RequestID, Says: c.row.Says, Fence: expectFence, Bug: c.fact(FactBug)}
 	raw, err := json.Marshal(f)
 	if err != nil {
 		return store.Intent{}, err
@@ -383,7 +383,7 @@ func (m *Machine) markApplied(ctx context.Context, in store.Intent, f facts) (cl
 			return err
 		}
 		if t, ok := TableFor(f.Kind); ok && t.Terminal(in.TargetStatus) && m.cfg.Terminal != nil {
-			return m.cfg.Terminal(tx, in.Project, in.Item)
+			return m.cfg.Terminal(tx, TerminalEvent{Project: in.Project, Item: in.Item, Kind: f.Kind, Status: in.TargetStatus, Bug: f.Bug})
 		}
 		return nil
 	})

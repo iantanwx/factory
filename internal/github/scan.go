@@ -29,21 +29,31 @@ const zeroSHA = "0000000000000000000000000000000000000000"
 // no outcome. No item branch changes one: the operator does, by hand.
 var MergeConfigPaths = []string{".mergify.yml", ".mergify/config.yml", ".github/mergify.yml"}
 
-// injectedPrefixes are the pack skill directories the server injects into
-// a checkout (KTD17).
-var injectedPrefixes = []string{".claude/skills/loop-", ".agents/skills/loop-"}
+// skillRoots are the directories that hold the skills the server injects
+// into a checkout: the pack's loop- skills and the project's pins.
+var skillRoots = []string{".claude/skills/", ".agents/skills/"}
 
 // injected reports whether p is a path the server injects (KTD17, KTD19):
-// one of cli.InjectedFiles, or a file of the pack. A commit that touches
-// one would publish the brief, the run token, the pack or the .env file.
-// Every other .loop/ path, such as .loop/policy/<role>.md, .loop/config.yaml
-// or .loop/secrets.yaml, belongs to the repository, and a run may change it.
-func injected(p string) bool {
+// one of cli.InjectedFiles, a file of the pack, or a file of one of pins,
+// the project's userspace skills (ADR 0013). A pin matches its own
+// directory only, so neon covers .claude/skills/neon/ and not
+// .claude/skills/neon-postgres/. A commit that touches one would publish
+// the brief, the run token, a skill or the .env file. Every other .loop/
+// path, such as .loop/policy/<role>.md, .loop/config.yaml or
+// .loop/secrets.yaml, belongs to the repository, and a run may change it.
+func injected(p string, pins []string) bool {
 	if slices.Contains(cli.InjectedFiles(), p) {
 		return true
 	}
-	for _, pre := range injectedPrefixes {
-		if strings.HasPrefix(p, pre) {
+	for _, root := range skillRoots {
+		rest, ok := strings.CutPrefix(p, root)
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(rest, "loop-") {
+			return true
+		}
+		if name, _, ok := strings.Cut(rest, "/"); ok && slices.Contains(pins, name) {
 			return true
 		}
 	}
@@ -76,7 +86,11 @@ type change struct {
 //   - with settings set, a commit whose .loop/config.yaml differs in a
 //     setting from its merge base with base, or does not parse, is
 //     SETTINGS_CHANGE: only the coordinator changes a setting.
-func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, settings bool, head, base string, exclude ...string) ([]string, error) {
+//
+// pins are the names of the project's userspace skills, from its last
+// good config and never from head: a branch could otherwise drop a pin
+// and add its directory in one push (ADR 0013 decision 1).
+func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, settings bool, pins []string, head, base string, exclude ...string) ([]string, error) {
 	args := []string{"rev-list", "--reverse", head}
 	for _, e := range append([]string{base}, exclude...) {
 		if e != "" {
@@ -92,14 +106,14 @@ func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, settings bool,
 		commits = strings.Split(out, "\n")
 	}
 	for _, c := range commits {
-		if err := m.scanCommit(ctx, red, settings, c, base); err != nil {
+		if err := m.scanCommit(ctx, red, settings, pins, c, base); err != nil {
 			return commits, err
 		}
 	}
 	return commits, nil
 }
 
-func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, settings bool, commit, base string) error {
+func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, settings bool, pins []string, commit, base string) error {
 	raw, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"cat-file", "commit", commit}})
 	if err != nil {
 		return err
@@ -115,7 +129,7 @@ func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, settings
 	}
 	var blobs []string
 	for _, ch := range changes {
-		if err := m.checkPath(ctx, commit, base, ch); err != nil {
+		if err := m.checkPath(ctx, pins, commit, base, ch); err != nil {
 			return err
 		}
 		if settings && ch.path == config.ProjectConfigPath {
@@ -152,7 +166,7 @@ func (m *Mirror) changes(ctx context.Context, commit string) ([]change, error) {
 	return changes, nil
 }
 
-func (m *Mirror) checkPath(ctx context.Context, commit, baseRef string, ch change) error {
+func (m *Mirror) checkPath(ctx context.Context, pins []string, commit, baseRef string, ch change) error {
 	unsafe := func(rule, reason string) error {
 		return &ScanError{Code: cli.CodeUnsafePath, Rule: rule, Commit: commit, Path: ch.path,
 			Reason: reason + "; the operator makes this change by hand"}
@@ -181,7 +195,7 @@ func (m *Mirror) checkPath(ctx context.Context, commit, baseRef string, ch chang
 			return unsafe("gitattributes_filter", fmt.Sprintf("%s adds a filter or LFS line: %q", ch.path, added[0]))
 		}
 	}
-	if injected(ch.path) {
+	if injected(ch.path, pins) {
 		return &ScanError{Code: cli.CodeSecretInDiff, Rule: "injected_path", Commit: commit, Path: ch.path,
 			Reason: fmt.Sprintf("%s is a path the loop injects into the checkout; remove it from the commit", ch.path)}
 	}

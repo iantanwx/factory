@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/machine"
 )
 
 // PR is a pull request as GitHub's REST API reads it. Only the fields the
@@ -85,17 +87,13 @@ func (pr PR) View() PRView {
 // the open one when there is one, else the most recently updated. It
 // returns nil when the branch has no PR.
 func (s *Service) FindPR(ctx context.Context, p config.Project, branch string) (*PR, error) {
-	q := url.Values{"head": {owner(p) + ":" + branch}, "state": {"all"}, "per_page": {"100"}}
-	var prs []PR
-	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/pulls?"+q.Encode()), &prs); err != nil {
+	prs, err := s.FindPRs(ctx, p, branch)
+	if err != nil {
 		return nil, err
 	}
 	var best *PR
 	for i := range prs {
 		pr := &prs[i]
-		if pr.Head.Ref != branch || !pr.fromRepo(p) {
-			continue
-		}
 		switch {
 		case best == nil:
 			best = pr
@@ -106,6 +104,19 @@ func (s *Service) FindPR(ctx context.Context, p config.Project, branch string) (
 		}
 	}
 	return best, nil
+}
+
+// FindPRs returns every PR whose head is branch in the project
+// repository, open, closed or merged, oldest first.
+func (s *Service) FindPRs(ctx context.Context, p config.Project, branch string) ([]PR, error) {
+	q := url.Values{"head": {owner(p) + ":" + branch}, "state": {"all"}, "per_page": {"100"}}
+	var prs []PR
+	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/pulls?"+q.Encode()), &prs); err != nil {
+		return nil, err
+	}
+	prs = slices.DeleteFunc(prs, func(pr PR) bool { return pr.Head.Ref != branch || !pr.fromRepo(p) })
+	slices.SortFunc(prs, func(a, b PR) int { return a.Number - b.Number })
+	return prs, nil
 }
 
 // GetPR reads one PR by number.
@@ -134,6 +145,19 @@ func (s *Service) Conflicts(ctx context.Context, p config.Project, pr PR) (bool,
 		return false, err
 	}
 	return m.Conflicts(ctx, remoteRef(pr.Base.Ref), pr.Head.SHA)
+}
+
+// Behind reports whether head lacks a commit of the current tip of base,
+// as GitHub's compare reads it. A required check ran on a merge of head
+// with the base of that moment, so a head that is behind has no check on
+// the base it would land on. GitHub's mergeable state says behind only
+// when a branch rule needs an up-to-date branch.
+func (s *Service) Behind(ctx context.Context, p config.Project, base, head string) (bool, error) {
+	var out struct {
+		BehindBy int `json:"behind_by"`
+	}
+	err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/compare/"+pathEscapeBranch(base)+"..."+head), &out)
+	return out.BehindBy > 0, err
 }
 
 // OpenPR opens the PR of an item's branch as the App, or returns the PR
@@ -420,6 +444,31 @@ func (s *Service) allComments(ctx context.Context, p config.Project, number int)
 		}
 	}
 	return append(review, talk...), nil
+}
+
+// ItemComments reads the comments on each pull request of an item, open,
+// closed or merged, as allComments does: an epic's PRD and spec branches,
+// or the one branch of any other item.
+func (s *Service) ItemComments(ctx context.Context, p config.Project, it machine.Item) ([]Comment, error) {
+	branches := []string{BranchFor(it.ID)}
+	if it.Kind == machine.KindEpic {
+		branches = append(branches, SpecBranchFor(it.ID))
+	}
+	var out []Comment
+	for _, b := range branches {
+		prs, err := s.FindPRs(ctx, p, b)
+		if err != nil {
+			return nil, err
+		}
+		for _, pr := range prs {
+			cs, err := s.allComments(ctx, p, pr.Number)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, cs...)
+		}
+	}
+	return out, nil
 }
 
 // Threads reads a PR's comments as allComments does, and gives each
