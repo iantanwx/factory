@@ -316,7 +316,7 @@ var surface = []Verb{
 		Flag{Name: "path", Type: FlagString, Required: true, Description: "the project's local directory, an absolute path"},
 		Flag{Name: "branch", Type: FlagString, Description: "the default branch, the base of every run; main when absent"})),
 	server("project", "list", "list projects", hostOrCoordinator, nil),
-	server("project", "show", "show one project", hostOrCoordinator, []Arg{projectArg}),
+	server("project", "show", "show one project and its user_skills: each pin of the last good config with held, and each committed skill directory outside loop- at the default branch", hostOrCoordinator, []Arg{projectArg}),
 	write(server("project", "remove", "remove a project", hostOnly, []Arg{projectArg})),
 	write(server("project", "move", "point a project at another repository or default branch, as after a transfer or a rename on GitHub; it keeps the project's secrets and history", hostOnly, []Arg{projectArg},
 		Flag{Name: "repo", Type: FlagString, Required: true, Description: "the new GitHub repository, owner/name"},

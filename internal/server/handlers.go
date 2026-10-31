@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iantanwx/loop/internal/agenthost"
+	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/gitx"
@@ -102,12 +104,83 @@ func (s *Server) projectList(context.Context, *rpc.Call) cli.Result {
 	return cli.List(out)
 }
 
-func (s *Server) projectShow(_ context.Context, call *rpc.Call) cli.Result {
+// projectShowView is project show's answer: the registration and the
+// project's userspace skills.
+type projectShowView struct {
+	projectView
+	UserSkills userSkillsView `json:"user_skills"`
+}
+
+// userSkillsView lists a project's userspace skills: each pin of its last
+// good config, and each committed skill directory at its default branch.
+type userSkillsView struct {
+	Pins      []pinView       `json:"pins"`
+	Committed []committedView `json:"committed"`
+}
+
+// pinView is one pin, and whether the host's store holds it.
+type pinView struct {
+	config.SkillPin
+	Held bool `json:"held"`
+}
+
+// committedView is one committed skill directory and its root.
+type committedView struct {
+	Root string `json:"root"`
+	Name string `json:"name"`
+}
+
+func (s *Server) projectShow(ctx context.Context, call *rpc.Call) cli.Result {
 	p, err := s.Projects.Show(call.Inv.Arg("project"))
 	if err != nil {
 		return projectFault(err)
 	}
-	return cli.Found(view(p))
+	skills, err := s.userSkillsOf(ctx, p)
+	if err != nil {
+		return cli.Internal(err)
+	}
+	return cli.Found(projectShowView{projectView: view(p), UserSkills: skills})
+}
+
+// userSkillsOf reads the pins of p's last good config, whether the store
+// holds each one, and the directories outside loop- under each skill root
+// at p's default branch.
+func (s *Server) userSkillsOf(ctx context.Context, p config.Project) (userSkillsView, error) {
+	out := userSkillsView{Pins: []pinView{}, Committed: []committedView{}}
+	raw, _, err := config.StoreLKG(s.Store).LoadLKG(ctx, p.ID)
+	if err != nil {
+		return out, err
+	}
+	if raw != nil {
+		cfg, err := config.ParseProjectConfig(raw)
+		if err != nil {
+			return out, err
+		}
+		for _, pin := range cfg.Skills {
+			_, held := s.opts.Sched.SkillStore.Held(p.ID, pin)
+			out.Pins = append(out.Pins, pinView{SkillPin: pin, Held: held})
+		}
+	}
+	refs := s.opts.Sched.Refs
+	if refs == nil {
+		refs = LocalRefs
+	}
+	r, branch, err := refs(ctx, p)
+	if err != nil {
+		return out, err
+	}
+	for _, root := range []string{brief.SkillRoot(agenthost.Claude), brief.SkillRoot(agenthost.Codex)} {
+		entries, err := r.Tree(ctx, config.DefaultRef(branch), root)
+		if err != nil {
+			return out, err
+		}
+		for _, e := range entries {
+			if e.Dir && !strings.HasPrefix(e.Name, brief.SkillPrefix) {
+				out.Committed = append(out.Committed, committedView{Root: root, Name: e.Name})
+			}
+		}
+	}
+	return out, nil
 }
 
 func (s *Server) projectRemove(ctx context.Context, call *rpc.Call) cli.Result {
