@@ -190,6 +190,7 @@ func epicEdges() []edge {
 	}
 	e = append(e, each([]string{PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff}, "adr_send", ToSame)...)
 	e = append(e, each([]string{SpecNeeded, SpecReview, SpecSignoff, SpecAmending}, "adr_send", Architecture)...)
+	e = append(e, edge{PRDSignoff, "adr_off", PRDSignoff})
 	// Text: a closed document PR escalates and never cancels.
 	e = append(e, each([]string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending}, "pr_closed", Escalated)...)
 	e = append(e, each(except(epicLive, Escalated), "escalate", Escalated)...)
@@ -280,7 +281,7 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	if r.When == "adr_requested" {
 		facts[FactADRSent] = "the operator's words"
 	}
-	if r.Verb == VerbADRSend {
+	if r.Verb == VerbADRSend || r.Verb == VerbADROff {
 		params["request"] = "the operator's words"
 	}
 	if r.When == "second_reject" {

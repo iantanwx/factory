@@ -321,7 +321,13 @@ func (p *Pipeline) epicADR(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Reject(cli.CodeUsage, "no_operator_request",
 			"the send needs the operator's request: quote the operator's own words with --request")
 	}
-	return p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: inv.Arg("item"), Verb: machine.VerbADRSend,
+	// --off is the operator's overrule at sign-off: it clears both reasons,
+	// so the PRD merge lands the epic on spec_needed.
+	verb := machine.VerbADRSend
+	if inv.Flags["off"] == "true" {
+		verb = machine.VerbADROff
+	}
+	return p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: inv.Arg("item"), Verb: verb,
 		Params: map[string]string{"request": request}, Command: inv.Verb.Path, ExpectedStatus: inv.Extra[cli.ExtraExpectedStatus],
 		RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
 }

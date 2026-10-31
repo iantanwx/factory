@@ -113,6 +113,66 @@ func TestC15EpicADRRefusedOutsideItsRows(t *testing.T) {
 	}
 }
 
+func offFlags(request string) map[string]string {
+	flags := sendFlags(request)
+	flags["off"] = "true"
+	return flags
+}
+
+// The answer to PRD open question 4: epic adr --off on an epic in
+// prd_signoff clears adr_needed and adr_sent and keeps the status. The
+// operator's merge of the PRD then lands the epic on spec_needed.
+func TestEpicADROffClearsBothFactsFromPRDSignoff(t *testing.T) {
+	w := newWorld(t)
+	epic, n := w.submitted()
+	w.review(epic, "pass")
+	w.put(epic, "prd_signoff", map[string]string{"adr_needed": "R3 binds every epic"})
+	ok(t, w.call(w.coordinator(), "", "epic adr", sendFlags(sendWords), epic))
+	out := ok(t, w.call(w.coordinator(), "", "epic adr", offFlags("Ian: no ADR for this one."), epic))
+	if out["status"] != "prd_signoff" {
+		t.Fatalf("epic adr --off answered %v", out)
+	}
+	if it := w.show(epic); it.Status != "prd_signoff" || it.Fact("adr_needed") != "" || it.Fact("adr_sent") != "" {
+		t.Fatalf("after --off: status %s, adr_needed %q, adr_sent %q", it.Status, it.Fact("adr_needed"), it.Fact("adr_sent"))
+	}
+	w.merge(n)
+	w.tick()
+	if it := w.show(epic); it.Status != "spec_needed" || it.Fact("prd_merged") == "" {
+		t.Fatalf("after the operator's merge: status %s, prd_merged %q", it.Status, it.Fact("prd_merged"))
+	}
+}
+
+// epic adr --off starts from prd_signoff only, and needs the operator's
+// words. Each refusal changes nothing.
+func TestEpicADROffRefusedOutsidePRDSignoff(t *testing.T) {
+	w := newWorld(t)
+	cases := []struct {
+		name, status, request, code, rule string
+	}{
+		{"no request", "prd_signoff", "", cli.CodeUsage, "no_operator_request"},
+	}
+	for _, s := range []string{"prd_needed", "prd_review", "prd_amending", "spec_needed", "spec_review", "architecture"} {
+		cases = append(cases, struct{ name, status, request, code, rule string }{s, s, sendWords, cli.CodeTransitionNotAllowed, "no_edge"})
+	}
+	for _, c := range cases {
+		epic, res := w.m.Create(w.ctx, machine.CreateRequest{Project: testProject, Kind: machine.KindEpic, Title: c.name,
+			Verb: machine.VerbCreatePRD, Actor: machine.Server("test")})
+		ok(t, res)
+		w.put(epic, c.status, map[string]string{"adr_needed": "R3", "adr_sent": sendWords})
+		flags := offFlags(c.request)
+		if c.request == "" {
+			delete(flags, "request")
+		}
+		before := w.show(epic)
+		if r := wantCode(t, w.call(w.coordinator(), "", "epic adr", flags, epic), c.code); r.Rule != c.rule {
+			t.Errorf("%s: rule %q, want %q", c.name, r.Rule, c.rule)
+		}
+		if after := w.show(epic); after.Status != c.status || after.Seq != before.Seq || after.Fact("adr_needed") != "R3" || after.Fact("adr_sent") != sendWords {
+			t.Fatalf("%s: the refusal changed the epic: %+v", c.name, after)
+		}
+	}
+}
+
 // C16, across adr_landed: an epic that the send returned to architecture
 // from spec_review writes on its ADR branch, and keeps doc_pr. The merge
 // of an ADR that names it moves it to spec_needed, and the spec author's
