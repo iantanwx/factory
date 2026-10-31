@@ -134,9 +134,11 @@ first entry).
   `adr_merged` commit, as ADR 0012 decides. We chose this over a review that gates the merge,
   because a gating review supersedes part of ADR 0012, and the epic's own test then needs a new
   ADR. Only the operator chooses between the two (Open questions, first entry).
-- **An ADR whose Ticket line reads `none`, or names an epic outside `architecture`, gets no
-  review.** We chose this over an item made for each such pull request, because a run takes one
-  item, and no item holds such a pull request. The base audit reports its merge, by ADR 0012.
+- **This spec proposes that an ADR whose Ticket line reads `none`, or names an epic outside
+  `architecture`, gets no review.** We propose this over an item made for each such pull request,
+  because a run takes one item, and no item holds such a pull request. This narrows A22, which
+  the operator signed for each ADR pull request. So it stays a proposal until the operator answers
+  it (Open questions, fifth entry).
 
 ## Assumptions
 
@@ -215,8 +217,9 @@ internal/machine (changed)
 Epic status            the epic state machine gains adr_review
   invariant: an epic in adr_review holds adr_pr and adr_head, and the doc-reviewer is the only
              stage that claims it.
-  invariant: an epic leaves architecture or adr_review only by adr_landed, escalate, or the
-             review rows that return it to architecture.
+  invariant: architecture and adr_review are one stage. adr_opened, adr_withdrawn and the
+             review verdicts move an epic between the two. An epic leaves the pair only by
+             adr_landed or escalate.
 
 ADR stage request      why a PRD epic goes to the ADR stage at its PRD merge
   adr_needed           the PRD doc review's list of passing requirements; each PRD pass
@@ -453,7 +456,8 @@ sequenceDiagram
    - Done when: a PRD pass with `--adr-needed` sends the epic to `architecture` at the PRD merge.
 6. **The Needs an ADR question holds the spec sign-off.** Read the marker in `shape.Undecided`.
    Add the sign-off step to `coordinator.md` section 5: a Needs an ADR question goes to the
-   operator, and the operator's yes runs `loop epic adr`.
+   operator. The operator's yes runs `loop epic adr`. On the operator's no, a review room removes
+   the entry, and records the no under Decisions with the operator's words.
    - Files: `internal/shape/questions.go`, `internal/shape/questions_test.go`,
      `internal/inbox/signoff_test.go`, `pack/runbooks/coordinator.md`,
      `internal/pack/adr_stage_test.go`
@@ -485,8 +489,6 @@ sequenceDiagram
   never. C14 proves that it stays.
 - A review that gates the merge of an ADR, and a reviewed-head rule in the base audit. It belongs
   to a new ADR that supersedes part of ADR 0012, if the operator chooses it (Open questions).
-- A review of an ADR whose Ticket line reads `none`. It belongs to the base audit of epic
-  factorio-fgza, which reports its merge.
 
 ## Contracts
 
@@ -635,10 +637,12 @@ marker.
 
 **C25. Behaviour: the coordinator returns the epic at the operator's word.** Proves A18.
 `coordinator.md` section 5 brings a Needs an ADR question to the operator, and on the operator's
-yes runs `loop epic adr <epic> --request "<the operator's words>"`.
-*A pack test reads section 5.*
+yes runs `loop epic adr <epic> --request "<the operator's words>"`. On the operator's no, it opens
+a review room that removes the entry and records the no under Decisions.
+*A pack test reads section 5 for the yes and the no.*
 
-**C26. Behaviour: each ADR pull request gets one review at its head.** Proves A22. A reactor tick
+**C26. Behaviour: each ADR pull request gets one review at its head.** Proves A22, for an ADR
+pull request that names an epic in `architecture` (Open questions, fifth entry). A reactor tick
 that sees an open pull request add an ADR whose Ticket line at the head names an epic in
 `architecture` moves the epic to `adr_review` with `adr_pr` and `adr_head`. The doc-reviewer
 claims it. A verdict at that head returns the epic to `architecture` and records a round at the
@@ -654,7 +658,8 @@ holds refuses with rule `head_changed`, and the epic stays in `adr_review`.
 **C28. Boundary: a merge or a close ends the review.** Proves A22. A merge that adds the ADR
 while the epic is in `adr_review` moves it to `spec_needed` and drops the reviewer's lease. A close
 with no merge applies `adr_withdrawn`, and the epic returns to `architecture`. An open pull
-request whose ADR reads `**Ticket:** none` moves no epic.
+request whose ADR reads `**Ticket:** none` moves no epic. This last case holds only if the
+operator accepts the narrowing of A22 (Open questions, fifth entry).
 *A reactor test for each case.*
 
 **C29. Behaviour: the doc-reviewer rejects an ADR that binds one epic.** Proves A23.
@@ -697,3 +702,14 @@ the operator in its chat.
   binds no decision until work entry 1 lands, and the PRD that the operator signed off states the
   flow and the template parts. Do these three stay in this spec, or does each take an ADR first?
   The proposed answer is Deferred: they stay in this spec. This blocks work entries 2, 3 and 7.
+- PRD A22 says that each ADR pull request gets one doc-reviewer verdict. This spec reviews only an
+  ADR pull request whose Ticket line names an epic in `architecture` (Decisions, The ADR review).
+  Two cases get no review. The first is an ADR whose Ticket line reads `none`, such as a
+  `**Binds:** all` decision that no epic asked for. The second is an ADR that names an epic in
+  another state, such as one the operator writes by hand for an epic in `spec_review` without
+  `loop epic adr`. Epic factorio-fgza reviews neither case. Its base audit raises an
+  `unreviewed_merge` alert after the merge (ADR 0012 § Consequences), and a report after a merge is
+  no review. To cover both cases, the reactor files an item of a new kind for each such pull
+  request, and a doc-reviewer claims it. That adds a kind, its table and a work entry. The
+  proposed answer is to narrow A22 to an ADR pull request that names an epic in `architecture`,
+  and to leave the two cases to the operator, who reads the alert. This blocks work entry 7.
