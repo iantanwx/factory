@@ -48,6 +48,19 @@ Check in this order. The first check finds the worst fault.
 6. A requirement that names an implementation.
 7. A rule of the project that the document breaks.
 
+Run the test of `../loop-sdlc-documents/SKILL.md` § 6, When a decision needs an ADR, on each
+requirement. A requirement that passes the test is no fault of the PRD. On a pass, name each
+requirement that passes, by its label, in the flag of the pass:
+
+```bash
+loop review submit <item> --verdict pass --head <sha> --body "<comment>" --adr-needed "<requirements>"
+```
+
+The server records the list on the epic and adds it to the comment. Then the PRD merge lands the
+epic on `architecture`, not on `spec_needed`, and the ADR comes before the spec. A pass with no
+`--adr-needed` clears the list of an earlier pass. The server refuses the flag on a reject, with
+rule `adr_needed_scope`.
+
 What happens after your verdict:
 
 - A pass moves the epic to `prd_signoff`. The operator signs it off by merge.

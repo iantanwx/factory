@@ -171,6 +171,26 @@ func specClaim(r Row) Row {
 // then lands on architecture, not on spec_needed.
 func adrRequested(c *change) bool { return c.fact(FactADRNeeded) != "" || c.fact(FactADRSent) != "" }
 
+// adrNeeded stores the requirements a PRD pass found to pass the ADR
+// test, or clears the list of an earlier pass when the pass names none.
+func adrNeeded(c *change) *cli.Refusal {
+	if v := c.param("adr_needed"); v != "" {
+		c.setFact(FactADRNeeded, v)
+	} else {
+		c.unsetFact(FactADRNeeded)
+	}
+	return nil
+}
+
+// adrOff clears both reasons for the ADR stage at the operator's word.
+func adrOff(c *change) *cli.Refusal {
+	if r := c.needParam("request"); r != nil {
+		return r
+	}
+	c.unsetFact(FactADRNeeded, FactADRSent)
+	return nil
+}
+
 // adrIs refuses adr_misjoined unless the epic's adr fact is still the
 // path the caller read: an epic that a later write joined to another ADR
 // keeps it.
@@ -341,8 +361,10 @@ func epicTable() *Table {
 		// A pass pins the head the reviewer read: the sign-off entry names
 		// it, and the server merges only that head (factorio-8qm). A pass
 		// with no head pins nothing, so it is refused (factorio-tf6).
+		// The pass also writes the requirements that pass the ADR test, and
+		// a pass that names none clears the list of an earlier pass.
 		{Verb: "review_pass", From: []string{PRDReview}, To: PRDSignoff, Command: "review submit", Lease: LeaseDrop,
-			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
+			set: all(needCopy("head", FactReviewedHead), adrNeeded), Facts: []string{FactReviewedHead, FactADRNeeded}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: PRDAmending, Command: "review submit", Lease: LeaseDrop,
 			When: "first_reject", when: firstPRDReject, set: bumpPRDRejects, Facts: []string{FactPRDRejects}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: Escalated, Command: "review submit",
@@ -367,6 +389,10 @@ func epicTable() *Table {
 			set: needCopy("request", FactADRSent), Facts: []string{FactADRSent}},
 		{Verb: VerbADRSend, From: []string{SpecNeeded, SpecReview, SpecSignoff, SpecAmending}, To: Architecture, Command: "epic adr",
 			guard: unheld, set: needCopy("request", FactADRSent), Facts: []string{FactADRSent}},
+		// The operator overrules the PRD review and the send at sign-off, so
+		// the PRD merge lands the epic on spec_needed.
+		{Verb: VerbADROff, From: []string{PRDSignoff}, To: ToSame, Command: "epic adr",
+			set: adrOff, Facts: []string{FactADRNeeded, FactADRSent}},
 		// adr_merged is the first-parent commit that added the ADR, which the
 		// base audit passes (ADR 0012). The tick's head is not always it.
 		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded,

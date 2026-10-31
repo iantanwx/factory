@@ -17,6 +17,7 @@ const (
 	brainstormFile = "skills/loop-brainstorm/SKILL.md"
 	specAuthorRB   = "runbooks/spec-author.md"
 	architectRB    = "runbooks/architect-room.md"
+	docReviewerRB  = "runbooks/doc-reviewer.md"
 )
 
 // adrTestSection returns the level-2 section of the documents skill whose
@@ -168,5 +169,19 @@ func TestC24TheSpecAuthorNamesEachPassingDecision(t *testing.T) {
 	holdsAll(t, "the Open questions section of the spec template", open, []string{
 		"> - **Needs an ADR:**",
 		"`**Needs an ADR:**`",
+	})
+}
+
+// C21: the doc-reviewer runs the test on each PRD requirement, and names
+// each one that passes in the --adr-needed flag of its pass.
+func TestC21ThePRDReviewRunsTheTestAndNamesTheFlag(t *testing.T) {
+	s := flat(pack.Section(read(t, docReviewerRB), 2, func(title string) bool {
+		return strings.HasPrefix(title, "2. Review a PRD")
+	}))
+	holdsAll(t, "section 2 of the doc-reviewer runbook", s, []string{
+		"Run the test of `../loop-sdlc-documents/SKILL.md` § 6, " + adrTestTitle + ", on each requirement.",
+		`loop review submit <item> --verdict pass --head <sha> --body "<comment>" --adr-needed "<requirements>"`,
+		"A pass with no `--adr-needed` clears the list of an earlier pass.",
+		"the PRD merge lands the epic on `architecture`, not on `spec_needed`",
 	})
 }

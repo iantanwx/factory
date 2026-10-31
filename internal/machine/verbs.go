@@ -159,12 +159,23 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 		params["head"] = head
 	}
 	body := call.Inv.Flags["body"]
+	// The comment holds the requirements, so the operator reads them at
+	// the sign-off.
+	adrNeeded := strings.TrimSpace(call.Inv.Flags["adr-needed"])
+	if adrNeeded != "" {
+		params["adr_needed"] = adrNeeded
+		body = strings.TrimSpace(body + "\n\nRequirements that pass the ADR test: " + adrNeeded)
+	}
 	if body != "" {
 		params["body"] = body
 	}
 	req := request(call, prj, item, verb, params)
 	key := commentKey(call)
 	req.Before = func(ctx context.Context, it Item) *cli.Refusal {
+		if adrNeeded != "" && (verb != "review_pass" || it.Kind != KindEpic || it.Status != PRDReview) {
+			return refusedAt(&cli.Refusal{Code: cli.CodeUsage, Rule: "adr_needed_scope",
+				Hint: "--adr-needed goes only on a pass of a PRD in prd_review; submit the verdict again without it"}, item, it)
+		}
 		// The live head first: a stale head is refused head_changed, not
 		// for CI at a commit the PR no longer holds.
 		if head != "" && m.prHead != nil {
