@@ -201,6 +201,8 @@ var surface = []Verb{
 		Flag{Name: "forbids", Type: FlagString, Description: "with --release: the \"Must not change\" entry that covers the path, spelled as the body spells it"},
 		Flag{Name: "condition", Type: FlagString, Description: "with --release: what the implementer may do at the path, and nothing wider"})),
 
+	server("retro", "record", "bind the oldest pending retro of the run's project, or the one the run holds, and print its record: for the item and an epic's tickets, each review round, run, escalation, loop fault, pull request comment, note and signal, each with its case reference", []string{"retro"}, nil),
+
 	write(server("decision", "file", "file a decision that waits for its trigger", runOrCoordinator, nil, projectFlag,
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the question"},
 		Flag{Name: "trigger", Type: FlagString, Required: true, Description: "the event that forces the answer, in one sentence"},
