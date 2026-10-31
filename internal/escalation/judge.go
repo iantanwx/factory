@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -69,24 +70,24 @@ type Judging struct {
 	Recorded func(ctx context.Context, escalation string) ([]string, error)
 }
 
-// Live is the production panel: the two judges the owner named
-// (judgesFor in scripts/sdlc/convergence-call.ts, alpha) and Jev over HTTP.
+// Live is the production panel: two claude judges on different models, so
+// the panel needs no codex login, and Jev over HTTP.
 func Live() Judging {
 	return Judging{
 		Judges: []Judge{
 			CommandJudge{JudgeName: "fable-5", Bin: "claude", Args: []string{"-p", "--model", "claude-fable-5-1", "--output-format", "json"}},
-			CommandJudge{JudgeName: "sol-6", Bin: "codex", Args: []string{"exec", "-m", "gpt-5.6-sol", "-"}},
+			CommandJudge{JudgeName: "opus-5", Bin: "claude", Args: []string{"-p", "--model", "claude-opus-5-5", "--output-format", "json"}},
 		},
 		Jev: HTTPJev{Base: JevBase, Client: &http.Client{Timeout: 2 * time.Minute}},
 	}
 }
 
-// JudgeBins names the binary of each judge of the live panel, in panel
-// order. `loop doctor` checks that each one is on the path.
+// JudgeBins names each binary of the live panel once, in panel order.
+// `loop doctor` checks that each one is on the path.
 func JudgeBins() []string {
 	var bins []string
 	for _, j := range Live().Judges {
-		if c, ok := j.(CommandJudge); ok {
+		if c, ok := j.(CommandJudge); ok && !slices.Contains(bins, c.Bin) {
 			bins = append(bins, c.Bin)
 		}
 	}
