@@ -67,7 +67,7 @@ func TestInvalidConfigKeepsLastKnownGoodAndRaisesAlert(t *testing.T) {
 	l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st)}
 	origin := fakeOrigin{ProjectConfigPath: validProjectConfig}
 
-	got, err := l.Load(ctx, "alpha", origin.read, "main")
+	got, err := l.Load(ctx, "alpha", Refs{Read: origin.read}, "main")
 	if err != nil || got.Stale || got.Config.Merge.Mechanism != MergeMergify {
 		t.Fatalf("first load = %+v, %v", got, err)
 	}
@@ -75,7 +75,7 @@ func TestInvalidConfigKeepsLastKnownGoodAndRaisesAlert(t *testing.T) {
 	// The default branch now holds an invalid file.
 	origin[ProjectConfigPath] = strings.Replace(validProjectConfig, "mechanism: mergify", "mechanism: bors", 1)
 	for i := 0; i < 2; i++ {
-		got, err = l.Load(ctx, "alpha", origin.read, "main")
+		got, err = l.Load(ctx, "alpha", Refs{Read: origin.read}, "main")
 		if err != nil {
 			t.Fatalf("load with LKG: %v", err)
 		}
@@ -88,7 +88,7 @@ func TestInvalidConfigKeepsLastKnownGoodAndRaisesAlert(t *testing.T) {
 	}
 
 	// A project with no last known good config refuses, and still alerts.
-	_, err = l.Load(ctx, "beta", origin.read, "main")
+	_, err = l.Load(ctx, "beta", Refs{Read: origin.read}, "main")
 	if !errors.Is(err, ErrInvalid) {
 		t.Fatalf("beta load = %v, want ErrInvalid", err)
 	}
@@ -98,7 +98,7 @@ func TestInvalidConfigKeepsLastKnownGoodAndRaisesAlert(t *testing.T) {
 
 	// A repaired file loads, becomes the new LKG, and closes the alert.
 	origin[ProjectConfigPath] = strings.Replace(validProjectConfig, "mechanism: mergify", "mechanism: direct", 1)
-	got, err = l.Load(ctx, "alpha", origin.read, "main")
+	got, err = l.Load(ctx, "alpha", Refs{Read: origin.read}, "main")
 	if err != nil || got.Stale || got.Config.Merge.Mechanism != MergeDirect {
 		t.Fatalf("repaired load = %+v, %v", got, err)
 	}
@@ -108,11 +108,11 @@ func TestInvalidConfigKeepsLastKnownGoodAndRaisesAlert(t *testing.T) {
 
 	// Each project keeps its own last known good config.
 	origin[ProjectConfigPath] = validProjectConfig
-	if got, err := l.Load(ctx, "beta", origin.read, "main"); err != nil || got.Config.Merge.Mechanism != MergeMergify {
+	if got, err := l.Load(ctx, "beta", Refs{Read: origin.read}, "main"); err != nil || got.Config.Merge.Mechanism != MergeMergify {
 		t.Fatalf("beta = %+v, %v", got, err)
 	}
 	delete(origin, ProjectConfigPath)
-	got, err = l.Load(ctx, "alpha", origin.read, "main")
+	got, err = l.Load(ctx, "alpha", Refs{Read: origin.read}, "main")
 	if err != nil || !got.Stale || got.Config.Merge.Mechanism != MergeDirect {
 		t.Fatalf("alpha LKG after a missing file = %+v, %v", got, err)
 	}
@@ -127,7 +127,7 @@ func TestMissingConfigWithNoLastKnownGoodRaisesNoAlert(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st)}
-	_, err := l.Load(ctx, "bare", fakeOrigin{}.read, "main")
+	_, err := l.Load(ctx, "bare", Refs{Read: fakeOrigin{}.read}, "main")
 	if !errors.Is(err, ErrConfigMissing) || !errors.Is(err, ErrInvalid) {
 		t.Fatalf("load = %v, want ErrConfigMissing", err)
 	}
@@ -157,11 +157,11 @@ func TestSnapshotNamesItsBranch(t *testing.T) {
 		t.Fatalf("snapshot = %+v, %v; want branch trunk", snap, err)
 	}
 	l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st)}
-	if got, err := l.Load(ctx, "alpha", read, "trunk"); err != nil || got.Branch != "trunk" {
+	if got, err := l.Load(ctx, "alpha", Refs{Read: read}, "trunk"); err != nil || got.Branch != "trunk" {
 		t.Fatalf("load = %+v, %v", got, err)
 	}
 	files[ProjectConfigPath] = "merge: {mechanism: bors}\n"
-	got, err := l.Load(ctx, "alpha", read, "trunk")
+	got, err := l.Load(ctx, "alpha", Refs{Read: read}, "trunk")
 	if err != nil || !got.Stale || got.Branch != "trunk" {
 		t.Fatalf("stale load = %+v, %v; want the last known good config on trunk", got, err)
 	}
@@ -199,12 +199,12 @@ func TestC1ALoopPinDoesNotLoad(t *testing.T) {
 	}
 	l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st)}
 	origin := fakeOrigin{ProjectConfigPath: validProjectConfig}
-	if _, err := l.Load(ctx, "alpha", origin.read, "main"); err != nil {
+	if _, err := l.Load(ctx, "alpha", Refs{Read: origin.read}, "main"); err != nil {
 		t.Fatal(err)
 	}
 
 	origin[ProjectConfigPath] = loopPinConfig
-	got, err := l.Load(ctx, "alpha", origin.read, "main")
+	got, err := l.Load(ctx, "alpha", Refs{Read: origin.read}, "main")
 	if err != nil || !got.Stale || got.Config.Merge.Mechanism != MergeMergify {
 		t.Fatalf("load = %+v, %v, want the last good config", got, err)
 	}
@@ -231,7 +231,7 @@ func TestC1ALoopPinDoesNotLoad(t *testing.T) {
 		t.Fatalf("open alert bodies = %q, want one that names loop-x", bodies)
 	}
 
-	if _, err := l.Load(ctx, "beta", origin.read, "main"); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `"loop-x"`) {
+	if _, err := l.Load(ctx, "beta", Refs{Read: origin.read}, "main"); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `"loop-x"`) {
 		t.Fatalf("beta load = %v, want ErrInvalid that names loop-x", err)
 	}
 }
@@ -289,14 +289,15 @@ func TestC4APinWhoseDirectoryTheDefaultBranchTracksDoesNotLoad(t *testing.T) {
 				t.Fatal(err)
 			}
 			tree := fakeTree{"README.md", c.tracked}
-			l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st), Tree: tree.list}
+			l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st)}
 			origin := fakeOrigin{ProjectConfigPath: validProjectConfig}
-			if _, err := l.Load(ctx, "alpha", origin.read, "main"); err != nil {
+			refs := Refs{Read: origin.read, Tree: tree.list}
+			if _, err := l.Load(ctx, "alpha", refs, "main"); err != nil {
 				t.Fatal(err)
 			}
 
 			origin[ProjectConfigPath] = neonPinConfig
-			got, err := l.Load(ctx, "alpha", origin.read, "main")
+			got, err := l.Load(ctx, "alpha", refs, "main")
 			if err != nil {
 				t.Fatal(err)
 			}

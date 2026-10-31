@@ -146,9 +146,7 @@ func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 		if err != nil {
 			return nil, err
 		}
-		ld := *loader
-		ld.Tree = r.Tree
-		l, err := ld.Load(ctx, project, r.Read, branch)
+		l, err := loader.Load(ctx, project, r, branch)
 		if err != nil {
 			return nil, err
 		}

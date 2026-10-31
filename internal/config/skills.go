@@ -156,6 +156,9 @@ func SkillDirs(ctx context.Context, cfg *ProjectConfig, tree TreeReader, ref str
 	if len(cfg.Skills) == 0 {
 		return nil
 	}
+	if tree == nil {
+		return errors.New("config: no tree reader lists the skill directories")
+	}
 	ck := &checker{source: ProjectConfigPath}
 	for _, root := range skillRoots {
 		entries, err := tree(ctx, ref, root)

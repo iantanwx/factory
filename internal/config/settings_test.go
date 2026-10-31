@@ -41,11 +41,11 @@ func checkedLoader(t *testing.T) (*Loader, *alertLog) {
 func loadAfterGood(t *testing.T, l *Loader, doc string) (*Loaded, error) {
 	t.Helper()
 	origin := fakeOrigin{ProjectConfigPath: settingsBase}
-	if got, err := l.Load(context.Background(), "alpha", origin.read, "main"); err != nil || got.Stale {
+	if got, err := l.Load(context.Background(), "alpha", Refs{Read: origin.read}, "main"); err != nil || got.Stale {
 		t.Fatalf("first load = %+v, %v", got, err)
 	}
 	origin[ProjectConfigPath] = doc
-	return l.Load(context.Background(), "alpha", origin.read, "main")
+	return l.Load(context.Background(), "alpha", Refs{Read: origin.read}, "main")
 }
 
 // C1: a name under stages that is no run stage, no per-project native job
