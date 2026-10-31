@@ -30,7 +30,7 @@ Each work entry lands in one component and proves its own contracts. Entries 1 a
 component 2. Entries 2 and 4 to 9 change component 1.
 
 **Not in this spec:** the check of the shipped screens against the record, which the sibling epic
-owns (no item holds it yet). The `ui` block's fields and the conditional load of
+factorio-4lso owns (`docs/prd/shipped-screen-check.md`). The `ui` block's fields and the conditional load of
 `loop-impeccable`, which factorio-791i owns. The renames of roles, phases and paths, which
 factorio-vlle owns. The ADR stage's own rows, which factorio-ku99 owns. This spec changes the
 target of two of them and nothing else in them. The QA stage, which factorio-nhb5 owns.
@@ -44,11 +44,19 @@ target of two of them and nothing else in them. The QA stage, which factorio-nhb
   holds the UI line, US-02 the flow, US-03 the prototype-first room, US-04 the branch that never
   merges, US-05 the record of three parts, US-06 the doc review and the pull request sign-off, and
   US-07 the project setting that names a design skill. This spec builds each one as written.
-- **No person answered an open question of the PRD.** The PRD merged with five open questions and
-  no `**Answered` or `**Deferred` run under any of them. The epic holds no note and no amendment
-  fact. A PRD sign-off reads no open questions, because the spec author settles them
-  (`pack/runbooks/coordinator.md` section 5). This spec settles three of them below from the
-  sources, places one outside this epic, and carries one to Open questions.
+- **The default threshold of a pixel mark is 0.5% of the pixels, and its allowed range is 0% to
+  5%, both ends inclusive.** This answers the PRD's fourth open question, which blocks A19 and A29.
+  The epic's `note` fact holds the answer: "In intake room room-36e9bc8c (sibling epic
+  factorio-4lso) on 2026-10-31, the operator chose a default pixel threshold of 0.5% of pixels,
+  with an allowed range of 0% to 5%. The spec of this epic records this answer." The sibling's PRD
+  records the operator's reasons: 0.1% is too strict for text rendering on two hosts, and 1% is
+  too loose for a small icon (`docs/prd/shipped-screen-check.md` lines 94 to 98).
+- **A person answered one open question of the PRD.** The PRD merged with five open questions and
+  no `**Answered` or `**Deferred` run under any of them. The epic's `note` fact answers the fourth,
+  as the entry above records. A PRD sign-off reads no open questions, because the spec author
+  settles them (`pack/runbooks/coordinator.md` section 5). This spec settles three of the other
+  four below from the sources, and places one outside this epic. It carries no PRD question to
+  Open questions.
 
 ### Open questions of the PRD that the sources settle
 
@@ -87,7 +95,7 @@ target of two of them and nothing else in them. The QA stage, which factorio-nhb
 - **The design pull request is the epic's document pull request in the design states.** The
   `pr_open` row from `design` copies the pull request number into `doc_pr`, as the row from
   `spec_drafting` does. We chose `doc_pr` over a new `design_pr` fact, because the reactor moves an
-  epic only on the pull request that `doc_pr` names (`internal/github/reactor.go` line 583), and
+  epic only on the pull request that `doc_pr` names (`internal/github/reactor.go` line 590), and
   the sign-off, the head check and the outran rows all read it. One fact reuses each of them.
 - **The server computes the route once, at the PRD merge, into one fact, `ui_stories`.** At the PRD merge,
   the server reads the PRD at the merge commit and the project's config. When the project declares
@@ -100,7 +108,7 @@ target of two of them and nothing else in them. The QA stage, which factorio-nhb
   one fact over a second read of the PRD at the ADR merge, because the PRD at its merge is the
   document that the operator signed, and the ADR merge then needs no read of the PRD.
 - **Both merge paths fill the merge event through one function.** The reactor's merge path
-  (`reactor.go` line 591) and the sign-off's merge path (`internal/inbox/signoff.go` line 102)
+  (`reactor.go` line 598) and the sign-off's merge path (`internal/inbox/signoff.go` line 102)
   both call `MergeObserved`. A new `github.DocMerge` fills the spec path, `ui_stories` and the
   record path for both. We chose one function over a read in each caller, because two readers
   could route one epic two ways.
@@ -156,7 +164,10 @@ target of two of them and nothing else in them. The QA stage, which factorio-nhb
   gate reads Markdown with fixed line shapes. We chose the epic id over a slug for the directory,
   because the gate and the sibling epic find a record by its epic.
 - **The record names its PRD on a `**PRD:**` line.** The gate runs in CI with no server, so it
-  reads the stories from the PRD at that path in the tree.
+  reads the stories from the PRD at that path in the tree. We rejected the PRD path from the epic's
+  `prd_path` fact, because only the server holds a fact, and the gate in CI cannot read it. We
+  rejected a fixed path made from the epic id, because a PRD's path holds a slug that the PRD
+  author chose, such as `docs/prd/design-stage.md`, and no rule maps an epic id to that slug.
 - **One package parses the record: `internal/design`.** The gate, `loop design capture` and the
   sibling epic call it. We chose one parser over a parse in each reader, because two parsers of one
   format disagree, and the gate then passes a record that a later reader cannot read.
@@ -168,8 +179,13 @@ target of two of them and nothing else in them. The QA stage, which factorio-nhb
   changes.** It reads the merge base of HEAD and the base, as the `citations` gate does
   (`internal/gates/citations.go` line 225). We chose this over a check of every record, because a
   person can delete a prototype branch by hand, and every later build on the base would then fail.
-- **The pixel threshold is the share of pixels that may differ, as a decimal.** A range needs a
-  unit. The default and the range wait on the operator (Open questions, second entry).
+- **The record writes a pixel threshold as a percent with its `%` sign, such as `pixel 1.5%`.**
+  The threshold is the share of the pixels that may differ. A mark with no number reads as the
+  default, 0.5%. A number from 0% to 5%, both ends inclusive, passes the gate. We chose the
+  percent over a decimal share such as `0.015`, because the operator chose the numbers as percents,
+  the sibling's PRD states them as percents, and the doc-reviewer and the operator read the record
+  in a diff. We rejected a bare number with no `%` sign, because `pixel 0.5` reads as 0.5% to one
+  reader and as 50% to another. The gate refuses it with rule `pixel_threshold`.
 
 ### The config and the room
 
@@ -201,14 +217,20 @@ target of two of them and nothing else in them. The QA stage, which factorio-nhb
 - **The base audit gives `design_merged` the checks of `spec_merged`.** The audit finds a merge's
   record through its merge fact (`internal/machine/history.go` line 96). A design merge recorded
   under no fact raises `unreviewed_merge`. A design pull request merges at a reviewed head, as a
-  spec does, so the outran and head rules apply (`internal/github/baseaudit.go` line 43).
+  spec does, so the outran and head rules apply (`internal/github/baseaudit.go` line 43). The
+  outran states of `design_merged` are `design_review` alone, because no amender state serves a
+  design. We rejected the treatment of `adr_merged`, a fact with no check. An ADR passes with no
+  check because no stage reviews it, and a design record has a doc review. With no check, a design
+  pull request that merged before its review passed, or at a head that nobody reviewed, would pass
+  the audit.
 
 ## Assumptions
 
 - factorio-ku99 lands before work entry 4, with the split `doc_merged` rows from `prd_signoff` and
-  the `adr_landed` rows from `architecture` and `adr_review` that its spec describes. This is
-  wrong if its spec changes those rows at sign-off. Entry 4 then adds the `design` target to the
-  rows that landed, or to today's two rows (`internal/machine/epic.go` lines 353 and 356).
+  the `adr_landed` rows from `architecture` and `adr_review` that its merged spec describes
+  (`docs/plans/factorio-ku99-optional-adr-stage-spec.md`). This is wrong if its tickets change
+  those rows. Entry 4 then adds the `design` target to the rows that landed, or to today's two rows
+  (`internal/machine/epic.go` lines 354 and 357).
 - The beads store takes three new epic statuses with no migration, because the server registers
   each state of the table at start (`cmd/loop/serve.go` line 350). This is wrong if `bd` refuses a
   status on a database that an earlier release made.
@@ -223,8 +245,6 @@ target of two of them and nothing else in them. The QA stage, which factorio-nhb
 - The names in this spec are the names on the base: spec-author, intake room, `spec_needed`. This
   is wrong if factorio-vlle lands first. Each entry then uses vlle's names, and entry 9 adds the
   design phase and its doc review between ADR and plan in vlle's phase list.
-- factorio-yzrt's `skills` list lands before work entry 2. This is wrong if entry 2 lands first.
-  The `design.skill` check then accepts kernel skill names only, until the list exists.
 
 ## Approach
 
@@ -332,8 +352,10 @@ State                  one state of one screen
              problem, not a State.
 
 Pixel                  a mark for the sibling's pixel comparison
-  Threshold            the share of pixels that may differ, a decimal
-  invariant: Default is true exactly when the line names no number.
+  Percent              the percent of the pixels that may differ, from 0 to 5 inclusive
+  Default              true when the line names no number. Percent is then 0.5.
+  invariant: a parsed Pixel always holds a Percent in the range. A number outside it, or one
+             with no % sign, is a problem, not a Pixel.
 
 internal/config (changed)
 
@@ -435,6 +457,10 @@ type Problem struct {
 	Msg  string
 }
 func Parse(dir, text string) (Record, []Problem)
+const (
+	DefaultPixelPercent = 0.5 // the operator's default, room-36e9bc8c
+	MaxPixelPercent     = 5.0 // the upper end of the allowed range, inclusive
+)
 
 // internal/gates/design.go (new)
 func Design() Gate // Name "design", Docs true
@@ -465,7 +491,7 @@ The record, as `pack/skills/loop-sdlc-documents/design.md` shows it:
 
 - **S1.1 <state name>.** Picture `s1-1.png`, target `<target>`.
 - **S1.2 <state name>.** Picture `s1-2.png`, target `<target>`, pixel.
-- **S1.3 <state name>.** Picture `s1-3.png`, target `<target>`, pixel 0.02.
+- **S1.3 <state name>.** Picture `s1-3.png`, target `<target>`, pixel 1.5%.
 ```
 
 The UI line of a PRD story, as `pack/skills/loop-brainstorm/prd.md` shows it, on its own line
@@ -630,7 +656,9 @@ sequenceDiagram
    project's pins, and raises `project_config_invalid` on a refusal.
    - Files: `internal/config/project.go`, `internal/config/design.go` (new),
      `internal/config/*_test.go`, `internal/server/` (the project config loader and its test)
-   - Needs: the `ui` key in `config.ProjectConfig` (Open questions, first entry)
+   - Needs: the `ui` key in `config.ProjectConfig` (Open questions), and factorio-yzrt's `skills`
+     list of userspace pins in `config.ProjectConfig` (ADR 0013), because C8 loads a pinned stub
+     skill
    - Proves: C7, C8
    - Done when: a config with a `ui` key declares a UI, and a config with a `design` block and no
      `ui` key does not load.
@@ -707,7 +735,9 @@ sequenceDiagram
      `pack/manifest.json`, `pack/runbooks/design-room.md` (new), `pack/runbooks/coordinator.md`,
      `pack/skills/loop-sdlc-glossary/SKILL.md`, `internal/pack/design_stage_test.go`, and their
      tests
-   - Needs: entries 5, 6, 7 and 8, because the runbook names each of their verbs
+   - Needs: entries 5, 6, 7 and 8, because the runbook names each of their verbs. factorio-yzrt's
+     `skills` list and its fetch of a userspace pin into the checkout, because C27 starts a room
+     with a pinned stub skill
    - Proves: C25, C26, C27, C28
    - Done when: an epic in `design` shows a design entry, the coordinator's room open starts a
      room whose brief names the design block, and the runbook's steps follow the order of C26.
@@ -716,12 +746,12 @@ sequenceDiagram
 
 - The citation of screen states in specs and tickets, the implementer's capture at a pull request
   head, the code-reviewer's comparison, and the pixel comparison of a marked state. They belong to
-  the sibling epic. No item holds it yet.
+  the sibling epic factorio-4lso.
 - The fields of the `ui` block, its globs, and the conditional load of `loop-impeccable`. They
   belong to factorio-791i.
 - How the Paper skill reaches Paper Desktop across Tailscale, and the Paper skill itself. They
   belong to the project or the operator, as a userspace skill by factorio-yzrt and ADR 0013.
-- A spec-author step that reads the design record. It belongs to the sibling epic, which owns the
+- A spec-author step that reads the design record. It belongs to factorio-4lso, which owns the
   citation of screen states in specs.
 - The renames of roles, phases and paths. They belong to factorio-vlle.
 - A QA stage and its visual QA. They belong to factorio-nhb5.
@@ -757,11 +787,12 @@ that the merge base holds unchanged passes with its branch absent.
 *A test builds a git repository with a remote branch, and asserts the finding for a commit off the
 branch, the pass for an ancestor of its tip, and the pass for an unchanged record on the base.*
 
-**C5. Boundary: the pixel threshold has a range.** Proves A19 and A29. A state marked `pixel` with
-no number passes. A state marked with a number inside the allowed range passes, at both ends of
-it. A number outside the range, or a word that is not a number, gives rule `pixel_threshold`, and
-the message names the state and the range.
-*Example tests at the lower end, the upper end, the default, just outside each end, and a word.*
+**C5. Boundary: the pixel threshold is from 0% to 5%.** Proves A19 and A29. A state marked
+`pixel` with no number passes, and the parser gives it the default, 0.5%. The marks `pixel 0%`,
+`pixel 0.5%` and `pixel 5%` pass. The marks `pixel -0.01%` and `pixel 5.01%`, a bare number such
+as `pixel 0.5`, and a word such as `pixel tight` each give rule `pixel_threshold`, and the message
+names the state and the range 0% to 5%.
+*Example tests for each mark above, and a test that the default mark parses to 0.5.*
 
 **C6. Behaviour: a complete record passes, and a repository with no record passes.** Proves A12
 and A24 for the gate. The fixture record of `design.md`, with each picture present and the pin on
@@ -953,8 +984,7 @@ This epic draws no product screen. A person watches these flows of the loop:
   fields nobody reads, when factorio-791i has not added it, and factorio-791i then types its
   fields. The key stays the one that factorio-791i owns, so A30 holds. The other answer: the
   operator holds this spec in sign-off until factorio-791i lands. The proposed answer is the
-  first. This blocks work entries 2, 3 and 4.
-- PRD open question 4. What is the default threshold of a pixel mark, and its allowed range? The
-  operator named no numbers. This spec reads the threshold as the share of pixels that may differ.
-  The proposed answer is a default of 0.01 and a range from 0 to 0.1, both inclusive, so that a
-  marked state stays close to its picture. This blocks work entry 1.
+  first. Under either answer, entry 2 still waits for factorio-yzrt's `skills` list, because C8
+  loads a pinned skill. The sibling epic factorio-4lso adds no config and leaves this question to
+  this epic (`docs/prd/shipped-screen-check.md` lines 255 to 257). This blocks work entries 2, 3
+  and 4.
