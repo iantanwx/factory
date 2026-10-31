@@ -46,7 +46,41 @@ func (m *Machine) Apply(ctx context.Context, req Request) cli.Result {
 	if a, ok := res.Data.(Applied); ok && !res.Replayed && a.Kind == KindTicket && ticketTerminal(a.Status) && !m.stop(pointChildTerminal) {
 		m.completeEpic(ctx, a)
 	}
+	if a, ok := res.Data.(Applied); ok && a.Kind == KindEpic && a.Status == Canceled {
+		m.closeCanceledDocPR(ctx, a)
+	}
 	return res
+}
+
+// DocPRCloser closes PR n of the project with no merge. A closed PR is no
+// fault.
+type DocPRCloser func(ctx context.Context, project string, n int) error
+
+// SetDocPRCloser sets the closer of a canceled epic's document PR. The
+// GitHub setup sets it before the socket binds.
+func (m *Machine) SetDocPRCloser(f DocPRCloser) { m.closeDocPR = f }
+
+// closeCanceledDocPR closes the document PR that a canceled epic records.
+// The cancel already stands, so a close that fails is logged, and the
+// GitHub reactor's start-up reconcile closes the PR. A replay closes
+// again, which is no fault.
+func (m *Machine) closeCanceledDocPR(ctx context.Context, a Applied) {
+	if m.closeDocPR == nil {
+		return
+	}
+	it, ref := m.Read(ctx, a.Project, a.Item)
+	if ref != nil {
+		m.log.WarnContext(ctx, "the document PR of a canceled epic was not read", "item", a.Item, "code", ref.Code)
+		return
+	}
+	n, err := strconv.Atoi(it.Fact(FactDocPR))
+	if err != nil {
+		return
+	}
+	if err := m.closeDocPR(ctx, a.Project, n); err != nil {
+		m.log.WarnContext(ctx, "the document PR of a canceled epic did not close; the next start-up closes it",
+			"item", a.Item, "pr", n, "err", err)
+	}
 }
 
 func ticketTerminal(status string) bool {

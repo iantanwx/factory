@@ -88,7 +88,8 @@ func NewReactor(s *Service) *Reactor {
 
 // Reconcile is the start-up step (a server.Step): it settles every
 // pending push, then reads the PR of every non-terminal ticket and epic,
-// open or closed, and posts every eligibility a crash left unposted. The
+// open or closed, closes the open document PR of each canceled epic, and
+// posts every eligibility a crash left unposted. The
 // server runs it after the machine's reconcile and before the socket
 // binds. A GitHub that cannot answer does not stop the start: the step
 // logs the fault, and the next Tick runs the full reconcile again.
@@ -136,6 +137,12 @@ func (r *Reactor) reconcileProject(ctx context.Context, p config.Project) error 
 		}
 		t, _ := machine.TableFor(kind)
 		for _, it := range items {
+			if it.Kind == machine.KindEpic && it.Status == machine.Canceled {
+				if err := r.closeDocPR(ctx, p, it); err != nil {
+					errs = append(errs, err)
+				}
+				continue
+			}
 			if t.Terminal(it.Status) {
 				continue
 			}
@@ -629,6 +636,34 @@ func (r *Reactor) specPath(ctx context.Context, p config.Project, epic string, n
 	}
 	path, _ := shape.SpecFile(epic, changed)
 	return path, nil
+}
+
+// CloseDocPR closes PR n of the project with no merge, while it is open:
+// the machine calls it when an epic cancels (F-55). A closed or merged PR
+// gets no write.
+func (r *Reactor) CloseDocPR(ctx context.Context, project string, n int) error {
+	p, err := r.s.cfg.Projects.Show(project)
+	if err != nil {
+		return err
+	}
+	pr, err := r.s.GetPR(ctx, p, n)
+	if err != nil || pr.State != "open" {
+		return err
+	}
+	return r.s.ClosePR(ctx, p, n)
+}
+
+// closeDocPR closes the open document PR of a canceled epic whose close
+// never ran, as after a crash between the cancel and the close.
+func (r *Reactor) closeDocPR(ctx context.Context, p config.Project, ep machine.Item) error {
+	n, err := strconv.Atoi(ep.Fact(machine.FactDocPR))
+	if err != nil {
+		return nil
+	}
+	if err := r.CloseDocPR(ctx, p.ID, n); err != nil {
+		return fmt.Errorf("%s: close document PR #%d: %w", ep.ID, n, err)
+	}
+	return nil
 }
 
 // closed escalates an item whose PR closed without merge (R8). The loop

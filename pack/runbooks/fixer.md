@@ -110,8 +110,9 @@ Record your answer on the item, so the next run of its stage reads it in its bri
 loop work note <item> --body "<each finding, its route and the reason the panel gave>"
 ```
 
-Every finding can route to the loop, and one answer can show that the ticket has no work left. The
-base branch, a done item or an ADR then already answers it. Close the ticket with that evidence:
+Every finding can route to the loop, and one answer can show that the item has no work left. The
+base branch, a done item or an ADR then already answers it. The close depends on the item's kind.
+Close a ticket with that evidence:
 
 ```bash
 loop work supersede <item> --commit <sha> --reason "<the finding and its answer>"
@@ -120,6 +121,11 @@ loop work supersede <item> --commit <sha> --reason "<the finding and its answer>
 Use `--done <item>` or `--adr <path>` in place of `--commit` when that is the evidence. The server
 checks the evidence. It refuses when a run holds the ticket, or when the ticket has an open pull
 request.
+
+An epic has no `work supersede`. Its close is `loop work cancel <epic> --reason "<why>"`, from any
+state before decomposing. The server then closes the epic's open document pull request with no
+merge. You cannot cancel an epic. Write the finding, its answer and that close in your note on the
+epic. The next run that holds the epic, or the coordinator on the operator's word, runs it.
 
 Finish with `loop run finish --outcome done`. Report each finding, its route and the file you sent.
 
