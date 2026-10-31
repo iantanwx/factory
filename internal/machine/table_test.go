@@ -128,8 +128,8 @@ func ticketEdges() []edge {
 	return e
 }
 
-var epicLive = []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
-	SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
+var epicLive = []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, "adr_review", SpecNeeded, SpecDrafting,
+	SpecReview, SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 
 func epicEdges() []edge {
 	e := []edge{
@@ -187,6 +187,14 @@ func epicEdges() []edge {
 		// stage, and the PRD merge routes a marked epic there. In the spec
 		// stage the send moves the epic at once.
 		{PRDSignoff, "doc_merged", Architecture},
+		// factorio-ku99: the doc-reviewer reviews each ADR pull request of
+		// an epic in architecture once at each head. A verdict or a close
+		// returns the epic to architecture, and the merge moves it on.
+		{Architecture, "adr_opened", "adr_review"},
+		{"adr_review", "review_pass", Architecture},
+		{"adr_review", "review_reject", Architecture},
+		{"adr_review", "adr_withdrawn", Architecture},
+		{"adr_review", "adr_landed", SpecNeeded},
 	}
 	e = append(e, each([]string{PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff}, "adr_send", ToSame)...)
 	e = append(e, each([]string{SpecNeeded, SpecReview, SpecSignoff, SpecAmending}, "adr_send", Architecture)...)
@@ -205,7 +213,7 @@ func epicEdges() []edge {
 	}
 	// Added: the stages that claim without a move, and settlement of
 	// every claim (RESUME_TARGETS in scripts/sdlc/handoff.ts, alpha).
-	for _, s := range []string{PRDReview, PRDAmending, SpecReview, SpecAmending} {
+	for _, s := range []string{PRDReview, PRDAmending, "adr_review", SpecReview, SpecAmending} {
 		e = append(e, edge{s, "claim", s}, edge{s, "release", s}, edge{s, "reclaim", s})
 	}
 	e = append(e, edge{SpecDrafting, "release", SpecNeeded}, edge{SpecDrafting, "reclaim", SpecNeeded},
@@ -289,6 +297,9 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.Verb == VerbPRDSubmit {
 		params["pr"], params["path"] = "7", "docs/prd/x.md" // a run's submit records both
+	}
+	if r.Verb == "adr_opened" {
+		params["pr"] = "12" // the ADR pull request under review
 	}
 	if r.Verb == VerbADRLanded {
 		params["path"], params["added"] = "docs/adr/0001-x.md", "a1" // the commit that added the ADR

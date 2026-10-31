@@ -30,7 +30,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | `implementer` | Builds one ticket in one pull request, and repairs a red build | ticket `todo`, `repair` |
 | `code-reviewer` | Reviews the pull request of one ticket | ticket `in_review` |
 | `prd-author` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
-| `doc-reviewer` | Reviews one PRD or one spec | epic `prd_review`, `spec_review` |
+| `doc-reviewer` | Reviews one PRD, one spec or one ADR pull request | epic `prd_review`, `spec_review`, `adr_review` |
 | `amender` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
 | `spec-author` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
 | `decomposer` | Cuts one approved spec into tickets in one batch | epic `spec_approved` |
@@ -47,9 +47,11 @@ eligible pull request to the project's merge mechanism. No agent merges.
 - **Ticket**: `backlog`, `todo`, `in_progress`, `in_review`, `repair`, `ready_to_merge`, `queued`,
   `escalated`, `done`, `canceled`.
 - **Epic**: `backlog`, `prd_needed`, `prd_drafting`, `prd_review`, `prd_amending`, `prd_signoff`,
-  `architecture`, `spec_needed`, `spec_drafting`, `spec_review`, `spec_signoff`, `spec_amending`,
-  `spec_approved`, `decomposing`, `execution`, `escalated`, `done`. An epic in `backlog` waits on
-  a blocker. No stage claims it.
+  `architecture`, `adr_review`, `spec_needed`, `spec_drafting`, `spec_review`, `spec_signoff`,
+  `spec_amending`, `spec_approved`, `decomposing`, `execution`, `escalated`, `done`. An epic in
+  `backlog` waits on a blocker. No stage claims it. An epic in `adr_review` waits in the ADR stage
+  while the doc-reviewer reviews an open pull request that adds an ADR for it. The verdict returns
+  it to `architecture`.
 - **Bug**: `reported`, `reproducing`, `asked`, `awaiting_build`, `escalated`, `shaped`, `duplicate`,
   `canceled`. A bug in `awaiting_build` waits for the ticket or the epic that builds what it asks
   for. No stage claims it.

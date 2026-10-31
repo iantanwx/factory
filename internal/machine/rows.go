@@ -62,6 +62,8 @@ const (
 	FactADRMerged       = "adr_merged"       // the first-parent commit that added the epic's ADR
 	FactADRNeeded       = "adr_needed"       // the PRD review's list of requirements that pass the ADR test
 	FactADRSent         = "adr_sent"         // the operator's words that sent the epic to the ADR stage
+	FactADRPR           = "adr_pr"           // the number of the ADR pull request under review
+	FactADRHead         = "adr_head"         // that pull request's head when adr_opened read it
 	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
 )
 

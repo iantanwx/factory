@@ -80,6 +80,9 @@ type Reactor struct {
 	// tick runs the full reconcile while it holds, so a start-up that met
 	// a GitHub outage never drops a merge.
 	full bool
+	// pulls holds what each open pull request adds under ADRDir, at the
+	// head adrPulls read, by project and number.
+	pulls map[string]map[int]adrPull
 }
 
 // NewReactor returns the reactor over the service's machine.
@@ -237,6 +240,9 @@ func (r *Reactor) tickProject(ctx context.Context, p config.Project) error {
 	if err := r.adrs(ctx, p, sha); err != nil {
 		errs = append(errs, err)
 	}
+	if err := r.adrPulls(ctx, p); err != nil {
+		errs = append(errs, err)
+	}
 	if err := r.auditBase(ctx, p, sha, errors.Join(errs...)); err != nil {
 		errs = append(errs, err)
 	}
@@ -378,6 +384,139 @@ func adrNumber(file string) int {
 	return n
 }
 
+// adrPull is what one head of an open pull request adds under ADRDir: the
+// id on the Ticket line of each ADR it adds.
+type adrPull struct {
+	head    string
+	tickets []string
+}
+
+// adrPulls gives each ADR pull request of an epic in architecture one
+// doc-reviewer verdict at its head. An epic in architecture that the
+// Ticket line of an ADR an open pull request adds names, at a head no
+// review round of the epic holds, moves to adr_review. It finds the pull
+// request by its diff, not by its branch: a ticket or the operator can
+// write the ADR on any branch. The review is advisory. The merge stays
+// the operator's, and adrs moves the epic when it lands. An epic in
+// adr_review whose pull request closed with no merge returns to
+// architecture.
+func (r *Reactor) adrPulls(ctx context.Context, p config.Project) error {
+	waiting, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: machine.Architecture})
+	if ref != nil {
+		return fmt.Errorf("list architecture epics: %s", ref.Hint)
+	}
+	reviewing, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: machine.ADRReview})
+	if ref != nil {
+		return fmt.Errorf("list adr_review epics: %s", ref.Hint)
+	}
+	var errs []error
+	for _, ep := range reviewing {
+		n, err := strconv.Atoi(ep.Fact(machine.FactADRPR))
+		if err != nil {
+			continue
+		}
+		pr, err := r.s.GetPR(ctx, p, n)
+		if err != nil {
+			return err
+		}
+		if pr.State != "closed" || pr.Merged() {
+			continue
+		}
+		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbADRWithdrawn, ExpectedStatus: machine.ADRReview,
+			Params: map[string]string{"pr": strconv.Itoa(n)}, Actor: machine.Server("reactor")})
+		if err := machine.Settled(res); err != nil {
+			errs = append(errs, fmt.Errorf("%s adr_withdrawn: %w", ep.ID, err))
+		}
+	}
+	if len(waiting) == 0 {
+		return errors.Join(errs...)
+	}
+	pulls, numbers, err := r.readADRPulls(ctx, p)
+	if err != nil {
+		return errors.Join(append(errs, err)...)
+	}
+	for _, ep := range waiting {
+		hist, err := r.m.History(ctx, p.ID, ep.ID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s history: %w", ep.ID, err))
+			continue
+		}
+		rounds := machine.Rounds(hist)
+		for _, n := range numbers {
+			pl := pulls[n]
+			if !slices.Contains(pl.tickets, ep.ID) || slices.ContainsFunc(rounds, func(rd machine.Round) bool { return rd.Head == pl.head }) {
+				continue
+			}
+			res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbADROpened, ExpectedStatus: machine.Architecture,
+				Params: map[string]string{"pr": strconv.Itoa(n), "head": pl.head}, Actor: machine.Server("reactor")})
+			if err := machine.Settled(res); err != nil {
+				errs = append(errs, fmt.Errorf("%s adr_opened #%d: %w", ep.ID, n, err))
+			}
+			break
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// readADRPulls reads what each open pull request of the project adds
+// under ADRDir, and lists their numbers in order. It reads the files of a
+// pull request, and the Ticket line of each ADR it adds at its head, once
+// for each head. A pull request from a fork belongs to no epic.
+func (r *Reactor) readADRPulls(ctx context.Context, p config.Project) (map[int]adrPull, []int, error) {
+	open, err := r.s.OpenPulls(ctx, p.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	r.mu.Lock()
+	last := r.pulls[p.ID]
+	r.mu.Unlock()
+	read := make(map[int]adrPull, len(open))
+	var numbers []int
+	for _, pr := range open {
+		if !pr.fromRepo(p) {
+			continue
+		}
+		pl, ok := last[pr.Number]
+		if !ok || pl.head != pr.Head.SHA {
+			if pl, err = r.readADRPull(ctx, p, pr); err != nil {
+				return nil, nil, err
+			}
+		}
+		read[pr.Number] = pl
+		numbers = append(numbers, pr.Number)
+	}
+	slices.Sort(numbers)
+	r.mu.Lock()
+	if r.pulls == nil {
+		r.pulls = map[string]map[int]adrPull{}
+	}
+	r.pulls[p.ID] = read
+	r.mu.Unlock()
+	return read, numbers, nil
+}
+
+// readADRPull reads the Ticket line of each ADR that pr adds, at its head.
+func (r *Reactor) readADRPull(ctx context.Context, p config.Project, pr PR) (adrPull, error) {
+	pl := adrPull{head: pr.Head.SHA}
+	files, err := r.s.PRFiles(ctx, p, pr.Number)
+	if err != nil {
+		return adrPull{}, err
+	}
+	for _, f := range files {
+		if f.Status != "added" || !strings.HasPrefix(f.Path, ADRDir) || !strings.HasSuffix(f.Path, ".md") {
+			continue
+		}
+		text, err := r.s.ReadAt(ctx, p, pr.Head.SHA, f.Path)
+		if err != nil {
+			return adrPull{}, err
+		}
+		if id := ticketOf(string(text)); id != "" {
+			pl.tickets = append(pl.tickets, id)
+		}
+	}
+	return pl, nil
+}
+
 // adrs applies adr_landed to each architecture epic whose id the Ticket
 // line of an ADR on the base branch names (R46): a merge that adds the ADR
 // to the base is the operator's sign-off. An epic the ADR names anywhere
@@ -388,6 +527,8 @@ func adrNumber(file string) int {
 // that returns to architecture already read that ADR. Of those, it records
 // the highest. An epic with no adr fact joins any ADR that names it.
 //
+// An epic in adr_review joins the same way: the merge outran its review.
+//
 // It also returns to architecture each spec_needed epic whose adr fact
 // names an ADR on the base whose Ticket line names another epic, or none:
 // the reactor once joined an ADR to every epic its text named (F-10).
@@ -396,6 +537,11 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 	if ref != nil {
 		return fmt.Errorf("list architecture epics: %s", ref.Hint)
 	}
+	reviewing, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: machine.ADRReview})
+	if ref != nil {
+		return fmt.Errorf("list adr_review epics: %s", ref.Hint)
+	}
+	epics = append(epics, reviewing...)
 	landed, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: machine.SpecNeeded})
 	if ref != nil {
 		return fmt.Errorf("list spec_needed epics: %s", ref.Hint)
@@ -463,7 +609,7 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 			errs = append(errs, fmt.Errorf("%s adr_landed %s: %w", ep.ID, paths[i], err))
 			continue
 		}
-		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbADRLanded, ExpectedStatus: machine.Architecture,
+		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbADRLanded, ExpectedStatus: ep.Status,
 			Params: map[string]string{"path": paths[i], "added": added}, Actor: machine.Server("reactor")})
 		if err := machine.Settled(res); err != nil {
 			errs = append(errs, fmt.Errorf("%s adr_landed: %w", ep.ID, err))

@@ -151,9 +151,10 @@ func TestC14ArchitectureEpicKeepsItsBranch(t *testing.T) {
 	}
 }
 
-// C17: a PRD epic in the ADR stage writes on loop/<epic>-adr, and on its
-// spec branch once it leaves the stage. An epic in architecture with no
-// PRD and no ADR, and every ticket, keep loop/<id>.
+// C17: a PRD epic in the ADR stage, architecture or adr_review, writes on
+// loop/<epic>-adr, and on its spec branch once it leaves the stage. An
+// epic in architecture with no PRD and no ADR, and every ticket, keep
+// loop/<id>.
 func TestC17BranchOfFollowsTheADRStage(t *testing.T) {
 	for _, c := range []struct {
 		kind   machine.Kind
@@ -163,6 +164,7 @@ func TestC17BranchOfFollowsTheADRStage(t *testing.T) {
 	}{
 		{machine.KindEpic, machine.Architecture, map[string]string{machine.FactPRDMerged: "m1"}, "loop/tk-1-adr"},
 		{machine.KindEpic, machine.Architecture, map[string]string{machine.FactADR: adrPath(7)}, "loop/tk-1-adr"},
+		{machine.KindEpic, "adr_review", map[string]string{machine.FactPRDMerged: "m1"}, "loop/tk-1-adr"},
 		{machine.KindEpic, machine.Architecture, nil, "loop/tk-1"},
 		{machine.KindEpic, machine.SpecNeeded, map[string]string{machine.FactPRDMerged: "m1"}, "loop/tk-1-spec"},
 		{machine.KindEpic, machine.SpecReview, map[string]string{machine.FactADR: adrPath(7)}, "loop/tk-1-spec"},
