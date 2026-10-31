@@ -1,9 +1,9 @@
 ---
-name: loop-spec-author
-description: The spec-author's runbook. Write the spec of one epic whose PRD the operator signed off, and open its pull request for review. The server starts this run and names the epic in the brief.
+name: loop-planner
+description: The planner's runbook. Write the spec of one epic whose PRD the operator signed off, and open its pull request for review. The server starts this run and names the epic in the brief.
 ---
 
-# Spec-author
+# Planner
 
 The operator signed off the PRD of the epic that the brief names, by merge. You write its spec: how
 the epic is built, which contracts prove it, and in which order the work lands. Nobody is present

@@ -175,7 +175,7 @@ func TestEpicADROffRefusedOutsidePRDSignoff(t *testing.T) {
 
 // C16, across adr_landed: an epic that the send returned to architecture
 // from spec_review writes on its ADR branch, and keeps doc_pr. The merge
-// of an ADR that names it moves it to spec_needed, and the spec author's
+// of an ADR that names it moves it to spec_needed, and the planner's
 // pr show then finds the same open spec pull request on the spec branch.
 func TestC16SpecPullRequestOutlivesTheADRStage(t *testing.T) {
 	w := newWorld(t)
@@ -196,10 +196,10 @@ func TestC16SpecPullRequestOutlivesTheADRStage(t *testing.T) {
 		t.Fatalf("after the ADR landed: status %s, doc_pr %q, branch %s, want spec_needed, %d, loop/%s-spec", it.Status,
 			it.Fact("doc_pr"), github.BranchOf(it), spec, epic)
 	}
-	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageSpecAuthor, RunID: "run-spec-2"}); res.Refusal != nil {
-		t.Fatalf("spec author claim: %+v", *res.Refusal)
+	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StagePlanner, RunID: "run-spec-2"}); res.Refusal != nil {
+		t.Fatalf("planner claim: %+v", *res.Refusal)
 	}
-	out := ok(t, w.call(w.run("run-spec-2", epic, machine.StageSpecAuthor), "", "pr show", map[string]string{}))
+	out := ok(t, w.call(w.run("run-spec-2", epic, machine.StagePlanner), "", "pr show", map[string]string{}))
 	if got := out["number"]; got != float64(spec) {
 		t.Fatalf("pr show after the ADR stage = %v, want the spec pull request #%d", out, spec)
 	}

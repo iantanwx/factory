@@ -59,7 +59,7 @@ stages:
   code-reviewer: {}
   doc-reviewer: {}
   amender: {}
-  spec-author: {}
+  planner: {}
   decomposer: {}
   fixer: {}
   reproducer: {}

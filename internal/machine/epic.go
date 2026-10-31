@@ -153,7 +153,7 @@ func mark(fact, param string) setter {
 	}
 }
 
-// specClaim refuses a spec author on an epic whose PRD never merged and
+// specClaim refuses a planner on an epic whose PRD never merged and
 // whose ADR never landed (R46): the spec stage starts only after the
 // operator's sign-off.
 func specClaim(r Row) Row {
@@ -360,7 +360,7 @@ func epicTable() *Table {
 		claim(PRDReview, ToSame, StageDocReviewer),
 		claim(PRDAmending, ToSame, StageAmender),
 		claim(ADRReview, ToSame, StageDocReviewer),
-		specClaim(claim(SpecNeeded, SpecDrafting, StageSpecAuthor)),
+		specClaim(claim(SpecNeeded, SpecDrafting, StagePlanner)),
 		claim(SpecReview, ToSame, StageDocReviewer),
 		claim(SpecAmending, ToSame, StageAmender),
 		claim(SpecApproved, Decomposing, StageDecomposer),

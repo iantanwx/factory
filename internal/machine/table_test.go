@@ -283,7 +283,7 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	if r.Verb == VerbUnblock && r.To != Todo {
 		facts[FactEpicEntry] = r.To // the epic's blocked create recorded it
 	}
-	if r.Stage == StageSpecAuthor {
+	if r.Stage == StagePlanner {
 		facts[FactPRDMerged] = "m1" // the operator signed the PRD off
 	}
 	if r.When == "adr_requested" {

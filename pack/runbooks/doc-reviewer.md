@@ -43,7 +43,7 @@ Check in this order. The first check finds the worst fault.
    Read the requirements, not the verdict of the scope check. When the epic fails one question,
    name the seam in the comment. The author does not split it.
 3. An acceptance criterion that cannot fail.
-4. A criterion that the spec-author would have to split, merge or reword.
+4. A criterion that the planner would have to split, merge or reword.
 5. A boundary that conflicts with another PRD of the project.
 6. A requirement that names an implementation.
 7. A rule of the project that the document breaks.
@@ -92,7 +92,7 @@ Never reject a spec for an empty Open questions section. When the source is a se
 records that a person wrote, trace those decisions, and do not argue them again.
 
 A pass moves the epic to `spec_signoff`, and the operator signs it off by merge. A reject returns
-it to `spec_needed`, and the spec-author writes the next round.
+it to `spec_needed`, and the planner writes the next round.
 
 ## 4. Review an ADR
 

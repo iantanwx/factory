@@ -103,12 +103,12 @@ func syncItem(w *acceptance.World, co string) {
 	w.GitIn(co, "reset", "-q", "--hard", sha)
 }
 
-// draftSpec starts a spec-author run, commits a spec, and opens its PR.
+// draftSpec starts a planner run, commits a spec, and opens its PR.
 func draftSpec(w *acceptance.World, epic, version string) {
 	w.T.Helper()
-	run := w.Dispatch(machine.StageSpecAuthor)
+	run := w.Dispatch(machine.StagePlanner)
 	if run.Item != epic {
-		w.T.Fatalf("the spec-author took %s, want %s", run.Item, epic)
+		w.T.Fatalf("the planner took %s, want %s", run.Item, epic)
 	}
 	wantStatus(w, epic, machine.SpecDrafting)
 	syncItem(w, run.Checkout)

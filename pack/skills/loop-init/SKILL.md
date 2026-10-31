@@ -139,7 +139,7 @@ stages:
   code-reviewer: {}
   doc-reviewer: {}
   amender: {}
-  spec-author: {}
+  planner: {}
   prd-author: {}
   decomposer: {}
   fixer: {}

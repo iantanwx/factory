@@ -52,7 +52,7 @@ func TestC1EpicCancelsUntilDecomposing(t *testing.T) {
 	}
 	spec := w.create(KindEpic, VerbCreateArchitecture, nil)
 	w.force(spec, SpecNeeded, map[string]string{FactADR: "docs/adr/0013-x.md"})
-	run := w.claimAs(spec, StageSpecAuthor, "spec")
+	run := w.claimAs(spec, StagePlanner, "spec")
 	mustOK(t, w.call("work cancel", run, []string{spec}, reason))
 	if it := w.show(spec); it.Status != Canceled || it.Owner != "" || it.Fact(FactCancelReason) != reason["reason"] {
 		t.Fatalf("after the run's cancel: %s, owner %q, facts %v", it.Status, it.Owner, it.Facts)

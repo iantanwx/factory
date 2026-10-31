@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/iantanwx/loop/internal/cli"
@@ -93,5 +94,29 @@ func TestRenameStagesMapsNamesOnly(t *testing.T) {
 	want := map[string]any{"rows": []any{map[string]any{"verb": "claim", "stage": "triage", "from": []any{"open"}}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("renameStages = %v, want %v", got, want)
+	}
+}
+
+// C12: the pair spec-author to planner maps the spec claim of the golden
+// epic table to the planner claim of the build, and no table of the build
+// names the spec-author.
+func TestC12SpecAuthorBecomesPlannerInTheTables(t *testing.T) {
+	if n, ok := config.NewStageName("spec-author"); !ok || n != "planner" {
+		t.Fatalf("NewStageName(spec-author) = %q, %v, want planner", n, ok)
+	}
+	raw, err := os.ReadFile(goldenTables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"stage": "spec-author"`) {
+		t.Fatal("the golden tables name no spec-author claim")
+	}
+	s, err := cli.Surface().Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	epic := string(s.TransitionTables[string(KindEpic)])
+	if strings.Contains(epic, `"spec-author"`) || !strings.Contains(epic, `"planner"`) {
+		t.Fatalf("the epic table of the build names the spec-author, or no planner:\n%s", epic)
 	}
 }

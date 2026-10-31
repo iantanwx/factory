@@ -21,14 +21,14 @@ func (w *world) withReader() {
 	gt.Git(w.t, w.checkout, "push", "-q", w.git.RemoteDir(), "HEAD:main")
 }
 
-// specOpen is a spec author's push and pr open, as run.
+// specOpen is a planner's push and pr open, as run.
 func (w *world) specOpen(epic, run string) map[string]any {
 	w.t.Helper()
-	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageSpecAuthor, RunID: run}); res.Refusal != nil {
-		w.t.Fatalf("spec author claim: %+v", *res.Refusal)
+	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StagePlanner, RunID: run}); res.Refusal != nil {
+		w.t.Fatalf("planner claim: %+v", *res.Refusal)
 	}
 	gt.Commit(w.t, w.checkout, "spec "+run, map[string]string{"docs/specs/widgets.md": "spec by " + run + "\n"})
-	pr := w.run(run, epic, machine.StageSpecAuthor)
+	pr := w.run(run, epic, machine.StagePlanner)
 	head := gt.Git(w.t, w.checkout, "rev-parse", "HEAD")
 	ok(w.t, w.call(pr, "", "branch push", headFlags(head, map[string]string{})))
 	return ok(w.t, w.call(pr, "", "pr open", map[string]string{"title": "Widgets spec"}))

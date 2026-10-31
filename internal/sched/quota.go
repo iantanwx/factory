@@ -50,7 +50,7 @@ var DefaultEfforts = map[string]string{
 	config.StageCodeReviewer: "high",
 	config.StageDocReviewer:  "medium",
 	config.StagePRDAuthor:    "high",
-	config.StageSpecAuthor:   "high",
+	config.StagePlanner:      "high",
 	config.StageDecomposer:   "high",
 	config.StageAmender:      "medium",
 	config.StageFixer:        "medium",

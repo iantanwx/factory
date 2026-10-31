@@ -183,11 +183,11 @@ func TestSpecFollowsTheSameReviewAndSignoff(t *testing.T) {
 
 	author := func(run string) {
 		t.Helper()
-		if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageSpecAuthor, RunID: run}); res.Refusal != nil {
-			t.Fatalf("spec author claim: %+v", *res.Refusal)
+		if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StagePlanner, RunID: run}); res.Refusal != nil {
+			t.Fatalf("planner claim: %+v", *res.Refusal)
 		}
 		gt.Commit(t, w.checkout, "spec "+run, map[string]string{"docs/specs/widgets.md": "spec by " + run + "\n"})
-		pr := w.run(run, epic, machine.StageSpecAuthor)
+		pr := w.run(run, epic, machine.StagePlanner)
 		head := gt.Git(t, w.checkout, "rev-parse", "HEAD")
 		ok(t, w.call(pr, "", "branch push", headFlags(head, map[string]string{})))
 		ok(t, w.call(pr, "", "pr open", map[string]string{"title": "Widgets spec"}))
@@ -237,7 +237,7 @@ func (w *world) decomposingWith(recorded bool) string {
 	w.review(epic, "pass")
 	w.merge(prd)
 	w.tick()
-	for _, step := range []struct{ stage, run string }{{machine.StageSpecAuthor, "run-spec"}} {
+	for _, step := range []struct{ stage, run string }{{machine.StagePlanner, "run-spec"}} {
 		if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: step.stage, RunID: step.run}); res.Refusal != nil {
 			w.t.Fatalf("claim: %+v", *res.Refusal)
 		}
@@ -436,8 +436,8 @@ func (w *world) prOf(epic string) int {
 	return n
 }
 
-// R46: a spec author run on an epic with no merged PRD or ADR is refused.
-func TestSpecAuthorNeedsTheSignedOffPRD(t *testing.T) {
+// R46: a planner run on an epic with no merged PRD or ADR is refused.
+func TestPlannerNeedsTheSignedOffPRD(t *testing.T) {
 	w := newWorld(t)
 	epic, _ := w.submitted()
 	w.review(epic, "pass")
@@ -446,7 +446,7 @@ func TestSpecAuthorNeedsTheSignedOffPRD(t *testing.T) {
 	if _, err := w.bx.Update(w.ctx, epic, beadsxUpdate(machine.PRDSignoff, machine.SpecNeeded)); err != nil {
 		t.Fatal(err)
 	}
-	_, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageSpecAuthor, RunID: "run-spec"})
+	_, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StagePlanner, RunID: "run-spec"})
 	wantCode(t, res, cli.CodePRDRequired)
 }
 

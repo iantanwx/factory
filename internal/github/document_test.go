@@ -60,7 +60,7 @@ func TestOnlyTheCurrentDocumentPRMovesTheEpic(t *testing.T) {
 		t.Fatalf("the operator's merge left the epic in %s", got)
 	}
 	// The spec PR opens, passes review and waits for the operator.
-	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageSpecAuthor, RunID: "run-spec"})
+	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StagePlanner, RunID: "run-spec"})
 	mustOK(t, res)
 	spec := w.Add(&gt.PR{Head: SpecBranchFor(id), HeadSHA: shaB})
 	mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "pr_open",
@@ -120,7 +120,7 @@ func TestSpecMergeOnGitHubRecordsTheSpecPath(t *testing.T) {
 				t.Fatalf("after the PRD merge: %s %v", it.Status, it.Facts)
 			}
 
-			_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageSpecAuthor, RunID: "run-spec"})
+			_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StagePlanner, RunID: "run-spec"})
 			mustOK(t, res)
 			spec := w.Add(&gt.PR{Head: SpecBranchFor(id), HeadSHA: shaB, Files: c.files(id)})
 			mustOK(t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: "pr_open",
@@ -177,7 +177,7 @@ func (e *env) runCall(path, item, stage string, flags, extra map[string]string) 
 
 // The PRD and the spec each have their own branch. The operator squash
 // merges a PRD of two commits, so the PRD branch keeps commits whose patch
-// the base lacks. The spec author's checkout starts from the base, and its
+// the base lacks. The planner's checkout starts from the base, and its
 // push lands on the spec branch, not on the PRD branch, where it would find
 // the remote ahead. Its PR then moves the epic to spec review, and the
 // reactor maps the spec PR back to the epic.
@@ -209,12 +209,12 @@ func TestSpecAfterASquashMergedPRDHasItsOwnBranch(t *testing.T) {
 		t.Fatalf("after the squash merge: %s %v", it.Status, it.Facts)
 	}
 
-	// The spec author starts from the base and pushes its spec.
-	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageSpecAuthor, RunID: "run-spec"})
+	// The planner starts from the base and pushes its spec.
+	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StagePlanner, RunID: "run-spec"})
 	mustOK(t, res)
 	gitT(t, e.checkout, "checkout", "-q", "-b", "spec", squash)
 	specHead := commit(t, e.checkout, "spec", map[string]string{"docs/spec.md": "# Spec\n"})
-	res = e.runCall("branch push", id, machine.StageSpecAuthor, nil, map[string]string{cli.ExtraHead: specHead})
+	res = e.runCall("branch push", id, machine.StagePlanner, nil, map[string]string{cli.ExtraHead: specHead})
 	mustOK(t, res)
 	if got := e.remoteSHA(SpecBranchFor(id)); got != specHead {
 		t.Fatalf("the spec branch holds %q, want %s", got, specHead)
@@ -224,14 +224,14 @@ func TestSpecAfterASquashMergedPRDHasItsOwnBranch(t *testing.T) {
 	}
 
 	// branch sync names the spec branch as the item's branch.
-	sync := decodeSync(t, e.runCall("branch sync", id, machine.StageSpecAuthor, nil, nil))
+	sync := decodeSync(t, e.runCall("branch sync", id, machine.StagePlanner, nil, nil))
 	if sync.Item.Branch != SpecBranchFor(id) || sync.Item.SHA != specHead {
 		t.Fatalf("branch sync item = %+v", sync.Item)
 	}
 
 	// pr open opens the spec PR on the spec branch and hands the epic to
 	// review.
-	res = e.runCall("pr open", id, machine.StageSpecAuthor, map[string]string{"title": "Spec"}, nil)
+	res = e.runCall("pr open", id, machine.StagePlanner, map[string]string{"title": "Spec"}, nil)
 	mustOK(t, res)
 	it := e.status(id)
 	if it.Status != machine.SpecReview {
@@ -246,7 +246,7 @@ func TestSpecAfterASquashMergedPRDHasItsOwnBranch(t *testing.T) {
 	if spec == nil || it.Fact(machine.FactDocPR) != strconv.Itoa(spec.Number) {
 		t.Fatalf("no spec PR on %s, or doc_pr %q names another: %v", SpecBranchFor(id), it.Fact(machine.FactDocPR), w.PRs())
 	}
-	if res := e.runCall("pr show", id, machine.StageSpecAuthor, nil, nil); res.Refusal != nil || res.Exit != cli.ExitDone {
+	if res := e.runCall("pr show", id, machine.StagePlanner, nil, nil); res.Refusal != nil || res.Exit != cli.ExitDone {
 		t.Fatalf("pr show of the spec = %+v", res)
 	}
 
