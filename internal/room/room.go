@@ -23,6 +23,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
@@ -101,6 +102,11 @@ type Config struct {
 type Service struct {
 	cfg Config
 	log *slog.Logger
+
+	mu sync.Mutex
+	// locked holds a channel for each room that a caller locked. The
+	// channel closes at the unlock.
+	locked map[string]chan struct{}
 }
 
 // New returns a Service.
@@ -128,7 +134,47 @@ func New(cfg Config) (*Service, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Service{cfg: cfg, log: log}, nil
+	return &Service{cfg: cfg, log: log, locked: map[string]chan struct{}{}}, nil
+}
+
+// lock reserves room id for one caller, so one start of the room runs at
+// a time, then reads the room again. The caller acts on that read, never
+// on an earlier one: another start can have moved the room since. With
+// wait, lock waits for the caller that holds the room; without, ok is
+// false while one holds it.
+func (s *Service) lock(ctx context.Context, id string, wait bool) (r Room, unlock func(), ok bool, err error) {
+	var ch chan struct{}
+	for {
+		s.mu.Lock()
+		held, busy := s.locked[id]
+		if !busy {
+			ch = make(chan struct{})
+			s.locked[id] = ch
+		}
+		s.mu.Unlock()
+		if !busy {
+			break
+		}
+		if !wait {
+			return r, nil, false, nil
+		}
+		select {
+		case <-held:
+		case <-ctx.Done():
+			return r, nil, false, ctx.Err()
+		}
+	}
+	unlock = func() {
+		s.mu.Lock()
+		delete(s.locked, id)
+		s.mu.Unlock()
+		close(ch)
+	}
+	if r, err = s.Get(ctx, id); err != nil {
+		unlock()
+		return r, nil, false, err
+	}
+	return r, unlock, true, nil
 }
 
 // Register sets the handlers of the room verbs.
@@ -303,12 +349,17 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Internal(err)
 	}
 	defer s.changed()
-	switch {
-	case !reopen:
+	r, unlock, _, err := s.lock(ctx, r.ID, true)
+	if err != nil {
+		return cli.Internal(err)
+	}
+	defer unlock()
+	switch r.State {
+	case Opening:
 		if ref := s.advance(ctx, &r); ref != nil {
 			return ref.Result()
 		}
-	case r.State == Idle || r.State == Interrupted:
+	case Idle, Interrupted:
 		if ref := s.reopen(ctx, &r); ref != nil {
 			return ref.Result()
 		}
@@ -446,7 +497,9 @@ func (s *Service) writeEnv(ctx context.Context, r *Room, snap *config.ProjectSna
 
 // start makes the room's checkout once, writes its brief, prompt, .env and
 // token, and starts its session. A failure leaves the room interrupted, so
-// the coordinator reopens it.
+// the coordinator reopens it. The caller holds the room's lock, so no
+// other start of the room runs, and a failure here never touches a
+// session that another start began.
 func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 	fail := func(code string, err error) *cli.Refusal {
 		if r.Checkout != "" {
@@ -612,53 +665,65 @@ func (s *Service) setState(ctx context.Context, id, state string, extra func(tx 
 // item's lease is free, a live room whose session sits at its prompt past
 // the quiet period goes idle, and a room whose session ended goes
 // interrupted. Idle and interrupted rooms lose their .env. No room closes
-// here.
+// here. A room that another caller holds locked waits for the next pass.
 func (s *Service) Watch(ctx context.Context) error {
 	rooms, err := s.Rooms(ctx, false)
 	if err != nil {
 		return err
 	}
 	moved := false
-	for i := range rooms {
-		r := &rooms[i]
-		switch r.State {
-		case Opening:
-			if ref := s.advance(ctx, r); ref != nil {
-				s.log.WarnContext(ctx, "start the room", "room", r.ID, "code", ref.Code, "hint", ref.Hint)
-			}
-			moved = moved || r.State != Opening
-		case Live, Idle:
-			if r.Session == nil {
-				continue
-			}
-			st, err := s.cfg.Agents.Settle(ctx, r.Session.ID)
-			if err != nil {
-				continue
-			}
-			if st.Liveness == agenthost.Exited {
-				s.interrupt(ctx, r)
-				moved = true
-				continue
-			}
-			if r.State == Idle || st.Liveness != agenthost.Live {
-				continue
-			}
-			rep, err := s.cfg.Agents.Ended(ctx, *r.Session)
-			if err != nil || !rep.Ended {
-				continue
-			}
-			if rep.Cause == agenthost.EndExited {
-				s.interrupt(ctx, r)
-			} else {
-				s.idle(ctx, r)
-			}
-			moved = true
+	for _, listed := range rooms {
+		r, unlock, ok, err := s.lock(ctx, listed.ID, false)
+		if err != nil {
+			return err
 		}
+		if !ok {
+			continue
+		}
+		moved = s.watch(ctx, &r) || moved
+		unlock()
 	}
 	if moved {
 		s.changed()
 	}
 	return nil
+}
+
+// watch is Watch on one locked room. It reports whether the room moved.
+func (s *Service) watch(ctx context.Context, r *Room) bool {
+	switch r.State {
+	case Opening:
+		if ref := s.advance(ctx, r); ref != nil {
+			s.log.WarnContext(ctx, "start the room", "room", r.ID, "code", ref.Code, "hint", ref.Hint)
+		}
+		return r.State != Opening
+	case Live, Idle:
+		if r.Session == nil {
+			return false
+		}
+		st, err := s.cfg.Agents.Settle(ctx, r.Session.ID)
+		if err != nil {
+			return false
+		}
+		if st.Liveness == agenthost.Exited {
+			s.interrupt(ctx, r)
+			return true
+		}
+		if r.State == Idle || st.Liveness != agenthost.Live {
+			return false
+		}
+		rep, err := s.cfg.Agents.Ended(ctx, *r.Session)
+		if err != nil || !rep.Ended {
+			return false
+		}
+		if rep.Cause == agenthost.EndExited {
+			s.interrupt(ctx, r)
+		} else {
+			s.idle(ctx, r)
+		}
+		return true
+	}
+	return false
 }
 
 func (s *Service) idle(ctx context.Context, r *Room) {
