@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -86,17 +87,13 @@ func (pr PR) View() PRView {
 // the open one when there is one, else the most recently updated. It
 // returns nil when the branch has no PR.
 func (s *Service) FindPR(ctx context.Context, p config.Project, branch string) (*PR, error) {
-	q := url.Values{"head": {owner(p) + ":" + branch}, "state": {"all"}, "per_page": {"100"}}
-	var prs []PR
-	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/pulls?"+q.Encode()), &prs); err != nil {
+	prs, err := s.FindPRs(ctx, p, branch)
+	if err != nil {
 		return nil, err
 	}
 	var best *PR
 	for i := range prs {
 		pr := &prs[i]
-		if pr.Head.Ref != branch || !pr.fromRepo(p) {
-			continue
-		}
 		switch {
 		case best == nil:
 			best = pr
@@ -107,6 +104,19 @@ func (s *Service) FindPR(ctx context.Context, p config.Project, branch string) (
 		}
 	}
 	return best, nil
+}
+
+// FindPRs returns every PR whose head is branch in the project
+// repository, open, closed or merged, oldest first.
+func (s *Service) FindPRs(ctx context.Context, p config.Project, branch string) ([]PR, error) {
+	q := url.Values{"head": {owner(p) + ":" + branch}, "state": {"all"}, "per_page": {"100"}}
+	var prs []PR
+	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/pulls?"+q.Encode()), &prs); err != nil {
+		return nil, err
+	}
+	prs = slices.DeleteFunc(prs, func(pr PR) bool { return pr.Head.Ref != branch || !pr.fromRepo(p) })
+	slices.SortFunc(prs, func(a, b PR) int { return a.Number - b.Number })
+	return prs, nil
 }
 
 // GetPR reads one PR by number.
@@ -433,18 +443,17 @@ func (s *Service) ItemComments(ctx context.Context, p config.Project, it machine
 	}
 	var out []Comment
 	for _, b := range branches {
-		pr, err := s.FindPR(ctx, p, b)
+		prs, err := s.FindPRs(ctx, p, b)
 		if err != nil {
 			return nil, err
 		}
-		if pr == nil {
-			continue
+		for _, pr := range prs {
+			cs, err := s.allComments(ctx, p, pr.Number)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, cs...)
 		}
-		cs, err := s.allComments(ctx, p, pr.Number)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, cs...)
 	}
 	return out, nil
 }

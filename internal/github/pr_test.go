@@ -297,8 +297,10 @@ func TestPRShowPrintsTheBody(t *testing.T) {
 }
 
 // C9: the record reads every comment on each pull request of an item, a
-// merged one too. An epic's PRD and spec have a pull request each, and a
-// review summary with a body reads as a comment.
+// closed one and a merged one too. An epic's PRD and spec have a pull
+// request each, and a review summary with a body reads as a comment. A
+// ticket whose first pull request a person closed has a second one on
+// the same branch, and the comments of both come back.
 func TestItemCommentsReadEveryPullRequestOfTheItem(t *testing.T) {
 	e := newEnv(t)
 	w := e.withWorld()
@@ -308,6 +310,10 @@ func TestItemCommentsReadEveryPullRequestOfTheItem(t *testing.T) {
 	w.Say(prd.Number, gt.Said{Login: "owner", Association: "OWNER", Body: "name the user"})
 	w.Say(spec.Number, gt.Said{Login: "owner", Association: "OWNER", Review: true, Body: "split C3"})
 	w.Say(other.Number, gt.Said{Login: "owner", Association: "OWNER", Body: "not the epic's"})
+	closed := w.Add(&gt.PR{Head: "loop/tk-9", HeadSHA: shaA, State: "closed"})
+	merged := w.Add(&gt.PR{Head: "loop/tk-9", HeadSHA: shaB, State: "closed", Merged: true, MergeSHA: shaM})
+	w.Say(closed.Number, gt.Said{Login: "owner", Association: "OWNER", Body: "closing: wrong approach"})
+	w.Say(merged.Number, gt.Said{Login: "owner", Association: "OWNER", Body: "ok now"})
 	ctx := context.Background()
 	got := func(it machine.Item) []string {
 		t.Helper()
@@ -326,6 +332,9 @@ func TestItemCommentsReadEveryPullRequestOfTheItem(t *testing.T) {
 	}
 	if g, want := got(machine.Item{ID: "tk-1", Kind: machine.KindTicket}), []string{"conversation owner: not the epic's"}; !slices.Equal(g, want) {
 		t.Fatalf("ticket comments = %q, want %q", g, want)
+	}
+	if g, want := got(machine.Item{ID: "tk-9", Kind: machine.KindTicket}), []string{"conversation owner: closing: wrong approach", "conversation owner: ok now"}; !slices.Equal(g, want) {
+		t.Fatalf("comments of a closed and a merged pull request = %q, want %q", g, want)
 	}
 	if g := got(machine.Item{ID: "tk-2", Kind: machine.KindTicket}); len(g) != 0 {
 		t.Fatalf("a ticket with no pull request has comments %q", g)
