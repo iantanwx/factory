@@ -183,7 +183,13 @@ func epicEdges() []edge {
 		// document stays in sign-off.
 		{PRDSignoff, "signoff_head", PRDSignoff},
 		{SpecSignoff, "signoff_head", SpecSignoff},
+		// factorio-ku99: the operator's send marks a PRD epic for the ADR
+		// stage, and the PRD merge routes a marked epic there. In the spec
+		// stage the send moves the epic at once.
+		{PRDSignoff, "doc_merged", Architecture},
 	}
+	e = append(e, each([]string{PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff}, "adr_send", ToSame)...)
+	e = append(e, each([]string{SpecNeeded, SpecReview, SpecSignoff, SpecAmending}, "adr_send", Architecture)...)
 	// Text: a closed document PR escalates and never cancels.
 	e = append(e, each([]string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending}, "pr_closed", Escalated)...)
 	e = append(e, each(except(epicLive, Escalated), "escalate", Escalated)...)
@@ -270,6 +276,12 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.Stage == StageSpecAuthor {
 		facts[FactPRDMerged] = "m1" // the operator signed the PRD off
+	}
+	if r.When == "adr_requested" {
+		facts[FactADRSent] = "the operator's words"
+	}
+	if r.Verb == VerbADRSend {
+		params["request"] = "the operator's words"
 	}
 	if r.When == "second_reject" {
 		facts[FactPRDRejects] = "1"

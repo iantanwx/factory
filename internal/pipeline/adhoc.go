@@ -303,6 +303,29 @@ func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Found(EpicResult{Epic: it.ID, Status: it.Status})
 }
 
+// epicADR is `loop epic adr`, the coordinator's send of a PRD epic to the
+// ADR stage with the operator's words. The epic table picks the row by the
+// epic's status: before the PRD merges the send only records adr_sent, and
+// in the spec stage it moves the epic to architecture.
+func (p *Pipeline) epicADR(ctx context.Context, call *rpc.Call) cli.Result {
+	pr, inv := call.Principal, call.Inv
+	if pr.Kind != cli.PrincipalCoordinator {
+		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator sends an epic to the ADR stage, at the operator's word")
+	}
+	prj, ref := call.Project(ownProject)
+	if ref != nil {
+		return ref.Result()
+	}
+	request := strings.TrimSpace(inv.Flags["request"])
+	if request == "" {
+		return cli.Reject(cli.CodeUsage, "no_operator_request",
+			"the send needs the operator's request: quote the operator's own words with --request")
+	}
+	return p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: inv.Arg("item"), Verb: machine.VerbADRSend,
+		Params: map[string]string{"request": request}, Command: inv.Verb.Path, ExpectedStatus: inv.Extra[cli.ExtraExpectedStatus],
+		RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
+}
+
 // prdAuthorStage is the run stage that writes a PRD epic's PRD. A project
 // whose config does not list it gets no PRD epic, because no run would
 // ever claim one there.

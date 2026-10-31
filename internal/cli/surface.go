@@ -281,6 +281,10 @@ var surface = []Verb{
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic title"},
 		Flag{Name: "body", Type: FlagString, Description: "what the epic delivers or the ADR decides, and why the operator asked for it"},
 		projectFlag)),
+	write(server("epic", "adr", "send a PRD epic to the ADR stage at the operator's word: before its PRD merges the merge lands it on architecture, and in the spec stage it returns to architecture now with its spec pull request still open", coordinator,
+		[]Arg{arg("item", "the epic id")},
+		Flag{Name: "request", Type: FlagString, Description: "required: the operator's own words that send the epic to the ADR stage, kept verbatim"},
+		projectFlag)),
 	write(server("epic", "decompose", "create an epic's tickets in one batch", []string{"decomposer"}, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the decomposition file: a JSON object whose tickets each hold key, title, body, stories and blocked_by"})),
 
