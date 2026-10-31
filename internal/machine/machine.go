@@ -57,12 +57,23 @@ type Config struct {
 	// when the write lands its item in a terminal state. An error rolls
 	// the mark back, so a retry of the intent runs it again. Nothing runs
 	// when nil.
-	Terminal func(tx *store.Tx, project, item string) error
+	Terminal func(tx *store.Tx, ev TerminalEvent) error
 	// Registry seals the answers the machine stores under an intent.
 	// cli.NewRegistry() when nil; it must know every refusal code the
 	// machine answers.
 	Registry *cli.Registry
 	Logger   *slog.Logger
+}
+
+// TerminalEvent is a write that landed its item in a terminal state.
+type TerminalEvent struct {
+	Project, Item string
+	Kind          Kind
+	Status        string
+	// Bug is the bug a shaped ticket came from, or empty. The hook runs in
+	// a SQLite transaction and cannot read the bead, so the intent carries
+	// it.
+	Bug string
 }
 
 // Machine applies intent verbs to work items.
@@ -380,6 +391,8 @@ type facts struct {
 	Command string            `json:"command,omitempty"`
 	Request string            `json:"request_id,omitempty"`
 	Says    string            `json:"says,omitempty"`
+	// Bug is the item's bug fact: the bug a shaped ticket came from.
+	Bug string `json:"bug,omitempty"`
 	// Fence is the bead assignee the write expects: the epoch fence.
 	Fence string `json:"fence"`
 }

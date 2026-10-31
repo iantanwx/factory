@@ -25,6 +25,7 @@ import (
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
@@ -373,7 +374,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			claims = s.Admission
 		}
 		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: claims,
-			Terminal: escalation.CloseFor, Registry: cli.Surface(), Logger: srv.Logger()})
+			Terminal: terminal, Registry: cli.Surface(), Logger: srv.Logger()})
 		if err != nil {
 			return nil, err
 		}
@@ -399,6 +400,15 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	}
 	ok = true
 	return s, nil
+}
+
+// terminal is the machine's Terminal hook: it closes the item's waiting
+// escalations, then queues the item's retro.
+func terminal(tx *store.Tx, ev machine.TerminalEvent) error {
+	if err := escalation.CloseFor(tx, ev); err != nil {
+		return err
+	}
+	return retro.Enqueue(tx, ev)
 }
 
 func readPreviousVersion(dir string) string {

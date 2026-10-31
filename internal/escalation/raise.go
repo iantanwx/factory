@@ -429,7 +429,8 @@ func lastStatus(q Querier, project, item string) (*machine.Table, string, error)
 // transaction that lands the item in a terminal state: no panel can route
 // an escalation of a terminal item, so it must not head the fixer's queue
 // (F-25).
-func CloseFor(tx *store.Tx, project, item string) error {
+func CloseFor(tx *store.Tx, ev machine.TerminalEvent) error {
+	project, item := ev.Project, ev.Item
 	if _, err := tx.Exec(`UPDATE escalations SET state = ?, updated_at = ? WHERE project = ? AND item = ? AND state = ?`,
 		StateClosed, tx.Now().UnixMilli(), project, item, StateAwaitingPanel); err != nil {
 		return err
