@@ -295,8 +295,8 @@ A signal write touches only the `signals` table. It changes no item, no fact, no
 `retro.Enqueue(tx, ev)` inserts one `retros` row when `ev.Kind` is an epic and `ev.Status` is
 `done`, or `ev.Kind` is a bug and `machine.BugClosed(ev.Status, "")`. A shaped bug closes when its
 ticket reaches done, so the shaped ticket's done write queues the retro of its bug: when `ev.Kind`
-is a ticket, `ev.Bug` is set and `machine.BugClosed(machine.Shaped, ev.Status)`, the row names
-`ev.Bug` with kind `bug`. It ignores every other event and any second insert. The row starts
+is a ticket, `ev.Bug` names a bug and `machine.BugClosed(machine.Shaped, ev.Status)`, the row
+names `ev.Bug` with kind `bug`. It ignores every other event and any second insert. The row starts
 `pending`.
 
 Admission treats `retro` like the fixer: the stage has work only while
