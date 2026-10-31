@@ -46,7 +46,7 @@ func TestUnknownMechanismKeepsTheLastKnownGoodConfigAndAlerts(t *testing.T) {
 	loader := &config.Loader{LKG: config.StoreLKG(e.st), Alerts: config.StoreAlerter(e.st)}
 	files := origin{config.ProjectConfigPath: "merge:\n  mechanism: direct\n"}
 	e.source = func(ctx context.Context, p config.Project) (*config.ProjectSnapshot, error) {
-		l, err := loader.Load(ctx, p.ID, files.read, "main")
+		l, err := loader.Load(ctx, p.ID, config.Refs{Read: files.read}, "main")
 		if err != nil {
 			return nil, err
 		}
@@ -83,7 +83,7 @@ func TestAProjectWithNoConfigYetIsAddedAndWaits(t *testing.T) {
 	loader := &config.Loader{LKG: config.StoreLKG(e.st), Alerts: config.StoreAlerter(e.st)}
 	files := origin{}
 	e.source = func(ctx context.Context, p config.Project) (*config.ProjectSnapshot, error) {
-		l, err := loader.Load(ctx, p.ID, files.read, "main")
+		l, err := loader.Load(ctx, p.ID, config.Refs{Read: files.read}, "main")
 		if err != nil {
 			return nil, err
 		}

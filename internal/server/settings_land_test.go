@@ -109,9 +109,10 @@ func TestC28MergeDuringALoadIsInForceAtTheNextRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	merged := false
-	load := w.srv.projectLoader(func(ctx context.Context, p config.Project) (config.RefReader, string, error) {
-		read, branch, err := LocalRefs(ctx, p)
-		return func(ctx context.Context, ref, path string) ([]byte, error) {
+	load := w.srv.projectLoader(func(ctx context.Context, p config.Project) (config.Refs, string, error) {
+		refs, branch, err := LocalRefs(ctx, p)
+		read := refs.Read
+		refs.Read = func(ctx context.Context, ref, path string) ([]byte, error) {
 			raw, err := read(ctx, ref, path)
 			if path == config.ProjectConfigPath && !merged {
 				// The merge lands after this read: main gains a stage, and
@@ -126,7 +127,8 @@ func TestC28MergeDuringALoadIsInForceAtTheNextRead(t *testing.T) {
 				w.srv.caches.forget(p.ID)
 			}
 			return raw, err
-		}, branch, err
+		}
+		return refs, branch, err
 	})
 	enabled := func() bool {
 		t.Helper()

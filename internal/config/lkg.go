@@ -72,11 +72,16 @@ func configAlertKey(project string) string { return AlertProjectConfigInvalid + 
 // invalid read raises an alert and returns the last known good config with
 // Stale set. With no last known good config it returns the read's error.
 // Only a refusal of the file (ErrInvalid) falls back: an error that reading
-// the ref returns, such as a missing mirror, goes to the caller.
-func (l *Loader) Load(ctx context.Context, project string, read RefReader, defaultBranch string) (*Loaded, error) {
-	snap, err := ReadProjectSnapshot(ctx, read, defaultBranch)
+// the ref returns, such as a missing mirror, goes to the caller. Every load
+// lists the skill directories through refs.Tree, so no loader saves a pin
+// whose directory the default branch tracks.
+func (l *Loader) Load(ctx context.Context, project string, refs Refs, defaultBranch string) (*Loaded, error) {
+	snap, err := ReadProjectSnapshot(ctx, refs.Read, defaultBranch)
 	if err == nil && l.Check != nil {
 		err = l.Check(snap.Config)
+	}
+	if err == nil {
+		err = SkillDirs(ctx, snap.Config, refs.Tree, DefaultRef(defaultBranch))
 	}
 	if err == nil {
 		if err := l.LKG.SaveLKG(ctx, project, snap.ConfigRaw, snap.ManifestRaw); err != nil {

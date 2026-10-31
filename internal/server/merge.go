@@ -60,9 +60,7 @@ func (m *Merge) Setup(s *Server) error {
 			return nil, err
 		}
 		mirror := svc.Mirror(p)
-		l, err := loader.Load(ctx, p.ID, func(ctx context.Context, ref, path string) ([]byte, error) {
-			return mirror.Show(ctx, ref, path)
-		}, base)
+		l, err := loader.Load(ctx, p.ID, config.Refs{Read: mirror.Show, Tree: mirror.Tree}, base)
 		if err != nil {
 			return nil, err
 		}

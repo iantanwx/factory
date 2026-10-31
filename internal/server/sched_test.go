@@ -187,15 +187,15 @@ func TestRunFinishOverTheSocket(t *testing.T) {
 // file as fs.ErrNotExist, which the config loader needs.
 func TestLocalRefsReadsTheDefaultBranch(t *testing.T) {
 	repo := projectRepo(t, "merge:\n  mechanism: direct\n")
-	read, branch, err := LocalRefs(context.Background(), config.Project{ID: "alpha", Path: repo})
+	refs, branch, err := LocalRefs(context.Background(), config.Project{ID: "alpha", Path: repo})
 	if err != nil || branch != "main" {
 		t.Fatal(branch, err)
 	}
-	data, err := read(context.Background(), config.DefaultRef(branch), ".loop/config.yaml")
+	data, err := refs.Read(context.Background(), config.DefaultRef(branch), ".loop/config.yaml")
 	if err != nil || !strings.Contains(string(data), "direct") {
 		t.Fatalf("read = %q, %v", data, err)
 	}
-	snap, err := config.ReadProjectSnapshot(context.Background(), read, branch)
+	snap, err := config.ReadProjectSnapshot(context.Background(), refs.Read, branch)
 	if err != nil || len(snap.Manifest.Secrets) != 0 {
 		t.Fatalf("snapshot = %+v, %v", snap, err)
 	}
@@ -235,6 +235,54 @@ func TestC1SchedLoaderRefusesAnUnknownStageName(t *testing.T) {
 	})
 	if err != nil || !strings.Contains(body, "stages.implementr") {
 		t.Fatalf("alert body = %q, %v; want one that names stages.implementr", body, err)
+	}
+}
+
+// C4: the scheduler's project loader lists the default branch's tree
+// through LocalRefs. A commit that pins neon, on a default branch that
+// tracks .claude/skills/neon/SKILL.md, keeps the last good config in force,
+// and the project_config_invalid alert names neon and that path.
+func TestC4SchedLoaderRefusesAPinWhoseDirectoryIsTracked(t *testing.T) {
+	w := newSchedWorld(t, Options{})
+	ctx := context.Background()
+	p, err := w.srv.Projects.Show("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.srv.projectLoader(LocalRefs)(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "stages:\n  code-reviewer: {}\nmerge:\n  mechanism: direct\nskills:\n  - name: neon\n    repo: owner/repo\n" +
+		"    commit: 0123456789abcdef0123456789abcdef01234567\n    path: \"\"\n" +
+		"    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+	skill := filepath.Join(p.Path, ".claude", "skills", "neon", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for path, data := range map[string]string{filepath.Join(p.Path, config.ProjectConfigPath): cfg, skill: "neon\n"} {
+		if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitT(t, p.Path, "add", "-A")
+	gitT(t, p.Path, "commit", "-q", "-m", "pin neon and commit its directory")
+	gitT(t, p.Path, "push", "-q", "origin", "main")
+
+	w.srv.caches.forget("alpha")
+	snap, err := w.srv.projectLoader(LocalRefs)(ctx, "alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Config.Skills) != 0 {
+		t.Fatalf("skills in force = %+v, want the last good config", snap.Config.Skills)
+	}
+	var body string
+	err = w.srv.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT body FROM alerts WHERE project = 'alpha' AND kind = ? AND state = 'open'`,
+			config.AlertProjectConfigInvalid).Scan(&body)
+	})
+	if err != nil || !strings.Contains(body, `"neon"`) || !strings.Contains(body, ".claude/skills/neon") {
+		t.Fatalf("alert body = %q, %v; want one that names neon and .claude/skills/neon", body, err)
 	}
 }
 

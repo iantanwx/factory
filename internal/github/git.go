@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // Git runs every server git command (KTD14). The server never runs an
@@ -352,6 +354,23 @@ func (m *Mirror) Show(ctx context.Context, ref, path string) ([]byte, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// Tree lists the entries tracked directly under dir at ref. A ref or a
+// dir the mirror lacks returns no entry and no error.
+func (m *Mirror) Tree(ctx context.Context, ref, dir string) ([]config.TreeEntry, error) {
+	if strings.HasPrefix(dir, "/") || strings.Contains(dir, "\x00") {
+		return nil, fmt.Errorf("github: %q is not a repository path", dir)
+	}
+	sha := m.Resolve(ctx, ref)
+	if sha == "" {
+		return nil, nil
+	}
+	out, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"ls-tree", "-z", sha, "--", dir + "/"}})
+	if err != nil {
+		return nil, err
+	}
+	return config.ParseTree(out), nil
 }
 
 // AddedBy is the newest first-parent commit reachable from tip whose diff
