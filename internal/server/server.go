@@ -46,6 +46,10 @@ const (
 // DefaultShutdownTimeout bounds GracefulStop on SIGTERM.
 const DefaultShutdownTimeout = 30 * time.Second
 
+// stageRenames is the rename table that each start applies to the store.
+// A test puts its own pair in place.
+var stageRenames = config.StageRenames
+
 // Step is one start-up reconcile step or one stop step.
 type Step func(ctx context.Context) error
 
@@ -192,6 +196,15 @@ func Run(ctx context.Context, opts Options) (err error) {
 			err = cerr
 		}
 	}()
+	// Each old stage name in the store becomes its new name before
+	// admission and the timers read one.
+	n, err := s.Store.RenameStages(ctx, stageRenames())
+	if err != nil {
+		return fmt.Errorf("server: rename old stage names: %w", err)
+	}
+	if n > 0 {
+		s.log.InfoContext(ctx, "renamed old stage names", "rows", n)
+	}
 	for _, setup := range opts.Setup {
 		if err := setup(s); err != nil {
 			return fmt.Errorf("server: setup: %w", err)

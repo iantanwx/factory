@@ -108,9 +108,15 @@ type edit struct {
 // head, or removes key when value is nil. It refuses a key that names no
 // setting, a field other than enabled on a run stage or an agent job that
 // raw does not list, a file that does not validate, and a change that
-// moves neither the setting's value nor its source in force. d gives the
-// loop's defaults for one config, or nil for none.
+// moves neither the setting's value nor its source in force. It refuses a
+// key that names an old stage, and a key on a new stage moves the stage's
+// old entry to the new key. d gives the loop's defaults for one config, or
+// nil for none.
 func editSetting(hc *config.HostConfig, raw []byte, key string, value *string, d func(*config.ProjectConfig) config.Defaults) (edit, *cli.Refusal) {
+	raw, ref := renameStageKey(raw, key)
+	if ref != nil {
+		return edit{}, ref
+	}
 	known := config.KnownStages(hc)
 	k, err := config.ParseSettingKey(key, known)
 	if err != nil {

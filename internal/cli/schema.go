@@ -49,6 +49,9 @@ type Flag struct {
 	Required    bool     `json:"required"`
 	Enum        []string `json:"enum"` // [] when any value is allowed
 	Description string   `json:"description"`
+	// Stage marks a value that names a stage or a room kind, so an old
+	// name refuses.
+	Stage bool `json:"-"`
 }
 
 // Arg describes one positional argument of a verb, in order.
@@ -56,6 +59,8 @@ type Arg struct {
 	Name        string `json:"name"`
 	Required    bool   `json:"required"`
 	Description string `json:"description"`
+	// Stage marks a value that names a stage, so an old name refuses.
+	Stage bool `json:"-"`
 }
 
 // Verb is one entry of the CLI surface, and the slice of the schema that
