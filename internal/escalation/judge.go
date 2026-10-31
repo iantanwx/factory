@@ -118,9 +118,19 @@ func (c CommandJudge) Ask(ctx context.Context, prompt string) (string, error) {
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil && out.Len() == 0 {
+		if line := lastLine(errb.String()); line != "" {
+			return "", fmt.Errorf("%s: %w: %s", c.JudgeName, err, line)
+		}
 		return "", fmt.Errorf("%s: %w", c.JudgeName, err)
 	}
 	return out.String(), nil
+}
+
+// lastLine is the last non-empty line of text, trimmed. A harness writes
+// why it failed last, so the note keeps that line.
+func lastLine(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // HTTPJev calls Jev's systemone endpoint.
@@ -416,10 +426,8 @@ func JudgeVerb(j Judging) cli.Handler {
 			}
 		}
 		key, from := jevKey(checkout)
-		if key != "" {
-			for i, d := range decisions {
-				decisions[i] = strings.ReplaceAll(d, key, "[REDACTED]")
-			}
+		for i, d := range decisions {
+			decisions[i] = redact(d, key)
 		}
 		prompt := JudgePrompt(rubric, finding, decisions)
 		answers := make([]*JudgeAnswer, len(j.Judges))
@@ -447,7 +455,7 @@ func JudgeVerb(j Judging) cli.Handler {
 			if answers[i] != nil {
 				panel.Judges = append(panel.Judges, *answers[i])
 			} else {
-				notes = append(notes, "judge: "+failed[i])
+				notes = append(notes, "judge: "+redact(failed[i], key))
 			}
 		}
 		switch {
@@ -457,7 +465,7 @@ func JudgeVerb(j Judging) cli.Handler {
 			notes = append(notes, "jev: not asked, because fewer than two judges answered")
 		default:
 			if r, err := j.Jev.Score(ctx, panel, key); err != nil {
-				notes = append(notes, "jev: "+strings.ReplaceAll(err.Error(), key, "[REDACTED]"))
+				notes = append(notes, "jev: "+redact(err.Error(), key))
 			} else {
 				panel.Reading = r
 			}
@@ -473,6 +481,14 @@ func JudgeVerb(j Judging) cli.Handler {
 		return cli.Found(map[string]any{"panel": panel, "panel_file": file, "decision": decision, "key_from": from, "notes": notes,
 			"recorded_decisions": len(decisions)})
 	}
+}
+
+// redact hides each copy of key in text. An empty key hides nothing.
+func redact(text, key string) string {
+	if key == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, key, "[REDACTED]")
 }
 
 // writePanel writes the panel to out, or to a new temporary file, at 0600.
