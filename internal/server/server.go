@@ -25,6 +25,7 @@ import (
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
@@ -373,7 +374,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			claims = s.Admission
 		}
 		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: claims,
-			Terminal: escalation.CloseFor, Registry: cli.Surface(), Logger: srv.Logger()})
+			Terminal: escalation.CloseFor, Applied: retro.SignalsFor, Registry: cli.Surface(), Logger: srv.Logger()})
 		if err != nil {
 			return nil, err
 		}
@@ -382,6 +383,10 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		}
 		// work show answers why the item waits.
 		s.Machine.SetWaitReader(admission.WaitOf(st))
+		// work show lists the item's signals.
+		s.Machine.SetRetroReader(func(ctx context.Context, project, item string) (machine.RetroOnItem, error) {
+			return retro.OnItem(ctx, st, project, item)
+		})
 		if s.Admission != nil {
 			s.Admission.Attach(s.Machine)
 			if err := srv.Handle("work peek", s.peek); err != nil {
