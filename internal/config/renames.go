@@ -22,8 +22,9 @@ var stageRenames = map[string]string{
 	"fixer":       StageTriage,
 }
 
-// retiredWords are the old role words that name no stage key.
-var retiredWords = []string{"PRD author", "spec author"}
+// retiredWords are the old words that name no stage key: the old role
+// words, and AAR, the old name of the retro.
+var retiredWords = []string{"PRD author", "spec author", "AAR"}
 
 // NewStageName returns the new name of an old stage name, and false for
 // any other name.
