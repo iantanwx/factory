@@ -10,31 +10,18 @@ import (
 	"io/fs"
 	"maps"
 	"slices"
-	"strconv"
-	"strings"
 
-	"github.com/iantanwx/loop/internal/brief"
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // ThirdPartyFile is the pin file's path in the pack source.
 const ThirdPartyFile = "third-party.json"
 
-// ThirdParty is one pinned third-party skill (ADR 0007, decision 7). The
-// release does not hold its files. A host verb fetches them at Commit,
-// and TreeHash checks them against SHA256. A run receives the skill as
-// loop-<Name>.
-type ThirdParty struct {
-	// Name is the upstream skill name, such as impeccable.
-	Name string `json:"name"`
-	// Repo is owner/name on GitHub.
-	Repo string `json:"repo"`
-	// Commit is the pinned commit.
-	Commit string `json:"commit"`
-	// Path is the skill's directory in the repository. "" is the root.
-	Path string `json:"path"`
-	// SHA256 is the TreeHash of that directory at Commit.
-	SHA256 string `json:"sha256"`
-}
+// ThirdParty is one pinned third-party skill of the release (ADR 0007,
+// decision 7). The release does not hold its files. A host verb fetches
+// them at Commit. A run receives the skill as loop-<Name>. A userspace pin
+// is the same type, so both pass one Check.
+type ThirdParty = config.SkillPin
 
 // ReadThirdParty reads and checks the pin file of a pack source. The file is
 // {"skills": [ThirdParty, ...]}, and an unknown field is refused. A source
@@ -62,17 +49,13 @@ func ReadThirdParty(src fs.FS) ([]ThirdParty, error) {
 		var p ThirdParty
 		err := strict(entry, &p)
 		if err == nil {
-			err = p.check()
+			err = p.Check()
 		}
 		if err == nil && slices.ContainsFunc(out, func(q ThirdParty) bool { return q.Name == p.Name }) {
-			err = errors.New("another pin has this name")
+			err = errors.New("name is the name of another pin")
 		}
 		if err != nil {
-			label := strconv.Quote(p.Name)
-			if p.Name == "" {
-				label = strconv.Itoa(i)
-			}
-			return nil, fmt.Errorf("pack: %s: pin %s: %w", ThirdPartyFile, label, err)
+			return nil, fmt.Errorf("pack: %s: pin %s: %w", ThirdPartyFile, config.PinLabel(i, p.Name), err)
 		}
 		out = append(out, p)
 	}
@@ -83,34 +66,6 @@ func strict(raw []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
-}
-
-func (p ThirdParty) check() error {
-	switch {
-	case !validName(p.Name):
-		return fmt.Errorf("name %q is not lower case letters, digits and dashes", p.Name)
-	case strings.HasPrefix(p.Name, brief.SkillPrefix):
-		return fmt.Errorf("name %q is in the %s* namespace, which the pack adds", p.Name, brief.SkillPrefix)
-	case !lowerHex(p.Commit, 40):
-		return fmt.Errorf("commit %q is not 40 lower-case hex characters", p.Commit)
-	case !lowerHex(p.SHA256, 64):
-		return fmt.Errorf("sha256 %q is not 64 lower-case hex characters", p.SHA256)
-	case p.Path != "" && (p.Path == "." || !fs.ValidPath(p.Path)):
-		return fmt.Errorf("path %q is not a clean relative path inside the repository", p.Path)
-	}
-	return nil
-}
-
-func lowerHex(s string, n int) bool {
-	if len(s) != n {
-		return false
-	}
-	for _, r := range s {
-		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
-			return false
-		}
-	}
-	return true
 }
 
 // ThirdPartyPins are the pins this binary embeds. The pack test reads the

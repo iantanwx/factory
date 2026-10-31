@@ -39,6 +39,8 @@ type ProjectConfig struct {
 	PolicyHooks []Command              `yaml:"policy_hooks,omitempty"`
 	Signoff     SignoffConfig          `yaml:"signoff,omitempty"`
 	Health      HealthConfig           `yaml:"health,omitempty"`
+	// Skills are the project's userspace skill pins (ADR 0013).
+	Skills SkillPins `yaml:"skills,omitempty"`
 }
 
 // HealthConfig is the project's own health limits, which the overwatch
@@ -201,6 +203,7 @@ func (c *ProjectConfig) validate() error {
 	checkCommands(ck, "gates", c.Gates)
 	checkCommands(ck, "policy_hooks", c.PolicyHooks)
 	checkBaselines(ck, c.Gates, c.PolicyHooks)
+	checkSkills(ck, c.Skills)
 	seen := map[string]bool{}
 	for i, r := range c.Signoff.Readers {
 		f := fmt.Sprintf("signoff.readers[%d]", i)

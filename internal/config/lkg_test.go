@@ -169,3 +169,69 @@ func TestSnapshotNamesItsBranch(t *testing.T) {
 		t.Fatalf("BaseBranch = %q, %q", (&ProjectSnapshot{}).BaseBranch(), snap.BaseBranch())
 	}
 }
+
+// loopPinConfig is validProjectConfig with one pin in the loop- namespace.
+const loopPinConfig = validProjectConfig + `skills:
+  - name: loop-x
+    repo: owner/repo
+    commit: 0123456789abcdef0123456789abcdef01234567
+    path: ""
+    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+`
+
+// TestC1ALoopPinDoesNotLoad proves C1: a userspace pin named loop-x fails
+// the parse. The load keeps the last good config and raises one
+// project_config_invalid alert that names the pin. A project with no last
+// good config refuses.
+func TestC1ALoopPinDoesNotLoad(t *testing.T) {
+	if _, err := ParseProjectConfig([]byte(loopPinConfig)); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `"loop-x"`) {
+		t.Fatalf("parse = %v, want ErrInvalid that names loop-x", err)
+	}
+	ctx := context.Background()
+	st := openStore(t)
+	for _, p := range []Project{
+		{ID: "alpha", Repo: "iantanwx/alpha", Path: "/srv/a"},
+		{ID: "beta", Repo: "iantanwx/beta", Path: "/srv/b"},
+	} {
+		if err := StoreProjectRow(st)(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st)}
+	origin := fakeOrigin{ProjectConfigPath: validProjectConfig}
+	if _, err := l.Load(ctx, "alpha", origin.read, "main"); err != nil {
+		t.Fatal(err)
+	}
+
+	origin[ProjectConfigPath] = loopPinConfig
+	got, err := l.Load(ctx, "alpha", origin.read, "main")
+	if err != nil || !got.Stale || got.Config.Merge.Mechanism != MergeMergify {
+		t.Fatalf("load = %+v, %v, want the last good config", got, err)
+	}
+	var bodies []string
+	err = st.Read(ctx, func(tx *sql.Tx) error {
+		r, err := tx.Query(`SELECT body FROM alerts WHERE project = 'alpha' AND kind = ? AND state = 'open'`, AlertProjectConfigInvalid)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = r.Close() }()
+		for r.Next() {
+			var b string
+			if err := r.Scan(&b); err != nil {
+				return err
+			}
+			bodies = append(bodies, b)
+		}
+		return r.Err()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bodies) != 1 || !strings.Contains(bodies[0], `"loop-x"`) {
+		t.Fatalf("open alert bodies = %q, want one that names loop-x", bodies)
+	}
+
+	if _, err := l.Load(ctx, "beta", origin.read, "main"); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `"loop-x"`) {
+		t.Fatalf("beta load = %v, want ErrInvalid that names loop-x", err)
+	}
+}
