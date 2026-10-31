@@ -21,6 +21,26 @@ word differently make two agents that act differently, and no gate compares them
   decision, review and architect. A room prepares a decision and applies it. A room never makes it.
 - **The author**: in a review, the run or the person who wrote the work.
 
+## Phases
+
+An epic passes these phases in this order. A phase is a step of the loop. One or more stages or
+rooms do the work of each phase. A bug's shaped ticket takes the build phase, and a closed bug
+takes the retro phase.
+
+1. **Ideate** (optional): the operator shapes a raw idea before a PRD exists. The loop has no room
+   for this phase.
+2. **Brainstorm**: an unattended brainstorm or a brainstorm room writes the PRD.
+3. **Doc review**: the doc-reviewer reviews the PRD, and the reviser answers its findings. The
+   operator signs it off.
+4. **ADR** (optional): an architect room writes the ADRs of an epic that needs them, and the
+   doc-reviewer reviews each ADR pull request.
+5. **Plan**: the planner writes the spec.
+6. **Doc review**: the doc-reviewer reviews the spec, and the reviser answers a person's comment
+   on it. The operator signs it off.
+7. **Decompose**: the decomposer cuts the approved spec into tickets.
+8. **Build**: the implementer builds each ticket, and the code-reviewer reviews it.
+9. **Retro**: the retro stage learns from the finished unit of work.
+
 ## Stages
 
 Name the stage the first time a runbook mentions a role. Use the short form after that.
@@ -34,7 +54,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | `reviser` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
 | `planner` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
 | `decomposer` | Cuts one approved spec into tickets in one batch | epic `spec_approved` |
-| `triage` | Routes each escalation through the triage panel | escalations that wait for a panel |
+| `triage` | Applies the triage rubric to each escalation, and routes each finding to a person or back to the loop | escalations that wait for a panel |
 | `reproducer` | Turns one bug report into a failing test and a shaped ticket | bug `reported` |
 | `retro` | Learns from one epic that reached `done` or one bug that closed, and routes each learning | retros that wait for a run |
 
@@ -68,7 +88,6 @@ names a verb, and the transition table picks the state.
   brainstorm writes it from the operator's request. A brainstorm room writes it with the operator.
 - **Spec**: states how one epic is built. It is the last document a person reads before the
   decomposer cuts tickets.
-- **Ticket**: the unit that the implementer and the code-reviewer read.
 - **Sign-off**: the operator's approval of a PRD or a spec pull request at one head. The
   coordinator records it, and the server merges the document. No stage merges a document.
 - **Project policy**: the rules of one project for one role, in `.loop/policy/<role>.md` in the
@@ -76,23 +95,57 @@ names a verb, and the transition table picks the state.
 
 ## Work
 
-- **Item**: one record of work that the server holds: a ticket, an epic, a bug or a decision. A
-  spec's list of work entries is not a list of items.
-- **Epic**: one slice of the product. It owns a PRD, a spec and its tickets.
-- **Slice**: one ticket that crosses every layer it touches, and lands and reverts alone.
+- **Item**: one record that the server holds: a ticket, an epic, a bug or a decision. A spec's
+  list of work entries is not a list of items.
+- **Work kinds**: `epic`, `bug` and `ticket`. A decision is an item, but no work kind.
+  `loop work list` lists no decision, and `loop decision list` lists them.
+- **Unit of work**: an epic or a bug. The loop counts its work in units, and each finished unit
+  gets one retro.
+- **Epic**: one slice of the product, and one unit of work. It owns a PRD, a spec and its tickets.
+- **Bug**: one fault that a person reported, and one unit of work. The reproducer turns it into a
+  failing test and one shaped ticket.
+- **Ticket**: one vertical slice of a unit of work. It crosses every layer it touches, and it lands
+  and reverts alone. A ticket is never a unit by itself. The implementer and the code-reviewer read
+  it.
 - **Contract**: a numbered promise that can fail, such as C1. The spec holds its text. A ticket
   names the contracts it proves.
 - **Proof**: what shows that a contract holds. It fails before the change. A test is the strong
   proof, because it runs again after every merge. A command is the weak proof.
 - **Blocker**: a dependency. A ticket or an epic with an open blocker waits in `backlog`.
-- **Decision**: a question that no ticket holds. Every decision names its trigger, the event that
-  forces the answer.
-- **Escalation**: a finding scored at level 4 or 5, or answered `outside`, that waits on a person
-  in the inbox. Levels 1 to 3 stay in the loop.
 - **Loop fault**: a fault in the loop itself, not in the project. Its id, such as F-1, never
   changes.
 - **Attempt**: one run on an item. The brief names the attempt number. Two failed attempts with
   unchanged inputs stop the item.
+
+## Inbox
+
+The inbox holds each question that waits on a person. Two kinds of hold share one word, so each
+has a name of its own.
+
+- **Decision**: a question that no ticket holds. It is an item with a record of its own. Every
+  decision names its trigger, the event that forces the answer. A pending decision waits for its
+  trigger, and no inbox shows it.
+- **Inbox hold**: a decision whose trigger fired, in state `needs_human`. It waits on the operator
+  in the inbox, under the inbox kind `hold` and the entry id `hold:<project>:<item>`.
+- **Hold on an item**: a room or an escalation that keeps every stage off one item.
+  `loop work show` lists it under `wait.holds`. It never ends a running lease. An inbox hold is no
+  hold on an item.
+- **Escalation**: a finding scored at level 4 or 5, or answered `outside`, that waits on a person
+  in the inbox. Levels 1 to 3 stay in the loop.
+- **Triage rubric**: the five levels and the two-option gate in `../loop-sdlc-triage/SKILL.md`.
+  Two judges score each finding against it. The triage stage is the run that applies it to each
+  escalation.
+
+## Retro
+
+- **Retro**: the step that learns from one finished unit of work. The `retro` stage runs it, and
+  routes each learning through two judges. It is the last phase.
+- **Epic done**: `epic.done`, the event of an epic that reaches `done`. It starts the epic's retro.
+- **Bug closed**: `bug.closed`, the event of a bug that closes. It starts the bug's retro.
+- **Closed bug**: the operator's rule for when a bug closes. A shaped bug closes when its shaped
+  ticket reaches `done`. A canceled bug closes at once. A duplicate bug never closes, because the
+  retro of its original covers it. The rule reads the state of the shaped ticket, because a bug
+  reaches `shaped` before its ticket is built.
 
 ## Settings
 
