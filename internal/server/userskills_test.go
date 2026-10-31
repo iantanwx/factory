@@ -284,15 +284,26 @@ func TestC14APinReachesOnlyItsOwnProject(t *testing.T) {
 	pw.hold("alpha")
 	pw.hold("beta")
 
+	// The coordinator session started before alpha was registered. End it,
+	// so the next tick injects a new one while alpha pins neon and the
+	// store holds it.
+	old := pw.srv.Sched.Coordinator()
+	pw.host.Exit(old.Session.ID, 0)
+	if err := pw.srv.Sched.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	coord := pw.srv.Sched.Coordinator()
+	if coord.Project != "alpha" || coord.Checkout == "" || coord.RunID == old.RunID {
+		t.Fatalf("coordinator = %+v, want a new session in a checkout of alpha", coord)
+	}
+	if _, ok := pw.store.Held("alpha", pw.pin); !ok {
+		t.Fatal("the store lacks neon for alpha when the coordinator starts")
+	}
+	assertHoldsNoUserSkill(t, coord.Checkout)
+
 	pw.assertHoldsNeon(pw.dispatch("alpha", machine.StageImplementer, machine.Todo).Checkout)
 	assertHoldsNoUserSkill(t, pw.dispatch("beta", machine.StageImplementer, machine.Todo).Checkout)
 	assertHoldsNoUserSkill(t, pw.openRoomOf("beta"))
-
-	coord := pw.srv.Sched.Coordinator()
-	if coord.Project != "alpha" || coord.Checkout == "" {
-		t.Fatalf("coordinator = %+v, want a checkout of alpha", coord)
-	}
-	assertHoldsNoUserSkill(t, coord.Checkout)
 }
 
 // C15: a run start never fetches, and never waits. While the store lacks
