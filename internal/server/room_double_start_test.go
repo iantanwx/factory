@@ -6,29 +6,28 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/sched"
 )
 
-// watchDuringRoomCheckout runs one Watch pass while the first room
-// checkout is being made, as the server's watch loop can. A second
-// checkout of the same name gets a -2 suffix, as the real host does.
-type watchDuringRoomCheckout struct {
+// raceRoomCheckout runs race once while the first room checkout is being
+// made. A second checkout of the same name gets a -2 suffix, as the real
+// host does.
+type raceRoomCheckout struct {
 	sched.CheckoutHost
-	w     *humanWorld
+	race  func(context.Context)
 	raced *atomic.Bool
 	made  map[string]bool
 	mu    *sync.Mutex
 }
 
-func (c watchDuringRoomCheckout) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec) (agenthost.Checkout, error) {
+func (c raceRoomCheckout) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec) (agenthost.Checkout, error) {
 	if strings.HasPrefix(spec.Name, "loop-room-") {
 		if c.raced.CompareAndSwap(false, true) {
-			if err := c.w.srv.Rooms.Watch(ctx); err != nil {
-				c.w.t.Errorf("watch: %v", err)
-			}
+			c.race(ctx)
 		}
 		c.mu.Lock()
 		if c.made[spec.Name] {
@@ -40,23 +39,26 @@ func (c watchDuringRoomCheckout) CreateCheckout(ctx context.Context, spec agenth
 	return c.CheckoutHost.CreateCheckout(ctx, spec)
 }
 
-// One room open starts the room once. A watch pass that starts the same
-// opening room while the open still makes its checkout leaves the room
-// live with one session and its .env, and the open succeeds.
-func TestRoomStartsOnceWhenWatchRacesTheOpen(t *testing.T) {
-	w := newRoomWorld(t)
+// raceRoomStart restarts w with a checkout host that runs race during the
+// first room checkout.
+func raceRoomStart(w *humanWorld, race func(context.Context)) {
 	orig := w.opts.Sched.Checkouts
 	raced, mu, made := &atomic.Bool{}, &sync.Mutex{}, map[string]bool{}
 	w.opts.Sched.Checkouts = func(p string) sched.CheckoutHost {
-		return watchDuringRoomCheckout{CheckoutHost: orig(p), w: w, raced: raced, made: made, mu: mu}
+		return raceRoomCheckout{CheckoutHost: orig(p), race: race, raced: raced, made: made, mu: mu}
 	}
 	w.restart()
-	item := todoTicket(t, w.bx)
-	env, code := w.coordinator("room", "open", "--kind", "review", "--project", "alpha", "--item", item,
-		"--reason", "a design question", "--score", "4")
-	if code != 0 {
-		t.Errorf("room open = %d %v", code, env)
-	}
+}
+
+func openReview(w *humanWorld, item, reason string) (map[string]any, int) {
+	return w.coordinator("room", "open", "--kind", "review", "--project", "alpha", "--item", item,
+		"--reason", reason, "--score", "4")
+}
+
+// startedOnce fails t unless alpha holds one room, live with one session
+// and its .env, and the host started one room session.
+func startedOnce(t *testing.T, w *humanWorld) {
+	t.Helper()
 	rooms, err := w.srv.Rooms.Rooms(context.Background(), false)
 	if err != nil || len(rooms) != 1 {
 		t.Fatalf("rooms = %+v %v", rooms, err)
@@ -74,4 +76,63 @@ func TestRoomStartsOnceWhenWatchRacesTheOpen(t *testing.T) {
 	if starts != 1 {
 		t.Fatalf("room sessions started = %d, want 1", starts)
 	}
+}
+
+// One room open starts the room once. A watch pass that starts the same
+// opening room while the open still makes its checkout leaves the room
+// live with one session and its .env, and the open succeeds.
+func TestRoomStartsOnceWhenWatchRacesTheOpen(t *testing.T) {
+	w := newRoomWorld(t)
+	raceRoomStart(w, func(ctx context.Context) {
+		if err := w.srv.Rooms.Watch(ctx); err != nil {
+			t.Errorf("watch: %v", err)
+		}
+	})
+	item := todoTicket(t, w.bx)
+	if env, code := openReview(w, item, "a design question"); code != 0 {
+		t.Errorf("room open = %d %v", code, env)
+	}
+	startedOnce(t, w)
+}
+
+// A second room open that arrives while a start holds the room starts no
+// second session. It reads the room while that start makes the checkout,
+// so its read holds no checkout. It acts on the room as the start left
+// it: live, and it answers with the live room.
+func TestRoomStartsOnceWhenASecondOpenArrivesDuringTheStart(t *testing.T) {
+	w := newRoomWorld(t)
+	type result struct {
+		env  map[string]any
+		code int
+	}
+	second := make(chan result, 1)
+	var item string
+	raceRoomStart(w, func(ctx context.Context) {
+		go func() {
+			env, code := openReview(w, item, "a second question")
+			second <- result{env, code}
+		}()
+		// The second open writes its reason when it reads the room. Go on
+		// once it has, so the first start ends after that read.
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			rooms, err := w.srv.Rooms.Rooms(ctx, false)
+			if err == nil && len(rooms) == 1 && rooms[0].Reason == "a second question" {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Errorf("the second open did not read the room: %+v %v", rooms, err)
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	})
+	item = todoTicket(t, w.bx)
+	if env, code := openReview(w, item, "a design question"); code != 0 {
+		t.Errorf("room open = %d %v", code, env)
+	}
+	if got := <-second; got.code != 0 {
+		t.Errorf("second room open = %d %v", got.code, got.env)
+	}
+	startedOnce(t, w)
 }
