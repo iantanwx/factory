@@ -36,6 +36,15 @@ Delete this section when the project has none.
 - Each check runs on a disposable database built from the reviewed head: `<how>`.
 - No review run reads or writes production.
 
+## Userspace skills
+
+Delete this section when the project declares no userspace skill. A userspace skill is a skill
+that the project pins in `.loop/config.yaml` or commits under its skill root. Its name never
+starts with `loop-`, and no loop runbook names it.
+
+- Read the `<name>` skill before `<step>`. For example, read a database skill before you review a
+  migration.
+
 ## Defects outside the round
 
 - Where a reviewer records a defect it proved outside this round: `<place>`.

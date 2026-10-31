@@ -40,6 +40,15 @@ Delete this section when the project draws no screens.
 - The comparison command: `<command> <route> <reference>`. Put each mismatch in the pull request
   body.
 
+## Userspace skills
+
+Delete this section when the project declares no userspace skill. A userspace skill is a skill
+that the project pins in `.loop/config.yaml` or commits under its skill root. Its name never
+starts with `loop-`, and no loop runbook names it.
+
+- Read the `<name>` skill before `<step>`. For example, read a database skill before you write a
+  migration.
+
 ## Priorities
 
 - `<rule>`, for example: production bugs first.

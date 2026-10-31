@@ -39,9 +39,13 @@ A pull request that conflicts with its base comes back as rework with no reject,
 with no failed check. Then `loop pr show` reports a conflict. GitHub runs no CI on a conflicting
 pull request. Merge the base as section 2 states, and change nothing else.
 
-When the status says rework, no round holds a reject with a comment, and the pull request has no
-conflict, do not build. A rework without its rejection repeats the rejected work. The state is then
-ahead of the record. Report a loop fault, and finish `blocked`.
+Under the `direct` mechanism, a pull request whose head is behind the base also comes back as
+rework with no reject. Section 2 states how you know. Merge the base, and change nothing else.
+
+When the status says rework, no round holds a reject with a comment, the pull request has no
+conflict, and its head is not behind the base under `direct`, do not build. A rework without its
+rejection repeats the rejected work. The state is then ahead of the record. Report a loop fault,
+and finish `blocked`.
 
 ## 2. Prepare the checkout
 
@@ -49,11 +53,24 @@ When a pull request exists, bring its head into the checkout first. The turn ski
 Inspect its diff before you change anything. Never reset, clean or discard work on the item branch.
 An unpushed commit can be the only copy.
 
-Merge the base only when `loop pr show` reports a conflict: `mergeable_state` is `dirty`. Or merge
-it with no conflict when the base caused a red build and the base is now green, as section 3 states.
-A `behind` state alone is no conflict. The merge mechanism already tests each pull request on the
-current base. A merge you do not need changes the reviewed head, and it costs a new build and a new
-review. When the state is `unknown`, GitHub did not compute it yet. Run `loop pr show` again.
+Merge the base only when one of three cases holds. `loop pr show` reports a conflict:
+`mergeable_state` is `dirty`. Or the project merges with the `direct` mechanism, and the head is
+behind the base. Or the base caused a red build and the base is now green, as section 3 states.
+
+`merge.mechanism` in `.loop/config.yaml` names the mechanism. Each one treats a head behind the
+base in its own way:
+
+| Mechanism | What it does with a head behind the base |
+| --- | --- |
+| `mergify` | Mergify tests the pull request on the current base before it merges it. |
+| `github-queue` | GitHub's merge queue tests the pull request on the current base before it merges it. |
+| `direct` | No queue tests it. The server does not merge it, and it sends the ticket to rework. |
+
+Under a queue, a `behind` state alone is no conflict. A merge you do not need changes the reviewed
+head, and it costs a new build and a new review. Under `direct`, GitHub can report `clean` for a
+head behind the base. So read the head itself: run `loop branch sync` and its `fetch` command. Then
+`git merge-base --is-ancestor origin/<base> HEAD` exits 1 when the head is behind the base. When
+the state is `unknown`, GitHub did not compute it yet. Run `loop pr show` again.
 
 To merge the base:
 

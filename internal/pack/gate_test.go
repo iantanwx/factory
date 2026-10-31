@@ -245,6 +245,31 @@ func TestGateRefusesAnUnattendedRunbookThatAsksAPerson(t *testing.T) {
 	wantOne(t, check(t, src), "attended", "ask the operator")
 }
 
+// A kernel runbook never names a userspace skill: a project may declare
+// none, and the name belongs to the project (C9). One fixture names it in
+// the manifest, one by its path.
+func TestGateRefusesARunbookThatNamesAUserspaceSkill(t *testing.T) {
+	src := fixture()
+	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"attended": false, "skills": ["loop-sdlc-turn", "neon"], "policy": "implementer"}},
+		"skills": ["loop-init", "loop-sdlc-turn"]}`)}
+	got := check(t, src)
+	wantOne(t, got, "manifest", "userspace skill")
+	for _, want := range []string{`"implementer"`, `"neon"`} {
+		if !strings.Contains(got[0].Detail, want) {
+			t.Errorf("the finding does not name %s: %v", want, got[0])
+		}
+	}
+
+	src = fixture()
+	src["runbooks/implementer.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-implementer\ndescription: Build.\n---\n\n" +
+		"Read `../loop-sdlc-turn/SKILL.md` and `.loop/policy/implementer.md`. Read `../neon/SKILL.md` before a migration.\n")}
+	got = check(t, src)
+	wantOne(t, got, "skill", "userspace skill neon")
+	if got[0].File != "runbooks/implementer.md" || got[0].Line != 6 {
+		t.Errorf("want the finding at runbooks/implementer.md:6, got %v", got[0])
+	}
+}
+
 // agentFixture is the valid fixture plus one agent that the implementer
 // runbook lists and names.
 func agentFixture() fstest.MapFS {

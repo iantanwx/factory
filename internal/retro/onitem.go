@@ -15,12 +15,27 @@ import (
 func OnItem(ctx context.Context, st *store.Store, project, item string) (machine.RetroOnItem, error) {
 	var out machine.RetroOnItem
 	err := st.Read(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT id, kind, scope, cases, at FROM signals WHERE project = ? AND item = ? ORDER BY id`, project, item)
+		signals, err := readSignals(ctx, tx, project, item)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
+		for _, s := range signals {
+			raw, err := json.Marshal(s)
+			if err != nil {
+				return err
+			}
+			out.Signals = append(out.Signals, raw)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// readSignals reads the signals of one item, oldest first.
+func readSignals(ctx context.Context, tx *sql.Tx, project, item string) ([]Signal, error) {
+	var out []Signal
+	err := eachRow(ctx, tx, `SELECT id, kind, scope, cases, at FROM signals WHERE project = ? AND item = ? ORDER BY id`,
+		[]any{project, item}, func(rows *sql.Rows) error {
 			var (
 				s     Signal
 				cases string
@@ -33,13 +48,8 @@ func OnItem(ctx context.Context, st *store.Store, project, item string) (machine
 				return err
 			}
 			s.At = time.UnixMilli(at)
-			raw, err := json.Marshal(s)
-			if err != nil {
-				return err
-			}
-			out.Signals = append(out.Signals, raw)
-		}
-		return rows.Err()
-	})
+			out = append(out, s)
+			return nil
+		})
 	return out, err
 }

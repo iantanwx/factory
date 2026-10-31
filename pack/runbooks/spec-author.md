@@ -21,8 +21,10 @@ Read these first, in this order:
 ## 1. Find the source and the round
 
 1. Read the PRD that the brief names, on the base branch. When the base holds no PRD for the epic,
-   the state is ahead of the record. Report a loop fault, and finish `blocked`. An architecture
-   epic has no PRD. Its source is each ADR in `docs/adr/` whose `**Ticket:**` line names the epic.
+   the state is ahead of the record. Report a loop fault, and finish `blocked`. A PRD epic that
+   went through the ADR stage has two sources: the PRD and each ADR in `docs/adr/` whose
+   `**Ticket:**` line names the epic. Read both. An architecture epic has no PRD. Its source is
+   each ADR whose `**Ticket:**` line names the epic.
 2. Run `loop pr show`. When the epic already has a spec pull request, this is a later round. Bring
    its head into the checkout, read the reject with `loop review rounds <item>`, and read every
    thread with `loop pr threads`. Answer each finding in the spec, or with a reply. Never open a
@@ -37,7 +39,8 @@ Write the spec at `docs/plans/<epic id>-<slug>-spec.md`. Start from the template
 
 The spec holds these sections, in this order:
 
-1. **Source**: the epic, the PRD or the ADRs, and the story labels it covers.
+1. **Source**: the epic, the PRD, each ADR whose Ticket line names the epic, and the story labels
+   it covers.
 2. **Scope check**: one or two components, and what this spec leaves out.
 3. **Decisions**: each one as "X over Y, because Z". A choice with no rejected alternative goes
    under Assumptions, because every ticket inherits it.
@@ -58,6 +61,11 @@ The spec holds these sections, in this order:
 14. **Open questions**: an empty section is normal. Never invent a question.
 
 Each work entry that draws a screen names its design references, when the project keeps them.
+
+Run the test of `../loop-sdlc-documents/SKILL.md` § 6, When a decision needs an ADR, on each
+Decisions entry. For each entry that passes all four parts, write an open question that starts
+`**Needs an ADR:**` and names the entry. The question holds the sign-off until an ADR decides it.
+Keep the entry under Decisions. An entry that fails a part stays where the section places it.
 
 Then apply `../loop-unslop/SKILL.md` to every section you wrote.
 

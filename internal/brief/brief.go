@@ -312,9 +312,11 @@ type Result struct {
 	Prompt string
 }
 
-// Inject checks every injected path against the tracked files, lists each
-// one in .git/info/exclude, then writes the pack, the brief, the prompt
-// and .env. A tracked injected path returns a *ConflictError and writes
+// Inject checks the reserved skill names and every injected path against
+// the tracked files, lists each injected path in .git/info/exclude, clears
+// the stale loop- skill directories, then writes the pack, the brief, the
+// prompt and .env. A tracked loop- skill directory the pack lacks returns a
+// *ReservedError, and a tracked injected path a *ConflictError. Each writes
 // nothing. The token file is the caller's to write.
 func Inject(ctx context.Context, in Injection) (Result, error) {
 	agents, dirs, err := packPaths(in.Harness, in.Pack)
@@ -332,10 +334,16 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 		}
 	}
 	files = append(files, agents...)
+	if err := CheckReserved(ctx, in.Checkout, in.Pack); err != nil {
+		return Result{}, err
+	}
 	if err := CheckTracked(ctx, in.Checkout, files, dirs); err != nil {
 		return Result{}, err
 	}
 	if err := Exclude(ctx, in.Checkout, files, dirs); err != nil {
+		return Result{}, err
+	}
+	if err := Prune(ctx, in.Checkout, in.Harness, in.Pack); err != nil {
 		return Result{}, err
 	}
 	if err := in.Pack.Write(in.Checkout, in.Harness); err != nil {
@@ -376,10 +384,16 @@ func RefreshPack(ctx context.Context, checkout string, h agenthost.Harness, p Pa
 	if err != nil {
 		return err
 	}
+	if err := CheckReserved(ctx, checkout, p); err != nil {
+		return err
+	}
 	if err := CheckTracked(ctx, checkout, agents, dirs); err != nil {
 		return err
 	}
 	if err := Exclude(ctx, checkout, agents, dirs); err != nil {
+		return err
+	}
+	if err := Prune(ctx, checkout, h, p); err != nil {
 		return err
 	}
 	return p.Write(checkout, h)

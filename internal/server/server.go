@@ -147,7 +147,10 @@ type Server struct {
 	Rooms       *room.Service
 	// Faults keeps loop fault reports. Every server composes it: a
 	// fault belongs to the instance, not to a project's beads.
-	Faults  *fault.Service
+	Faults *fault.Service
+	// Retro serves the retro verbs. It is composed with the machine, and
+	// is nil otherwise.
+	Retro   *retro.Service
 	Started time.Time
 
 	human *human
@@ -392,6 +395,10 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		s.Machine.SetRetroReader(func(ctx context.Context, project, item string) (machine.RetroOnItem, error) {
 			return retro.OnItem(ctx, st, project, item)
 		})
+		s.Retro = &retro.Service{World: retro.World{Store: st, Machine: s.Machine}, Redactor: red}
+		if err := s.Retro.Register(srv); err != nil {
+			return nil, err
+		}
 		if s.Admission != nil {
 			s.Admission.Attach(s.Machine)
 			if err := srv.Handle("work peek", s.peek); err != nil {
