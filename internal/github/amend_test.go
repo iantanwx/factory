@@ -32,10 +32,10 @@ func (e *env) specInSignoff(head string) (string, *gt.PR) {
 }
 
 // 1.12: the operator comments on a spec in sign-off. The reactor moves
-// the epic to the amender, who replies and pushes nothing, so the spec
+// the epic to the reviser, who replies and pushes nothing, so the spec
 // returns to sign-off. The reply answers the comment, and the next tick
 // moves nothing.
-func TestPersonCommentOnASignedOffSpecWakesTheAmender(t *testing.T) {
+func TestPersonCommentOnASignedOffSpecWakesTheReviser(t *testing.T) {
 	e := newEnv(t)
 	w := e.withWorld()
 	ctx := context.Background()
@@ -54,7 +54,7 @@ func TestPersonCommentOnASignedOffSpecWakesTheAmender(t *testing.T) {
 	}
 	mustOK(t, e.runCall("pr open", id, machine.StageReviser, map[string]string{"title": "spec"}, nil))
 	if it := e.status(id); it.Status != machine.SpecSignoff || it.Owner != "" {
-		t.Fatalf("after the amender's reply: %s owner %q", it.Status, it.Owner)
+		t.Fatalf("after the reviser's reply: %s owner %q", it.Status, it.Owner)
 	}
 	e.tick(r)
 	if got := e.status(id).Status; got != machine.SpecSignoff {
@@ -62,7 +62,7 @@ func TestPersonCommentOnASignedOffSpecWakesTheAmender(t *testing.T) {
 	}
 }
 
-// A review thread whose last word is a person's waits for the amender,
+// A review thread whose last word is a person's waits for the reviser,
 // also after the loop answered it once. A run that holds the epic keeps
 // it: the comment waits for the next tick after the run ends.
 func TestPersonReviewThreadWaitsForTheRunThatHoldsTheEpic(t *testing.T) {
@@ -93,7 +93,7 @@ func TestPersonReviewThreadWaitsForTheRunThatHoldsTheEpic(t *testing.T) {
 
 // The amendment poll reads every amendable epic on every tick, and needs
 // only who spoke last. So it reads REST alone: a review thread whose state
-// GraphQL does not name still wakes the amender, and stops no other epic.
+// GraphQL does not name still wakes the reviser, and stops no other epic.
 func TestAmendmentPollNeedsNoThreadState(t *testing.T) {
 	e := newEnv(t)
 	w := e.withWorld()
@@ -131,10 +131,10 @@ func TestBotCommentWakesNoStage(t *testing.T) {
 }
 
 // A person who submits a review with a body and no line comment leaves
-// the feedback a phone leaves most often. It wakes the amender like a
+// the feedback a phone leaves most often. It wakes the reviser like a
 // conversation comment, and the loop's conversation reply answers it. An
 // approval with no body is a click, not feedback, and wakes nothing.
-func TestPersonReviewSummaryWakesTheAmender(t *testing.T) {
+func TestPersonReviewSummaryWakesTheReviser(t *testing.T) {
 	e := newEnv(t)
 	w := e.withWorld()
 	ctx := context.Background()
@@ -198,7 +198,7 @@ func TestAwaitsAnswer(t *testing.T) {
 	}
 }
 
-// The amender pushes a revision of a signed-off spec, and GitHub's PR
+// The reviser pushes a revision of a signed-off spec, and GitHub's PR
 // still names the old head when pr open reads it. The server's own push
 // is the head, so the revision goes to review and never back to sign-off.
 func TestRevisionReturnsToReviewWhileGitHubLagsThePush(t *testing.T) {

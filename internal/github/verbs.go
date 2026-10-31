@@ -116,7 +116,7 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 }
 
 // openVerbs maps the status an item holds when its run opens or updates
-// its PR to the table verb that hands the item to review. The amender
+// its PR to the table verb that hands the item to review. The reviser
 // pushes its revision to the document's open PR, and its `pr open` returns
 // the epic to review, or to sign-off when it pushed nothing.
 var openVerbs = map[machine.Kind]map[string]string{

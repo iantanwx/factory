@@ -125,9 +125,9 @@ func TestOperatorMergeIsTheSignoff(t *testing.T) {
 	}
 }
 
-// AE7: the first reject starts one amender run, and the amender's PR
+// AE7: the first reject starts one reviser run, and the reviser's PR
 // update returns the epic to review. The second reject waits in the
-// operator's inbox for a brainstorm room, and no amender run starts.
+// operator's inbox for a brainstorm room, and no reviser run starts.
 func TestFirstRejectAmendsSecondWaitsForABrainstormRoom(t *testing.T) {
 	w := newWorld(t)
 	epic, _ := w.submitted()
@@ -138,10 +138,10 @@ func TestFirstRejectAmendsSecondWaitsForABrainstormRoom(t *testing.T) {
 	}
 	c, ref := w.adm.Peek(w.ctx, testProject, machine.StageReviser)
 	if ref != nil || c == nil || c.Item != epic {
-		t.Fatalf("the amender's work query = %+v %+v", c, ref)
+		t.Fatalf("the reviser's work query = %+v %+v", c, ref)
 	}
 	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageReviser, RunID: "run-amd"}); res.Refusal != nil {
-		t.Fatalf("amender claim: %+v", *res.Refusal)
+		t.Fatalf("reviser claim: %+v", *res.Refusal)
 	}
 	gt.Commit(t, w.checkout, "amend", map[string]string{prdPath: prdText + "\nRevised.\n"})
 	amd := w.run("run-amd", epic, machine.StageReviser)
@@ -149,10 +149,10 @@ func TestFirstRejectAmendsSecondWaitsForABrainstormRoom(t *testing.T) {
 	ok(t, w.call(amd, "", "branch push", headFlags(head, map[string]string{})))
 	ok(t, w.call(amd, "", "pr open", map[string]string{"title": "Widgets"}))
 	if it := w.show(epic); it.Status != machine.PRDReview || it.Owner != "" {
-		t.Fatalf("after the amender: %+v", it)
+		t.Fatalf("after the reviser: %+v", it)
 	}
 	if n := len(w.api.World.PRs()); n != 1 {
-		t.Fatalf("the amender opened a second PR: %d", n)
+		t.Fatalf("the reviser opened a second PR: %d", n)
 	}
 
 	w.review(epic, "reject")
@@ -160,7 +160,7 @@ func TestFirstRejectAmendsSecondWaitsForABrainstormRoom(t *testing.T) {
 		t.Fatalf("after the second reject: %+v", it)
 	}
 	if c, ref := w.adm.Peek(w.ctx, testProject, machine.StageReviser); c != nil || ref != nil {
-		t.Fatalf("an amender run would start again: %+v %+v", c, ref)
+		t.Fatalf("a reviser run would start again: %+v %+v", c, ref)
 	}
 	e := entry(w.inbox(), "escalation/"+testProject+"/"+epic)
 	if e == nil || e.Awaits != inbox.AwaitsPerson || !strings.Contains(e.Text, "brainstorm room") {
