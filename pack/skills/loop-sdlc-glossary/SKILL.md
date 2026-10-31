@@ -32,7 +32,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | `unattended-brainstorm` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
 | `doc-reviewer` | Reviews one PRD, one spec or one ADR pull request | epic `prd_review`, `spec_review`, `adr_review` |
 | `reviser` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
-| `spec-author` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
+| `planner` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
 | `decomposer` | Cuts one approved spec into tickets in one batch | epic `spec_approved` |
 | `triage` | Routes each escalation through the triage panel | escalations that wait for a panel |
 | `reproducer` | Turns one bug report into a failing test and a shaped ticket | bug `reported` |

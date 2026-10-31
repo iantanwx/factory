@@ -139,7 +139,7 @@ stages:
   code-reviewer: {}
   doc-reviewer: {}
   reviser: {}
-  spec-author: {}
+  planner: {}
   unattended-brainstorm: {}
   decomposer: {}
   triage: {}

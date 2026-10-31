@@ -28,12 +28,12 @@ func (c *cancelOnCheckout) CreateCheckout(ctx context.Context, spec agenthost.Ch
 }
 
 // C-bug-1: an epic that the coordinator cancels after admission claimed
-// it, and before its spec-author session starts, gets no session. The run
-// ends, and the spec-author mutex is free again.
-func TestASpecAuthorRunOnAnEpicCanceledDuringItsStartStartsNoSession(t *testing.T) {
+// it, and before its planner session starts, gets no session. The run
+// ends, and the planner mutex is free again.
+func TestAPlannerRunOnAnEpicCanceledDuringItsStartStartsNoSession(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	w.project.set(snapshot(t, "stages:\n  spec-author: {}\nmerge:\n  mechanism: direct\n", ""))
+	w.project.set(snapshot(t, "stages:\n  planner: {}\nmerge:\n  mechanism: direct\n", ""))
 	is, err := w.bx.Create(ctx, beadsx.CreateSpec{Title: "Let a reader save a search", Description: "From the operator.", Type: "epic"})
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestASpecAuthorRunOnAnEpicCanceledDuringItsStartStartsNoSession(t *testing.
 	w.cfg.Checkouts = func(string) CheckoutHost { return &cancelOnCheckout{gitCheckouts: w.co, w: w, epic: is.ID} }
 	w.rebuild()
 
-	_, _ = w.s.Dispatch(ctx, prj, machine.StageSpecAuthor)
+	_, _ = w.s.Dispatch(ctx, prj, machine.StagePlanner)
 
 	if got := w.status(is.ID); got != machine.Canceled {
 		t.Fatalf("the epic is in %s, want canceled", got)
@@ -56,7 +56,7 @@ func TestASpecAuthorRunOnAnEpicCanceledDuringItsStartStartsNoSession(t *testing.
 	if n := w.count(`SELECT count(*) FROM runs WHERE item = ? AND ended_at IS NULL`, is.ID); n != 0 {
 		t.Fatalf("%d runs on the canceled epic %s still live, want 0", n, is.ID)
 	}
-	if n := w.count(`SELECT count(*) FROM stage_mutexes WHERE project = ? AND stage = ?`, prj, machine.StageSpecAuthor); n != 0 {
-		t.Fatalf("the spec-author mutex is still held after the cancel")
+	if n := w.count(`SELECT count(*) FROM stage_mutexes WHERE project = ? AND stage = ?`, prj, machine.StagePlanner); n != 0 {
+		t.Fatalf("the planner mutex is still held after the cancel")
 	}
 }

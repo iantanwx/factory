@@ -33,7 +33,7 @@ const (
 	StageDocReviewer          = "doc-reviewer"
 	StageReviser              = "reviser"
 	StageUnattendedBrainstorm = "unattended-brainstorm"
-	StageSpecAuthor           = "spec-author"
+	StagePlanner              = "planner"
 	StageDecomposer           = "decomposer"
 	StageTriage               = "triage"
 	StageReproducer           = "reproducer"
@@ -47,7 +47,7 @@ const (
 var (
 	runStages = []string{
 		StageImplementer, StageCodeReviewer, StageDocReviewer, StageReviser, StageUnattendedBrainstorm,
-		StageSpecAuthor, StageDecomposer, StageTriage, StageReproducer, StageRetro, StageBrainstorm,
+		StagePlanner, StageDecomposer, StageTriage, StageReproducer, StageRetro, StageBrainstorm,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch", "orca-acceptance"}
 	// optional lists the keys that a later release added. A host config
@@ -107,7 +107,7 @@ func DefaultThroughput() map[string]Throughput {
 		"reviewers":               {Cap: 10},
 		StageReviser:              {Cap: 2, Schedule: "16,46 * * * *"},
 		StageUnattendedBrainstorm: {Cap: 2, Schedule: "5,35 * * * *"},
-		StageSpecAuthor:           {Cap: 2, Schedule: "25,55 * * * *"},
+		StagePlanner:              {Cap: 2, Schedule: "25,55 * * * *"},
 		StageDecomposer:           {Cap: 2, Schedule: "10,40 * * * *"},
 		StageTriage:               {Cap: 1, Schedule: triage},
 		StageReproducer:           {Cap: 2, Schedule: "12,42 * * * *"},

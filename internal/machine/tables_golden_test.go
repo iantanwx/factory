@@ -137,6 +137,30 @@ func TestC12TheReviserTakesTheAmenderRows(t *testing.T) {
 	}
 }
 
+// C12: the pair spec-author to planner maps the spec claim of the golden
+// epic table to the planner claim of the build, and no table of the build
+// names the spec-author.
+func TestC12SpecAuthorBecomesPlannerInTheTables(t *testing.T) {
+	if n, ok := config.NewStageName("spec-author"); !ok || n != "planner" {
+		t.Fatalf("NewStageName(spec-author) = %q, %v, want planner", n, ok)
+	}
+	raw, err := os.ReadFile(goldenTables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"stage": "spec-author"`) {
+		t.Fatal("the golden tables name no spec-author claim")
+	}
+	s, err := cli.Surface().Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	epic := string(s.TransitionTables[string(KindEpic)])
+	if strings.Contains(epic, `"spec-author"`) || !strings.Contains(epic, `"planner"`) {
+		t.Fatalf("the epic table of the build names the spec-author, or no planner:\n%s", epic)
+	}
+}
+
 // C12: the pair prd-author to unattended-brainstorm is in the table, and
 // the epic table's one prd-author row of the golden file now claims under
 // unattended-brainstorm. The build names prd-author in no table.

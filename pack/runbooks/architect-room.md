@@ -86,7 +86,7 @@ loop pr open --title "docs(adr): <NNNN> <the decision>" --body "<each ADR, and t
 The server moves the epic to `adr_review`, and the doc-reviewer reviews the pull request once at
 each head. Its verdict returns the epic to `architecture`. The review is advisory, and no merge
 mechanism takes the pull request. The operator merges it on GitHub, and that merge is the sign-off. Then the server moves the
-epic to `spec_needed`, and the spec author takes it. Give the operator the link to the pull
+epic to `spec_needed`, and the planner takes it. Give the operator the link to the pull
 request.
 
 Then write the decision file, one JSON object that quotes the operator:

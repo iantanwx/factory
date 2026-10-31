@@ -81,7 +81,7 @@ const (
 	StageDocReviewer          = config.StageDocReviewer
 	StageReviser              = config.StageReviser
 	StageUnattendedBrainstorm = config.StageUnattendedBrainstorm
-	StageSpecAuthor           = config.StageSpecAuthor
+	StagePlanner              = config.StagePlanner
 	StageDecomposer           = config.StageDecomposer
 	StageReproducer           = config.StageReproducer
 )

@@ -38,7 +38,7 @@ throughput:
   doc-reviewer: {cap: 10, schedule: "26,56 * * * *"}
   reviewers: {cap: 10}
   reviser: {cap: 2, schedule: "16,46 * * * *"}
-  spec-author: {cap: 2, schedule: "25,55 * * * *"}
+  planner: {cap: 2, schedule: "25,55 * * * *"}
   decomposer: {cap: 2, schedule: "10,40 * * * *"}
   triage: {cap: 1, schedule: "14,44 * * * *"}
   reproducer: {cap: 2, schedule: "12,42 * * * *"}

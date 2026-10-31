@@ -54,7 +54,7 @@ func TestEpicRowsEndToEnd(t *testing.T) {
 	}
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 
-	failTwice(w, machine.StageSpecAuthor, e1, machine.SpecNeeded)
+	failTwice(w, machine.StagePlanner, e1, machine.SpecNeeded)
 	draftSpec(w, e1, "draft one")
 	failTwice(w, machine.StageDocReviewer, e1, machine.SpecReview)
 	run = w.Dispatch(machine.StageDocReviewer)

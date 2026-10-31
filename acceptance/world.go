@@ -59,7 +59,7 @@ stages:
   code-reviewer: {}
   doc-reviewer: {}
   reviser: {}
-  spec-author: {}
+  planner: {}
   decomposer: {}
   triage: {}
   reproducer: {}

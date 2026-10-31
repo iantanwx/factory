@@ -21,7 +21,7 @@ import (
 	"github.com/iantanwx/loop/internal/sched"
 )
 
-const docConfig = "stages:\n  doc-reviewer: {}\n  amender: {}\n  spec-author: {}\n  decomposer: {}\nmerge:\n  mechanism: direct\n"
+const docConfig = "stages:\n  doc-reviewer: {}\n  amender: {}\n  planner: {}\n  decomposer: {}\nmerge:\n  mechanism: direct\n"
 
 // newDocWorld is a server with rooms, the scheduler, the GitHub actor over
 // synthetic GitHub and the pipeline. Each checkout is a worktree of a
