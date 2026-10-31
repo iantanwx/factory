@@ -2,7 +2,7 @@
 // enters as a PRD that an intake room submits: the server pushes its
 // branch, opens its PR and creates the epic in prd_review in one call. Or
 // the coordinator creates a PRD epic from the operator's request with epic
-// create, and it waits in prd_needed for its PRD author. The
+// create, and it waits in prd_needed for its unattended brainstorm. The
 // doc-reviewer reviews it, the amender revises it once after a first
 // reject, and the operator signs it off by merging its PR, which the
 // GitHub reactor observes. The spec follows the same review and sign-off.

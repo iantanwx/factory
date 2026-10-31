@@ -1,9 +1,9 @@
 ---
-name: loop-prd-author
-description: The PRD author's runbook. Write the PRD of one epic that the coordinator created from the operator's request, and submit it for review. The server starts this run and names the epic in the brief.
+name: loop-unattended-brainstorm
+description: The unattended brainstorm's runbook. Write the PRD of one epic that the coordinator created from the operator's request, and submit it for review. The server starts this run and names the epic in the brief.
 ---
 
-# PRD author
+# Unattended brainstorm
 
 The coordinator created the epic that the brief names from the operator's own words, and the epic
 waits for its PRD. You write that PRD, and you submit it for review. Nobody is present in this

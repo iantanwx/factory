@@ -3,6 +3,7 @@ package cli_test
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -59,6 +60,19 @@ func TestC9HelpAndInboxKindsHoldNoRetiredWord(t *testing.T) {
 	}
 	if hits := retiredIn(texts, config.RetiredWords()); len(hits) > 0 {
 		t.Fatalf("a help text or an inbox kind holds a retired word:\n%s", strings.Join(hits, "\n"))
+	}
+}
+
+// C9: the prd-author rename retires its words, and no help text holds one.
+func TestC9HelpHoldsNoPRDAuthorWord(t *testing.T) {
+	words := []string{"prd-author", "PRD author"}
+	for _, w := range words {
+		if !slices.Contains(config.RetiredWords(), w) {
+			t.Errorf("RetiredWords() lacks %q", w)
+		}
+	}
+	if hits := retiredIn(helpTexts(cli.Surface()), words); len(hits) > 0 {
+		t.Fatalf("a help text holds a retired word:\n%s", strings.Join(hits, "\n"))
 	}
 }
 
