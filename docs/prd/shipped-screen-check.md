@@ -4,7 +4,7 @@
 
 The operator asked for this epic in two intake rooms. In room-0fefd19b the operator agreed to split
 the design work into two epics. The sibling epic, factorio-a4yq, holds the design stage and the
-signed design record (`docs/prd/design-stage.md` on its pull request, #243). This epic holds the
+signed design record (`docs/prd/design-stage.md`). This epic holds the
 check of the shipped screens against that record. The operator chose each part of this epic in
 room-36e9bc8c. Each story below quotes the operator's words from those rooms. The text under each
 story states the choice that the operator made.
@@ -38,7 +38,8 @@ that draws no screen. A spec entry or a ticket of a `UI: yes` story cites at lea
 epic's screen list, or it holds a `Screens: none` line with a reason. The operator rejected a rule
 that makes every ticket cite a state, because a ticket that only builds an API route would cite a
 screen that it never touches. The operator also rejected a rule with no count check, which only
-refuses a wrong citation.
+refuses a wrong citation. The option that the operator chose in room question 3 also said that the
+spec review checks each reason, and that the doc-reviewer can challenge a weak reason.
 
 ### US-02 The implementer captures each cited state at the pull request head
 
@@ -50,7 +51,8 @@ request, so that the reviewer reads what shipped and not a description of it.
 The operator chose a capture branch of each ticket that never merges, `loop/<ticket>-captures`. The
 captures of one head sit at `<head sha>/<state id>.png` on it. The operator rejected captures that
 merge into the product with the ticket's diff. The operator also rejected a reviewer that takes its
-own captures, which doubles the capture time of each review.
+own captures, which doubles the capture time of each review. The option that the operator chose in
+room question 4 also said that a missing or stale set of captures is a reject.
 
 > "option 1"
 
@@ -88,11 +90,17 @@ that cites the state gets a pixel diff, and the code-reviewer rejects a result o
 >
 > "option 2"
 
-The operator made two choices in room-36e9bc8c. First, the pixel diff is a loop gate, and CI runs
+The first quote is from room-0fefd19b. The operator made the next two choices in room-36e9bc8c.
+First, the pixel diff is a loop gate, and CI runs
 it at each head against the captures on the capture branch. The operator rejected a diff inside the
 review run only, and a CI run that takes its own captures. Second, the default threshold is 0.5% of
 the pixels, and a threshold can be from 0% to 5%. The operator rejected 0.1% as too strict for
 text rendering on two hosts, and 1% as too loose for a small icon.
+
+Under room question 5, the assistant proposed that an accepted difference of US-03 also clears a
+pixel failure for that state, and asked the operator to say so on disagreement. The operator did not
+object. How far that acceptance reaches is open, because a pixel gate cannot tell one difference
+from another. Open questions holds it.
 
 ## Scope check
 
@@ -134,10 +142,6 @@ the operator marked for pixel fidelity merges only within its threshold.
 - The decompose step refuses a ticket that cites a state that the merged screen list does not
   hold, and the refusal names the state.
   → § US-01
-- The spec-author runbook and the decomposer runbook name the screen list's states as the design
-  references of a screen.
-  → § US-01
-  → pack/runbooks/spec-author.md
 - The doc-reviewer checks the reason of each `Screens: none` line of a spec entry.
   → § US-01
 - The implementer captures each state that its ticket cites, with the project's capture command,
@@ -162,9 +166,6 @@ the operator marked for pixel fidelity merges only within its threshold.
   → § US-03
 - The code-reviewer rejects a structural difference that the operator did not accept, and the
   reject names the state and the difference.
-  → § US-03
-- An implementer that cannot match a cited state escalates, and the escalation names the state and
-  the difference.
   → § US-03
 - The operator can accept a difference of one state through the coordinator, and the loop records
   the operator's words against the state's id on the epic.
@@ -230,6 +231,18 @@ the operator marked for pixel fidelity merges only within its threshold.
 - **A17.** A marked state whose difference the operator accepted passes the pixel gate.
 - **A18.** A ticket that cites no marked state never fails the pixel gate.
 - **A19.** A ticket whose pixel gate failed gets a reject from the code-reviewer.
+- **A20.** The doc-reviewer rejects a spec in which an entry of a `UI: yes` story cites no state
+  and holds no `Screens: none` line, and the reject names the entry.
+- **A21.** The doc-reviewer rejects a spec in which the reason of a `Screens: none` line does not
+  show that the entry draws no screen, and the reject names the entry.
+- **A22.** After the operator accepts a difference of a state, the epic's record holds the
+  operator's words against that state's id.
+- **A23.** The loop refuses an acceptance of a state that the merged screen list does not hold, and
+  the epic's record stays unchanged.
+- **A24.** A ticket that cites a marked state with no capture at the head fails the pixel gate, and
+  the failure names the state.
+- **A25.** A ticket that cites one marked state and one unmarked state gets a pixel gate result for
+  the marked state only. A difference of any size in the unmarked state does not fail the gate.
 
 ## Boundaries with other epics
 
@@ -248,7 +261,7 @@ the operator marked for pixel fidelity merges only within its threshold.
   design-reference lines to the screen list's states. It adds no stage to either.
 - **Project-scoped settings, `docs/prd/project-scoped-settings.md`.** It owns the `stages`, `pools`
   and `merge` settings. This epic changes none.
-- **Checked against:** the PRD of factorio-a4yq on its pull request #243,
+- **Checked against:** the PRD of factorio-a4yq, `docs/prd/design-stage.md`,
   `docs/prd/optional-adr-stage.md`, `docs/prd/project-scoped-settings.md`, ADR 0002, and the items
   factorio-791i and factorio-nhb5. ADR 0002 rejected tickertown's QA-state rules because each names
   tickertown's product paths. This epic's checks read the project's design directory and the
@@ -269,3 +282,10 @@ the operator marked for pixel fidelity merges only within its threshold.
 - The pixel gate counts a pixel as different past a small colour tolerance, which absorbs
   antialiasing. The operator left its value to the spec, in room-36e9bc8c: "option 1". The spec
   sets the value with a contract and a fixture. Blocks: A15, A16.
+- How far an acceptance clears the pixel gate for a marked state. The pixel gate measures the share
+  of the pixels that differ, and it cannot tell the accepted difference from a new one. So an
+  acceptance that passes the gate for the state passes every later difference of that state, on
+  each later ticket of the epic. The structural review passes the accepted difference only. The
+  operator chooses one of two bounds. The acceptance turns the pixel gate off for that state, or
+  the acceptance records the measured share and the gate passes up to that share. Blocks: A17 and
+  the requirement that the pixel gate passes a marked state whose difference the operator accepted.
