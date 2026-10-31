@@ -91,7 +91,7 @@ func TestC11PRDSubmitRefusesARunThatMayNotSubmit(t *testing.T) {
 	w.commitPRD(prdText)
 
 	other := run
-	other.Stage = machine.StageSpecAuthor
+	other.Stage = machine.StagePlanner
 	stale := run
 	stale.Epoch--
 	needed, _ := w.drafting("run-pb")
@@ -103,7 +103,7 @@ func TestC11PRDSubmitRefusesARunThatMayNotSubmit(t *testing.T) {
 		pr         rpc.Principal
 		code, rule string
 	}{
-		{"a spec-author run", other, cli.CodeCapabilityDenied, "prd_author_only"},
+		{"a planner run", other, cli.CodeCapabilityDenied, "prd_author_only"},
 		{"an epic not in prd_drafting", notDrafting, cli.CodeTransitionNotAllowed, "not_drafting"},
 		{"a stale epoch", stale, cli.CodeLeaseNotHeld, "stale_epoch"},
 	} {

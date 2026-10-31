@@ -26,7 +26,7 @@ func contractsSub(t *testing.T, title string) string {
 }
 
 // The spec template's Contracts section keeps the rules a contract obeys
-// under a ### Rules heading of its own, so a spec author and a
+// under a ### Rules heading of its own, so a planner and a
 // doc-reviewer find them by name (tickertown docs/templates/spec.md).
 func TestSpecTemplateContractsHoldARulesSubsection(t *testing.T) {
 	rules := strings.Join(strings.Fields(contractsSub(t, "Rules")), " ")

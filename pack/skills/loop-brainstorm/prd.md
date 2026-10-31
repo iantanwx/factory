@@ -53,7 +53,7 @@ test first. When a promise needs three other subsystems before anyone can prove 
 test to fail. Red-green discipline is then impossible. A test that someone writes later asserts
 whatever the finished code does.
 
-Say "promise", not "contract". The spec author turns your acceptance criteria into numbered
+Say "promise", not "contract". The planner turns your acceptance criteria into numbered
 contracts, one stage after this one. You cannot cite C1 here, because C1 does not exist yet. Name
 the promise in plain words instead.
 
@@ -172,8 +172,8 @@ top of the repository.
 
 ## Acceptance criteria
 
-The spec author turns this section into contracts. Write each criterion so that the spec author
-can copy it with almost no change. When the spec author must reinterpret, split or merge your
+The planner turns this section into contracts. Write each criterion so that the planner
+can copy it with almost no change. When the planner must reinterpret, split or merge your
 criteria, this section failed. The meaning then drifts at the one step that nobody reviews.
 
 Rules:
@@ -202,9 +202,9 @@ Rules:
 >
 > - ~~"Backtests are accurate and fast."~~ Two promises, and neither one is falsifiable.
 > - ~~"The engine handles dividends, splits, and delistings."~~ Three requirements in one bullet.
->   The spec author must split it, and will split it differently than you meant.
+>   The planner must split it, and will split it differently than you meant.
 > - ~~"The evaluator returns a result with a final value field."~~ This is technical language. It
->   is a contract already, so the spec author has nothing left to decide.
+>   is a contract already, so the planner has nothing left to decide.
 
 - **A1.** <What must be true, stated so that it could be shown false.>
 
@@ -237,7 +237,7 @@ that you never saw.
 
 ## Out of scope
 
-List what a reader would expect in this epic and will not find. This list stops the spec author
+List what a reader would expect in this epic and will not find. This list stops the planner
 from making the epic larger. Name the owner of each excluded item.
 
 Never put the look of this epic's own screens out of scope. When the project keeps design
@@ -255,7 +255,7 @@ references, name the ones that each screen matches.
 
 ## Open questions
 
-List what the operator's words do not answer. The spec author must settle or escalate each
+List what the operator's words do not answer. The planner must settle or escalate each
 question. An empty section is normal and good. A question that you can answer by reading the
 repository is not an open question. It means that you did not finish the reading.
 
