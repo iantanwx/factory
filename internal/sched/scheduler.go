@@ -21,6 +21,7 @@ import (
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // Defaults. Host config's run_budget replaces DefaultRunBudget.
@@ -119,7 +120,10 @@ type Config struct {
 	// OriginBaseHead over Projects when nil.
 	BaseHead BaseHeadSource
 	Pack     brief.Pack
-	Alerts   config.Alerter
+	// SkillStore holds the userspace skill pins each stage run's pack
+	// takes. A store with no Dir holds none.
+	SkillStore userspace.Store
+	Alerts     config.Alerter
 	// Release is the loop release a run starts under. cli.Version when
 	// empty.
 	Release string

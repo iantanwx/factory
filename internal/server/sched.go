@@ -63,7 +63,7 @@ func (s *Server) composeSched() error {
 		Store: s.Store, Host: &config.HostLoader{Path: s.HostPath, Alerts: config.StoreAlerter(s.Store)},
 		Projects: s.Projects.List, ProjectConfig: src,
 		Machine: s.Machine, Admission: s.Admission, Beads: s.opts.Beads, Pulls: s.opts.Pulls, Secrets: s.Secrets, Tokens: s.Tokens,
-		Agents: s.opts.Agents, Checkouts: o.Checkouts, BaseHead: s.baseHead(), Pack: o.Pack, Alerts: config.StoreAlerter(s.Store),
+		Agents: s.opts.Agents, Checkouts: o.Checkouts, BaseHead: s.baseHead(), Pack: o.Pack, SkillStore: o.SkillStore, Alerts: config.StoreAlerter(s.Store),
 		Release: cli.Version, Coordinator: o.Coordinator, Now: o.Now, TickInterval: o.TickInterval,
 		Logger: s.log, NewRunID: o.NewRunID,
 	})

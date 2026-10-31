@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -27,6 +28,48 @@ type Pack struct {
 	Version string
 	FS      fs.FS
 	Agents  fs.FS
+	// User holds the userspace skills of the run's project, each written
+	// under its own name (ADR 0013 decision 1). Hash leaves them out.
+	User []UserSkill
+}
+
+// UserSkill is one userspace skill pin and its verified tree, as the store
+// holds it.
+type UserSkill struct {
+	Pin  config.SkillPin
+	Tree fs.FS
+}
+
+// WithUser returns a copy of p that holds skills.
+func (p Pack) WithUser(skills []UserSkill) Pack {
+	p.User = slices.Clone(skills)
+	return p
+}
+
+// UserSkills lists the names of p's user skills, sorted. A name in the
+// loop- namespace, a kernel directory's name, or a name held twice is
+// refused.
+func (p Pack) UserSkills() ([]string, error) {
+	kernel, err := p.Skills()
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, u := range p.User {
+		n := u.Pin.Name
+		switch {
+		case strings.HasPrefix(n, SkillPrefix) || slices.Contains(kernel, n):
+			return nil, fmt.Errorf("brief: user skill %q takes a kernel skill name", n)
+		case slices.Contains(out, n):
+			return nil, fmt.Errorf("brief: user skill %q is held twice", n)
+		}
+		if err := u.Pin.Check(); err != nil {
+			return nil, fmt.Errorf("brief: user skill %q: %w", n, err)
+		}
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // SkillRoot is where the harness reads skills: Claude Code reads
@@ -132,8 +175,13 @@ func (p Pack) files() ([]packFile, error) {
 	if p.FS == nil {
 		return nil, nil
 	}
+	return treeFiles(p.FS)
+}
+
+// treeFiles lists every regular file of tree, sorted.
+func treeFiles(tree fs.FS) ([]packFile, error) {
 	var out []packFile
-	err := fs.WalkDir(p.FS, ".", func(name string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(tree, ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -160,7 +208,8 @@ func (p Pack) files() ([]packFile, error) {
 
 // Hash is the content hash of the pack: every path, its mode and its
 // bytes, and each agent under agents/. The run record and the brief hold
-// it (KTD19).
+// it (KTD19). It reads the kernel only, so two projects' runs of one
+// release hold one hash.
 func (p Pack) Hash() (string, error) {
 	h := sha256.New()
 	files, err := p.files()
@@ -193,16 +242,21 @@ func (p Pack) Hash() (string, error) {
 // Write injects the pack into the checkout for the harness. Each skill
 // directory is replaced whole, so a file a later pack dropped is gone. A
 // file whose mode holds an executable bit is written 0755, and any other
-// file 0644. Each agent file is written over, beside a project's own
-// agents.
+// file 0644. Each user skill is written under its own name, every byte as
+// the store holds it. Each agent file is written over, beside a project's
+// own agents.
 func (p Pack) Write(checkout string, hs agenthost.Harness) error {
-	root := SkillRoot(hs)
+	root := filepath.Join(checkout, filepath.FromSlash(SkillRoot(hs)))
 	skills, err := p.Skills()
 	if err != nil {
 		return err
 	}
-	for _, s := range skills {
-		dir := filepath.Join(checkout, filepath.FromSlash(root), s)
+	users, err := p.UserSkills()
+	if err != nil {
+		return err
+	}
+	for _, s := range append(skills, users...) {
+		dir := filepath.Join(root, s)
 		if fi, err := os.Lstat(dir); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
 			return fmt.Errorf("brief: refuse to write the pack into %s: it is a symlink", dir)
 		}
@@ -210,21 +264,14 @@ func (p Pack) Write(checkout string, hs agenthost.Harness) error {
 			return fmt.Errorf("brief: clear %s: %w", dir, err)
 		}
 	}
-	files, err := p.files()
-	if err != nil {
-		return err
+	if p.FS != nil {
+		if err := writeTree(p.FS, root); err != nil {
+			return err
+		}
 	}
-	for _, f := range files {
-		data, err := fs.ReadFile(p.FS, f.name)
-		if err != nil {
+	for _, u := range p.User {
+		if err := writeTree(u.Tree, filepath.Join(root, u.Pin.Name)); err != nil {
 			return err
-		}
-		dst := filepath.Join(checkout, filepath.FromSlash(path.Join(root, f.name)))
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		if err := config.WriteFileAtomic(dst, data, f.mode); err != nil {
-			return fmt.Errorf("brief: write the pack: %w", err)
 		}
 	}
 	agents, err := p.AgentFiles(hs)
@@ -244,6 +291,28 @@ func (p Pack) Write(checkout string, hs agenthost.Harness) error {
 			return err
 		}
 		if err := config.WriteFileAtomic(dst, data, 0o644); err != nil {
+			return fmt.Errorf("brief: write the pack: %w", err)
+		}
+	}
+	return nil
+}
+
+// writeTree writes each regular file of tree under dst, at its pack mode.
+func writeTree(tree fs.FS, dst string) error {
+	files, err := treeFiles(tree)
+	if err != nil {
+		return err
+	}
+	for _, f := range files {
+		data, err := fs.ReadFile(tree, f.name)
+		if err != nil {
+			return err
+		}
+		out := filepath.Join(dst, filepath.FromSlash(f.name))
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			return err
+		}
+		if err := config.WriteFileAtomic(out, data, f.mode); err != nil {
 			return fmt.Errorf("brief: write the pack: %w", err)
 		}
 	}

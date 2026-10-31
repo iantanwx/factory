@@ -106,7 +106,7 @@ func (s *Server) composeHuman() error {
 		checkouts = func(string) sched.CheckoutHost { return agents }
 	}
 	rc := room.Config{Store: s.Store, Machine: s.Machine, Agents: s.opts.Agents, Checkouts: checkouts, BaseHead: s.baseHead(),
-		Secrets: s.Secrets, Tokens: s.Tokens, Redactor: s.Redactor, ProjectConfig: s.projectSource(), Pack: s.opts.Sched.Pack,
+		Secrets: s.Secrets, Tokens: s.Tokens, Redactor: s.Redactor, ProjectConfig: s.projectSource(), Pack: s.opts.Sched.Pack, SkillStore: s.opts.Sched.SkillStore,
 		Harness: harness, Model: model, Release: cli.Version, Changed: changed, NewID: o.NewRoomID, Logger: s.log}
 	if s.Admission != nil {
 		rc.IntakeCap = s.Admission.IntakeCap

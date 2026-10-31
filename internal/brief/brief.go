@@ -67,6 +67,17 @@ type Brief struct {
 	// Faults lists the loop faults filed from this project and stage that
 	// are open, acknowledged, or fixed in the last FaultWindow (KTD31).
 	Faults []Fault `json:"faults,omitempty"`
+	// UserSkills lists each userspace skill pin the run holds. Inject
+	// fills it from the pack.
+	UserSkills []BriefSkill `json:"user_skills,omitempty"`
+}
+
+// BriefSkill is one userspace skill pin as a brief names it.
+type BriefSkill struct {
+	Name   string `json:"name"`
+	Repo   string `json:"repo"`
+	Commit string `json:"commit"`
+	SHA256 string `json:"sha256"`
 }
 
 // FaultWindow is how long a fixed fault stays in the briefs.
@@ -156,6 +167,9 @@ func (b Brief) Markdown() string {
 	line("- Harness: %s, model %s", b.Harness, b.Model)
 	line("- Runbook: `%s` (pack %s, %s)", b.Runbook, b.PackVersion, b.PackHash)
 	line("- Base branch: %s", b.BaseBranch)
+	for _, u := range b.UserSkills {
+		line("- Userspace skill: `%s` from %s at %s", u.Name, u.Repo, u.Commit)
+	}
 	if b.Item != nil {
 		line("")
 		line("## Item %s", b.Item.ID)
@@ -351,6 +365,10 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 	}
 	b := in.Brief
 	b.PackVersion, b.PackHash = in.Pack.Version, hash
+	b.UserSkills = nil
+	for _, u := range in.Pack.User {
+		b.UserSkills = append(b.UserSkills, BriefSkill{Name: u.Pin.Name, Repo: u.Pin.Repo, Commit: u.Pin.Commit, SHA256: u.Pin.SHA256})
+	}
 	if b.Runbook == "" {
 		b.Runbook = Runbook(in.Harness, b.Stage)
 	}
@@ -399,8 +417,8 @@ func RefreshPack(ctx context.Context, checkout string, h agenthost.Harness, p Pa
 	return p.Write(checkout, h)
 }
 
-// packPaths lists the pack's agent files and skill directories as the
-// harness reads them.
+// packPaths lists the pack's agent files and skill directories, the user
+// skills' too, as the harness reads them.
 func packPaths(h agenthost.Harness, p Pack) (agents, dirs []string, err error) {
 	root := SkillRoot(h)
 	if root == "" {
@@ -410,6 +428,11 @@ func packPaths(h agenthost.Harness, p Pack) (agents, dirs []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	users, err := p.UserSkills()
+	if err != nil {
+		return nil, nil, err
+	}
+	skills = append(skills, users...)
 	dirs = make([]string, 0, len(skills))
 	for _, s := range skills {
 		dirs = append(dirs, root+"/"+s)
