@@ -936,6 +936,9 @@ This epic draws no product screen. A person watches these flows of the loop:
   `share_unmarked` and no `bad_share`, and C29 asserts that the gate never compares an accepted
   state. Entry 5 holds no part of the share, so it does not wait. This blocks work entries 8 and 9,
   and C27 and C29.
+  **Answered (operator, 2026-10-31):** B. The acceptance records the measured share, and the pixel
+  gate passes the state up to that share.
+  The operator chose "Record the share (Recommended)" in the coordinator's chat.
 - How do this epic's tickets wait for factorio-a4yq's tickets? Work entries 1, 3, 5 and 7 need
   factorio-a4yq entries 1, 2, 4 and 8. The loop records no edge between two epics, and the
   decomposer blocks a ticket only on a ticket of its own batch. factorio-a4yq has no tickets yet:
@@ -947,3 +950,6 @@ This epic draws no product screen. A person watches these flows of the loop:
   answer is A. It is the operator's choice for the sibling, and it lets a review of this spec read
   the merged a4yq spec and catch a changed name before any ticket cites it. This blocks work
   entries 1, 3, 5 and 7.
+  **Answered (operator, 2026-10-31):** A. This spec stays in sign-off until factorio-a4yq entries
+  1, 2, 4 and 8 merge.
+  The operator chose "Hold sign-off too (Recommended)" in the coordinator's chat.
