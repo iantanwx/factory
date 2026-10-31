@@ -243,9 +243,11 @@ all recommendations." The PRD records each answer in a story. This spec takes th
 - `ci_red` applies once each time a ticket enters `repair`, and not on each poll while it stays red.
   The row starts from `in_review` and states before `repair` (`ticket.go:182`). This is wrong if
   one red run leaves two `ci_red` rows in `transitions`.
-- factorio-vlle names the closed bug states as a subset of the bug table's terminal states. This is
-  wrong if a closed state is one the bug can leave, because then the `Terminal` hook never fires on
-  it.
+- The closed bug states are the operator's answer of 2026-10-31: "a shaped bug counts as closed
+  when its shaped ticket reaches done, a canceled bug counts at once, and a duplicate never counts."
+  A shaped bug takes no move when its ticket reaches done, so the ticket's own terminal write queues
+  the retro of its bug. This is wrong if a ticket that work shape made reaches `done` with no `bug`
+  fact, because then the `Terminal` hook cannot name the bug.
 - An implementer can find a userspace skill from the ticket text. factorio-yzrt merged its PRD and
   ADR 0013 after this spec's first round. A committed userspace skill is a directory under the
   harness's skill root, `.claude/skills/<name>` or `.agents/skills/<name>`
@@ -291,8 +293,11 @@ A signal write touches only the `signals` table. It changes no item, no fact, no
 ### The trigger and the queue
 
 `retro.Enqueue(tx, ev)` inserts one `retros` row when `ev.Kind` is an epic and `ev.Status` is
-`done`, or `ev.Kind` is a bug and `machine.BugClosed(ev.Status)`. It ignores every other event and
-any second insert. The row starts `pending`.
+`done`, or `ev.Kind` is a bug and `machine.BugClosed(ev.Status, "")`. A shaped bug closes when its
+ticket reaches done, so the shaped ticket's done write queues the retro of its bug: when `ev.Kind`
+is a ticket, `ev.Bug` names a bug and `machine.BugClosed(machine.Shaped, ev.Status)`, the row
+names `ev.Bug` with kind `bug`. It ignores every other event and any second insert. The row starts
+`pending`.
 
 Admission treats `retro` like the fixer: the stage has work only while
 `retrosWaiting(q, project)` finds a `pending` row. The default throughput entry is cap 1 with the
@@ -451,6 +456,10 @@ type TerminalEvent struct {
 	Project, Item string
 	Kind          Kind
 	Status        string
+	// Bug is the bug a shaped ticket came from, or empty. The hook runs in
+	// a SQLite transaction and cannot read the bead, so the intent carries
+	// it.
+	Bug string
 }
 
 // AppliedEvent is every applied write, after its transitions row.
@@ -468,8 +477,11 @@ type Config struct {
 	Applied  func(tx *store.Tx, ev AppliedEvent) error  // new; nil runs nothing
 }
 
-// BugClosed reports whether a bug in status has closed. factorio-vlle names the set.
-func BugClosed(status string) bool
+// BugClosed reports whether a bug in status has closed. ticket is the
+// status of the ticket the bug was shaped into, or empty. A canceled bug
+// closes at once, and a shaped bug closes when its ticket reaches done. A
+// duplicate never closes.
+func BugClosed(status, ticket string) bool
 
 // RetroOnItem is the part of work show that the retro writes.
 type RetroOnItem struct {
@@ -820,14 +832,15 @@ epic to `done`, `retros` holds one `pending` row for it. A second application of
 *`internal/retro/queue_test.go` drives a fixture epic through each of the three callers, and
 asserts one row.*
 
-**C2. Behaviour: a bug that closes gets one retro.** Proves A2. For each status where
-`machine.BugClosed` is true, the move into it leaves one `pending` row. A repeat of the intent
-leaves one row.
+**C2. Behaviour: a bug that closes gets one retro.** Proves A2. For each status and ticket status
+where `machine.BugClosed(status, ticket)` is true, the move that closes the bug leaves one `pending`
+row: the cancel of a bug, or the done of its shaped ticket. A repeat of the intent leaves one row.
 *An example test for each closed status.*
 
 **C3. Invariant: no retro for an item that has not reached done or closed.** Proves A3. Over any
 sequence of legal moves of epics, tickets and bugs, each `retros` row names an epic in `done` or a
-bug whose status `BugClosed` accepts, and no item has two rows. A ticket in `done` has none.
+bug whose status and ticket status `BugClosed(status, ticket)` accepts, and no item has two rows.
+A ticket in `done` has none.
 *A property test over 500 generated move sequences on the fake beads.*
 
 **C4. Behaviour: no retro for an item that finished before the trigger.** Proves A20. A store

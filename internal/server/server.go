@@ -336,7 +336,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		Logger:          logger,
 		HoldsItem:       holdsItem(st, opts.HoldsItem),
 		ReadsItem: func(ctx context.Context, p rpc.Principal, item string) (bool, error) {
-			return readsEpic(ctx, s.Machine, p, item)
+			return readsItem(ctx, st, s.Machine, p, item)
 		},
 		Checkouts: opts.Checkouts,
 		Proc:      opts.Proc,
@@ -379,7 +379,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			claims = s.Admission
 		}
 		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: claims,
-			Terminal: escalation.CloseFor, Applied: retro.SignalsFor, Registry: cli.Surface(), Logger: srv.Logger()})
+			Terminal: terminal, Applied: retro.SignalsFor, Registry: cli.Surface(), Logger: srv.Logger()})
 		if err != nil {
 			return nil, err
 		}
@@ -411,6 +411,15 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	return s, nil
 }
 
+// terminal is the machine's Terminal hook: it closes the item's waiting
+// escalations, then queues the item's retro.
+func terminal(tx *store.Tx, ev machine.TerminalEvent) error {
+	if err := escalation.CloseFor(tx, ev); err != nil {
+		return err
+	}
+	return retro.Enqueue(tx, ev)
+}
+
 func readPreviousVersion(dir string) string {
 	data, err := os.ReadFile(filepath.Join(dir, PreviousVersionFile))
 	if err != nil {
@@ -423,6 +432,15 @@ func readPreviousVersion(dir string) string {
 // server calls it after secret set, secret import and project remove.
 func (s *Server) RefreshRedactor(ctx context.Context) error {
 	return s.Redactor.Refresh(ctx, s.Secrets)
+}
+
+// readsItem opens a read of an item p does not hold: the epic of the held
+// item, and for a room each item its reason names or it created.
+func readsItem(ctx context.Context, st *store.Store, m *machine.Machine, p rpc.Principal, item string) (bool, error) {
+	if ok, err := readsEpic(ctx, m, p, item); ok || err != nil || p.Kind != cli.PrincipalRoom {
+		return ok, err
+	}
+	return room.Reads(ctx, st, p.RunID, p.Project, item)
 }
 
 // readsEpic opens a read of the held item's epic (KTD12 binds moves, not

@@ -23,6 +23,15 @@ const (
 	Duplicate     = "duplicate"
 )
 
+// BugClosed reports whether a bug in status has closed. ticket is the
+// status of the ticket the bug was shaped into, or empty. The operator
+// named the set on 2026-10-31: a canceled bug closes at once, and a shaped
+// bug closes when its ticket reaches done. A duplicate never closes,
+// because the retro of its original covers it.
+func BugClosed(status, ticket string) bool {
+	return status == Canceled || status == Shaped && ticket == Done
+}
+
 // AskLimit is the asks of its reporter one report may hold
 // (scripts/sdlc/bugs-report-ask.ts:41, alpha). Two asks that did not find
 // the fact show that only a person can find it, so the third ask refuses,
