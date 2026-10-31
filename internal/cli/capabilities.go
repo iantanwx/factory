@@ -27,6 +27,7 @@ var callerKinds = map[string][]string{
 	"reviewer run": {PrincipalRun},
 	"fixer":        {PrincipalRun},
 	"decomposer":   {PrincipalRun},
+	"retro":        {PrincipalRun},
 	"room":         {PrincipalRoom},
 	"intake room":  {PrincipalRoom},
 	"coordinator":  {PrincipalCoordinator},

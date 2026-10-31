@@ -306,3 +306,21 @@ func TestSchemaListsSettingsSet(t *testing.T) {
 		t.Fatalf("settings set = %v", v)
 	}
 }
+
+// C9, C24: loop schema lists retro record, a read that only a run may call.
+// It names no item, so a run reads the record of an item it does not hold.
+func TestSchemaListsRetroRecord(t *testing.T) {
+	env, code := runJSON(t, New(), "schema", "--json")
+	if code != 0 {
+		t.Fatalf("schema failed: %v", env)
+	}
+	v := findVerb(t, env["data"].(map[string]any), "retro record")
+	if v["rpc"] != "/loop.v1.RetroService/Record" || v["write"] != false || !slices.Equal(v["callers"].([]any), []any{"retro"}) ||
+		len(v["args"].([]any)) != 0 {
+		t.Fatalf("retro record = %v", v)
+	}
+	m, _ := Surface().CapabilityMatrix()
+	if !slices.Equal(m.Verbs["retro record"], []string{PrincipalRun}) || m.IsItemScoped("retro record") {
+		t.Fatalf("retro record admits %v, item scoped %v", m.Verbs["retro record"], m.IsItemScoped("retro record"))
+	}
+}

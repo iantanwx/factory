@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/machine"
 )
 
 // PR is a pull request as GitHub's REST API reads it. Only the fields the
@@ -420,6 +421,32 @@ func (s *Service) allComments(ctx context.Context, p config.Project, number int)
 		}
 	}
 	return append(review, talk...), nil
+}
+
+// ItemComments reads the comments on each pull request of an item, open,
+// closed or merged, as allComments does: an epic's PRD and spec branches,
+// or the one branch of any other item.
+func (s *Service) ItemComments(ctx context.Context, p config.Project, it machine.Item) ([]Comment, error) {
+	branches := []string{BranchFor(it.ID)}
+	if it.Kind == machine.KindEpic {
+		branches = append(branches, SpecBranchFor(it.ID))
+	}
+	var out []Comment
+	for _, b := range branches {
+		pr, err := s.FindPR(ctx, p, b)
+		if err != nil {
+			return nil, err
+		}
+		if pr == nil {
+			continue
+		}
+		cs, err := s.allComments(ctx, p, pr.Number)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, cs...)
+	}
+	return out, nil
 }
 
 // Threads reads a PR's comments as allComments does, and gives each

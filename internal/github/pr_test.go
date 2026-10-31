@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -292,5 +293,41 @@ func TestPRShowPrintsTheBody(t *testing.T) {
 		if got["body"] != evidence {
 			t.Fatalf("pr show of %s: body %q, want %q (%s)", item, got["body"], evidence, raw)
 		}
+	}
+}
+
+// C9: the record reads every comment on each pull request of an item, a
+// merged one too. An epic's PRD and spec have a pull request each, and a
+// review summary with a body reads as a comment.
+func TestItemCommentsReadEveryPullRequestOfTheItem(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	prd := w.Add(&gt.PR{Head: "loop/ep-1", HeadSHA: shaA})
+	spec := w.Add(&gt.PR{Head: "loop/ep-1-spec", HeadSHA: shaA})
+	other := w.Add(&gt.PR{Head: "loop/tk-1", HeadSHA: shaA})
+	w.Say(prd.Number, gt.Said{Login: "owner", Association: "OWNER", Body: "name the user"})
+	w.Say(spec.Number, gt.Said{Login: "owner", Association: "OWNER", Review: true, Body: "split C3"})
+	w.Say(other.Number, gt.Said{Login: "owner", Association: "OWNER", Body: "not the epic's"})
+	ctx := context.Background()
+	got := func(it machine.Item) []string {
+		t.Helper()
+		cs, err := e.svc.ItemComments(ctx, e.project, it)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, c := range cs {
+			out = append(out, c.Kind+" "+c.Author+": "+c.Body)
+		}
+		return out
+	}
+	if g, want := got(machine.Item{ID: "ep-1", Kind: machine.KindEpic}), []string{"conversation owner: name the user", "review owner: split C3"}; !slices.Equal(g, want) {
+		t.Fatalf("epic comments = %q, want %q", g, want)
+	}
+	if g, want := got(machine.Item{ID: "tk-1", Kind: machine.KindTicket}), []string{"conversation owner: not the epic's"}; !slices.Equal(g, want) {
+		t.Fatalf("ticket comments = %q, want %q", g, want)
+	}
+	if g := got(machine.Item{ID: "tk-2", Kind: machine.KindTicket}); len(g) != 0 {
+		t.Fatalf("a ticket with no pull request has comments %q", g)
 	}
 }
