@@ -210,14 +210,22 @@ func registerSkills(ctx context.Context, instance, clone string, build func(fetc
 // installSkills writes the pack's skills and agents into the clone for
 // Claude Code and Codex, and keeps them out of git through info/exclude,
 // as a run's checkout does. Register passes the pack the server injects,
-// so a clone holds each fetched skill a run holds.
+// so a clone holds each fetched skill a run holds. A tracked loop- skill
+// directory the pack lacks refuses the install, and each stale untracked
+// one is cleared.
 func installSkills(ctx context.Context, clone string, p brief.Pack) ([]string, error) {
 	skills, err := p.Skills()
 	if err != nil {
 		return nil, err
 	}
+	if err := brief.CheckReserved(ctx, clone, p); err != nil {
+		return nil, err
+	}
 	var files, dirs []string
 	for _, h := range []agenthost.Harness{agenthost.Claude, agenthost.Codex} {
+		if err := brief.Prune(ctx, clone, h, p); err != nil {
+			return nil, err
+		}
 		if err := p.Write(clone, h); err != nil {
 			return nil, err
 		}

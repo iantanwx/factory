@@ -225,8 +225,9 @@ func TestTrackedInjectedPathIsAConflict(t *testing.T) {
 			t.Fatalf("tracked %s: a refused injection wrote the prompt", tracked)
 		}
 	}
-	// A tracked skill or agent outside the pack's names is no conflict.
-	dir := gitRepo(t, ".claude/skills/loop-other/SKILL.md", ".claude/skills/mine/SKILL.md", ".claude/agents/mine.md")
+	// A tracked skill or agent outside the pack's names is no conflict. A
+	// tracked loop- skill the pack lacks is reserved, not a conflict.
+	dir := gitRepo(t, ".claude/skills/mine/SKILL.md", ".claude/agents/mine.md")
 	if _, err := Inject(context.Background(), Injection{Checkout: dir, Harness: agenthost.Claude, Pack: testPack(), Brief: testBrief()}); err != nil {
 		t.Fatal(err)
 	}
