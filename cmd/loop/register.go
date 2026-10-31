@@ -20,6 +20,9 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/pack"
+	"github.com/iantanwx/loop/internal/release"
+	"github.com/iantanwx/loop/internal/server"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // RulesetName is the name of the ruleset `loop register` keeps on a
@@ -63,11 +66,25 @@ type RegisterReport struct {
 	App    string   `json:"app"`
 	CI     []string `json:"ci"`
 	Skills []string `json:"skills"`
-	Added  bool     `json:"added"` // false when the project was registered already
+	// UserSkills names each userspace pin of the project's config at
+	// origin/<branch> that register wrote into the clone (ADR 0013).
+	UserSkills []string `json:"user_skills"`
+	// UserSkillsFailed is each pin that register could not write.
+	UserSkillsFailed []PinFailure `json:"user_skills_failed,omitempty"`
+	// UserSkillsConfig says why the config did not load. The clone then
+	// holds the kernel skills only.
+	UserSkillsConfig string `json:"user_skills_config,omitempty"`
+	Added            bool   `json:"added"` // false when the project was registered already
 	// MovedFrom is the repository the project named before this register
 	// moved it.
 	MovedFrom string `json:"moved_from,omitempty"`
 	Next      string `json:"next,omitempty"`
+}
+
+// PinFailure is a userspace pin that register could not write, and why.
+type PinFailure struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
 }
 
 // registerProject is `loop register`: it tells the loop about the git clone it
@@ -125,7 +142,10 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 	if rep.Ruleset, err = h.ensureRuleset(ctx, rep, appID); err != nil {
 		return fail(err)
 	}
-	if rep.Skills, err = registerSkills(ctx, dir, rep.Path, nil); err != nil {
+	// The store keys each pin by the project the registration names.
+	verb, args, flags := registration(host.Projects, &rep)
+	pins := pinSource{store: userspace.Store{Dir: filepath.Join(host.StateDir, userSkillsDir)}, fetch: fetchSkill(release.SkillFetcher{})}
+	if err := registerSkills(ctx, dir, &rep, pins, nil); err != nil {
 		return fail(err)
 	}
 	var next []string
@@ -134,7 +154,6 @@ func (h *hostVerbs) registerProject(ctx context.Context, inv cli.Invocation) cli
 	}
 	rep.Next = strings.Join(next, "; then ")
 
-	verb, args, flags := registration(host.Projects, &rep)
 	if verb == "" {
 		return cli.Found(rep)
 	}
@@ -193,28 +212,96 @@ func (h *hostVerbs) remote(ctx context.Context, ctl *serverControl, path string,
 	return res
 }
 
+// pinSource is where register takes a project's userspace pins: the
+// host's store, which the server shares, and the fetch of each pin the
+// store lacks.
+type pinSource struct {
+	store userspace.Store
+	fetch userspace.Fetch
+}
+
 // registerSkills builds the pack from the instance's fetched skill set,
-// as loop serve does, and installs it into the clone. build is the test
-// seam: nil is pack.Brief, whose pins the binary embeds.
-func registerSkills(ctx context.Context, instance, clone string, build func(fetched fs.FS) (brief.Pack, []pack.ThirdParty, error)) ([]string, error) {
+// as loop serve does, adds the project's userspace pins, and installs it
+// into the clone at rep.Path. It records the skills in rep. A pin that
+// fails, or a config that does not load, does not fail the register.
+// build is the test seam: nil is pack.Brief, whose pins the binary
+// embeds.
+func registerSkills(ctx context.Context, instance string, rep *RegisterReport, pins pinSource, build func(fetched fs.FS) (brief.Pack, []pack.ThirdParty, error)) error {
 	if build == nil {
 		build = pack.Brief
 	}
 	p, _, err := build(fetchedSkills(instance))
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return installSkills(ctx, clone, p)
+	user, err := userSkills(ctx, rep, pins)
+	if err != nil {
+		rep.UserSkillsConfig = err.Error()
+	}
+	rep.Skills, err = installSkills(ctx, rep.Path, p.WithUser(user))
+	return err
 }
 
-// installSkills writes the pack's skills and agents into the clone for
-// Claude Code and Codex, and keeps them out of git through info/exclude,
-// as a run's checkout does. Register passes the pack the server injects,
-// so a clone holds each fetched skill a run holds. A tracked loop- skill
-// directory the pack lacks refuses the install, and each stale untracked
-// one is cleared.
+// userSkills reads the pins of the project's config at origin/<branch> of
+// the clone, as the server reads them (KTD20), and returns each one that
+// the store holds or that a fetch puts into it. It records each written
+// and each failed pin in rep. Its error is a config that does not load.
+func userSkills(ctx context.Context, rep *RegisterReport, pins pinSource) ([]brief.UserSkill, error) {
+	refs, _, err := server.LocalRefs(ctx, config.Project{Path: rep.Path, Branch: rep.Branch})
+	if err != nil {
+		return nil, err
+	}
+	snap, err := config.ReadProjectSnapshot(ctx, refs.Read, rep.Branch)
+	if err != nil {
+		return nil, err
+	}
+	if err := config.SkillDirs(ctx, snap.Config, refs.Tree, config.DefaultRef(rep.Branch)); err != nil {
+		return nil, err
+	}
+	var out []brief.UserSkill
+	for _, pin := range snap.Config.Skills {
+		h, err := pins.take(ctx, rep.Project, pin)
+		if err != nil {
+			rep.UserSkillsFailed = append(rep.UserSkillsFailed, PinFailure{Name: pin.Name, Reason: err.Error()})
+			continue
+		}
+		out = append(out, brief.UserSkill{Pin: h.Pin, Tree: h.Tree})
+		rep.UserSkills = append(rep.UserSkills, pin.Name)
+	}
+	return out, nil
+}
+
+// take returns pin of project from the store, or fetches it and puts it
+// into the store first.
+func (s pinSource) take(ctx context.Context, project string, pin config.SkillPin) (userspace.Held, error) {
+	if h, ok := s.store.Held(project, pin); ok {
+		return h, nil
+	}
+	tree, err := s.fetch(ctx, pin)
+	if err != nil {
+		return userspace.Held{}, err
+	}
+	if err := s.store.Put(project, pin, tree); err != nil {
+		return userspace.Held{}, err
+	}
+	if h, ok := s.store.Held(project, pin); ok {
+		return h, nil
+	}
+	return userspace.Held{}, fmt.Errorf("the store holds no tree of %s after its fetch", pin.Name)
+}
+
+// installSkills writes the pack's skills, user skills and agents into the
+// clone for Claude Code and Codex, and keeps them out of git through
+// info/exclude, as a run's checkout does. Register passes the pack the
+// server injects, so a clone holds each fetched skill a run holds. A
+// tracked loop- skill directory the pack lacks refuses the install, and
+// each stale untracked one is cleared. It returns the kernel skills.
 func installSkills(ctx context.Context, clone string, p brief.Pack) ([]string, error) {
 	skills, err := p.Skills()
+	if err != nil {
+		return nil, err
+	}
+	users, err := p.UserSkills()
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +316,7 @@ func installSkills(ctx context.Context, clone string, p brief.Pack) ([]string, e
 		if err := p.Write(clone, h); err != nil {
 			return nil, err
 		}
-		for _, s := range skills {
+		for _, s := range slices.Concat(skills, users) {
 			dirs = append(dirs, brief.SkillRoot(h)+"/"+s)
 		}
 		agents, err := p.AgentFiles(h)
