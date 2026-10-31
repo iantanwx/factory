@@ -38,6 +38,10 @@
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-test-behavior-not-implementation"]
     },
+    "retro": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-retro-rubric"]
+    },
     "coordinator": {
       "attended": true,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-reflect", "loop-encode-lessons", "loop-sdlc-documents", "loop-sdlc-split"],

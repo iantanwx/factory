@@ -36,6 +36,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | `decomposer` | Cuts one approved spec into tickets in one batch | epic `spec_approved` |
 | `fixer` | Routes each escalation through the triage panel | escalations that wait for a panel |
 | `reproducer` | Turns one bug report into a failing test and a shaped ticket | bug `reported` |
+| `retro` | Learns from one epic that reached `done` or one bug that closed, and routes each learning | retros that wait for a run |
 
 The server performs every other move. It reacts to GitHub: a red build moves a ticket to `repair`,
 a new head after a pass returns it to `in_review`, and a merge moves it to `done`. A person's
