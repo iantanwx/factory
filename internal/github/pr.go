@@ -136,6 +136,19 @@ func (s *Service) Conflicts(ctx context.Context, p config.Project, pr PR) (bool,
 	return m.Conflicts(ctx, remoteRef(pr.Base.Ref), pr.Head.SHA)
 }
 
+// Behind reports whether head lacks a commit of the current tip of base,
+// as GitHub's compare reads it. A required check ran on a merge of head
+// with the base of that moment, so a head that is behind has no check on
+// the base it would land on. GitHub's mergeable state says behind only
+// when a branch rule needs an up-to-date branch.
+func (s *Service) Behind(ctx context.Context, p config.Project, base, head string) (bool, error) {
+	var out struct {
+		BehindBy int `json:"behind_by"`
+	}
+	err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/compare/"+pathEscapeBranch(base)+"..."+head), &out)
+	return out.BehindBy > 0, err
+}
+
 // OpenPR opens the PR of an item's branch as the App, or returns the PR
 // already open on that head branch, so `pr open` twice on one branch opens
 // one PR (KTD6: a PR's natural key is its head branch). branch is the
