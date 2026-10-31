@@ -24,8 +24,8 @@ stages:
   amender: {}
   spec-author: {}
   decomposer: {}
-  fixer: {}
+  triage: {}
   reproducer: {}
-  prd-author: {}
+  unattended-brainstorm: {}
 health:
   operator_reminder: 12h
