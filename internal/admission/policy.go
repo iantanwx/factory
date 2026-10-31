@@ -559,13 +559,12 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 		}
 		ref, err := capRefusal(q, stage, limits, run)
 		full = ref != nil
-		if err != nil || full || stage != stageFixer {
+		has, ok := waiting[stage]
+		if err != nil || full || !ok {
 			return err
 		}
-		// The fixer has work only while an escalation waits for its
-		// panel.
-		waiting, err := panelsWaiting(q, project)
-		full = !waiting
+		work, err := has(q, project)
+		full = !work
 		return err
 	})
 	if err != nil {

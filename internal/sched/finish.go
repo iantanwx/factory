@@ -104,8 +104,13 @@ func (s *Scheduler) FinishFault(ctx context.Context, runID, outcome, faultID str
 // the states the stage takes. That alert is the hold itself
 // (admission.BlockedKey): changed inputs, a move of the item, or an answer
 // to the alert lifts it. A second blocked finish at the same inputs counts
-// up on the open alert.
+// up on the open alert. A retro run holds no item: its settlement
+// releases the retro it still holds (releaseRetro).
 func (s *Scheduler) alertHeld(ctx context.Context, r runRow, out admission.Outcome, faultID string) {
+	if r.Stage == retro.Stage {
+		s.releaseRetro(ctx, r)
+		return
+	}
 	if r.Item == "" || out.Inputs == "" {
 		return
 	}
@@ -156,6 +161,24 @@ func (s *Scheduler) alertHeld(ctx context.Context, r runRow, out admission.Outco
 	}
 	s.raise(ctx, config.Alert{Project: r.Project, Kind: AlertRunBlocked, DedupeKey: admission.BlockedKey(r.Project, r.Item, r.Stage, out.Inputs),
 		Subject: fmt.Sprintf("%s run %s on %s finished blocked", r.Stage, r.ID, r.Item), Body: body})
+}
+
+// releaseRetro returns the retro that run r still holds to pending, because
+// the run ended with no route. At admission.FailureLimit attempts the retro
+// fails, and one alert names its item.
+func (s *Scheduler) releaseRetro(ctx context.Context, r runRow) {
+	rt, ok, err := retro.Release(ctx, s.cfg.Store, r.ID)
+	if err != nil {
+		s.log.ErrorContext(ctx, "release the retro of a run", "run", r.ID, "err", err)
+		return
+	}
+	if !ok || rt.State != retro.StateFailed {
+		return
+	}
+	s.raise(ctx, config.Alert{Project: rt.Project, Kind: retro.AlertFailed, DedupeKey: retro.AlertFailed + ":" + rt.Project + "/" + rt.Item,
+		Subject: fmt.Sprintf("the retro of %s failed after %d retro runs ended with no route", rt.Item, rt.Attempts),
+		Body: fmt.Sprintf("No retro run takes %s again, so no learning of it lands. Run %s ended last; `loop run show %s` shows how it ended.",
+			rt.Item, r.ID, r.ID)})
 }
 
 // keepFault writes faultID on a run that has not ended, and returns the

@@ -86,6 +86,7 @@ func TestC11StageListPrintsEachFiringWithItsEffectiveValues(t *testing.T) {
 		{Project: prj, Stage: "decomposer", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "fixer", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "reproducer", Kind: FiringRun, Enabled: false, Schedule: never},
+		{Project: prj, Stage: "retro", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "intake", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "nightly-qa", Kind: FiringAgentJob, Enabled: true, Schedule: "55 2 * * *"},
 		{Project: prj, Stage: "merge-handoff", Kind: FiringJob, Enabled: true, Schedule: never},
@@ -151,8 +152,8 @@ func TestC11StageListOfAProjectWhoseConfigDoesNotRead(t *testing.T) {
 	w.project.failWith(errors.New("stages.implementer.schedule: must be a nonempty schedule"))
 
 	rows := w.stageList(prj)
-	if len(rows) != 12 {
-		t.Fatalf("%d rows, want 10 run stages, 1 agent job and 1 native job: %+v", len(rows), rows)
+	if len(rows) != 13 {
+		t.Fatalf("%d rows, want 11 run stages, 1 agent job and 1 native job: %+v", len(rows), rows)
 	}
 	for _, r := range rows {
 		switch r.Kind {

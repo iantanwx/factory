@@ -55,6 +55,7 @@ var DefaultEfforts = map[string]string{
 	config.StageAmender:      "medium",
 	config.StageFixer:        "medium",
 	config.StageReproducer:   "medium",
+	config.StageRetro:        "medium",
 	config.StageIntake:       "medium",
 }
 
