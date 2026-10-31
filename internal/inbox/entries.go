@@ -49,7 +49,7 @@ func pauseEntry(project, stage string) string {
 func parseEntry(id string) (kind, project, item string, row int64, ok bool) {
 	parts := strings.Split(id, "/")
 	switch {
-	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindDecision || parts[0] == KindSignoff || parts[0] == KindAsk ||
+	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindHold || parts[0] == KindSignoff || parts[0] == KindAsk ||
 		parts[0] == KindArchitecture || parts[0] == KindPause):
 		return parts[0], parts[1], parts[2], 0, parts[1] != "" && parts[2] != ""
 	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel || parts[0] == KindNotice ||
@@ -70,7 +70,7 @@ type itemSource struct {
 
 var itemSources = []itemSource{
 	{KindEscalation, machine.ListFilter{Status: machine.Escalated}},
-	{KindDecision, machine.ListFilter{Kind: machine.KindDecision, Status: machine.NeedsHuman}},
+	{KindHold, machine.ListFilter{Kind: machine.KindDecision, Status: machine.NeedsHuman}},
 	{KindSignoff, machine.ListFilter{Kind: machine.KindEpic, Status: machine.PRDSignoff}},
 	{KindSignoff, machine.ListFilter{Kind: machine.KindEpic, Status: machine.SpecSignoff}},
 	{KindAsk, machine.ListFilter{Kind: machine.KindBug, Status: machine.Asked}},
@@ -279,7 +279,7 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 		if r := it.Fact(machine.FactResume); r != "" {
 			text = append(text, "An answer returns it to "+r+".")
 		}
-	case KindDecision:
+	case KindHold:
 		e.Next = "loop inbox answer " + e.ID + " --body <the operator's answer>"
 		text = append(text, "The decision's trigger fired. The trigger, as filed:", AgentText(it.Fact(FactFiledBy), it.Fact(FactTrigger)))
 		if why := it.Fact(machine.FactWhy); why != "" {

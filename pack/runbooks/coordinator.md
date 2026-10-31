@@ -410,7 +410,7 @@ When `loop epic create --request` refuses, it created nothing. Act on its rule:
   request in the record, never in your chat:
 
   1. Find the project's pending cap decision, titled "The intake cap of `<project>` is full", with
-     `loop work list --project <project> --kind decision --status pending`. Reuse it. When none
+     `loop decision list --project <project> --status pending`. Reuse it. When none
      exists, file it:
 
      ```bash

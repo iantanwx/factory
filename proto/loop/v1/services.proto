@@ -78,6 +78,7 @@ service RetroService {
 
 service DecisionService {
   rpc File(VerbRequest) returns (Envelope);
+  rpc List(VerbRequest) returns (Envelope);
   rpc Fire(VerbRequest) returns (Envelope);
   rpc Defer(VerbRequest) returns (Envelope);
   rpc Settle(VerbRequest) returns (Envelope);

@@ -2052,6 +2052,7 @@ var RetroService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	DecisionService_File_FullMethodName   = "/loop.v1.DecisionService/File"
+	DecisionService_List_FullMethodName   = "/loop.v1.DecisionService/List"
 	DecisionService_Fire_FullMethodName   = "/loop.v1.DecisionService/Fire"
 	DecisionService_Defer_FullMethodName  = "/loop.v1.DecisionService/Defer"
 	DecisionService_Settle_FullMethodName = "/loop.v1.DecisionService/Settle"
@@ -2063,6 +2064,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DecisionServiceClient interface {
 	File(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	List(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Fire(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Defer(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Settle(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
@@ -2081,6 +2083,16 @@ func (c *decisionServiceClient) File(ctx context.Context, in *VerbRequest, opts 
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Envelope)
 	err := c.cc.Invoke(ctx, DecisionService_File_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *decisionServiceClient) List(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, DecisionService_List_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -2132,6 +2144,7 @@ func (c *decisionServiceClient) Moot(ctx context.Context, in *VerbRequest, opts 
 // for forward compatibility.
 type DecisionServiceServer interface {
 	File(context.Context, *VerbRequest) (*Envelope, error)
+	List(context.Context, *VerbRequest) (*Envelope, error)
 	Fire(context.Context, *VerbRequest) (*Envelope, error)
 	Defer(context.Context, *VerbRequest) (*Envelope, error)
 	Settle(context.Context, *VerbRequest) (*Envelope, error)
@@ -2148,6 +2161,9 @@ type UnimplementedDecisionServiceServer struct{}
 
 func (UnimplementedDecisionServiceServer) File(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method File not implemented")
+}
+func (UnimplementedDecisionServiceServer) List(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method List not implemented")
 }
 func (UnimplementedDecisionServiceServer) Fire(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Fire not implemented")
@@ -2196,6 +2212,24 @@ func _DecisionService_File_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DecisionServiceServer).File(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DecisionService_List_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DecisionServiceServer).List(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DecisionService_List_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DecisionServiceServer).List(ctx, req.(*VerbRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2282,6 +2316,10 @@ var DecisionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "File",
 			Handler:    _DecisionService_File_Handler,
+		},
+		{
+			MethodName: "List",
+			Handler:    _DecisionService_List_Handler,
 		},
 		{
 			MethodName: "Fire",

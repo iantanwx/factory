@@ -16,7 +16,7 @@ import (
 // decision whose event happened. A decision that cannot wait names a `by`
 // date, and decision-timers fires it on that day.
 func decisionsPart() Part {
-	return Part{Name: "decisions", Command: "loop work list --kind decision --status pending", Read: readDecisions}
+	return Part{Name: "decisions", Command: "loop decision list --status pending", Read: readDecisions}
 }
 
 func readDecisions(ctx context.Context, w World) (Reading, error) {

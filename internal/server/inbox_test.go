@@ -36,7 +36,7 @@ func TestDecisionVerbsKeepTheDecisionStates(t *testing.T) {
 	if it := w.show(d); it.Status != machine.DecisionPending || it.Fact("trigger") != "the first paying user" {
 		t.Fatalf("filed = %s %v", it.Status, it.Facts)
 	}
-	if entryByID(w.entries(""), "decision/alpha/"+d) != nil {
+	if entryByID(w.entries(""), "hold/alpha/"+d) != nil {
 		t.Fatal("a pending decision waits on a person")
 	}
 	moot := w.fileDecision("which queue", "--waits-for-a-person", "the operator")
@@ -46,11 +46,11 @@ func TestDecisionVerbsKeepTheDecisionStates(t *testing.T) {
 	if _, code := w.coordinator("decision", "fire", d, "--project", "alpha", "--why", "the first user paid"); code != 0 {
 		t.Fatal("fire failed")
 	}
-	e := entryByID(w.entries("person"), "decision/alpha/"+d)
+	e := entryByID(w.entries("person"), "hold/alpha/"+d)
 	if e == nil || !strings.Contains(e["text"].(string), "<!--sdlc:agent run=coord-1-->\nthe first paying user\n<!--/sdlc:agent-->") {
 		t.Fatalf("fired decision entry = %v", e)
 	}
-	if env, code := w.coordinator("inbox", "answer", "decision/alpha/"+d, "--body", "postgres"); code != 0 {
+	if env, code := w.coordinator("inbox", "answer", "hold/alpha/"+d, "--body", "postgres"); code != 0 {
 		t.Fatalf("answer = %d %v", code, env)
 	}
 	if it := w.show(d); it.Status != machine.Done || it.Fact(machine.FactAnswer) != "postgres" {
@@ -87,7 +87,7 @@ func TestDecisionFileNamesItsNotice(t *testing.T) {
 	if it := w.show(waits); it.Status != machine.DecisionPending || it.Fact("waits_for") != "the operator reads the cost report" || it.Fact("by") != "" {
 		t.Fatalf("filed with --waits-for-a-person = %s %v", it.Status, it.Facts)
 	}
-	if entryByID(w.entries(""), "decision/alpha/"+waits) != nil {
+	if entryByID(w.entries(""), "hold/alpha/"+waits) != nil {
 		t.Fatal("a pending decision that waits for a person makes an inbox entry")
 	}
 	w.clock.Advance(100 * 365 * 24 * time.Hour)
@@ -152,11 +152,11 @@ func TestDecisionFiledNowWaitsOnAPersonAtOnce(t *testing.T) {
 	if data["status"] != machine.NeedsHuman || w.show(d).Status != machine.NeedsHuman {
 		t.Fatalf("filed now = %v, stored %s", data, w.show(d).Status)
 	}
-	e := entryByID(w.entries("person"), "decision/alpha/"+d)
+	e := entryByID(w.entries("person"), "hold/alpha/"+d)
 	if e == nil || !strings.Contains(e["text"].(string), "<!--sdlc:agent run=rev-1-->\nthe code-reviewer passed a ticket on a spec defect\n<!--/sdlc:agent-->") {
 		t.Fatalf("the decision filed now = %v", e)
 	}
-	w.waitNotified("decision/alpha/" + d)
+	w.waitNotified("hold/alpha/" + d)
 	if env, _ := w.as(rev, "decision", "file", "--title", "the spec names no jitter", "--trigger", "launch", "--now",
 		"--by", w.clock.Now().UTC().Format("2006-01-02")); env["code"] != cli.CodeUsage {
 		t.Fatalf("--now with --by = %v", env)
@@ -172,7 +172,7 @@ func (w *humanWorld) fileDecisionAs(checkout, title string) string {
 		w.t.Fatalf("decision file = %d %v", code, env)
 	}
 	d := env["data"].(map[string]any)["decision"].(string)
-	if w.show(d).Status != machine.DecisionPending || entryByID(w.entries(""), "decision/alpha/"+d) != nil {
+	if w.show(d).Status != machine.DecisionPending || entryByID(w.entries(""), "hold/alpha/"+d) != nil {
 		w.t.Fatalf("a decision filed with no --now = %s", w.show(d).Status)
 	}
 	return d
@@ -188,10 +188,10 @@ func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	d := w.fileDecision("which store", "--waits-for-a-person", "the operator")
 	w.coordinator("decision", "fire", d, "--project", "alpha", "--why", "the first user paid")
 	env, _ := w.coordinator("inbox", "prepare", "--body", "ship on Friday? options: yes, costs a weekend; no, costs a week",
-		"--entry", "decision/alpha/"+d)
+		"--entry", "hold/alpha/"+d)
 	q := env["data"].(map[string]any)["entry"].(string)
 	until := w.clock.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-	for _, id := range []string{"decision/alpha/" + d, q} {
+	for _, id := range []string{"hold/alpha/" + d, q} {
 		if env, code := w.coordinator("inbox", "defer", id, "--until", until, "--reason", "the operator decides on Friday"); code != 0 {
 			t.Fatalf("defer %s = %d %v", id, code, env)
 		}
@@ -199,7 +199,7 @@ func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 	if it := w.show(d); it.Status != machine.DecisionPending {
 		t.Fatalf("deferred decision = %s", it.Status)
 	}
-	if es := w.entries(""); entryByID(es, q) != nil || entryByID(es, "decision/alpha/"+d) != nil {
+	if es := w.entries(""); entryByID(es, q) != nil || entryByID(es, "hold/alpha/"+d) != nil {
 		t.Fatalf("deferred entries show: %v", es)
 	}
 	if env, _ := w.coordinator("inbox", "defer", q, "--until", "2000-01-01T00:00:00Z", "--reason", "the past"); env["code"] != cli.CodeUsage {
@@ -215,8 +215,8 @@ func TestInboxDeferResumesAtItsTimeAcrossARestart(t *testing.T) {
 		t.Fatalf("the decision did not return: %s", it.Status)
 	}
 	es := w.entries("person")
-	dq, de := entryByID(es, q), entryByID(es, "decision/alpha/"+d)
-	if dq == nil || de == nil || dq["link"] != "decision/alpha/"+d {
+	dq, de := entryByID(es, q), entryByID(es, "hold/alpha/"+d)
+	if dq == nil || de == nil || dq["link"] != "hold/alpha/"+d {
 		t.Fatalf("entries after the defer = %v", es)
 	}
 	if env, code := w.coordinator("inbox", "answer", q, "--body", "yes"); code != 0 {
