@@ -90,6 +90,9 @@ func (l *Loader) Load(ctx context.Context, project string, refs Refs, defaultBra
 		if err := l.Alerts.Clear(ctx, configAlertKey(project)); err != nil {
 			return nil, err
 		}
+		if err := ReportRenames(ctx, l.Alerts, project, snap.Renames); err != nil {
+			return nil, err
+		}
 		return &Loaded{ProjectSnapshot: *snap}, nil
 	}
 	if !errors.Is(err, ErrInvalid) {
@@ -137,6 +140,7 @@ func parseSnapshot(craw, mraw []byte) (*ProjectSnapshot, error) {
 			return nil, err
 		}
 	}
+	snap.Renames = snapshotRenames(cfg, snap.Manifest)
 	return snap, nil
 }
 

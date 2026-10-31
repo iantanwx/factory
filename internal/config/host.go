@@ -48,6 +48,9 @@ type HostConfig struct {
 	RunBudget   time.Duration       `yaml:"run_budget,omitempty"`   // default run budget (KTD9)
 	QuietPeriod time.Duration       `yaml:"quiet_period,omitempty"` // quiet period before the server acts
 	Projects    []Project           `yaml:"projects,omitempty"`
+	// Renames lists each old throughput key that the parse moved to its
+	// new key.
+	Renames []Rename `yaml:"-"`
 }
 
 // StoreConfig names the database and the identity of the instance.
@@ -157,6 +160,11 @@ func ParseHost(data []byte) (*HostConfig, error) {
 	if err := decodeStrict(HostConfigFile, data, &cfg); err != nil {
 		return nil, err
 	}
+	ck := &checker{source: HostConfigFile}
+	cfg.Renames = renameKeys(ck, HostConfigFile, "throughput", cfg.Throughput)
+	if err := ck.err(); err != nil {
+		return nil, err
+	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -169,7 +177,14 @@ func LoadHost(path string) (*HostConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config: read host config: %w", err)
 	}
-	return ParseHost(data)
+	cfg, err := ParseHost(data)
+	if err != nil {
+		return nil, err
+	}
+	for i := range cfg.Renames {
+		cfg.Renames[i].Source = path
+	}
+	return cfg, nil
 }
 
 // SaveHost validates cfg and writes it to path atomically at mode 0600.

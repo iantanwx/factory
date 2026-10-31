@@ -41,6 +41,8 @@ type ProjectConfig struct {
 	Health      HealthConfig           `yaml:"health,omitempty"`
 	// Skills are the project's userspace skill pins (ADR 0013).
 	Skills SkillPins `yaml:"skills,omitempty"`
+	// Renames lists each old stage key that the parse moved to its new key.
+	Renames []Rename `yaml:"-"`
 }
 
 // HealthConfig is the project's own health limits, which the overwatch
@@ -128,6 +130,11 @@ type Command struct {
 func ParseProjectConfig(data []byte) (*ProjectConfig, error) {
 	var cfg ProjectConfig
 	if err := decodeStrict(ProjectConfigPath, data, &cfg); err != nil {
+		return nil, err
+	}
+	ck := &checker{source: ProjectConfigPath}
+	cfg.Renames = renameKeys(ck, ProjectConfigPath, "stages", cfg.Stages)
+	if err := ck.err(); err != nil {
 		return nil, err
 	}
 	if err := cfg.validate(); err != nil {
@@ -320,6 +327,9 @@ type ProjectSnapshot struct {
 	// Branch is the default branch the read named. A run of the project
 	// starts from it.
 	Branch string
+	// Renames lists each old stage name that the config or the manifest
+	// held, empty when the read held none.
+	Renames []Rename
 }
 
 // BaseBranch is the branch a run starts from: the branch of the read, or
@@ -350,7 +360,7 @@ func ReadProjectSnapshot(ctx context.Context, read RefReader, defaultBranch stri
 	if err != nil {
 		return nil, err
 	}
-	snap := &ProjectSnapshot{Config: cfg, ConfigRaw: raw, Manifest: &Manifest{}, Branch: defaultBranch}
+	snap := &ProjectSnapshot{Config: cfg, ConfigRaw: raw, Manifest: &Manifest{}, Branch: defaultBranch, Renames: cfg.Renames}
 	mraw, err := read(ctx, ref, cfg.ManifestPath())
 	switch {
 	case errors.Is(err, fs.ErrNotExist) && cfg.Manifest == "":
@@ -364,7 +374,19 @@ func ReadProjectSnapshot(ctx context.Context, read RefReader, defaultBranch stri
 		return nil, err
 	}
 	snap.ManifestRaw = mraw
+	snap.Renames = snapshotRenames(cfg, snap.Manifest)
 	return snap, nil
+}
+
+// snapshotRenames lists the renames of the config, then those of the
+// manifest under the path that the config names.
+func snapshotRenames(cfg *ProjectConfig, m *Manifest) []Rename {
+	out := slices.Clone(cfg.Renames)
+	for _, r := range m.Renames {
+		r.Source = cfg.ManifestPath()
+		out = append(out, r)
+	}
+	return out
 }
 
 // checkBranchName refuses a default branch name that git could read as an

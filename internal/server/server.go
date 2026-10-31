@@ -297,6 +297,9 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			_ = st.Close()
 		}
 	}()
+	if err := config.ReportRenames(ctx, config.StoreAlerter(st), "", cfg.Renames); err != nil {
+		return nil, err
+	}
 	keyPath := cfg.KeyFile
 	if keyPath == "" {
 		keyPath = filepath.Join(dir, KeyFile)
