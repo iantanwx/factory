@@ -360,7 +360,10 @@ func (c *Client) reserveKey(ctx context.Context, cc *callCtx, inv Invocation, re
 			return pending, e.Key, nil
 		}
 	}
-	item := inv.Arg("item")
+	item, project := inv.Arg("item"), inv.Flags["project"]
+	if p, epic, ok := signoffEpic(inv); ok {
+		item, project = epic, p
+	}
 	if item == "" {
 		item = cc.token.Item
 	}
@@ -368,7 +371,7 @@ func (c *Client) reserveKey(ctx context.Context, cc *callCtx, inv Invocation, re
 	if item != "" {
 		reader := c.State
 		if reader == nil {
-			reader = serverState{c: c, cc: cc, project: inv.Flags["project"]}
+			reader = serverState{c: c, cc: cc, project: project}
 		}
 		var res *Result
 		if st, res = reader.ItemState(ctx, item); res != nil {
@@ -389,6 +392,18 @@ func (c *Client) reserveKey(ctx context.Context, cc *callCtx, inv Invocation, re
 		return nil, "", new(Internal(fmt.Errorf("record the pending write: %w", err)))
 	}
 	return pending, key, nil
+}
+
+// signoffEpic is the project and the epic of an answer to a sign-off
+// entry, signoff/<project>/<epic>. The PRD and the spec of the epic share
+// the entry, so the answer's key holds the epic's state: the same words
+// at the next sign-off are a new write (factorio-ny3n).
+func signoffEpic(inv Invocation) (project, epic string, ok bool) {
+	parts := strings.Split(inv.Arg("entry"), "/")
+	if inv.Verb.Path != "inbox answer" || len(parts) != 3 || parts[0] != "signoff" {
+		return "", "", false
+	}
+	return parts[1], parts[2], true
 }
 
 // serverState reads `work show <item>` over the same socket. Project is

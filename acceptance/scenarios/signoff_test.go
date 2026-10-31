@@ -144,3 +144,43 @@ func TestSignoffAnswerRefusesAMovedHeadAndRaisesTheEntryAgain(t *testing.T) {
 	}
 	wantStatus(w, epic, machine.SpecNeeded)
 }
+
+// factorio-ny3n: the PRD and the spec of one epic share the sign-off entry
+// signoff/<project>/<epic>. The operator approves both with the same
+// words. The spec's answer is a new write at a new head: it merges the
+// spec PR at the head the entry names, and it never returns the PRD's
+// stored answer.
+func TestSignoffAnswerWithTheSameWordsMergesTheSpecAfterThePRD(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	epic := submitPRD(w, openIntake(w, "the operator wants widgets"), "Widgets")
+	entry := "signoff/" + acceptance.Project + "/" + epic
+
+	prdHead := docPass(w, epic)
+	wantStatus(w, epic, machine.PRDSignoff)
+	prd := docPR(w, epic)
+	w.Must(w.Coordinator("inbox", "answer", entry, "--body", "Approve"))
+	if calls := mergesOf(w, prd.Number); len(calls) != 1 || calls[0].SHA != prdHead {
+		t.Fatalf("the merges of PRD #%d = %+v, want one at %s", prd.Number, calls, prdHead)
+	}
+	wantStatus(w, epic, machine.SpecNeeded)
+
+	draftSpec(w, epic, "draft one")
+	specHead := docPass(w, epic)
+	wantStatus(w, epic, machine.SpecSignoff)
+	spec := docPR(w, epic)
+	specPath := "docs/plans/" + epic + "-widgets-spec.md"
+	w.API.World.Update(spec, func(p *gt.PR) { p.Files = []string{specPath} })
+	w.API.World.SetFile(specHead, specPath, "# Widgets spec\n\n## Open questions\n\nNone.\n")
+	if e := signoffEntry(w, epic); e["head"] != specHead {
+		t.Fatalf("the spec's sign-off entry = %v, want head %s", e, specHead)
+	}
+
+	r := w.Coordinator("inbox", "answer", entry, "--body", "Approve")
+	if r.Code != 0 || r.Env["replayed"] == true {
+		t.Fatalf("the spec's answer with the PRD's words = %s, want a new write and not a replay of the PRD's answer", r)
+	}
+	if calls := mergesOf(w, spec.Number); len(calls) != 1 || calls[0].SHA != specHead {
+		t.Fatalf("the merges of spec #%d = %+v, want one at %s", spec.Number, calls, specHead)
+	}
+	wantStatus(w, epic, machine.SpecApproved)
+}
