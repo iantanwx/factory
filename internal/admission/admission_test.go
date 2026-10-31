@@ -98,7 +98,7 @@ func TestIntakeMutexHasOneHolder(t *testing.T) {
 // planner run and one reproducer run in a project at a time, whatever
 // cap host config holds. The second run is refused on a second item, the
 // peek offers nothing, and settling the holder frees the stage. C17 holds
-// the prd-author to the same rule.
+// the unattended brainstorm to the same rule.
 func TestPlannerAndReproducerRunOneAtATime(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -108,7 +108,7 @@ func TestPlannerAndReproducerRunOneAtATime(t *testing.T) {
 	}{
 		{machine.StagePlanner, machine.KindEpic, machine.PRDSignoff},
 		{machine.StageReproducer, machine.KindBug, machine.Reported},
-		{"prd-author", machine.KindEpic, machine.PRDNeeded},
+		{machine.StageUnattendedBrainstorm, machine.KindEpic, machine.PRDNeeded},
 	}
 	for _, c := range cases {
 		t.Run(c.stage, func(t *testing.T) {

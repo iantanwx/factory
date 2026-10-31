@@ -18,11 +18,11 @@ import (
 // one-run guard of scripts/sdlc/stage-claims.ts (alpha): two planners
 // would each take an epic and break the stage's cadence, and a second
 // reproducer would take the next report from a stale queue read while the
-// first still reads it (timer-reproducer-row.ts, alpha). The PRD author
-// keeps the same guard for the planner's reason: two runs would each
+// first still reads it (timer-reproducer-row.ts, alpha). The unattended
+// brainstorm keeps the same guard for the planner's reason: two runs would each
 // take an epic and break the stage's cadence (ADR 0001, spec factorio-4n0
 // Decisions).
-var mutexStages = []string{config.StageIntake, config.StagePlanner, config.StageReproducer, config.StagePRDAuthor}
+var mutexStages = []string{config.StageIntake, config.StagePlanner, config.StageReproducer, config.StageUnattendedBrainstorm}
 
 // MutexStage reports whether stage is a mutex stage.
 func MutexStage(stage string) bool { return slices.Contains(mutexStages, stage) }

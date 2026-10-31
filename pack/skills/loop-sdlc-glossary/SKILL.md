@@ -29,7 +29,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | --- | --- | --- |
 | `implementer` | Builds one ticket in one pull request, and repairs a red build | ticket `todo`, `repair` |
 | `code-reviewer` | Reviews the pull request of one ticket | ticket `in_review` |
-| `prd-author` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
+| `unattended-brainstorm` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
 | `doc-reviewer` | Reviews one PRD, one spec or one ADR pull request | epic `prd_review`, `spec_review`, `adr_review` |
 | `amender` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
 | `planner` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
@@ -64,8 +64,8 @@ names a verb, and the transition table picks the state.
 ## Documents
 
 - **PRD**: states what a user can do, as user stories with stable labels such as US-01. It names
-  no implementation. Either a PRD author or an intake room writes it. The PRD author writes it from
-  the operator's request. An intake room writes it with the operator.
+  no implementation. Either an unattended brainstorm or an intake room writes it. The unattended
+  brainstorm writes it from the operator's request. An intake room writes it with the operator.
 - **Spec**: states how one epic is built. It is the last document a person reads before the
   decomposer cuts tickets.
 - **Ticket**: the unit that the implementer and the code-reviewer read.

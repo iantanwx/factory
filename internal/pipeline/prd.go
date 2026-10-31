@@ -134,7 +134,8 @@ func (p *Pipeline) prdSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 		Signoff: signoff})
 }
 
-// runPRDSubmit is `loop prd submit` from a prd-author run (factorio-4n0):
+// runPRDSubmit is `loop prd submit` from an unattended-brainstorm run
+// (factorio-4n0):
 // it submits the PRD of the epic the run holds in prd_drafting. It checks
 // the stage, the held epic, its state and the lease epoch, and it reads
 // the PRD at HEAD, before any push. The prd_submit row drops the lease and
@@ -142,8 +143,8 @@ func (p *Pipeline) prdSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 // at the run's epoch, and answers it again with no second move.
 func (p *Pipeline) runPRDSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
-	if pr.Stage != prdAuthorStage || pr.Item == "" {
-		return cli.Reject(cli.CodeCapabilityDenied, "prd_author_only", "only the prd-author run that holds the epic submits its PRD")
+	if pr.Stage != brainstormStage || pr.Item == "" {
+		return cli.Reject(cli.CodeCapabilityDenied, "prd_author_only", "only the unattended-brainstorm run that holds the epic submits its PRD")
 	}
 	file := path.Clean(strings.TrimSpace(inv.Flags["path"]))
 	if file == "." || path.IsAbs(file) || strings.HasPrefix(file, "../") {

@@ -28,15 +28,15 @@ type Throughput struct {
 // The run stages (R13). The machine's claim rows use these names. Intake,
 // the fixer and the retro claim no item.
 const (
-	StageImplementer  = "implementer"
-	StageCodeReviewer = "code-reviewer"
-	StageDocReviewer  = "doc-reviewer"
-	StageAmender      = "amender"
-	StagePRDAuthor    = "prd-author"
-	StagePlanner      = "planner"
-	StageDecomposer   = "decomposer"
-	StageFixer        = "fixer"
-	StageReproducer   = "reproducer"
+	StageImplementer          = "implementer"
+	StageCodeReviewer         = "code-reviewer"
+	StageDocReviewer          = "doc-reviewer"
+	StageAmender              = "amender"
+	StageUnattendedBrainstorm = "unattended-brainstorm"
+	StagePlanner              = "planner"
+	StageDecomposer           = "decomposer"
+	StageFixer                = "fixer"
+	StageReproducer           = "reproducer"
 	// StageRetro learns from a finished epic or bug.
 	StageRetro = "retro"
 	// StageIntake is the stage whose cap counts epics, not runs (KTD30).
@@ -46,7 +46,7 @@ const (
 // The stage set (R13). The native jobs claim no item.
 var (
 	runStages = []string{
-		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StagePRDAuthor,
+		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StageUnattendedBrainstorm,
 		StagePlanner, StageDecomposer, StageFixer, StageReproducer, StageRetro, StageIntake,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch", "orca-acceptance"}
@@ -55,7 +55,7 @@ var (
 	// entry reads as its default and is never written to the file
 	// (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Decisions). Every
 	// other key stays required.
-	optional = []string{"overwatch", "orca-acceptance", StagePRDAuthor, StageRetro}
+	optional = []string{"overwatch", "orca-acceptance", StageUnattendedBrainstorm, StageRetro}
 	// pools bound several stages together. The reviewers pool is today's
 	// REVIEW_CAP over every reviewer stage (scripts/sdlc/review-cap.ts,
 	// alpha), next to each stage's own cap.
@@ -101,24 +101,24 @@ func DefaultThroughput() map[string]Throughput {
 	every5 := "*/5 * * * *"
 	fixer := "14,44 * * * *"
 	return map[string]Throughput{
-		StageImplementer:     {Cap: 8, Schedule: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"},
-		StageCodeReviewer:    {Cap: 8, Schedule: every5},
-		StageDocReviewer:     {Cap: 10, Schedule: "26,56 * * * *"},
-		"reviewers":          {Cap: 10},
-		StageAmender:         {Cap: 2, Schedule: "16,46 * * * *"},
-		StagePRDAuthor:       {Cap: 2, Schedule: "5,35 * * * *"},
-		StagePlanner:         {Cap: 2, Schedule: "25,55 * * * *"},
-		StageDecomposer:      {Cap: 2, Schedule: "10,40 * * * *"},
-		StageFixer:           {Cap: 1, Schedule: fixer},
-		StageReproducer:      {Cap: 2, Schedule: "12,42 * * * *"},
-		StageRetro:           {Cap: 1, Schedule: fixer},
-		StageIntake:          {Cap: 8, Schedule: "20,50 * * * *"},
-		"merge-handoff":      {Cap: 1, Schedule: every5},
-		"dependency-advance": {Cap: 1, Schedule: every5},
-		"decision-timers":    {Cap: 1, Schedule: "* * * * *"},
-		"github-reactor":     {Cap: 1, Schedule: "* * * * *"},
-		"overwatch":          {Cap: 1, Schedule: "3,13,23,33,43,53 * * * *"},
-		"orca-acceptance":    {Cap: 1, Schedule: "30 17 * * *"},
+		StageImplementer:          {Cap: 8, Schedule: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"},
+		StageCodeReviewer:         {Cap: 8, Schedule: every5},
+		StageDocReviewer:          {Cap: 10, Schedule: "26,56 * * * *"},
+		"reviewers":               {Cap: 10},
+		StageAmender:              {Cap: 2, Schedule: "16,46 * * * *"},
+		StageUnattendedBrainstorm: {Cap: 2, Schedule: "5,35 * * * *"},
+		StagePlanner:              {Cap: 2, Schedule: "25,55 * * * *"},
+		StageDecomposer:           {Cap: 2, Schedule: "10,40 * * * *"},
+		StageFixer:                {Cap: 1, Schedule: fixer},
+		StageReproducer:           {Cap: 2, Schedule: "12,42 * * * *"},
+		StageRetro:                {Cap: 1, Schedule: fixer},
+		StageIntake:               {Cap: 8, Schedule: "20,50 * * * *"},
+		"merge-handoff":           {Cap: 1, Schedule: every5},
+		"dependency-advance":      {Cap: 1, Schedule: every5},
+		"decision-timers":         {Cap: 1, Schedule: "* * * * *"},
+		"github-reactor":          {Cap: 1, Schedule: "* * * * *"},
+		"overwatch":               {Cap: 1, Schedule: "3,13,23,33,43,53 * * * *"},
+		"orca-acceptance":         {Cap: 1, Schedule: "30 17 * * *"},
 	}
 }
 

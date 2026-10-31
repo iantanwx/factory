@@ -45,7 +45,7 @@ func TestC1EpicCancelsUntilDecomposing(t *testing.T) {
 	w := newWorld(t)
 	reason := map[string]string{"reason": "ADR 0013 gave the work to factorio-yzrt."}
 	prd := w.create(KindEpic, VerbCreatePRD, nil)
-	w.claimAs(prd, StagePRDAuthor, "prd")
+	w.claimAs(prd, StageUnattendedBrainstorm, "prd")
 	mustOK(t, w.call("work cancel", coord(), []string{prd}, reason))
 	if it := w.show(prd); it.Status != Canceled || it.Owner != "" {
 		t.Fatalf("after the coordinator's cancel: %s, owner %q", it.Status, it.Owner)
