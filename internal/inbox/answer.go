@@ -14,6 +14,7 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -206,6 +207,11 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 				return err
 			}
 			n, _ = r.RowsAffected()
+			if n > 0 {
+				if err := sched.SettleRemovedKept(tx, row); err != nil {
+					return err
+				}
+			}
 			if _, err := tx.Exec(`INSERT INTO audit (at, actor, action, detail) VALUES (?, ?, 'alert_answered', json_object('alert', ?, 'answer', ?))`,
 				in.cfg.Now().UnixMilli(), actor.Name, row, body); err != nil {
 				return err
