@@ -402,7 +402,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		s.Machine.SetRetroReader(func(ctx context.Context, project, item string) (machine.RetroOnItem, error) {
 			return retro.OnItem(ctx, st, project, item)
 		})
-		s.Retro = &retro.Service{World: retro.World{Store: st, Machine: s.Machine}, Redactor: red}
+		s.Retro = &retro.Service{World: retro.World{Store: st, Machine: s.Machine, Faults: s.Faults}, Redactor: red}
 		if err := s.Retro.Register(srv); err != nil {
 			return nil, err
 		}

@@ -15,6 +15,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx/fake"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/escalation"
+	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/release"
@@ -91,7 +92,7 @@ func (w *world) retroOf(project, runID string, runs ...string) string {
 }
 
 func (w *world) service() *retro.Service {
-	return &retro.Service{World: retro.World{Store: w.st, Machine: w.m}}
+	return &retro.Service{World: retro.World{Store: w.st, Machine: w.m, Faults: &fault.Service{Store: w.st}}}
 }
 
 // retroCall calls a retro verb as a retro run of project.
@@ -127,6 +128,7 @@ type routed struct {
 		Target string `json:"target"`
 		Reason string `json:"reason"`
 		Entry  string `json:"entry"`
+		Ref    string `json:"landed_ref"`
 	} `json:"learnings"`
 }
 
@@ -360,7 +362,7 @@ func TestC12ALaterCaseCountsBoth(t *testing.T) {
 // C18: a pack PR learning that every other rule lands escalates with
 // reason pack_outside in a project whose repository is not the loop's, and
 // creates no ticket in either project. In the loop's own project the same
-// panel lands.
+// panel lands as one ticket there.
 func TestC18NoPackPROutsideTheLoopsProject(t *testing.T) {
 	w := newWorld(t)
 	const home = "home"
@@ -399,11 +401,8 @@ func TestC18NoPackPROutsideTheLoopsProject(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if ref != "" {
-		t.Fatalf("the landed learning names %q; this route creates nothing", ref)
-	}
-	if n := tickets(); n != 0 {
-		t.Fatalf("%d tickets or bugs in both projects, want none", n)
+	if n := w.created(home) - w.count(`SELECT count(*) FROM faults`); n != 1 || tickets() != 1 || ref == "" {
+		t.Fatalf("%d tickets or bugs in %s and %d in both projects, landed as %q; want one ticket in %s", n, home, tickets(), ref, home)
 	}
 }
 
@@ -523,7 +522,8 @@ func TestC20AnEscalationHoldsBothJudgesAndJev(t *testing.T) {
 
 // C29: a route by a run that holds no retro is refused with
 // retro_not_bound, and a second route of a done retro with retro_done.
-// Neither writes a learning, a notice or an item.
+// Neither writes a learning, a notice or an item. The one route lands one
+// ticket.
 func TestC29OneRouteForEachRetro(t *testing.T) {
 	w := newWorld(t)
 	epic := w.retroOf(prj, "r-1", "r-a")
@@ -547,8 +547,8 @@ func TestC29OneRouteForEachRetro(t *testing.T) {
 	if l, n := w.count(`SELECT count(*) FROM learnings`), w.count(`SELECT count(*) FROM notices`); l != 1 || n != 1 {
 		t.Fatalf("%d learnings and %d notices after the refused routes, want 1 and 1", l, n)
 	}
-	if n := w.created(prj); n != before {
-		t.Fatalf("the routes created %d items", n-before)
+	if n := w.created(prj); n != before+1 {
+		t.Fatalf("the routes created %d items, want the 1 ticket of the landed learning", n-before)
 	}
 }
 
