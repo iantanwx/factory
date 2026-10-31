@@ -108,7 +108,7 @@ type Request struct {
 	Project string
 	Stage   string
 	// Item is the work item the run takes. A stage with no claim row, such
-	// as intake or the fixer, takes none.
+	// as brainstorm or the fixer, takes none.
 	Item  string
 	RunID string
 	// Harness and Model are recorded on the run. Neither enters the retry
@@ -310,7 +310,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		if snap.inputs, err = a.inputsOf(ctx, r.Project, r.Item, r.Stage); err != nil {
 			return Admitted{}, asRefusal(err)
 		}
-	} else if r.Stage == config.StageIntake {
+	} else if r.Stage == config.StageBrainstorm {
 		if epics, ref = a.intakeEpics(ctx, r.Project); ref != nil {
 			return Admitted{}, ref
 		}
@@ -339,8 +339,8 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 				return refusalErr{ref}
 			}
 		}
-		if r.Stage == config.StageIntake {
-			if ref := intakeFull(epics, limits[0]); ref != nil {
+		if r.Stage == config.StageBrainstorm {
+			if ref := brainstormFull(epics, limits[0]); ref != nil {
 				return refusalErr{ref}
 			}
 		} else if ref, err := capRefusal(tx, r.Stage, limits, ""); err != nil || ref != nil {
@@ -535,12 +535,12 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 	if ref != nil {
 		return nil, ref
 	}
-	if stage == config.StageIntake {
+	if stage == config.StageBrainstorm {
 		epics, ref := a.intakeEpics(ctx, project)
 		if ref != nil {
 			return nil, ref
 		}
-		if intakeFull(epics, limits[0]) != nil {
+		if brainstormFull(epics, limits[0]) != nil {
 			return nil, nil
 		}
 	}
@@ -554,7 +554,7 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 				return err
 			}
 		}
-		if stage == config.StageIntake {
+		if stage == config.StageBrainstorm {
 			return nil
 		}
 		ref, err := capRefusal(q, stage, limits, run)

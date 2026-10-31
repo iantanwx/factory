@@ -49,7 +49,7 @@ func answer(w *acceptance.World, run acceptance.Run, title, path, revision strin
 // while the amender works is the sign-off.
 func TestPersonCommentRowsEndToEnd(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
-	room, co := openRoom(w, "intake", "", "the operator wants sprockets")
+	room, co := openRoom(w, "brainstorm", "", "the operator wants sprockets")
 	epic := submitPRD(w, co, "Sprockets")
 	w.Must(w.Coordinator("room", "close", room))
 

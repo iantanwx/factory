@@ -48,23 +48,23 @@ func (s staticProjects) Show(id string) (config.Project, error) {
 	return config.Project{}, config.ErrProjectNotFound
 }
 
-// hostSource is the default host config, with the intake cap of *cap
+// hostSource is the default host config, with the brainstorm cap of *cap
 // when it is above 0.
 type hostSource struct{ cap *int }
 
 func (h hostSource) Load(context.Context) (*config.HostConfig, error) {
 	cfg := config.DefaultHost("/nonexistent")
 	if *h.cap > 0 {
-		e := cfg.Throughput[config.StageIntake]
+		e := cfg.Throughput[config.StageBrainstorm]
 		e.Cap = *h.cap
-		cfg.Throughput[config.StageIntake] = e
+		cfg.Throughput[config.StageBrainstorm] = e
 	}
 	return cfg, nil
 }
 
 // world is one project over synthetic GitHub: a store, a machine over fake
 // beads, the GitHub service and reactor, admission's work query, and the
-// pipeline. checkout is the intake room's checkout and every run's.
+// pipeline. checkout is the brainstorm room's checkout and every run's.
 type world struct {
 	t        *testing.T
 	ctx      context.Context
@@ -82,8 +82,8 @@ type world struct {
 	projects staticProjects
 	red      *secrets.Redactor
 	n        int
-	// intakeCap is the host's intake cap, the default when 0.
-	intakeCap int
+	// brainstormCap is the host's brainstorm cap, the default when 0.
+	brainstormCap int
 	// disabled lists the stages the project's config does not enable.
 	disabled map[string]bool
 }
@@ -127,20 +127,20 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	w.reactor = github.NewReactor(w.svc)
-	w.adm, err = admission.New(admission.Config{Store: st, Host: hostSource{cap: &w.intakeCap}, Beads: beads, Base: w.svc, Release: "test"})
+	w.adm, err = admission.New(admission.Config{Store: st, Host: hostSource{cap: &w.brainstormCap}, Beads: beads, Base: w.svc, Release: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	w.adm.Attach(w.m)
 	w.p, err = pipeline.New(pipeline.Config{Store: st, Machine: w.m, Beads: beads, GitHub: w.svc, Projects: w.projects,
-		Redactor: w.red, Logger: quiet, IntakeCap: w.adm.IntakeCap,
+		Redactor: w.red, Logger: quiet, BrainstormCap: w.adm.BrainstormCap,
 		StageEnabled: func(_ context.Context, _, stage string) (bool, error) { return !w.disabled[stage], nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := w.st.Write(ctx, func(tx *store.Tx) error {
 		_, err := tx.Exec(`INSERT INTO rooms (id, project, item, state, opened_at, kind, reason, run_id, updated_at)
-			VALUES (?, ?, '', 'live', 1, 'intake', 'new work', ?, 1)`, roomID, testProject, roomRun)
+			VALUES (?, ?, '', 'live', 1, 'brainstorm', 'new work', ?, 1)`, roomID, testProject, roomRun)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -148,9 +148,9 @@ func newWorld(t *testing.T) *world {
 	return w
 }
 
-// intakeRoom is the token of the intake room's session.
-func (w *world) intakeRoom() rpc.Principal {
-	return rpc.Principal{Kind: cli.PrincipalRoom, RunID: roomRun, Project: testProject, Stage: "intake-room", Checkout: w.checkout}
+// brainstormRoom is the token of the brainstorm room's session.
+func (w *world) brainstormRoom() rpc.Principal {
+	return rpc.Principal{Kind: cli.PrincipalRoom, RunID: roomRun, Project: testProject, Stage: "brainstorm-room", Checkout: w.checkout}
 }
 
 func (w *world) coordinator() rpc.Principal {
@@ -199,11 +199,11 @@ func headFlags(head string, flags map[string]string) map[string]string {
 	return flags
 }
 
-// submit runs prd submit from the intake room at the checkout's head.
+// submit runs prd submit from the brainstorm room at the checkout's head.
 func (w *world) submit(key string) cli.Result {
 	w.t.Helper()
 	head := gt.Git(w.t, w.checkout, "rev-parse", "HEAD")
-	return w.call(w.intakeRoom(), key, "prd submit", headFlags(head, map[string]string{"path": prdPath, "title": "Widgets"}))
+	return w.call(w.brainstormRoom(), key, "prd submit", headFlags(head, map[string]string{"path": prdPath, "title": "Widgets"}))
 }
 
 func ok(t *testing.T, res cli.Result) map[string]any {

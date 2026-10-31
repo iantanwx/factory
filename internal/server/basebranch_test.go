@@ -111,7 +111,7 @@ func TestRoomStartsFromTheProjectBranch(t *testing.T) {
 	}
 	w.restart()
 
-	r := w.openRoom("intake", "", "the operator wants widgets")
+	r := w.openRoom("brainstorm", "", "the operator wants widgets")
 	if r["state"] != room.Live {
 		t.Fatalf("room = %v", r)
 	}

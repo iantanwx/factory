@@ -42,12 +42,12 @@ type Started struct {
 // command, the pack, brief and .env, the token, then the start. It returns
 // nil and no refusal when the stage has no work now, or a pause holds it.
 func (s *Scheduler) Dispatch(ctx context.Context, project, stage string) (*Started, *cli.Refusal) {
-	// Intake has a throughput entry, and its cap counts epics (KTD30).
-	// Intake itself runs in a room, attended, so no unattended run of it
+	// Brainstorm has a throughput entry, and its cap counts epics (KTD30).
+	// Brainstorm itself runs in a room, attended, so no unattended run of it
 	// starts.
-	if stage == config.StageIntake {
-		return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "intake_runs_in_a_room",
-			Hint: "intake runs in a room the coordinator opens with `loop room open --kind intake`; the scheduler starts no intake run"}
+	if stage == config.StageBrainstorm {
+		return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "brainstorm_runs_in_a_room",
+			Hint: "brainstorm runs in a room the coordinator opens with `loop room open --kind brainstorm`; the scheduler starts no brainstorm run"}
 	}
 	if s.Draining() {
 		return nil, &cli.Refusal{Code: cli.CodeDraining, Rule: "draining", Hint: "the server is draining and admits no new run"}

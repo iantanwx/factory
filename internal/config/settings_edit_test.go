@@ -83,13 +83,13 @@ func TestC33UnsetOfAnyOtherFieldKeepsEveryStage(t *testing.T) {
   fixer: {enabled: false, cap: 1, model: claude-opus-5-5}
   reproducer:
     cap: 1
-  intake: {cap: 1}
+  brainstorm: {cap: 1}
   merge-handoff: {schedule: "*/2 * * * *"}
 `
 	before := decodeProject(t, base)
 	names := slices.Concat(RunStages(), ProjectJobs())
 	keys := []string{"stages.fixer.cap", "stages.fixer.model", "stages.reproducer.cap",
-		"stages.intake.cap", "stages.merge-handoff.schedule"}
+		"stages.brainstorm.cap", "stages.merge-handoff.schedule"}
 	for _, f := range stageFields[KindItemStage] {
 		if f != "enabled" {
 			keys = append(keys, "stages.implementer."+f)

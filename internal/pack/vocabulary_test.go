@@ -71,3 +71,13 @@ func TestRetiredHitsNameFileLineAndWord(t *testing.T) {
 		t.Fatalf("hits = %q, want one at runbooks/a.md:2", got)
 	}
 }
+
+// C9: the intake rename retires its word, and no file of the pack holds it.
+func TestC9PackHoldsNoIntakeWord(t *testing.T) {
+	if !slices.Contains(config.RetiredWords(), "intake") {
+		t.Errorf("RetiredWords() lacks %q", "intake")
+	}
+	if hits := retiredHits(t, packsrc.Files, []string{"intake"}); len(hits) > 0 {
+		t.Fatalf("the pack holds a retired word:\n%s", strings.Join(hits, "\n"))
+	}
+}

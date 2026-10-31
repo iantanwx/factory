@@ -17,6 +17,7 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/sched"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 const roomManifest = "secrets:\n  - name: API_KEY\n    source: op://vault/item/field\n"
@@ -260,26 +261,26 @@ func TestRoomApplyNeedsAnOperatorStatement(t *testing.T) {
 	}
 }
 
-// setIntakeCap rewrites host config with a new intake cap, as the
+// setBrainstormCap rewrites host config with a new brainstorm cap, as the
 // operator does. The server reads it at the next call.
-func (w *humanWorld) setIntakeCap(n int) {
+func (w *humanWorld) setBrainstormCap(n int) {
 	w.t.Helper()
 	cfg, err := config.LoadHost(w.srv.HostPath)
 	if err != nil {
 		w.t.Fatal(err)
 	}
-	e := cfg.Throughput["intake"]
+	e := cfg.Throughput["brainstorm"]
 	e.Cap = n
-	cfg.Throughput["intake"] = e
+	cfg.Throughput["brainstorm"] = e
 	if err := config.SaveHost(w.srv.HostPath, cfg); err != nil {
 		w.t.Fatal(err)
 	}
 }
 
-// KTD30: the intake cap counts the project's epics in counted document
-// states. A new intake room at the cap is refused with CAP_FULL, and no
+// KTD30: the brainstorm cap counts the project's epics in counted document
+// states. A new brainstorm room at the cap is refused with CAP_FULL, and no
 // room opens. A raised cap in host config applies with no restart.
-func TestIntakeRoomOpensOnlyUnderTheIntakeCap(t *testing.T) {
+func TestBrainstormRoomOpensOnlyUnderTheBrainstormCap(t *testing.T) {
 	w := newRoomWorld(t)
 	ctx := context.Background()
 	is, err := w.bx.Create(ctx, beadsx.CreateSpec{Title: "Widgets", Type: "epic"})
@@ -289,51 +290,51 @@ func TestIntakeRoomOpensOnlyUnderTheIntakeCap(t *testing.T) {
 	if _, err := w.bx.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: is.Status, Status: machine.PRDReview}); err != nil {
 		t.Fatal(err)
 	}
-	w.setIntakeCap(1)
-	env, _ := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has a new idea", "--score", "4")
-	if env["code"] != cli.CodeCapFull || !strings.Contains(fmt.Sprint(env["hint"]), "throughput.intake") {
-		t.Fatalf("an intake room at the cap = %v", env)
+	w.setBrainstormCap(1)
+	env, _ := w.coordinator("room", "open", "--kind", "brainstorm", "--project", "alpha", "--reason", "the operator has a new idea", "--score", "4")
+	if env["code"] != cli.CodeCapFull || !strings.Contains(fmt.Sprint(env["hint"]), "throughput.brainstorm") {
+		t.Fatalf("a brainstorm room at the cap = %v", env)
 	}
 	if n := w.count(`SELECT count(*) FROM rooms`); n != 0 {
-		t.Fatalf("a refused intake room left %d rooms", n)
+		t.Fatalf("a refused brainstorm room left %d rooms", n)
 	}
 	// The same arguments replay the stored refusal (KTD13), so the second
 	// open states its reason again in new words.
-	w.setIntakeCap(2)
-	if r := w.openRoom("intake", "", "the operator raised the intake cap"); r["state"] != room.Live {
-		t.Fatalf("an intake room under the raised cap = %v", r)
+	w.setBrainstormCap(2)
+	if r := w.openRoom("brainstorm", "", "the operator raised the brainstorm cap"); r["state"] != room.Live {
+		t.Fatalf("a brainstorm room under the raised cap = %v", r)
 	}
 }
 
-// C-bug-1: each `room open --kind intake` with no --item under the intake
+// C-bug-1: each `room open --kind brainstorm` with no --item under the brainstorm
 // cap opens a new room, and an open room's reason never changes. Only an
 // idle or interrupted room is reopened, and only on its own item.
-func TestEachItemlessIntakeOpenIsANewRoom(t *testing.T) {
+func TestEachItemlessBrainstormOpenIsANewRoom(t *testing.T) {
 	w := newRoomWorld(t)
-	first := w.openRoom("intake", "", "the operator has an idea about widgets")
+	first := w.openRoom("brainstorm", "", "the operator has an idea about widgets")
 	if first["state"] != room.Live {
-		t.Fatalf("first intake room = %v", first)
+		t.Fatalf("first brainstorm room = %v", first)
 	}
-	env, code := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has an idea about gadgets", "--score", "4")
+	env, code := w.coordinator("room", "open", "--kind", "brainstorm", "--project", "alpha", "--reason", "the operator has an idea about gadgets", "--score", "4")
 	if code != 0 {
-		t.Fatalf("second intake open = %d %v", code, env)
+		t.Fatalf("second brainstorm open = %d %v", code, env)
 	}
 	data := env["data"].(map[string]any)
 	second := data["room"].(map[string]any)
 	if data["reopened"] == true || second["room"] == first["room"] {
-		t.Fatalf("the second itemless intake open reopened live room %v: %v", first["room"], env)
+		t.Fatalf("the second itemless brainstorm open reopened live room %v: %v", first["room"], env)
 	}
 	if got := w.room(first["room"].(string)); got.Reason != "the operator has an idea about widgets" {
 		t.Fatalf("the live room's reason changed to %q", got.Reason)
 	}
-	if n := w.count(`SELECT count(*) FROM rooms WHERE kind = 'intake' AND item = '' AND closed_at IS NULL`); n != 2 {
-		t.Fatalf("open itemless intake rooms = %d, want 2", n)
+	if n := w.count(`SELECT count(*) FROM rooms WHERE kind = 'brainstorm' AND item = '' AND closed_at IS NULL`); n != 2 {
+		t.Fatalf("open itemless brainstorm rooms = %d, want 2", n)
 	}
 }
 
-// C-bug-1: a second itemless intake open goes through the intake cap like
-// the first. An open itemless intake room does not wave it past a full cap.
-func TestASecondItemlessIntakeOpenMeetsTheIntakeCap(t *testing.T) {
+// C-bug-1: a second itemless brainstorm open goes through the brainstorm cap like
+// the first. An open itemless brainstorm room does not wave it past a full cap.
+func TestBrainstormOpenMeetsTheBrainstormCap(t *testing.T) {
 	w := newRoomWorld(t)
 	ctx := context.Background()
 	is, err := w.bx.Create(ctx, beadsx.CreateSpec{Title: "Widgets", Type: "epic"})
@@ -343,15 +344,15 @@ func TestASecondItemlessIntakeOpenMeetsTheIntakeCap(t *testing.T) {
 	if _, err := w.bx.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: is.Status, Status: machine.PRDReview}); err != nil {
 		t.Fatal(err)
 	}
-	w.setIntakeCap(2)
-	first := w.openRoom("intake", "", "the operator has an idea about widgets")
-	w.setIntakeCap(1)
-	env, _ := w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has an idea about gadgets", "--score", "4")
+	w.setBrainstormCap(2)
+	first := w.openRoom("brainstorm", "", "the operator has an idea about widgets")
+	w.setBrainstormCap(1)
+	env, _ := w.coordinator("room", "open", "--kind", "brainstorm", "--project", "alpha", "--reason", "the operator has an idea about gadgets", "--score", "4")
 	if env["code"] != cli.CodeCapFull {
-		t.Fatalf("a second itemless intake open at the cap = %v", env)
+		t.Fatalf("a second itemless brainstorm open at the cap = %v", env)
 	}
 	if n := w.count(`SELECT count(*) FROM rooms`); n != 1 {
-		t.Fatalf("rooms after a refused second intake open = %d, want 1", n)
+		t.Fatalf("rooms after a refused second brainstorm open = %d, want 1", n)
 	}
 	if got := w.room(first["room"].(string)); got.Reason != "the operator has an idea about widgets" {
 		t.Fatalf("the live room's reason changed to %q", got.Reason)
@@ -360,17 +361,17 @@ func TestASecondItemlessIntakeOpenMeetsTheIntakeCap(t *testing.T) {
 
 // A room receives only the secrets its room's stage receives, each in the
 // .env of the entry's directory (parity 9.3, 11.2). An implementer secret
-// with no stored value does not stop an intake room.
+// with no stored value does not stop a brainstorm room.
 func TestRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
-	w := newHumanWorld(t, roomManifest+"  - name: INTAKE_KEY\n    dir: apps/web\n    stages: [intake-room]\n"+
+	w := newHumanWorld(t, roomManifest+"  - name: BRAINSTORM_KEY\n    dir: apps/web\n    stages: [brainstorm-room]\n"+
 		"  - name: IMPL_KEY\n    stages: [implementer]\n")
 	ctx := context.Background()
-	for name, v := range map[string]string{"API_KEY": humanSecret, "INTAKE_KEY": "intake_value_1"} {
+	for name, v := range map[string]string{"API_KEY": humanSecret, "BRAINSTORM_KEY": "brainstorm_value_1"} {
 		if err := w.srv.Secrets.Set(ctx, "alpha", name, strings.NewReader(v)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	r := w.openRoom("intake", "", "the operator wants widgets")
+	r := w.openRoom("brainstorm", "", "the operator wants widgets")
 	if r["state"] != room.Live {
 		t.Fatalf("room = %v", r)
 	}
@@ -380,7 +381,7 @@ func TestRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
 		t.Fatalf(".env = %v", err)
 	}
 	web, err := os.ReadFile(filepath.Join(co, "apps/web", brief.EnvFile))
-	if err != nil || string(web) != "INTAKE_KEY='intake_value_1'\n" {
+	if err != nil || string(web) != "BRAINSTORM_KEY='brainstorm_value_1'\n" {
 		t.Fatalf("apps/web/.env = %q, %v", web, err)
 	}
 	w.coordinator("room", "close", r["room"].(string))
@@ -395,7 +396,7 @@ func TestRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
 // the reopen. A directory the manifest gained while the room sat idle is
 // excluded too, so git sees no new file.
 func TestReopenedIdleRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
-	const manifest = roomManifest + "  - name: WEB_KEY\n    dir: apps/web\n    stages: [intake-room]\n" +
+	const manifest = roomManifest + "  - name: WEB_KEY\n    dir: apps/web\n    stages: [brainstorm-room]\n" +
 		"  - name: IMPL_KEY\n    stages: [implementer]\n"
 	w := newHumanWorld(t, manifest)
 	ctx := context.Background()
@@ -404,7 +405,7 @@ func TestReopenedIdleRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	r := w.openRoom("intake", "", "the operator wants widgets")
+	r := w.openRoom("brainstorm", "", "the operator wants widgets")
 	id, co := r["room"].(string), r["checkout"].(string)
 	w.host.EndTurn(w.room(id).Session.ID)
 	w.host.Advance(2 * time.Minute)
@@ -420,13 +421,13 @@ func TestReopenedIdleRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grown, err := config.ParseManifest([]byte(manifest + "  - name: API2_KEY\n    dir: apps/api\n    stages: [intake-room]\n"))
+	grown, err := config.ParseManifest([]byte(manifest + "  - name: API2_KEY\n    dir: apps/api\n    stages: [brainstorm-room]\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	*snap.Manifest = *grown
 
-	w.openRoom("intake", "", "the operator is back")
+	w.openRoom("brainstorm", "", "the operator is back")
 	again := w.room(id)
 	if again.State != room.Live || again.Sessions != 1 {
 		t.Fatalf("reopened idle = %+v", again)
@@ -452,7 +453,7 @@ func TestRoomSessionNamesItsWork(t *testing.T) {
 	item := todoTicket(t, w.bx)
 	for _, c := range []struct{ kind, item, reason, want string }{
 		{"review", item, "the reviewer and\nthe author disagree", "the reviewer and the author disagree"},
-		{"intake", "", "the operator has a new idea", "the operator has a new idea"},
+		{"brainstorm", "", "the operator has a new idea", "the operator has a new idea"},
 	} {
 		before := len(w.host.Launches())
 		r := w.openRoom(c.kind, c.item, c.reason)
@@ -566,7 +567,7 @@ func TestRoomCheckoutNamesWhatTheRoomDoes(t *testing.T) {
 	w := newRoomWorld(t)
 	item := todoTicket(t, w.bx)
 	for _, c := range []struct{ kind, item, reason, want string }{
-		{"intake", "", "Write the PRD of the retro, from the notes", "loop-alpha-intake-room-write-the-prd-of-the-retro-"},
+		{"brainstorm", "", "Write the PRD of the retro, from the notes", "loop-alpha-brainstorm-room-write-the-prd-of-the-retro-"},
 		{"review", item, "the operator asked to see the diff", "loop-alpha-review-room-" + item + "-item-"},
 	} {
 		r := w.openRoom(c.kind, c.item, c.reason)
@@ -613,5 +614,78 @@ func TestRoomRefusesATrackedReservedSkillDir(t *testing.T) {
 	}
 	if n := w.count(`SELECT count(*) FROM alerts WHERE kind = ? AND state = 'open'`, sched.AlertConfigConflict); n != 1 {
 		t.Fatalf("%d open %s alerts, want 1", n, sched.AlertConfigConflict)
+	}
+}
+
+// C13, factorio-vlle Work 7: `--kind brainstorm` with no item meets the
+// brainstorm cap, and under it opens a room whose prompt names the
+// loop-brainstorm-room runbook. `--kind intake` is refused with
+// stage_renamed, names the new kind, and opens no room.
+func TestC13BrainstormKindOpensTheRoomIntakeOpened(t *testing.T) {
+	w := newRoomWorld(t)
+	ctx := context.Background()
+	is, err := w.bx.Create(ctx, beadsx.CreateSpec{Title: "Widgets", Type: "epic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.bx.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: is.Status, Status: machine.PRDReview}); err != nil {
+		t.Fatal(err)
+	}
+	w.setBrainstormCap(1)
+	env, _ := w.coordinator("room", "open", "--kind", "brainstorm", "--project", "alpha", "--reason", "the operator has a new idea", "--score", "4")
+	if env["code"] != cli.CodeCapFull || !strings.Contains(fmt.Sprint(env["hint"]), "throughput.brainstorm") {
+		t.Fatalf("a brainstorm room at the cap = %v", env)
+	}
+	env, _ = w.coordinator("room", "open", "--kind", "intake", "--project", "alpha", "--reason", "the operator has a new idea", "--score", "4")
+	if env["code"] != cli.CodeUsage || env["rule"] != "stage_renamed" || !strings.Contains(fmt.Sprint(env["hint"]), "intake is now brainstorm") {
+		t.Fatalf("room open --kind intake = %v, want USAGE stage_renamed naming brainstorm", env)
+	}
+	if n := w.count(`SELECT count(*) FROM rooms`); n != 0 {
+		t.Fatalf("refused opens left %d rooms", n)
+	}
+	w.setBrainstormCap(2)
+	id := w.openRoom("brainstorm", "", "the operator raised the brainstorm cap")["room"].(string)
+	got := w.room(id)
+	if got.Kind != "brainstorm" || got.State != room.Live {
+		t.Fatalf("the brainstorm room = %+v", got)
+	}
+	runbook := ".claude/skills/loop-brainstorm-room/SKILL.md"
+	prompt, err := os.ReadFile(filepath.Join(got.Checkout, brief.PromptFile))
+	if err != nil || !strings.Contains(string(prompt), runbook) {
+		t.Fatalf("room prompt = %s %v, want it to name %s", prompt, err, runbook)
+	}
+}
+
+// C13, factorio-vlle Work 7: a room that was open as intake before the
+// migration is a brainstorm room after it, and `--kind brainstorm`
+// reopens it.
+func TestC13ARoomOpenAsIntakeReopensAsBrainstorm(t *testing.T) {
+	w := newRoomWorld(t)
+	ctx := context.Background()
+	id := w.openRoom("brainstorm", "", "the operator wants widgets")["room"].(string)
+	got := w.room(id)
+	w.host.Exit(got.Session.ID, 1)
+	if err := w.srv.Rooms.Watch(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// A store at the schema before the migration, with the room under its
+	// old kind.
+	if err := w.srv.Store.Write(ctx, func(tx *store.Tx) error {
+		if _, err := tx.Exec(`UPDATE rooms SET kind = 'intake' WHERE id = ?`, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`PRAGMA user_version = 19`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w.restart()
+	if n := w.count(`SELECT count(*) FROM rooms WHERE kind = 'intake'`); n != 0 {
+		t.Fatalf("rooms of kind intake after the migration = %d, want 0", n)
+	}
+	w.openRoom("brainstorm", "", "the operator is back")
+	back := w.room(id)
+	if back.Kind != "brainstorm" || back.State != room.Live || back.Sessions != 2 || back.Checkout != got.Checkout {
+		t.Fatalf("reopened = %+v, want room %s live as brainstorm in its own checkout", back, id)
 	}
 }

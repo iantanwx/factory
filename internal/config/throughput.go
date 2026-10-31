@@ -12,9 +12,9 @@ import (
 
 // Throughput is one entry of host config's throughput map (KTD30). Cap is
 // the most the stage holds at once: live runs for a run stage, epics in
-// counted document states for intake, and concurrent runs of a native
+// counted document states for brainstorm, and concurrent runs of a native
 // job. Schedule is the stage's cron. Project config may override the
-// schedule, a run stage's or intake's cap, and a pool's cap (R35).
+// schedule, a run stage's or brainstorm's cap, and a pool's cap (R35).
 // Effective merges the two. A pool entry holds a cap only.
 type Throughput struct {
 	Cap      int    `yaml:"cap"`
@@ -25,8 +25,8 @@ type Throughput struct {
 	Overdue time.Duration `yaml:"overdue,omitempty"`
 }
 
-// The run stages (R13). The machine's claim rows use these names. Intake,
-// the fixer and the retro claim no item.
+// The run stages (R13). The machine's claim rows use these names. The
+// brainstorm cap, the fixer and the retro claim no item.
 const (
 	StageImplementer          = "implementer"
 	StageCodeReviewer         = "code-reviewer"
@@ -39,15 +39,15 @@ const (
 	StageReproducer           = "reproducer"
 	// StageRetro learns from a finished epic or bug.
 	StageRetro = "retro"
-	// StageIntake is the stage whose cap counts epics, not runs (KTD30).
-	StageIntake = "intake"
+	// StageBrainstorm is the stage whose cap counts epics, not runs (KTD30).
+	StageBrainstorm = "brainstorm"
 )
 
 // The stage set (R13). The native jobs claim no item.
 var (
 	runStages = []string{
 		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StageUnattendedBrainstorm,
-		StageSpecAuthor, StageDecomposer, StageFixer, StageReproducer, StageRetro, StageIntake,
+		StageSpecAuthor, StageDecomposer, StageFixer, StageReproducer, StageRetro, StageBrainstorm,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch", "orca-acceptance"}
 	// optional lists the keys that a later release added. A host config
@@ -89,7 +89,7 @@ func isPool(key string) bool {
 }
 
 // DefaultThroughput is the throughput map a new host config holds. R13
-// sets the caps of implementer, reviewers, code-reviewer and intake. The
+// sets the caps of implementer, reviewers, code-reviewer and brainstorm. The
 // current loop capped no other stage, so each other cap is a starting
 // value for the operator to tune. The schedules follow the current timer
 // table (scripts/sdlc/timer-table.ts MAIN_CRONS, alpha). The implementer
@@ -112,7 +112,7 @@ func DefaultThroughput() map[string]Throughput {
 		StageFixer:                {Cap: 1, Schedule: fixer},
 		StageReproducer:           {Cap: 2, Schedule: "12,42 * * * *"},
 		StageRetro:                {Cap: 1, Schedule: fixer},
-		StageIntake:               {Cap: 8, Schedule: "20,50 * * * *"},
+		StageBrainstorm:           {Cap: 8, Schedule: "20,50 * * * *"},
 		"merge-handoff":           {Cap: 1, Schedule: every5},
 		"dependency-advance":      {Cap: 1, Schedule: every5},
 		"decision-timers":         {Cap: 1, Schedule: "* * * * *"},

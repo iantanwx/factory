@@ -18,7 +18,7 @@ func TestClaimStatesIsTheViewOfEachStagesClaimStates(t *testing.T) {
 		config.StageCodeReviewer: {{machine.KindTicket, machine.InReview}},
 		config.StageReproducer:   {{machine.KindBug, machine.Reported}},
 		config.StageFixer:        nil,
-		config.StageIntake:       nil,
+		config.StageBrainstorm:   nil,
 	}
 	for stage, w := range want {
 		if got := ClaimStates(stage); !slices.Equal(got, w) {

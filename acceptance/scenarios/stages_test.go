@@ -13,14 +13,14 @@ import (
 // The stages, rooms and the coordinator the server starts an agent for.
 // Every scenario's dispatch and room open checks the runbook its brief
 // names (acceptance.World.CheckRunbook). This scenario starts the kinds
-// no other scenario reaches, and checks that intake starts no unattended
+// no other scenario reaches, and checks that brainstorm starts no unattended
 // run.
 func TestStageKindsTheOtherScenariosMiss(t *testing.T) {
-	w := newWorld(t, acceptance.Options{Config: acceptance.DefaultConfig + "  intake: {}\n"})
+	w := newWorld(t, acceptance.Options{Config: acceptance.DefaultConfig + "  brainstorm: {}\n"})
 
-	// Intake runs in a room, and the pack has no unattended intake runbook.
-	if st, ref := w.TryDispatch("intake"); st != nil || ref == nil || ref.Code != cli.CodeUsage {
-		t.Fatalf("an intake dispatch = %+v, %+v", st, ref)
+	// Brainstorm runs in a room, and the pack has no unattended brainstorm runbook.
+	if st, ref := w.TryDispatch("brainstorm"); st != nil || ref == nil || ref.Code != cli.CodeUsage {
+		t.Fatalf("a brainstorm dispatch = %+v, %+v", st, ref)
 	}
 
 	// The reproducer takes a raw bug report that the coordinator filed.
@@ -41,7 +41,7 @@ func TestStageKindsTheOtherScenariosMiss(t *testing.T) {
 // started at least once. It runs after a full run only.
 func checkStages() []string {
 	want := []string{"coordinator", "implementer", "code-reviewer", "doc-reviewer", "amender", "spec-author",
-		"decomposer", "fixer", "reproducer", "intake-room", "decision-room", "review-room",
+		"decomposer", "fixer", "reproducer", "brainstorm-room", "decision-room", "review-room",
 		"architect-room"}
 	got := acceptance.Started()
 	var missing []string

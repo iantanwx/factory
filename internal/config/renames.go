@@ -16,6 +16,7 @@ import (
 // after the renames empties it, and an old name then refuses the config.
 var stageRenames = map[string]string{
 	"prd-author": StageUnattendedBrainstorm,
+	"intake":     StageBrainstorm,
 }
 
 // retiredWords are the old role words that name no stage key.

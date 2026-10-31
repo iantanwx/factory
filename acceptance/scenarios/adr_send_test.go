@@ -16,7 +16,7 @@ import (
 func TestEpicADRSendEndToEnd(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
 
-	room, co := openRoom(w, "intake", "", "the operator wants widgets")
+	room, co := openRoom(w, "brainstorm", "", "the operator wants widgets")
 	e1 := submitPRD(w, co, "Widgets")
 	w.Must(w.Coordinator("room", "close", room))
 	docReview(w, e1, "pass")
@@ -26,7 +26,7 @@ func TestEpicADRSendEndToEnd(t *testing.T) {
 	w.React()
 	wantStatus(w, e1, machine.Architecture)
 
-	room, co = openRoom(w, "intake", "", "the operator wants gizmos")
+	room, co = openRoom(w, "brainstorm", "", "the operator wants gizmos")
 	e2 := submitPRD(w, co, "Gizmos")
 	w.Must(w.Coordinator("room", "close", room))
 	docReview(w, e2, "pass")

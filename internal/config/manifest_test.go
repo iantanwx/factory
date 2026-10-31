@@ -66,10 +66,10 @@ func TestManifestForStageKeepsOnlyThatStagesNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	for stage, want := range map[string][]string{
-		"implementer":   {"ALL_KEY", "IMPL_KEY"},
-		"code-reviewer": {"ALL_KEY", "REVIEW_KEY"},
-		"review-room":   {"ALL_KEY", "REVIEW_KEY"},
-		"intake-room":   {"ALL_KEY"},
+		"implementer":     {"ALL_KEY", "IMPL_KEY"},
+		"code-reviewer":   {"ALL_KEY", "REVIEW_KEY"},
+		"review-room":     {"ALL_KEY", "REVIEW_KEY"},
+		"brainstorm-room": {"ALL_KEY"},
 	} {
 		if got := m.ForStage(stage).Names(); !slices.Equal(got, want) {
 			t.Fatalf("ForStage(%s) = %v, want %v", stage, got, want)

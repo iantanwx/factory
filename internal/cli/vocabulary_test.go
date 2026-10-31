@@ -87,3 +87,13 @@ func TestRetiredInNamesTheHelpText(t *testing.T) {
 		t.Fatalf("hits = %q, want x summary only", got)
 	}
 }
+
+// C9: the intake rename retires its word, and no help text holds it.
+func TestC9HelpHoldsNoIntakeWord(t *testing.T) {
+	if !slices.Contains(config.RetiredWords(), "intake") {
+		t.Errorf("RetiredWords() lacks %q", "intake")
+	}
+	if hits := retiredIn(helpTexts(cli.Surface()), []string{"intake"}); len(hits) > 0 {
+		t.Fatalf("a help text holds a retired word:\n%s", strings.Join(hits, "\n"))
+	}
+}

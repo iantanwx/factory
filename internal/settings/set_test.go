@@ -160,7 +160,7 @@ func TestC21ValueThatDoesNotValidateIsRefused(t *testing.T) {
 // C32: a field other than enabled on a run stage, the fixer or an agent
 // job that the file does not list is refused, and the hint names the
 // enabled setting to change first. Enabled on that stage, and a field of
-// intake or of a project job that the file does not list, each land one
+// brainstorm or of a project job that the file does not list, each land one
 // change.
 func TestC32FieldOnAnUnlistedStageIsRefused(t *testing.T) {
 	for _, c := range []struct{ key, enabled string }{
@@ -180,7 +180,7 @@ func TestC32FieldOnAnUnlistedStageIsRefused(t *testing.T) {
 	}
 	for _, c := range []struct{ key, value, stage string }{
 		{"stages.reproducer.enabled", "true", "reproducer: {enabled: true}"},
-		{"stages.intake.cap", "2", "intake: {cap: 2}"},
+		{"stages.brainstorm.cap", "2", "brainstorm: {cap: 2}"},
 		{"stages.merge-handoff.schedule", "*/5 * * * *", "merge-handoff: {schedule: '*/5 * * * *'}"},
 	} {
 		t.Run(c.key, func(t *testing.T) {

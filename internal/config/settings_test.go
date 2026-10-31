@@ -82,7 +82,7 @@ func TestC1UnknownStageNameKeepsTheLastGoodConfig(t *testing.T) {
 
 // C1: a name of each known kind loads.
 func TestC1KnownStageNamesLoad(t *testing.T) {
-	for _, name := range []string{"code-reviewer", "fixer", "intake", "merge-handoff", "dependency-advance", "decision-timers", "nightly-qa"} {
+	for _, name := range []string{"code-reviewer", "fixer", "brainstorm", "merge-handoff", "dependency-advance", "decision-timers", "nightly-qa"} {
 		t.Run(name, func(t *testing.T) {
 			l, alerts := checkedLoader(t)
 			got, err := loadAfterGood(t, l, settingsBase+"  "+name+": {}\n")
@@ -100,17 +100,17 @@ func TestC1KnownStageNamesLoad(t *testing.T) {
 // error names the field's full path. Each value at 1 loads.
 func TestC2SettingOutsideItsRuleNamesTheField(t *testing.T) {
 	cases := map[string]struct{ doc, field string }{
-		"zero cap":                 {"  implementer: {cap: 0}\n", "stages.implementer.cap"},
-		"negative cap":             {"  implementer: {cap: -1}\n", "stages.implementer.cap"},
-		"zero runs per tick":       {"  implementer: {runs_per_tick: 0}\n", "stages.implementer.runs_per_tick"},
-		"cap on a project job":     {"  merge-handoff: {cap: 1}\n", "stages.merge-handoff.cap"},
-		"cap on an agent job":      {"  nightly-qa: {cap: 1}\n", "stages.nightly-qa.cap"},
-		"runs per tick on fixer":   {"  fixer: {runs_per_tick: 1}\n", "stages.fixer.runs_per_tick"},
-		"runs per tick on intake":  {"  intake: {runs_per_tick: 1}\n", "stages.intake.runs_per_tick"},
-		"unknown pool":             {"pools:\n  coders: {cap: 1}\n", "pools.coders"},
-		"zero reviewers pool cap":  {"pools:\n  reviewers: {cap: 0}\n", "pools.reviewers.cap"},
-		"negative intake cap":      {"  intake: {cap: -1}\n", "stages.intake.cap"},
-		"zero runs per tick, item": {"  code-reviewer: {runs_per_tick: 0}\n", "stages.code-reviewer.runs_per_tick"},
+		"zero cap":                    {"  implementer: {cap: 0}\n", "stages.implementer.cap"},
+		"negative cap":                {"  implementer: {cap: -1}\n", "stages.implementer.cap"},
+		"zero runs per tick":          {"  implementer: {runs_per_tick: 0}\n", "stages.implementer.runs_per_tick"},
+		"cap on a project job":        {"  merge-handoff: {cap: 1}\n", "stages.merge-handoff.cap"},
+		"cap on an agent job":         {"  nightly-qa: {cap: 1}\n", "stages.nightly-qa.cap"},
+		"runs per tick on fixer":      {"  fixer: {runs_per_tick: 1}\n", "stages.fixer.runs_per_tick"},
+		"runs per tick on brainstorm": {"  brainstorm: {runs_per_tick: 1}\n", "stages.brainstorm.runs_per_tick"},
+		"unknown pool":                {"pools:\n  coders: {cap: 1}\n", "pools.coders"},
+		"zero reviewers pool cap":     {"pools:\n  reviewers: {cap: 0}\n", "pools.reviewers.cap"},
+		"negative brainstorm cap":     {"  brainstorm: {cap: -1}\n", "stages.brainstorm.cap"},
+		"zero runs per tick, item":    {"  code-reviewer: {runs_per_tick: 0}\n", "stages.code-reviewer.runs_per_tick"},
 	}
 	for label, c := range cases {
 		t.Run(label, func(t *testing.T) {
@@ -129,7 +129,7 @@ func TestC2SettingOutsideItsRuleNamesTheField(t *testing.T) {
 			}
 		})
 	}
-	ok := settingsBase + "  code-reviewer: {cap: 1, runs_per_tick: 1}\n  fixer: {cap: 1}\n  intake: {cap: 1}\n" +
+	ok := settingsBase + "  code-reviewer: {cap: 1, runs_per_tick: 1}\n  fixer: {cap: 1}\n  brainstorm: {cap: 1}\n" +
 		"pools:\n  reviewers: {cap: 1}\n"
 	l, _ := checkedLoader(t)
 	got, err := loadAfterGood(t, l, ok)
@@ -274,7 +274,7 @@ func TestEffectiveSettings(t *testing.T) {
 		{"stages.implementer.model", "claude-opus-5-5", SourceDefault},
 		{"stages.code-reviewer.cap", "8", SourceHost},
 		{"stages.code-reviewer.enabled", "false", SourceDefault},
-		{"stages.intake.cap", "8", SourceHost},
+		{"stages.brainstorm.cap", "8", SourceHost},
 		{"stages.merge-handoff.schedule", "*/5 * * * *", SourceHost},
 		{"stages.nightly-qa.schedule", "55 2 * * *", SourceHost},
 		{"pools.reviewers.cap", "10", SourceHost},
@@ -292,7 +292,7 @@ func TestEffectiveSettings(t *testing.T) {
 			t.Fatalf("%s = %+v, want %q from %s", c.key, got, c.value, c.source)
 		}
 	}
-	for _, k := range []string{"stages.intake.model", "stages.fixer.runs_per_tick", "stages.nightly-qa.cap", "stages.github-reactor.schedule"} {
+	for _, k := range []string{"stages.brainstorm.model", "stages.fixer.runs_per_tick", "stages.nightly-qa.cap", "stages.github-reactor.schedule"} {
 		if _, ok := by[k]; ok {
 			t.Fatalf("%s is listed; its stage kind holds no such field", k)
 		}
@@ -306,14 +306,14 @@ func TestParseSettingKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	k := KnownStages(hc)
-	for _, s := range []string{"stages.implementer.cap", "stages.fixer.cap", "stages.intake.cap", "stages.implementer.escalated.model",
+	for _, s := range []string{"stages.implementer.cap", "stages.fixer.cap", "stages.brainstorm.cap", "stages.implementer.escalated.model",
 		"stages.merge-handoff.schedule", "stages.nightly-qa.enabled", "pools.reviewers.cap", "merge.mechanism", "merge.required_checks"} {
 		key, err := ParseSettingKey(s, k)
 		if err != nil || key.String() != s {
 			t.Fatalf("ParseSettingKey(%s) = %v, %v", s, key, err)
 		}
 	}
-	for _, s := range []string{"stages.implementr.cap", "stages.fixer.runs_per_tick", "stages.intake.model", "stages.nightly-qa.cap",
+	for _, s := range []string{"stages.implementr.cap", "stages.fixer.runs_per_tick", "stages.brainstorm.model", "stages.nightly-qa.cap",
 		"stages.overwatch.schedule", "stages.merge-handoff.cap", "pools.coders.cap", "pools.reviewers.schedule", "merge.bors", "tracker.adapter", "stages.implementer"} {
 		if _, err := ParseSettingKey(s, k); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), s) {
 			t.Fatalf("ParseSettingKey(%s) = %v, want a refusal that names it", s, err)
