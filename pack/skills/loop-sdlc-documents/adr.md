@@ -1,8 +1,9 @@
 # ADR NNNN: <the decision, in one line>
 
-**Status:** Proposed | Accepted | Superseded by ADR NNNN
+**Status:** Proposed | Accepted
 **Date:** YYYY-MM-DD
 **Ticket:** <epic id>
+**Binds:** <epic ids, comma-separated> | all
 
 > Copy this file to `docs/adr/NNNN-<slug>.md`. Take the next free number. Never reuse a number,
 > and never renumber an existing ADR. Other documents cite these by number.
@@ -12,9 +13,15 @@
 > joins the file to the epic through the epic id on this line, because the filename carries a
 > number and no id. Write `none` for a decision recorded outside the pipeline.
 >
-> An ADR records a decision that binds later work. Use one when a choice has more than one
-> defensible answer and a later reader will ask why. A feature does not need an ADR, because the
-> spec records its decisions. Architecture does, because no spec covers it.
+> An ADR records a decision that binds later work. Write one only for a decision that passes the
+> test of `../loop-sdlc-documents/SKILL.md` § 6, When a decision needs an ADR. That section also
+> names the place of each decision that fails it.
+>
+> **`Binds:` names each epic that the decision binds**, comma-separated, or `all` for the whole
+> project. The `## Why an ADR` section answers the four parts of the test, one line each.
+>
+> **`Status:` reads Proposed or Accepted.** A later ADR with a higher number supersedes this one,
+> and nobody edits this one after it lands. The same section states that rule.
 >
 > **Architecture does not go through a PRD.** Each PRD requirement cites a user story or the
 > operator's own words. "Use this framework" has no such source. An architecture epic writes ADRs
@@ -37,6 +44,15 @@ State the choice in one sentence. Then say what you rejected, and why.
 
 A choice with no rejected alternative is an assumption, not a decision. Write it under Assumptions
 in the spec instead, or find the alternative that you dismissed without noticing.
+
+## Why an ADR
+
+Answer each part of the test with a fact about this decision.
+
+- **More than one epic:** <which epics, or why the whole project>
+- **Rejected alternative:** <the alternative the Decision rejects>
+- **Costly to undo:** <which change of part 3 it makes>
+- **How, not what:** <the requirement it serves, or why it decides how>
 
 ## Consequences
 

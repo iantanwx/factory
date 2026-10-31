@@ -421,7 +421,10 @@ loop inbox answer ask/<project>/<bug> --body "<the operator's words>"
 
 The answer returns the report to the reproducer. Never answer an ask yourself.
 
-When the operator asks for an architecture decision in place of a PRD, create an architecture epic:
+When the operator asks for an architecture decision in place of a PRD, run the test of
+`../loop-sdlc-documents/SKILL.md` § 6, When a decision needs an ADR, on it first. When the
+decision fails a part, tell the operator which part, and the place that the section gives the
+decision. When it passes, or the operator still asks for the ADR, create an architecture epic:
 
 ```bash
 loop epic create --architecture --project <project> --title "<title>" --body "<what the ADR decides>"
