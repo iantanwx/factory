@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 )
 
@@ -27,8 +28,10 @@ import (
 //     state names, absolute host paths and one project's tooling
 //   - the manifest against the files, each runbook's front matter, each
 //     relative pack path, each skill a runbook reads named by its path,
-//     each policy file, and no step in an unattended runbook that asks a
-//     person
+//     each policy file, no step in an unattended runbook that asks a
+//     person, and no runbook that names a userspace skill, a skill
+//     outside loop-, in its manifest entry or by its ../<name>/SKILL.md
+//     path
 //   - each policy file a runbook names: the pack holds its template, the
 //     template names that file as the place a project keeps it, and each
 //     template is the policy of a runbook. make pack-check runs both
@@ -652,8 +655,9 @@ func policyFindings(src fs.FS, m *Manifest) []Finding {
 }
 
 var (
-	packPath = regexp.MustCompile(`\.\./(loop-[a-z0-9-]+)((?:/[A-Za-z0-9._-]+)*)/?`)
-	asksAll  = regexp.MustCompile(`(?i)\b(?:ask|wait for|check with)\s+(?:the\s+|a\s+)?(?:operator|person|user|owner|human)\b`)
+	packPath  = regexp.MustCompile(`\.\./(loop-[a-z0-9-]+)((?:/[A-Za-z0-9._-]+)*)/?`)
+	skillPath = regexp.MustCompile(`\.\./([A-Za-z0-9_-][A-Za-z0-9._-]*)/SKILL\.md`)
+	asksAll   = regexp.MustCompile(`(?i)\b(?:ask|wait for|check with)\s+(?:the\s+|a\s+)?(?:operator|person|user|owner|human)\b`)
 )
 
 // packPaths checks each ../loop-* path against the laid-out tree. A path
@@ -797,6 +801,14 @@ func runbookFindings(file string, rb Runbook, text string) []Finding {
 	for _, s := range rb.Skills {
 		if p := "../" + s + "/SKILL.md"; !strings.Contains(text, p) {
 			out = append(out, Finding{File: file, Kind: "skill", Detail: fmt.Sprintf("the runbook reads %s and never names %s", s, p)})
+		}
+	}
+	for i, line := range strings.Split(text, "\n") {
+		for _, m := range skillPath.FindAllStringSubmatch(line, -1) {
+			if !strings.HasPrefix(m[1], brief.SkillPrefix) {
+				out = append(out, Finding{File: file, Line: i + 1, Kind: "skill",
+					Detail: fmt.Sprintf("the runbook names %s, the path of userspace skill %s; a kernel runbook names only %s* skills", m[0], m[1], brief.SkillPrefix)})
+			}
 		}
 	}
 	if rb.Policy != "" && !strings.Contains(text, PolicyPath(rb.Policy)) {
