@@ -66,10 +66,15 @@ all recommendations." The PRD records each answer in a story. This spec takes th
   the item only (`machine.go:60`). We chose a wider signature over a bead read inside the hook,
   because the hook runs in a SQLite transaction and the bead lives in Dolt. `markApplied` already
   holds `f.Kind` and `in.TargetStatus`. `escalation.CloseFor` keeps its behaviour.
-- **"Before this epic ships" means before work entry 2 merges.** The migration of entry 2 creates
-  an empty `retros` table, and no code reads an old item to fill it. An epic that was in
-  `execution` when the entry merged, and reaches `done` after, gets a retro, because it reached
-  done after the trigger existed.
+- **"Before this epic ships" means before the host first runs a release that holds work entry 2.**
+  Only the running server writes a `retros` row, in the `Terminal` hook, and the migration of
+  entry 2 creates the table empty. An epic that was in `execution` when that release started, and
+  reaches `done` after, gets a retro. We rejected the merge of entry 2 as the cut, because merged
+  code writes nothing until a release carries it, so no record holds the moment of the merge. We
+  rejected the epic's own `done` as the cut, because entries 3 to 8 land after entry 2. An item
+  that finishes between them would need code that drops a retro the trigger already queued, and
+  the loop would lose its record. That retro waits `pending` until entry 7 lets admission start
+  the stage.
 - **Which bug states count as closed is one function, `machine.BugClosed`.** factorio-vlle owns the
   set. Entry 2 waits on it. We rejected a guess from today's terminal states (`shaped`,
   `duplicate`, `canceled`, `bug.go:101-103`), because a `canceled` bug that nobody reproduced may
@@ -86,7 +91,8 @@ all recommendations." The PRD records each answer in a story. This spec takes th
   the next run's handoff (`sched/dispatch.go:370`). A signal note would replace the coordinator's
   handoff. We rejected a bead fact, because a fact holds one value and an item can carry several
   signals. `loop work show` prints each signal row of the item under `signals`, so the signal is
-  "on the item" as US-02 asks.
+  "on the item" as US-02 asks. `workShow` reads them through a reader that the server sets, as it
+  sets the wait reader (`machine/verbs.go:793-810`, `server/server.go:384`).
 - **A new `Applied` hook in `markApplied` finds the red build and the second reject.** It runs after
   `insertHistory`, so a count over `transitions` includes the move that the hook sees. Red builds
   are the ticket verbs `ci_red` and `dequeue_red`. A reject is `review_reject` from `prd_review` or
@@ -95,6 +101,11 @@ all recommendations." The PRD records each answer in a story. This spec takes th
 - **The failed-attempts signal comes from `Scheduler.alertHeld`, next to the `retry_limit` alert.**
   That function already holds the failed runs and the limit (`sched/finish.go:110-123`). We
   rejected a second count of the `failures` table, because two counts can disagree.
+- **"Two failed attempts" means two counted failures at the same inputs, as the brief counts
+  them.** `alertHeld` fires only then (`sched/finish.go:111`). So two failed runs with a changed
+  input between them write no signal. We rejected a count of every failed run of the item at the
+  stage, because the loop treats changed inputs as a new attempt, and a failure after a person
+  changed the task is no repeat of the first. A later retro still reads both runs in the record.
 - **One signal row for each (item, signal, scope), and each later case joins it.** The scope is
   the stage for failed attempts, `prd` or `spec` for a reject, and empty for a red build. A third
   red build adds its case to the row of the second. So a retro reads one signal with all its cases.
@@ -155,6 +166,18 @@ all recommendations." The PRD records each answer in a story. This spec takes th
   already uses. The judge prompt names the rule, and the server checks it again. We rejected a
   rewrite of the answer to `loop fault`, because a judge that broke the rule may have misread the
   learning too.
+- **A held learning is on its item through `loop work show`, which lists it under
+  `held_learnings`.** A7 says a held learning "is a note on the item". The item is the retro's
+  item. `loop work show <item>` lists each `held` learning whose `retro_item` is that item, with
+  its cases, through the same reader as the signals. We rejected a `loop work note`, because `note`
+  is a row of the item's table, and `Table.check` refuses a row from a terminal state
+  (`internal/machine/kinds.go:250`). A done epic or a closed bug takes no note. A held learning
+  that a later learning extends moves to `counted`, and leaves the list.
+- **The status of a learning decides its route, and no column stores the route.** `held` and
+  `counted` are the hold route, `landed` is the land route, and `escalated` and `answered` are the
+  escalate route. `LearningStatus.Route()` derives it. We rejected a `route` column next to
+  `status`, because the two columns must agree, and a row with `route = land` and `status = held`
+  would be representable.
 
 ### Landing
 
@@ -184,7 +207,10 @@ all recommendations." The PRD records each answer in a story. This spec takes th
   the coordinator applies it with the verbs it already has (`loop work create`,
   `loop fault report`).
 - **One notice for each retro, keyed `retro` and `<project>/<item>`.** `inbox.PutNotice` is
-  idempotent on that key (`inbox/inbox.go:196-204`). The notice lists each learning that landed,
+  idempotent on that key (`inbox/inbox.go:196-204`). We rejected a key on the run id, because a
+  second run can route a retro after the first run ended with no route, and A16 asks for one
+  notice for each retro. (project, item) is also the key of the `retros` row, so the notice and the
+  retro share one identity. The notice lists each learning that landed,
   with its target and the id of the ticket, bug or fault. It lists each held learning, and the
   entry id of each escalated one. A retro with no learning still puts a notice that says so.
 
@@ -220,8 +246,14 @@ all recommendations." The PRD records each answer in a story. This spec takes th
 - factorio-vlle names the closed bug states as a subset of the bug table's terminal states. This is
   wrong if a closed state is one the bug can leave, because then the `Terminal` hook never fires on
   it.
-- factorio-yzrt names one place in a project for a userspace skill, which an implementer can find
-  from the ticket text. This is wrong if the place differs by harness and the ticket must name it.
+- An implementer can find a userspace skill from the ticket text. factorio-yzrt merged its PRD and
+  ADR 0013 after this spec's first round. A committed userspace skill is a directory under the
+  harness's skill root, `.claude/skills/<name>` or `.agents/skills/<name>`
+  (`docs/adr/0013-userspace-skill-pins.md` § Decision 1). So the ticket that entry 5 writes names
+  both roots and the skill name, and the implementer edits the one that git tracks. A pinned
+  userspace skill is no place the project writes: the server refuses a push under a pin's
+  directory, and the implementer escalates that refusal by its runbook. This is wrong if a
+  learning about a pinned skill lands as a ticket that no run can finish and no escalation names.
 - The GitHub App reads the comments of a merged or closed pull request. This is wrong if
   `loop retro record` returns no comments for a ticket whose pull request merged with a review
   thread.
@@ -317,13 +349,17 @@ Each create uses the machine with the actor `machine.Server("retro")` and the cr
 `retro/<learning id>`. The learning records the created id in `landed_ref`. A held learning that a
 new learning extends moves to `counted`, and its cases join the new learning.
 
+`loop work show <item>` lists, under `held_learnings`, each learning in `held` whose `retro_item`
+is the item, with its statement and cases. It lists the item's signals under `signals`. One
+reader, `retro.OnItem`, answers both, and the server sets it on the machine.
+
 The route verb puts the notice last, after every learning has its route. A repeat of the verb with
 the same file returns the stored result (the RPC idempotency key), and a different file on a `done`
 retro is refused.
 
 ### The comparison
 
-The `rules` part lists each learning with route `land`, target `project policy` or
+The `rules` part lists each learning in status `landed`, target `project policy` or
 `userspace skill`, a `landed_ref` ticket in `done`, and no `compared_at`. Its finding key is
 `overwatch:rules:<project>:<learning id>`. The coordinator runbook adds a row to the part table and
 a section that says:
@@ -393,7 +429,17 @@ Route               a tagged union:
 LearningStatus      held | landed | escalated | answered | counted
   held -> counted when a later learning extends it. escalated -> answered at
   the operator's answer. landed is terminal.
+  Route() derives the route from the status: held and counted are Hold,
+  landed is Land, escalated and answered are Escalate. No field stores the
+  route, so a status and a route never disagree. The Land target and the
+  Escalate reason are the row's target and reason.
+  invariant: reason is set exactly when the status is escalated or answered.
+  landed_ref is set only when the status is landed.
 ```
+
+The learning keeps one status and derives its route, so the store holds no pair of fields that
+must agree. `target` and `reason` are not such a pair: `target` holds the judges' shared answer
+on every route, and `reason` exists only on the escalate route.
 
 ## Interfaces
 
@@ -424,6 +470,16 @@ type Config struct {
 
 // BugClosed reports whether a bug in status has closed. factorio-vlle names the set.
 func BugClosed(status string) bool
+
+// RetroOnItem is the part of work show that the retro writes.
+type RetroOnItem struct {
+	Signals        []json.RawMessage `json:"signals,omitempty"`
+	HeldLearnings  []json.RawMessage `json:"held_learnings,omitempty"`
+}
+
+// SetRetroReader sets the reader of work show's signals and held learnings.
+// The server sets it before the socket binds, as it sets the wait reader.
+func (m *Machine) SetRetroReader(f func(ctx context.Context, project, item string) (RetroOnItem, error))
 ```
 
 ```go
@@ -432,6 +488,10 @@ package retro
 func Enqueue(tx *store.Tx, ev machine.TerminalEvent) error
 func SignalsFor(tx *store.Tx, ev machine.AppliedEvent) error
 func RecordAttempts(ctx context.Context, st *store.Store, project, item, stage string, runs []string) error
+
+// OnItem reads what the retro keeps on one item: its signals and the held
+// learnings whose retro_item it is. work show prints both.
+func OnItem(ctx context.Context, st *store.Store, project, item string) (machine.RetroOnItem, error)
 
 // Bind returns the retro that run holds, or binds the oldest pending one of
 // project. ok is false when the project holds none.
@@ -511,9 +571,9 @@ const KindLearning = "learning" // a retro learning that the route sent to a per
 
 ## Data
 
-Three migrations add one table each, in the order of the work entries: `0014_retro.sql` adds
-`signals` (entry 1), `0015_retros.sql` adds `retros` (entry 2), and `0016_learnings.sql` adds
-`learnings` (entry 4). Each one only adds a table, so a reader of the schema before it still reads
+Three migrations add one table each, in the order of the work entries: `0015_signals.sql` adds
+`signals` (entry 1), `0016_retros.sql` adds `retros` (entry 2), and `0017_learnings.sql` adds
+`learnings` (entry 4). Main already holds `0014_room_checkout_name.sql`. Each one only adds a table, so a reader of the schema before it still reads
 and writes every table it knows. A ticket that lands out of this order takes the next free number.
 
 ```
@@ -546,8 +606,8 @@ learnings (new)
   cases        text, required, a JSON array of case references
   extends      integer, a learnings.id, or null
   panel        text, required, the panel JSON with both answers and the reading
-  route        text, required, 'land' | 'hold' | 'escalate'
-  reason       text, the escalate reason, or empty
+  reason       text, the escalate reason, or empty; check: set exactly when
+               status is 'escalated' or 'answered'
   target       text, empty unless both judges named one
   status       text, required, 'held' | 'landed' | 'escalated' | 'answered' | 'counted'
   landed_ref   text, the ticket, bug or fault id, or empty
@@ -645,16 +705,17 @@ sequenceDiagram
 
 1. **Signals.** Add the `signals` table, the `Applied` hook, `retro.SignalsFor`,
    `retro.RecordAttempts` and its call in `alertHeld`, and the `signals` list in `loop work show`.
-   - Files: `internal/store/migrations/0014_retro.sql`, `internal/retro/signal*.go`,
+   - Files: `internal/store/migrations/0015_signals.sql`, `internal/retro/signal*.go`,
      `internal/machine/machine.go`, `internal/machine/apply.go`, `internal/sched/finish.go`,
-     `internal/server/server.go`, `internal/pipeline` (the `work show` answer).
+     `internal/server/server.go`, `internal/machine/verbs.go` (the `work show` answer and
+     `SetRetroReader`), `internal/retro/onitem.go`.
    - Needs: nothing.
    - Proves: C5, C6, C7, C8.
    - Done when: a ticket that enters `repair` twice shows one `red_build` signal with two cases in
      `loop work show`, and its status and facts match a run of the same moves with the hook off.
 2. **The retro trigger.** Add the `retros` table, the wider `Terminal` signature, `machine.BugClosed`
    and `retro.Enqueue`, and wire `Terminal` to call `CloseFor` and then `Enqueue`.
-   - Files: `internal/store/migrations/0015_retros.sql`, `internal/retro/queue.go`,
+   - Files: `internal/store/migrations/0016_retros.sql`, `internal/retro/queue.go`,
      `internal/machine/machine.go`, `internal/machine/apply.go`, `internal/machine/bug.go`,
      `internal/escalation` (the `CloseFor` signature), `internal/server/server.go`.
    - Needs: factorio-vlle's closed bug states.
@@ -666,20 +727,23 @@ sequenceDiagram
    - Files: `internal/retro/record.go`, `internal/retro/verbs.go`, `internal/cli/surface.go`,
      `internal/cli/capabilities.go`, `proto/`, `gen/`.
    - Needs: entry 1, entry 2.
-   - Proves: C9.
+   - Proves: C9, C24.
    - Done when: the record of a fixture epic with two tickets holds each round, run, escalation,
-     fault, comment, note and signal of all three items, each with a case reference.
+     fault, comment, note and signal of all three items, each with a case reference, and two
+     concurrent binds of one pending retro bind it to one run.
 4. **The route.** Add the `learnings` table, the domain types, `retro.Decide`, the verbs
    `loop retro held` and `loop retro route` with the hold and escalate routes and the notice, the
-   inbox kind `learning`, and a `land` route that only records `route = land`.
-   - Files: `internal/store/migrations/0016_learnings.sql`, `internal/retro/domain.go`,
+   inbox kind `learning`, the `held_learnings` list of `loop work show`, and a `land` route that
+   only records status `landed` with no `landed_ref`.
+   - Files: `internal/store/migrations/0017_learnings.sql`, `internal/retro/domain.go`,
      `internal/retro/route.go`, `internal/retro/verbs.go`, `internal/inbox/inbox.go`,
-     `internal/inbox/entries.go`, `internal/inbox/answer.go`, `internal/cli/surface.go`, `proto/`,
-     `gen/`.
+     `internal/inbox/entries.go`, `internal/inbox/answer.go`, `internal/retro/onitem.go` (the held
+     learnings), `internal/cli/surface.go`, `proto/`, `gen/`.
    - Needs: entry 3.
-   - Proves: C10, C11, C12, C13, C14, C15, C16, C18, C19, C20, C24, C27.
-   - Done when: the table test of `Decide` passes every row of the route table, and a route of a
-     fixture panel puts one notice and one `learning` entry per escalated learning.
+   - Proves: C10, C11, C12, C13, C14, C15, C16, C18, C19, C20, C27, C29.
+   - Done when: the table test of `Decide` passes every row of the route table, a route of a
+     fixture panel puts one notice and one `learning` entry per escalated learning, and
+     `loop work show` of the retro's item lists its held learning.
 5. **Landing.** Add `retro.Land`: the PRD-less ticket, the bug and the loop fault, each with the
    create key `retro/<learning id>`, and `landed_ref`.
    - Files: `internal/retro/land.go`, `internal/pipeline/adhoc.go` (a server create path for the
@@ -708,7 +772,7 @@ sequenceDiagram
      `pack/skills/loop-sdlc-glossary/SKILL.md`, `pack/skills/loop-init/SKILL.md`,
      `.loop/secrets.yaml`, `internal/pack/retro_test.go`.
    - Needs: entries 3 to 6.
-   - Proves: C24, C28.
+   - Proves: C28, C30.
    - Done when: admission starts one retro run for a project with a pending retro and none for a
      project without one, and two runs that end with no route leave the retro `failed` with one
      alert.
@@ -736,7 +800,8 @@ other reads.
   clear." (US-02).
 - Bugs that a person files against an epic after it reaches done. They belong to a later trigger,
   and no epic holds it yet (PRD, Out of scope).
-- A retro of an item that finished before entry 2 merges. It belongs to no epic (US-01).
+- A retro of an item that finished before the host ran a release that holds entry 2. It belongs
+  to no epic (US-01).
 - Where a userspace skill lives, and which skills are kernel. It belongs to factorio-yzrt.
 - The names `retro`, `epic.done`, `bug.closed`, and the closed bug states. They belong to
   factorio-vlle.
@@ -766,7 +831,7 @@ bug whose status `BugClosed` accepts, and no item has two rows. A ticket in `don
 *A property test over 500 generated move sequences on the fake beads.*
 
 **C4. Behaviour: no retro for an item that finished before the trigger.** Proves A20. A store
-migrated to 0015 that already holds done epics and closed bugs holds no `retros` row after the
+migrated through the `retros` migration of entry 2 that already holds done epics and closed bugs holds no `retros` row after the
 migration, after a server start, and after a reconcile.
 *A test that seeds done items, runs the migration and the start-up reconcile, and asserts an empty
 table.*
@@ -808,8 +873,11 @@ learning, no notice and no item, and the retro stays `running`.
 
 **C11. Behaviour: a single case is held.** Proves A7. A panel in which either judge answers `one`
 routes `hold`, whatever its targets, sizes and reading. The learning is stored `held`, lands
-nothing, and `loop retro held` lists it with its cases.
-*Rows of the `Decide` table test, and a route test that asserts no ticket, bug or fault.*
+nothing, and `loop retro held` lists it with its cases. `loop work show` of the retro's item
+lists it under `held_learnings` with its statement and cases, and stops listing it once a later
+learning extends it.
+*Rows of the `Decide` table test, and a route test that asserts no ticket, bug or fault and
+reads `loop work show` of the retro's item before and after an extending route.*
 
 **C12. Behaviour: a later case counts both.** Proves A8. A learning that extends held learning L-n
 is stored with L-n's cases and its own. L-n moves to `counted`. `extends` that names a learning
@@ -878,15 +946,14 @@ parses in `loop retro route` with every answer and the reading unchanged.
 *Tests with fake judges that record their prompts, a changed rubric fixture, and a round trip of
 the file.*
 
-**C24. Refusal and boundary: one route for each retro, one retro for each run.** Proves A1. A
-second `loop retro route` with a different file on a `done` retro is refused with `retro_done`. A
-route by a run that holds no retro is refused with `retro_not_bound`. Two runs never bind one
-retro. A run that ends with no route returns the retro to `pending` once, and the second such run
-marks it `failed` and raises one `retro_failed` alert.
-*Store tests with two concurrent binds, and a finish-path test with two runs.*
+**C24. Invariant: one retro for each run, and one run for each retro.** Proves A1. Two runs that
+call `retro.Bind` on one project with one pending retro bind it to one run, and the other gets
+`ok = false`. A second `Bind` by the holding run returns the same retro. A run never holds two
+retros.
+*A store test with two concurrent binds, and one with a repeated bind.*
 
 **C25. Behaviour: the rules part lists each uncompared landed rule.** Proves A18 and A19, by the
-work it hands the coordinator. The part reads one finding for each learning with route `land`,
+work it hands the coordinator. The part reads one finding for each learning in status `landed`,
 target `project_policy` or `userspace_skill`, a `landed_ref` ticket in `done`, and no
 `compared_at`. It reads no finding for a `pack_pr` learning, for a ticket not yet `done`, or after
 `loop retro compared`. An open fault that holds the finding key also quiets it.
@@ -912,6 +979,17 @@ that sends them. `pack/runbooks/retro.md` runs `loop retro record`, `loop retro 
 learning, names each case by its reference, and never runs `loop pr open`, `loop work create` or
 `loop fault report`.
 *`internal/pack/retro_test.go` reads the embedded runbook.*
+
+**C29. Refusal: one route for each retro.** Proves A1 and A16. A second `loop retro route` with a
+different file on a `done` retro is refused with `retro_done`. A route by a run that holds no
+retro is refused with `retro_not_bound`. Neither refusal writes a learning, a notice or an item.
+*Route tests on a done retro and on a run with no bind, which count learnings and notices.*
+
+**C30. Behaviour: a run that ends with no route releases its retro.** Proves A1. A retro run that
+finishes with the retro still `running` returns it to `pending` with one attempt. The second such
+run marks it `failed` and raises one `retro_failed` alert. A run that routed its retro changes
+nothing at finish.
+*A finish-path test with two runs that end with no route, and one that routed.*
 
 ## Observable behaviour
 
