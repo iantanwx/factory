@@ -81,7 +81,8 @@ func (s *Server) composeHuman() error {
 	// A new fault is an inbox entry, so it rings the coordinator (KTD31).
 	s.Faults.Changed = changed
 	s.Escalations = &escalation.Service{Store: s.Store, Machine: s.Machine, Redactor: s.Redactor, Changed: changed, Logger: s.log}
-	s.Decisions = &decision.Service{Store: s.Store, Machine: s.Machine, Redactor: s.Redactor, Now: now, Changed: changed, Logger: s.log}
+	s.Decisions = &decision.Service{Store: s.Store, Machine: s.Machine, Redactor: s.Redactor, Projects: s.Projects.List, Now: now,
+		Changed: changed, Logger: s.log}
 	for _, reg := range []func(*rpc.Server) error{s.Inbox.Register, s.Escalations.Register, s.Decisions.Register} {
 		if err := reg(s.RPC); err != nil {
 			return err

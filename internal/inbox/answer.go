@@ -127,7 +127,7 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	actor := machine.Actor{Name: call.Principal.Actor(), RunID: call.Principal.RunID}
 	switch kind {
-	case KindEscalation, KindDecision:
+	case KindEscalation, KindHold:
 		params := map[string]string{"answer": body}
 		if call.Inv.Flags["amend"] == "true" {
 			if kind != KindEscalation {
@@ -136,7 +136,7 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 			params["amendment"] = body
 		}
 		want := machine.Escalated
-		if kind == KindDecision {
+		if kind == KindHold {
 			want = machine.NeedsHuman
 		} else {
 			var open []string
@@ -324,7 +324,7 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 	if !found {
 		return cli.Reject(cli.CodeNotFound, "no_entry", fmt.Sprintf("the inbox holds no entry %s now", id))
 	}
-	if kind == KindDecision {
+	if kind == KindHold {
 		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: machine.VerbDefer,
 			Params: map[string]string{"why": reason}, Actor: machine.Actor{Name: call.Principal.Actor(), RunID: call.Principal.RunID}, ExpectedStatus: machine.NeedsHuman})
 		if res.Refusal != nil {

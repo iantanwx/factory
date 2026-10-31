@@ -39,7 +39,7 @@ const (
 const (
 	KindEscalation   = "escalation"    // an item in escalated
 	KindPanel        = "panel"         // an escalation that waits for the fixer's panel
-	KindDecision     = "decision"      // a fired decision
+	KindHold         = "hold"          // a fired decision that waits on the operator
 	KindSignoff      = "signoff"       // a document that waits for the operator's approval
 	KindQuestion     = "question"      // a question the coordinator prepared
 	KindAsk          = "ask"           // a bug report whose reproducer asks its reporter
