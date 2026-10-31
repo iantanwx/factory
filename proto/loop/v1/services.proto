@@ -116,6 +116,7 @@ service PrdService {
 
 service EpicService {
   rpc Create(VerbRequest) returns (Envelope);
+  rpc Adr(VerbRequest) returns (Envelope);
   rpc Decompose(VerbRequest) returns (Envelope);
 }
 
