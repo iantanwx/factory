@@ -108,6 +108,8 @@ func (g *GitHub) Setup(s *Server) error {
 		// work supersede reads its evidence and the ticket's pull
 		// request back before the close is recorded.
 		s.Machine.SetSupersedeChecker(svc.SupersedeEvidence)
+		// A canceled epic's open document PR closes with no merge.
+		s.Machine.SetDocPRCloser(g.Reactor.CloseDocPR)
 	}
 	if s.Sched != nil {
 		// A repair's brief carries the parsed log of its red build.

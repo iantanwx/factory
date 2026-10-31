@@ -297,6 +297,7 @@ func epicTable() *Table {
 		{Name: Execution, Category: beadsx.CategoryWIP},
 		{Name: Escalated, Category: beadsx.CategoryFrozen},
 		{Name: Done, Category: beadsx.CategoryDone, Terminal: true},
+		{Name: Canceled, Category: beadsx.CategoryDone, Terminal: true},
 	}
 	live := []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
 		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
@@ -368,6 +369,10 @@ func epicTable() *Table {
 			set: all(copyParam("spec_path", FactSpecPath), copyParam("sha", FactSpecMerged)), Facts: []string{FactSpecPath, FactSpecMerged}},
 		{Verb: VerbDecomposed, From: []string{Decomposing}, To: Execution, Lease: LeaseDrop},
 		{Verb: "complete", From: []string{Execution}, To: Done, guard: childrenTerminal},
+		// An epic whose work moved elsewhere closes before it has children
+		// (F-55). Decomposing cuts the children, so it cannot cancel.
+		{Verb: "cancel", From: except(live, Decomposing, Execution), To: Canceled, Command: "work cancel", Lease: LeaseDrop,
+			set: needCopy("reason", FactCancelReason), Facts: []string{FactCancelReason}},
 		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: uniqueValues(epicResume),
 			set: answerResume, Facts: []string{FactResume, FactEscalation, FactAnswer, FactAmendment}},
 

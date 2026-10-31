@@ -271,11 +271,12 @@ func (w *serverWorld) Jobs() sched.Jobs {
 	return w.s.Sched.Jobs()
 }
 
-func (w *serverWorld) DrainSince() time.Time {
-	if w.s.Sched == nil {
-		return time.Time{}
-	}
-	return w.s.Sched.DrainSince()
+func (w *serverWorld) Drains(ctx context.Context) (drains []sched.Drain, err error) {
+	err = w.s.Store.Read(ctx, func(tx *sql.Tx) error {
+		drains, err = sched.Drains(ctx, tx)
+		return err
+	})
+	return drains, err
 }
 
 func (w *serverWorld) Pauses(ctx context.Context) (pauses []admission.StagePause, err error) {

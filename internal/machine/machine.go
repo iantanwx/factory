@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -58,6 +59,10 @@ type Config struct {
 	// the mark back, so a retry of the intent runs it again. Nothing runs
 	// when nil.
 	Terminal func(tx *store.Tx, ev TerminalEvent) error
+	// Applied runs inside the transaction that marks every write applied,
+	// after its transitions row. An error rolls the mark back, so a retry
+	// of the intent runs it again. Nothing runs when nil.
+	Applied func(tx *store.Tx, ev AppliedEvent) error
 	// Registry seals the answers the machine stores under an intent.
 	// cli.NewRegistry() when nil; it must know every refusal code the
 	// machine answers.
@@ -74,6 +79,15 @@ type TerminalEvent struct {
 	// a SQLite transaction and cannot read the bead, so the intent carries
 	// it.
 	Bug string
+}
+
+// AppliedEvent is every applied write, after its transitions row.
+type AppliedEvent struct {
+	Project, Item string
+	Kind          Kind
+	Verb          string
+	From, To      string
+	Transition    int64 // the transitions row id
 }
 
 // Machine applies intent verbs to work items.
@@ -98,8 +112,13 @@ type Machine struct {
 	// supersedeCheck reads the evidence of `work supersede` back from
 	// GitHub. Nil refuses every supersede.
 	supersedeCheck SupersedeChecker
+	// closeDocPR closes the document PR of a canceled epic. Nil closes
+	// nothing.
+	closeDocPR DocPRCloser
 	// wait reads why an item waits, for work show. Nil reads nothing.
 	wait WaitReader
+	// retro reads the signals on an item, for work show. Nil reads nothing.
+	retro RetroReader
 }
 
 type itemLock struct {
@@ -234,6 +253,15 @@ type Item struct {
 	// work show sets them.
 	Wait      *Wait  `json:"wait,omitempty"`
 	WaitError string `json:"wait_error,omitempty"`
+	// RetroOnItem is what the retro keeps on the item, and RetroError why
+	// that read failed. Only work show sets them.
+	RetroOnItem
+	RetroError string `json:"retro_error,omitempty"`
+}
+
+// RetroOnItem is the part of work show that the retro writes.
+type RetroOnItem struct {
+	Signals []json.RawMessage `json:"signals,omitempty"`
 }
 
 // Wait is the wait of one item: the lease, the holds, the counted failures

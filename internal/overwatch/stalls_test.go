@@ -10,6 +10,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -384,7 +385,9 @@ func TestC10AFireDuringADrainDoesNotCount(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			w := newStallsWorld(t)
-			w.drain = c.drain
+			if !c.drain.IsZero() {
+				w.drains = []sched.Drain{{From: c.drain}}
+			}
 			w.item("factorio-t1", machine.KindTicket, machine.Todo, at(8, 57))
 			r := readStallsPart(t, w)
 			if _, ok := findingOf(r, "overwatch:stalls:factorio-t1@todo"); ok != c.work {
@@ -392,6 +395,37 @@ func TestC10AFireDuringADrainDoesNotCount(t *testing.T) {
 			}
 			if !c.work {
 				mustContain(t, noteOf(t, r, "factorio-t1"), "implementer", "the server drains since "+stamp(c.drain))
+			}
+		})
+	}
+}
+
+// C-bug-1 (factorio-gqyt, F-57): a drain that a restart ended refuses only
+// the fires from its start until the restart. The implementer fires at
+// 08:58 and 09:03, and the clock reads 09:05.
+func TestC10AFireDuringADrainThatARestartEndedDoesNotCount(t *testing.T) {
+	cases := []struct {
+		name     string
+		from, to time.Time
+		work     bool
+	}{
+		{"a drain over the first fire", at(8, 56), at(9, 0), false},
+		{"a drain over the second fire", at(9, 0), at(9, 4), false},
+		{"a restart at the first fire", at(8, 56), at(8, 58), true},
+		{"a drain before the entry", at(8, 50), at(8, 55), true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w := newStallsWorld(t)
+			w.drains = []sched.Drain{{From: c.from, To: c.to}}
+			w.item("factorio-t1", machine.KindTicket, machine.Todo, at(8, 57))
+			r := readStallsPart(t, w)
+			if _, ok := findingOf(r, "overwatch:stalls:factorio-t1@todo"); ok != c.work {
+				t.Fatalf("work = %v, want %v: %+v", ok, c.work, r)
+			}
+			if !c.work {
+				mustContain(t, noteOf(t, r, "factorio-t1"), "implementer",
+					"the server drained from "+stamp(c.from)+" until its restart at "+stamp(c.to))
 			}
 		})
 	}

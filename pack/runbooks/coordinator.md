@@ -183,6 +183,10 @@ read with the event you blame. Read the state back after each write you report.
 - **The operator drops an escalated item.** Run
   `loop work cancel <item> --reason "<the operator's words>"`, and quote the operator's words in
   the report.
+- **A ruling gives an epic's work to another item.** An epic has no `work supersede`. Before
+  decomposing starts, run `loop work cancel <epic> --reason "<the ruling>"`. The server closes the
+  epic's open document pull request with no merge. An epic in decomposing or execution refuses the
+  cancel. Bring it to the operator.
 - **A merged change or a ruling leaves a ticket with no work.** Run
   `loop work supersede <item> --reason "<why>"` with one of `--commit <sha>`, `--done <item>` or
   `--adr <path>`. The server checks that evidence before it closes the ticket.
@@ -271,6 +275,12 @@ The entry names the head the review passed at. The server merges the document's 
 that head, and the epic moves on. When the head moved after the entry was raised, the server
 merges nothing. It refuses with `STATUS_CHANGED` and rule `head_moved`, and it raises the entry
 again at the new head. Bring the operator the new head and its diff, and record a new approval.
+
+The PRD and the spec of one epic share the entry. An answer with the same words at each sign-off is
+a new write at each head. When the server refuses with `STATUS_CHANGED` and rule
+`answer_at_other_head`, it found a stored answer that approved an earlier head. It merged nothing.
+When the operator approved the head that the entry names now, run the same answer again. The CLI
+sends it as a new write at that head.
 
 A spec sign-off also reads the spec at that head. It refuses with `SHAPE_REFUSED` and rule
 `open_questions` when an entry under `## Open questions` holds no bold `**Answered` or `**Deferred`

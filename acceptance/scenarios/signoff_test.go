@@ -3,6 +3,7 @@
 package scenarios
 
 import (
+	"context"
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
@@ -143,4 +144,104 @@ func TestSignoffAnswerRefusesAMovedHeadAndRaisesTheEntryAgain(t *testing.T) {
 		t.Fatalf("the merges of #%d = %+v, want one at %s", pr.Number, calls, moved)
 	}
 	wantStatus(w, epic, machine.SpecNeeded)
+}
+
+// factorio-ny3n: the PRD and the spec of one epic share the sign-off entry
+// signoff/<project>/<epic>. The operator approves both with the same
+// words. The spec's answer is a new write at a new head: it merges the
+// spec PR at the head the entry names, and it never returns the PRD's
+// stored answer.
+func TestSignoffAnswerWithTheSameWordsMergesTheSpecAfterThePRD(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	epic := submitPRD(w, openIntake(w, "the operator wants widgets"), "Widgets")
+	entry := "signoff/" + acceptance.Project + "/" + epic
+
+	prdHead := docPass(w, epic)
+	wantStatus(w, epic, machine.PRDSignoff)
+	prd := docPR(w, epic)
+	w.Must(w.Coordinator("inbox", "answer", entry, "--body", "Approve"))
+	if calls := mergesOf(w, prd.Number); len(calls) != 1 || calls[0].SHA != prdHead {
+		t.Fatalf("the merges of PRD #%d = %+v, want one at %s", prd.Number, calls, prdHead)
+	}
+	wantStatus(w, epic, machine.SpecNeeded)
+
+	draftSpec(w, epic, "draft one")
+	specHead := docPass(w, epic)
+	wantStatus(w, epic, machine.SpecSignoff)
+	spec := docPR(w, epic)
+	specPath := "docs/plans/" + epic + "-widgets-spec.md"
+	w.API.World.Update(spec, func(p *gt.PR) { p.Files = []string{specPath} })
+	w.API.World.SetFile(specHead, specPath, "# Widgets spec\n\n## Open questions\n\nNone.\n")
+	if e := signoffEntry(w, epic); e["head"] != specHead {
+		t.Fatalf("the spec's sign-off entry = %v, want head %s", e, specHead)
+	}
+
+	r := w.Coordinator("inbox", "answer", entry, "--body", "Approve")
+	if r.Code != 0 || r.Env["replayed"] == true {
+		t.Fatalf("the spec's answer with the PRD's words = %s, want a new write and not a replay of the PRD's answer", r)
+	}
+	if calls := mergesOf(w, spec.Number); len(calls) != 1 || calls[0].SHA != specHead {
+		t.Fatalf("the merges of spec #%d = %+v, want one at %s", spec.Number, calls, specHead)
+	}
+	wantStatus(w, epic, machine.SpecApproved)
+}
+
+// factorio-ny3n: the server never replays a stored sign-off answer as
+// success at another head. A CLI of the previous release keyed both
+// answers alike, so its spec answer sends the PRD answer's key. The
+// pending entry below holds that key. The server refuses the replay with
+// answer_at_other_head and merges nothing. The repeat that the hint asks
+// for is a new write at the spec's head.
+func TestStoredPRDAnswerIsNotReplayedAtTheSpecSignoff(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	epic := submitPRD(w, openIntake(w, "the operator wants widgets"), "Widgets")
+	entry := "signoff/" + acceptance.Project + "/" + epic
+	keep := func() {
+		t.Helper()
+		co := w.CoordinatorCheckout()
+		inv, bad := cli.Surface().Validate("inbox answer", []string{entry}, map[string]string{"body": "Approve"}, "")
+		if bad != nil {
+			t.Fatalf("validate: %+v", bad)
+		}
+		content, err := cli.ContentHash(context.Background(), inv, co, co)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := cli.PendingEntry{Verb: inv.Verb.Path, Args: inv.Args, Flags: inv.Flags,
+			ArgsHash: cli.ArgsHash(inv.Verb.Path, inv.Args, inv.Flags), ContentHash: content}
+		if _, _, err := cli.OpenPending(co).Reserve(e, func() (string, error) { return "previous-release-key", nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	prdHead := docPass(w, epic)
+	prd := docPR(w, epic)
+	keep()
+	w.Must(w.Coordinator("inbox", "answer", entry, "--body", "Approve"))
+	if calls := mergesOf(w, prd.Number); len(calls) != 1 || calls[0].SHA != prdHead {
+		t.Fatalf("the merges of PRD #%d = %+v, want one at %s", prd.Number, calls, prdHead)
+	}
+
+	draftSpec(w, epic, "draft one")
+	specHead := docPass(w, epic)
+	spec := docPR(w, epic)
+	specPath := "docs/plans/" + epic + "-widgets-spec.md"
+	w.API.World.Update(spec, func(p *gt.PR) { p.Files = []string{specPath} })
+	w.API.World.SetFile(specHead, specPath, "# Widgets spec\n\n## Open questions\n\nNone.\n")
+
+	keep()
+	r := w.Coordinator("inbox", "answer", entry, "--body", "Approve")
+	if r.Code != 3 || r.Env["rule"] != "answer_at_other_head" {
+		t.Fatalf("the PRD answer's key at the spec sign-off = %s, want exit 3 with rule answer_at_other_head", r)
+	}
+	if calls := mergesOf(w, spec.Number); len(calls) != 0 {
+		t.Fatalf("the merges of spec #%d after the refusal = %+v, want none", spec.Number, calls)
+	}
+	wantStatus(w, epic, machine.SpecSignoff)
+
+	w.Must(w.Coordinator("inbox", "answer", entry, "--body", "Approve"))
+	if calls := mergesOf(w, spec.Number); len(calls) != 1 || calls[0].SHA != specHead {
+		t.Fatalf("the merges of spec #%d = %+v, want one at %s", spec.Number, calls, specHead)
+	}
+	wantStatus(w, epic, machine.SpecApproved)
 }

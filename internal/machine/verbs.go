@@ -806,6 +806,13 @@ func (m *Machine) workShow(ctx context.Context, call *rpc.Call) cli.Result {
 			it.Wait = &w
 		}
 	}
+	if m.retro != nil {
+		if r, err := m.retro(ctx, prj, it.ID); err != nil {
+			it.RetroError = err.Error()
+		} else {
+			it.RetroOnItem = r
+		}
+	}
 	return cli.Found(it)
 }
 
@@ -848,6 +855,13 @@ type WaitReader func(ctx context.Context, project, item string) (Wait, error)
 // SetWaitReader sets the reader of work show's wait. The server sets it
 // before the socket binds.
 func (m *Machine) SetWaitReader(f WaitReader) { m.wait = f }
+
+// RetroReader reads what the retro keeps on an item: its signals.
+type RetroReader func(ctx context.Context, project, item string) (RetroOnItem, error)
+
+// SetRetroReader sets the reader of work show's signals. The server sets
+// it before the socket binds, as it sets the wait reader.
+func (m *Machine) SetRetroReader(f RetroReader) { m.retro = f }
 
 // PassGate reads CI at head, the head a code review passes. It refuses
 // unless every required check is green there.

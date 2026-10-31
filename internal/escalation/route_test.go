@@ -3,6 +3,8 @@ package escalation
 import (
 	"strings"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/machine"
 )
 
 func answer(judge, level, choice string) JudgeAnswer {
@@ -100,7 +102,7 @@ func TestPanelFileRoundTrips(t *testing.T) {
 
 func TestRefusalNamesTheRoutesBack(t *testing.T) {
 	tr, _ := ParseTriage("2", "")
-	h := RefusalHint(tr)
+	h := RefusalHint(tr, machine.KindTicket)
 	if !strings.Contains(h, "level 2 measured routes to the loop") || !strings.Contains(h, "--choice outside") ||
 		!strings.Contains(h, "loop work supersede") {
 		t.Fatalf("hint = %q", h)
@@ -108,5 +110,32 @@ func TestRefusalNamesTheRoutesBack(t *testing.T) {
 	n := TriagedNote(tr, "the reason")
 	if !strings.Contains(n, `level="measured"`) || !strings.Contains(n, "the reason") {
 		t.Fatalf("note = %q", n)
+	}
+}
+
+// C-bug-3: the hint names only the close verb of the item's kind:
+// `work supersede` for a ticket, `work cancel` for an epic, and neither
+// for a kind that has no such close.
+func TestC3RefusalHintNamesTheCloseOfTheItemsKind(t *testing.T) {
+	tr, _ := ParseTriage("2", "")
+	for _, tc := range []struct {
+		kind      machine.Kind
+		want, not []string
+	}{
+		{machine.KindTicket, []string{"`loop work supersede`"}, []string{"work cancel"}},
+		{machine.KindEpic, []string{"`loop work cancel`"}, []string{"work supersede"}},
+		{machine.KindBug, nil, []string{"work supersede", "work cancel"}},
+	} {
+		h := RefusalHint(tr, tc.kind)
+		for _, w := range tc.want {
+			if !strings.Contains(h, w) {
+				t.Errorf("%s hint names no %s: %q", tc.kind, w, h)
+			}
+		}
+		for _, n := range tc.not {
+			if strings.Contains(h, n) {
+				t.Errorf("%s hint names %s: %q", tc.kind, n, h)
+			}
+		}
 	}
 }

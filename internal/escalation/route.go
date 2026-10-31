@@ -19,6 +19,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/iantanwx/loop/internal/machine"
 )
 
 // Route is where one finding goes.
@@ -108,17 +110,23 @@ func (t Triage) Route() Route {
 
 // RefusalHint is what a run reads when the rubric sends its finding back
 // to the loop. It names the routes back in, and the two escapes (refusalFor
-// in scripts/sdlc/triage-route.ts, alpha).
-func RefusalHint(t Triage) string {
+// in scripts/sdlc/triage-route.ts, alpha). It names the close of the
+// item's kind only: an epic has no supersede, and a ticket no reasoned
+// cancel outside escalated (F-55).
+func RefusalHint(t Triage, kind machine.Kind) string {
 	l := t.Level
+	closes := map[machine.Kind]string{
+		machine.KindTicket: "When the base branch, a done item or an ADR already answers the ticket, close it with `loop work supersede`. ",
+		machine.KindEpic: "When an ADR or a ruling gives the epic's work to another item before its execution, " +
+			"close it with `loop work cancel` and a reason. ",
+	}
 	return fmt.Sprintf("level %d %s routes to the loop, not to a person: %s answers the finding. "+
 		"The item keeps its state and your lease, and no person was told; your reason is recorded on the item as a triaged note. "+
 		"Level 1 or 2: run the command that answers the finding, and quote its output in what you write next. "+
 		"Level 3: apply the derived answer, and name the rule and the document it rests on. "+
-		"When the base branch, a done item or an ADR already answers the ticket, close it with `loop work supersede`. "+
-		"Raise again only when the level is wrong (read that level's \"Not this level when\" paragraph in the sdlc-triage skill), "+
+		"%sRaise again only when the level is wrong (read that level's \"Not this level when\" paragraph in the sdlc-triage skill), "+
 		"or when one answer sends a message, spends money, publishes, deploys or changes a vendor or production system: then pass --choice outside.",
-		l.Ordinal, l.Name, strings.ToLower(l.Answers))
+		l.Ordinal, l.Name, strings.ToLower(l.Answers), closes[kind])
 }
 
 // TriagedNote is the note a finding routed to the loop leaves on its item.

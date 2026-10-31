@@ -120,7 +120,9 @@ func (s *Service) raise(ctx context.Context, call *rpc.Call) cli.Result {
 		if res.Refusal != nil {
 			s.log().WarnContext(ctx, "the triaged note was not written", "item", p.Item, "code", res.Refusal.Code)
 		}
-		return cli.Refuse(cli.Refusal{Code: cli.CodeRoutedToLoop, Rule: "triage_routes_to_loop", Item: p.Item, Hint: RefusalHint(tr)})
+		// An item that cannot be read has no kind, so the hint names no close.
+		it, _ := s.Machine.Read(ctx, p.Project, p.Item)
+		return cli.Refuse(cli.Refusal{Code: cli.CodeRoutedToLoop, Rule: "triage_routes_to_loop", Item: p.Item, Hint: RefusalHint(tr, it.Kind)})
 	}
 	var rec Record
 	var ended string

@@ -1,5 +1,3 @@
-// Package retro holds the retro stage: the queue of finished epics and
-// closed bugs that a retro run learns from (factorio-1xq0).
 package retro
 
 import (

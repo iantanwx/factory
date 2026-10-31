@@ -190,6 +190,11 @@ func Run(ctx context.Context, opts Options) (err error) {
 			return fmt.Errorf("server: setup: %w", err)
 		}
 	}
+	// A drain lasts until the server restarts, so this start ends the drain
+	// that the store holds on.
+	if err := sched.EndDrains(ctx, s.Store, s.humanClock()()); err != nil {
+		return fmt.Errorf("server: end the drain: %w", err)
+	}
 
 	socket := cli.SocketPath(dir)
 	if err := rpc.PrepareSocket(socket); err != nil {
@@ -374,7 +379,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			claims = s.Admission
 		}
 		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: claims,
-			Terminal: terminal, Registry: cli.Surface(), Logger: srv.Logger()})
+			Terminal: terminal, Applied: retro.SignalsFor, Registry: cli.Surface(), Logger: srv.Logger()})
 		if err != nil {
 			return nil, err
 		}
@@ -383,6 +388,10 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		}
 		// work show answers why the item waits.
 		s.Machine.SetWaitReader(admission.WaitOf(st))
+		// work show lists the item's signals.
+		s.Machine.SetRetroReader(func(ctx context.Context, project, item string) (machine.RetroOnItem, error) {
+			return retro.OnItem(ctx, st, project, item)
+		})
 		if s.Admission != nil {
 			s.Admission.Attach(s.Machine)
 			if err := srv.Handle("work peek", s.peek); err != nil {
