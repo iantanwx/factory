@@ -130,7 +130,7 @@ func (w *world) retros() []row {
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var r row
 			if err := rows.Scan(&r.Item, &r.Kind, &r.State); err != nil {
