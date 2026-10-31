@@ -183,17 +183,17 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 		if err := rs.Err(); err != nil {
 			return err
 		}
-		rooms, err := tx.QueryContext(ctx, `SELECT id FROM rooms WHERE closed_at IS NULL`)
+		rooms, err := tx.QueryContext(ctx, `SELECT checkout_name FROM rooms WHERE closed_at IS NULL AND checkout_name <> ''`)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = rooms.Close() }()
 		for rooms.Next() {
-			var id string
-			if err := rooms.Scan(&id); err != nil {
+			var name string
+			if err := rooms.Scan(&name); err != nil {
 				return err
 			}
-			opening[RoomCheckoutName(id)] = true
+			opening[name] = true
 		}
 		return rooms.Err()
 	})
@@ -262,9 +262,6 @@ func WorktreeOf(ctx context.Context, dir string, projects []config.Project) (com
 	}
 	return common, "", nil
 }
-
-// RoomCheckoutName names the checkout of the room id.
-func RoomCheckoutName(id string) string { return "loop-" + id }
 
 func keptKey(checkout string) string { return AlertCheckoutKept + ":" + checkout }
 

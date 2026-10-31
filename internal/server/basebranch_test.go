@@ -116,7 +116,7 @@ func TestRoomStartsFromTheProjectBranch(t *testing.T) {
 		t.Fatalf("room = %v", r)
 	}
 	rec.mu.Lock()
-	got := rec.bases["loop-"+r["room"].(string)]
+	got := rec.bases[filepath.Base(r["checkout"].(string))]
 	rec.mu.Unlock()
 	if got != head {
 		t.Fatalf("room checkout base = %q, want the head of trunk %s; bases %v", got, head, rec.bases)

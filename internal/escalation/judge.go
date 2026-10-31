@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -69,24 +70,24 @@ type Judging struct {
 	Recorded func(ctx context.Context, escalation string) ([]string, error)
 }
 
-// Live is the production panel: the two judges the owner named
-// (judgesFor in scripts/sdlc/convergence-call.ts, alpha) and Jev over HTTP.
+// Live is the production panel: two claude judges on different models, so
+// the panel needs no codex login, and Jev over HTTP.
 func Live() Judging {
 	return Judging{
 		Judges: []Judge{
 			CommandJudge{JudgeName: "fable-5", Bin: "claude", Args: []string{"-p", "--model", "claude-fable-5-1", "--output-format", "json"}},
-			CommandJudge{JudgeName: "sol-6", Bin: "codex", Args: []string{"exec", "-m", "gpt-5.6-sol", "-"}},
+			CommandJudge{JudgeName: "opus-5", Bin: "claude", Args: []string{"-p", "--model", "claude-opus-5-5", "--output-format", "json"}},
 		},
 		Jev: HTTPJev{Base: JevBase, Client: &http.Client{Timeout: 2 * time.Minute}},
 	}
 }
 
-// JudgeBins names the binary of each judge of the live panel, in panel
-// order. `loop doctor` checks that each one is on the path.
+// JudgeBins names each binary of the live panel once, in panel order.
+// `loop doctor` checks that each one is on the path.
 func JudgeBins() []string {
 	var bins []string
 	for _, j := range Live().Judges {
-		if c, ok := j.(CommandJudge); ok {
+		if c, ok := j.(CommandJudge); ok && !slices.Contains(bins, c.Bin) {
 			bins = append(bins, c.Bin)
 		}
 	}
@@ -118,9 +119,19 @@ func (c CommandJudge) Ask(ctx context.Context, prompt string) (string, error) {
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil && out.Len() == 0 {
+		if line := lastLine(errb.String()); line != "" {
+			return "", fmt.Errorf("%s: %w: %s", c.JudgeName, err, line)
+		}
 		return "", fmt.Errorf("%s: %w", c.JudgeName, err)
 	}
 	return out.String(), nil
+}
+
+// lastLine is the last non-empty line of text, trimmed. A harness writes
+// why it failed last, so the note keeps that line.
+func lastLine(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // HTTPJev calls Jev's systemone endpoint.
@@ -416,10 +427,8 @@ func JudgeVerb(j Judging) cli.Handler {
 			}
 		}
 		key, from := jevKey(checkout)
-		if key != "" {
-			for i, d := range decisions {
-				decisions[i] = strings.ReplaceAll(d, key, "[REDACTED]")
-			}
+		for i, d := range decisions {
+			decisions[i] = redact(d, key)
 		}
 		prompt := JudgePrompt(rubric, finding, decisions)
 		answers := make([]*JudgeAnswer, len(j.Judges))
@@ -447,7 +456,7 @@ func JudgeVerb(j Judging) cli.Handler {
 			if answers[i] != nil {
 				panel.Judges = append(panel.Judges, *answers[i])
 			} else {
-				notes = append(notes, "judge: "+failed[i])
+				notes = append(notes, "judge: "+redact(failed[i], key))
 			}
 		}
 		switch {
@@ -457,7 +466,7 @@ func JudgeVerb(j Judging) cli.Handler {
 			notes = append(notes, "jev: not asked, because fewer than two judges answered")
 		default:
 			if r, err := j.Jev.Score(ctx, panel, key); err != nil {
-				notes = append(notes, "jev: "+strings.ReplaceAll(err.Error(), key, "[REDACTED]"))
+				notes = append(notes, "jev: "+redact(err.Error(), key))
 			} else {
 				panel.Reading = r
 			}
@@ -473,6 +482,14 @@ func JudgeVerb(j Judging) cli.Handler {
 		return cli.Found(map[string]any{"panel": panel, "panel_file": file, "decision": decision, "key_from": from, "notes": notes,
 			"recorded_decisions": len(decisions)})
 	}
+}
+
+// redact hides each copy of key in text. An empty key hides nothing.
+func redact(text, key string) string {
+	if key == "" {
+		return text
+	}
+	return strings.ReplaceAll(text, key, "[REDACTED]")
 }
 
 // writePanel writes the panel to out, or to a new temporary file, at 0600.
