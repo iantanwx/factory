@@ -58,6 +58,9 @@ type Loader struct {
 	// Check runs after a parse. Its error makes the read invalid, so the
 	// last good config stays in force. Nil checks nothing.
 	Check func(*ProjectConfig) error
+	// Tree lists the default branch, so a pin whose directory it tracks
+	// makes the read invalid. Nil checks no directory.
+	Tree TreeReader
 }
 
 func configAlertKey(project string) string { return AlertProjectConfigInvalid + ":" + project }
@@ -72,6 +75,9 @@ func (l *Loader) Load(ctx context.Context, project string, read RefReader, defau
 	snap, err := ReadProjectSnapshot(ctx, read, defaultBranch)
 	if err == nil && l.Check != nil {
 		err = l.Check(snap.Config)
+	}
+	if err == nil && l.Tree != nil {
+		err = SkillDirs(ctx, snap.Config, l.Tree, DefaultRef(defaultBranch))
 	}
 	if err == nil {
 		if err := l.LKG.SaveLKG(ctx, project, snap.ConfigRaw, snap.ManifestRaw); err != nil {

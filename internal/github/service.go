@@ -317,6 +317,18 @@ func (s *Service) RefReader(project string) config.RefReader {
 	}
 }
 
+// TreeReader lists directories of one project's mirror at a ref. The
+// config load checks the skill directories through it.
+func (s *Service) TreeReader(project string) config.TreeReader {
+	return func(ctx context.Context, ref, dir string) ([]config.TreeEntry, error) {
+		p, err := s.project(project)
+		if err != nil {
+			return nil, err
+		}
+		return s.Mirror(p).Tree(ctx, ref, dir)
+	}
+}
+
 // ManifestReader reads a project's secret manifest from the mirror. It
 // fetches the branch first, so `secret import` reads the current default
 // branch. Its shape matches server.ManifestReader.

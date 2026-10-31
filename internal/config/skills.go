@@ -1,9 +1,11 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -114,4 +116,57 @@ func checkSkills(ck *checker, pins SkillPins) {
 		}
 		seen[p.Name] = true
 	}
+}
+
+// TreeEntry is one entry that git tracks directly under a directory.
+type TreeEntry struct {
+	Name string
+	Dir  bool
+}
+
+// TreeReader lists the tracked entries directly under dir at ref. A ref or
+// dir that the repository lacks returns no entry and no error.
+type TreeReader func(ctx context.Context, ref, dir string) ([]TreeEntry, error)
+
+// Refs reads a project's committed files and tree.
+type Refs struct {
+	Read RefReader
+	Tree TreeReader
+}
+
+// ParseTree parses the output of `git ls-tree -z <ref> -- <dir>/`.
+func ParseTree(out []byte) []TreeEntry {
+	var entries []TreeEntry
+	for _, rec := range strings.Split(string(out), "\x00") {
+		meta, p, ok := strings.Cut(rec, "\t")
+		if f := strings.Fields(meta); ok && len(f) == 3 { // mode, type, object id
+			entries = append(entries, TreeEntry{Name: path.Base(p), Dir: f[1] == "tree"})
+		}
+	}
+	return entries
+}
+
+// skillRoots are the directories where a harness reads skills.
+var skillRoots = []string{".claude/skills", ".agents/skills"}
+
+// SkillDirs refuses each pin whose name is an entry of .claude/skills or
+// .agents/skills at ref: the checkout would hold two skills of one name
+// (ADR 0013 decision 1).
+func SkillDirs(ctx context.Context, cfg *ProjectConfig, tree TreeReader, ref string) error {
+	if len(cfg.Skills) == 0 {
+		return nil
+	}
+	ck := &checker{source: ProjectConfigPath}
+	for _, root := range skillRoots {
+		entries, err := tree(ctx, ref, root)
+		if err != nil {
+			return fmt.Errorf("config: list %s at %s: %w", root, ref, err)
+		}
+		for i, p := range cfg.Skills {
+			if slices.ContainsFunc(entries, func(e TreeEntry) bool { return e.Name == p.Name }) {
+				ck.fail(fmt.Sprintf("skills[%d]", i), "pin %s: %s tracks %s/%s", PinLabel(i, p.Name), ref, root, p.Name)
+			}
+		}
+	}
+	return ck.err()
 }

@@ -340,15 +340,15 @@ func (w *World) options() server.Options {
 		}
 		return gh.Service.ManifestReader(ctx, p, branch)
 	}
-	opts.Sched.Refs = func(ctx context.Context, p config.Project) (config.RefReader, string, error) {
+	opts.Sched.Refs = func(ctx context.Context, p config.Project) (config.Refs, string, error) {
 		if gh.Service == nil {
-			return nil, "", errors.New("the GitHub service is not set up")
+			return config.Refs{}, "", errors.New("the GitHub service is not set up")
 		}
 		branch, err := gh.Service.DefaultBranch(ctx, p)
 		if err != nil {
-			return nil, "", err
+			return config.Refs{}, "", err
 		}
-		return gh.Service.RefReader(p.ID), branch, nil
+		return config.Refs{Read: gh.Service.RefReader(p.ID), Tree: gh.Service.TreeReader(p.ID)}, branch, nil
 	}
 	opts.Sched.BaseHead = func(ctx context.Context, project, branch string) (string, error) {
 		if gh.Service == nil {

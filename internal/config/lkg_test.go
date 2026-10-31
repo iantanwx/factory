@@ -235,3 +235,102 @@ func TestC1ALoopPinDoesNotLoad(t *testing.T) {
 		t.Fatalf("beta load = %v, want ErrInvalid that names loop-x", err)
 	}
 }
+
+// neonPinConfig is validProjectConfig with one pin named neon.
+const neonPinConfig = validProjectConfig + `skills:
+  - name: neon
+    repo: owner/repo
+    commit: 0123456789abcdef0123456789abcdef01234567
+    path: ""
+    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+`
+
+// fakeTree serves the tracked file paths of origin/main as a TreeReader.
+type fakeTree []string
+
+func (f fakeTree) list(_ context.Context, ref, dir string) ([]TreeEntry, error) {
+	if ref != "origin/main" {
+		return nil, nil
+	}
+	var out []TreeEntry
+	seen := map[string]bool{}
+	for _, p := range f {
+		rest, ok := strings.CutPrefix(p, dir+"/")
+		if !ok {
+			continue
+		}
+		name, _, sub := strings.Cut(rest, "/")
+		if !seen[name] {
+			out = append(out, TreeEntry{Name: name, Dir: sub})
+			seen[name] = true
+		}
+	}
+	return out, nil
+}
+
+// TestC4APinWhoseDirectoryTheDefaultBranchTracksDoesNotLoad proves C4: a
+// pin neon on a default branch that tracks a file in .claude/skills/neon,
+// in .agents/skills/neon, or at .claude/skills/neon itself keeps the last
+// good config, and the open project_config_invalid alert names neon and
+// that path. A tracked .claude/skills/neon-postgres loads the pin.
+func TestC4APinWhoseDirectoryTheDefaultBranchTracksDoesNotLoad(t *testing.T) {
+	for _, c := range []struct {
+		tracked, path string
+	}{
+		{".claude/skills/neon/SKILL.md", ".claude/skills/neon"},
+		{".agents/skills/neon/README.md", ".agents/skills/neon"},
+		{".claude/skills/neon", ".claude/skills/neon"},
+		{".claude/skills/neon-postgres/SKILL.md", ""},
+	} {
+		t.Run(c.tracked, func(t *testing.T) {
+			ctx := context.Background()
+			st := openStore(t)
+			if err := StoreProjectRow(st)(ctx, Project{ID: "alpha", Repo: "iantanwx/alpha", Path: "/srv/a"}); err != nil {
+				t.Fatal(err)
+			}
+			tree := fakeTree{"README.md", c.tracked}
+			l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st), Tree: tree.list}
+			origin := fakeOrigin{ProjectConfigPath: validProjectConfig}
+			if _, err := l.Load(ctx, "alpha", origin.read, "main"); err != nil {
+				t.Fatal(err)
+			}
+
+			origin[ProjectConfigPath] = neonPinConfig
+			got, err := l.Load(ctx, "alpha", origin.read, "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			var bodies []string
+			err = st.Read(ctx, func(tx *sql.Tx) error {
+				r, err := tx.Query(`SELECT body FROM alerts WHERE project = 'alpha' AND kind = ? AND state = 'open'`, AlertProjectConfigInvalid)
+				if err != nil {
+					return err
+				}
+				defer func() { _ = r.Close() }()
+				for r.Next() {
+					var b string
+					if err := r.Scan(&b); err != nil {
+						return err
+					}
+					bodies = append(bodies, b)
+				}
+				return r.Err()
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.path == "" {
+				if got.Stale || len(got.Config.Skills) != 1 || len(bodies) != 0 {
+					t.Fatalf("load = %+v, alerts %q, want the pin to load", got, bodies)
+				}
+				return
+			}
+			if !got.Stale || len(got.Config.Skills) != 0 {
+				t.Fatalf("load = %+v, want the last good config", got)
+			}
+			if len(bodies) != 1 || !strings.Contains(bodies[0], `"neon"`) || !strings.Contains(bodies[0], c.path) {
+				t.Fatalf("open alert bodies = %q, want one that names neon and %s", bodies, c.path)
+			}
+		})
+	}
+}
