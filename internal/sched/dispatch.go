@@ -193,6 +193,20 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	}); err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
+	// Another actor can move the item out of its claimed status while the
+	// start runs, such as a cancel that drops the lease (F-59). The run
+	// then starts no session, and it counts nothing against the item.
+	if ad.Item != "" {
+		l, err := s.cfg.Machine.Lease(ctx, ad.Project, ad.Item)
+		if err != nil {
+			return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
+		}
+		if l.Owner != ad.RunID {
+			ref := &cli.Refusal{Code: cli.CodeLeaseNotHeld, Rule: "lease_lost_during_start", Item: ad.Item,
+				Hint: fmt.Sprintf("%s left its claimed status while run %s started; the run starts no session", ad.Item, ad.RunID)}
+			return fail(ref, false, "", errors.New(ref.Hint))
+		}
+	}
 	// Every stage start waits for the model receipt (ADR 0006 D1).
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindStage, Checkout: co.Path, Harness: prof.Harness,
 		Model: prof.Model, Effort: prof.Effort, PromptFile: res.Prompt, RequireVerifiedModel: true,
