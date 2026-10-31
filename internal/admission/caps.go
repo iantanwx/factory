@@ -89,9 +89,9 @@ func countBrainstormEpics(epics []machine.Item) int {
 	return n
 }
 
-// intakeEpics counts the project's epics in counted states. It reads
-// beads, so no caller holds a lock.
-func (a *Admission) intakeEpics(ctx context.Context, project string) (int, *cli.Refusal) {
+// brainstormEpics counts the project's epics in the states the brainstorm cap
+// counts. It reads beads, so no caller holds a lock.
+func (a *Admission) brainstormEpics(ctx context.Context, project string) (int, *cli.Refusal) {
 	all, ref := a.items.List(ctx, project, machine.ListFilter{Kind: machine.KindEpic})
 	if ref != nil {
 		return 0, ref
@@ -122,7 +122,7 @@ func (a *Admission) BrainstormCap(ctx context.Context, project string) *cli.Refu
 	if ref != nil {
 		return ref
 	}
-	epics, ref := a.intakeEpics(ctx, project)
+	epics, ref := a.brainstormEpics(ctx, project)
 	if ref != nil {
 		return ref
 	}

@@ -311,7 +311,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 			return Admitted{}, asRefusal(err)
 		}
 	} else if r.Stage == config.StageBrainstorm {
-		if epics, ref = a.intakeEpics(ctx, r.Project); ref != nil {
+		if epics, ref = a.brainstormEpics(ctx, r.Project); ref != nil {
 			return Admitted{}, ref
 		}
 	}
@@ -536,7 +536,7 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 		return nil, ref
 	}
 	if stage == config.StageBrainstorm {
-		epics, ref := a.intakeEpics(ctx, project)
+		epics, ref := a.brainstormEpics(ctx, project)
 		if ref != nil {
 			return nil, ref
 		}
