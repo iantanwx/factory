@@ -373,6 +373,12 @@ func (m *Machine) markApplied(ctx context.Context, in store.Intent, f facts) (cl
 		if err := insertHistory(tx, in, f); err != nil {
 			return err
 		}
+		if m.cfg.Applied != nil {
+			if err := m.cfg.Applied(tx, AppliedEvent{Project: in.Project, Item: in.Item, Kind: f.Kind, Verb: in.Verb,
+				From: in.ExpectedStatus, To: in.TargetStatus, Transition: in.ID}); err != nil {
+				return err
+			}
+		}
 		if err := moveLease(tx, in, f); err != nil {
 			return err
 		}
