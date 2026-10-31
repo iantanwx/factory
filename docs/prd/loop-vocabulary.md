@@ -100,8 +100,8 @@ help and the tests.
 help, and one run of the renamed stage. The old-name grace needs one project config fixture. The
 spec path needs one spec fixture at each path. The decision as an inbox hold needs one filed
 decision and one fire.
-**Verdict:** proceed. The decision as an inbox hold (US-02) is the one part that changes a record,
-and not only a name. Open questions name it as a possible seam.
+**Verdict:** proceed. A decision keeps its record and each of its moves, so the decision as an
+inbox hold (US-02) changes no record.
 
 ## Goal
 
@@ -140,15 +140,22 @@ keeps working for one release, and the loop tells the operator what to change.
   → § US-02
 - `loop work list` lists no decision, and the glossary lists no decision among the work kinds.
   → § US-02
-- A decision appears in the inbox as a hold, under the inbox kind that names a hold.
+- A decision keeps its record and each move of its transition table today: file, fire, defer,
+  settle, drop and moot. A move can take a new name and nothing else.
+  → § US-01
+- A decision whose trigger fired (state `needs_human`) appears in the inbox as a hold, under the
+  inbox kind that names a hold. A decision in `pending` does not appear.
   → § US-02
 - A filed decision keeps its trigger, and it fires when its trigger happens, as it does today.
   → § US-02
 - The glossary names the last phase "retro", and no runbook, skill, CLI help text or inbox entry
   says "AAR".
   → § US-03
-- The glossary names the event of an epic that reaches done and the event of a bug that closes,
-  because the retro epic waits on these names.
+- The glossary names `epic.done` as the event of an epic that reaches done, and `bug.closed` as
+  the event of a bug that closes, because the retro epic waits on these names.
+  → docs/prd/retro.md § US-01
+- The glossary lists the bug states that count as closed, because the retro epic waits on this
+  list.
   → docs/prd/retro.md § Boundaries with other epics
 - The planner writes each new spec at `docs/specs/<epic id>-<slug>-spec.md`.
   → § US-04
@@ -165,9 +172,9 @@ keeps working for one release, and the loop tells the operator what to change.
 - The loop warns the operator about each old stage name that a project config holds. The warning
   names the old name and the new name.
   → § US-05
-- A stage name that is neither an old name nor a new name still refuses the config, as it does
-  today.
-  → internal/config/throughput.go
+- A name under `stages` that is no run stage, project job or agent job, and no old stage name,
+  still refuses the project config, as it does today.
+  → internal/config/settings.go
 
 ## Acceptance criteria
 
@@ -177,40 +184,43 @@ keeps working for one release, and the loop tells the operator what to change.
   prd-author, amender, spec-author or fixer, outside the warning for an old stage name.
 - **A3.** The glossary lists ideate, brainstorm, doc review, ADR, plan, doc review, decompose, build
   and retro, in that order, and marks ideate and ADR as optional.
-- **A4.** The unattended brainstorm and the brainstorm room write PRDs that one template and one set
-  of gates accept. A PRD that one of them writes and the gates refuse is also refused when the
-  other writes it.
+- **A4.** The pack holds one PRD template. The runbook of the unattended brainstorm and the runbook
+  of the brainstorm room each send the writer to `loop-brainstorm` and that template.
 - **A5.** `loop room open --kind brainstorm` opens the room that `--kind intake` opens today.
 - **A6.** After this epic, the transition tables allow each move that they allow today, under its
   new names. They allow no other move.
 - **A7.** The glossary defines a unit of work as an epic or a bug, and defines a ticket as one slice
   of a unit.
-- **A8.** `loop work list` lists no decision.
-- **A9.** A decision whose trigger happens appears in the inbox as a hold.
+- **A8.** `loop work list` lists no decision. A filed decision still takes each move of its table
+  today: fire, defer, settle, drop and moot.
+- **A9.** A decision in `needs_human` appears in the inbox as a hold. A decision in `pending` does
+  not appear.
 - **A10.** A decision that waits for its trigger does not fire before the trigger happens.
 - **A11.** No runbook, skill, CLI help text or inbox entry says "AAR", and the glossary defines
   "retro".
-- **A12.** The glossary names the event of an epic that reaches done and the event of a bug that
-  closes.
+- **A12.** The glossary names `epic.done` and `bug.closed` as the events of an epic that reaches
+  done and of a bug that closes.
 - **A13.** A spec that the planner writes lands under `docs/specs/`, and the `spec` gate passes it.
 - **A14.** A spec that an epic held under `docs/plans/` before this epic lands passes the `spec` gate,
   and its epic decomposes.
 - **A15.** A project config that sets `stages.amender.cap` to 2 loads, and the reviser's cap is 2.
 - **A16.** That config produces a warning that names `amender` and `reviser`.
-- **A17.** A project config that names a stage that the loop never had does not load, and the
-  refusal names the key.
+- **A17.** A project config whose `stages` holds a name that is no run stage, project job or agent
+  job, and no old stage name, does not load, and the refusal names the key.
+- **A18.** The glossary lists the bug states that count as closed.
 
 ## Boundaries with other epics
 
 - **Kernel and userspace skills, factorio-yzrt.** That epic owns the `loop-` prefix rule and the
   split between kernel and userspace skills. Its PRD says that this epic owns every rename of a
   kernel skill. This epic renames kernel skills only, and each new name keeps the `loop-` prefix.
-  Its PRD also says that this epic owns the text of the retro's scope rubric. This PRD finds no
-  source for that claim. Open questions hold it.
+  Its PRD also says that this epic owns the text of the retro's scope rubric. That claim is
+  wrong: factorio-1xq0 owns the rubric text, by `docs/prd/retro.md` § US-03, and this epic writes
+  none of it.
 - **Retro, factorio-1xq0.** That epic owns the retro stage, its rubric and its trigger. Its PRD
   waits on this epic for the name "retro", for the event names of an epic that reaches done and a
-  bug that closes, and for which bug states count as closed. This epic names the events. Open
-  questions hold the closed states.
+  bug that closes, and for which bug states count as closed. This epic names the events and lists
+  the closed states. Open questions hold the list.
   → docs/prd/retro.md § Boundaries with other epics
 - **The optional ADR stage, factorio-ku99.** That epic owns the ADR phase and its rule. This epic
   names the phase only. Its spec is in sign-off at `docs/plans/factorio-ku99-optional-adr-stage-spec.md`, so A14
@@ -230,8 +240,8 @@ keeps working for one release, and the loop tells the operator what to change.
 - **Checked against:** the PRDs of factorio-j4x, factorio-ku99 and factorio-1xq0, the PRD of
   factorio-yzrt on its item branch, ADRs 0001 to 0013, the glossary, `loop-sdlc-documents`, and
   the open epics factorio-1r94, factorio-4mb8, factorio-6bba, factorio-791i and factorio-nhb5. Two
-  conflicts found: the rubric text that factorio-yzrt assigns to this epic, and the two keys of
-  ADR 0001 decision 6. Open questions hold both.
+  conflicts found: the rubric text that factorio-yzrt assigns to this epic, which this section
+  settles for factorio-1xq0, and the two keys of ADR 0001 decision 6, which open questions hold.
 
 ## Out of scope
 
@@ -254,9 +264,6 @@ keeps working for one release, and the loop tells the operator what to change.
   stages.
 - "Hold" already names a room or an escalation that holds an item from every stage
   (`internal/admission/holds.go`). Does an inbox hold of a decision share that word? Blocks A9.
-- What does a decision become in the record? Today it is an item with its own states. Does it stay
-  an item that `loop work list` hides, or does it leave the item store? The second changes a
-  record, and not only a name, and it can be a second epic by `loop-sdlc-split`. Blocks A8.
 - Which CLI verbs change? The epic body names CLI verbs. Do `loop decision ...`,
   `loop escalation judge`, `loop escalation route` and `loop prd submit` take new names? Does an old
   verb keep working for one release, as an old stage name does? Blocks A2.
@@ -267,8 +274,9 @@ keeps working for one release, and the loop tells the operator what to change.
   paths today. Does the `spec` gate refuse a new spec under `docs/plans/`? Blocks A13 and A14.
 - What happens to an old stage name in the release after the grace? Does the config then refuse
   it? Does the grace also cover the host config and `loop settings set`? Blocks A15 and A16.
-- Which bug states count as closed? The retro epic waits on this answer. Blocks A12.
+- Which bug states count as closed? The retro epic waits on this answer. Blocks A18.
 - Does this epic add the ideate room, or only name the phase? No room of that kind exists today.
   Blocks A3.
-- The PRD of factorio-yzrt says that this epic owns the text of the retro's scope rubric. Is that
-  so, or does factorio-1xq0 own it?
+- "Triage" already names `loop-sdlc-triage`, the triage panel and the triage rubric. Does the
+  fixer's new name share that word, so that a runbook skill `loop-triage` sits next to
+  `loop-sdlc-triage`? Blocks A1 and A2.
