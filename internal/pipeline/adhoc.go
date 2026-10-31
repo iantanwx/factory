@@ -247,7 +247,7 @@ type EpicResult struct {
 // unattended-brainstorm run, and it carries the operator's words in its
 // request fact. With --blocked-by either waits in backlog on each blocker,
 // and records in epic_entry where unblock sends it. Every refusal comes
-// before any write. A PRD epic with no blocker asks the intake cap, after
+// before any write. A PRD epic with no blocker asks the brainstorm cap, after
 // a replay found no epic under its create key, so a cap that filled after
 // the first call does not refuse its replay.
 func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
@@ -293,7 +293,7 @@ func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	cr := machine.CreateRequest{Project: prj, Kind: machine.KindEpic, Title: title, Description: body, Facts: facts}
 	if !arch && len(blockers) == 0 {
-		if ref := p.intakeCap(ctx, call, cr); ref != nil {
+		if ref := p.brainstormCap(ctx, call, cr); ref != nil {
 			return ref.Result()
 		}
 	}
@@ -353,16 +353,16 @@ func (p *Pipeline) epicADR(ctx context.Context, call *rpc.Call) cli.Result {
 // ever claim one there.
 const brainstormStage = machine.StageUnattendedBrainstorm
 
-// intakeCap asks the intake cap for the PRD epic of cr, unless a replay
+// brainstormCap asks the brainstorm cap for the PRD epic of cr, unless a replay
 // finds the epic its create key already made.
-func (p *Pipeline) intakeCap(ctx context.Context, call *rpc.Call, cr machine.CreateRequest) *cli.Refusal {
+func (p *Pipeline) brainstormCap(ctx context.Context, call *rpc.Call, cr machine.CreateRequest) *cli.Refusal {
 	if key := createKey(call, "epic"); key != "" {
 		it, ref := p.byKey(ctx, cr.Project, cr.Kind, key)
 		if ref != nil || it != nil {
 			return ref
 		}
 	}
-	return p.cfg.IntakeCap(ctx, cr.Project)
+	return p.cfg.BrainstormCap(ctx, cr.Project)
 }
 
 // epicBlockers refuses a blocker list for a new epic before any write: an

@@ -116,18 +116,18 @@ func TestC6ProjectReviewersPoolBoundsBothReviewerStages(t *testing.T) {
 	wantHint(t, ref, "pools.reviewers.cap")
 }
 
-// C7: with a host intake cap of 8, stages.intake.cap: 1 and one epic in
-// prd_review, intake is refused. With the epic in prd_signoff, it opens.
-func TestC7ProjectIntakeCapReplacesTheHostValue(t *testing.T) {
+// C7: with a host brainstorm cap of 8, stages.brainstorm.cap: 1 and one epic in
+// prd_review, brainstorm is refused. With the epic in prd_signoff, it opens.
+func TestC7ProjectBrainstormCapReplacesTheHostValue(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	w.configs.set(prj, stageCaps(map[string]int{config.StageIntake: 1}))
+	w.configs.set(prj, stageCaps(map[string]int{config.StageBrainstorm: 1}))
 	epic := w.put(machine.KindEpic, machine.PRDReview, "epic")
-	wantHint(t, w.a.IntakeCap(ctx, prj), "stages.intake.cap in "+config.ProjectConfigPath)
+	wantHint(t, w.a.BrainstormCap(ctx, prj), "stages.brainstorm.cap in "+config.ProjectConfigPath)
 	if _, err := w.bx.Update(ctx, epic, beadsx.UpdateSpec{IfStatus: machine.PRDReview, Status: machine.PRDSignoff}); err != nil {
 		t.Fatal(err)
 	}
-	if ref := w.a.IntakeCap(ctx, prj); ref != nil {
+	if ref := w.a.BrainstormCap(ctx, prj); ref != nil {
 		t.Fatalf("no counted epic under a cap of 1: %+v", ref)
 	}
 }
@@ -189,11 +189,11 @@ func TestC9CapFullHintNamesTheField(t *testing.T) {
 			wantHint(t, ref, c.want)
 		})
 	}
-	t.Run("host intake cap", func(t *testing.T) {
+	t.Run("host brainstorm cap", func(t *testing.T) {
 		w := newWorld(t)
-		w.setCaps(map[string]int{config.StageIntake: 1})
+		w.setCaps(map[string]int{config.StageBrainstorm: 1})
 		w.put(machine.KindEpic, machine.PRDReview, "epic")
-		wantHint(t, w.a.IntakeCap(context.Background(), prj), "throughput.intake.cap in host config")
+		wantHint(t, w.a.BrainstormCap(context.Background(), prj), "throughput.brainstorm.cap in host config")
 	})
 }
 

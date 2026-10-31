@@ -53,7 +53,7 @@ func answer(w *acceptance.World, run acceptance.Run, title, path, revision strin
 // while the reviser works is the sign-off.
 func TestPersonCommentRowsEndToEnd(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
-	room, co := openRoom(w, "intake", "", "the operator wants sprockets")
+	room, co := openRoom(w, "brainstorm", "", "the operator wants sprockets")
 	epic := submitPRD(w, co, "Sprockets")
 	w.Must(w.Coordinator("room", "close", room))
 
@@ -109,7 +109,7 @@ func TestPersonCommentRowsEndToEnd(t *testing.T) {
 func TestC1C10AnAmenderKeyLoadsAsTheReviser(t *testing.T) {
 	cfg := strings.Replace(acceptance.DefaultConfig, "  reviser: {}\n", "  amender:\n    cap: 2\n", 1)
 	w := newWorld(t, acceptance.Options{Config: cfg})
-	co := openIntake(w, "the operator wants widgets")
+	co := openBrainstorm(w, "the operator wants widgets")
 	epic := submitPRD(w, co, "Widgets")
 	docReview(w, epic, "reject")
 	wantStatus(w, epic, machine.PRDAmending)

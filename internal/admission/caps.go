@@ -12,12 +12,12 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 )
 
-// intakeCounted are the epic states an agent moves on. An epic here holds
-// an intake slot. An epic that waits on a person (a sign-off, an
+// brainstormCounted are the epic states an agent moves on. An epic here holds
+// a brainstorm slot. An epic that waits on a person (a sign-off, an
 // architecture epic, an escalation) or on a blocker (backlog) holds none,
 // and neither does one past spec review. Ported from CAP_STATES in
 // scripts/sdlc/intake-cap.ts (alpha).
-var intakeCounted = []string{
+var brainstormCounted = []string{
 	machine.PRDNeeded, machine.PRDDrafting, machine.PRDReview, machine.PRDAmending, machine.SpecNeeded, machine.SpecDrafting,
 	machine.SpecReview,
 }
@@ -78,29 +78,29 @@ func fieldOf(l config.Limit) string {
 	return l.Field + " in host config"
 }
 
-// countIntakeEpics counts a project's epics in counted states.
-func countIntakeEpics(epics []machine.Item) int {
+// countBrainstormEpics counts a project's epics in counted states.
+func countBrainstormEpics(epics []machine.Item) int {
 	n := 0
 	for _, e := range epics {
-		if slices.Contains(intakeCounted, e.Status) {
+		if slices.Contains(brainstormCounted, e.Status) {
 			n++
 		}
 	}
 	return n
 }
 
-// intakeEpics counts the project's epics in counted states. It reads
-// beads, so no caller holds a lock.
-func (a *Admission) intakeEpics(ctx context.Context, project string) (int, *cli.Refusal) {
+// brainstormEpics counts the project's epics in the states the brainstorm cap
+// counts. It reads beads, so no caller holds a lock.
+func (a *Admission) brainstormEpics(ctx context.Context, project string) (int, *cli.Refusal) {
 	all, ref := a.items.List(ctx, project, machine.ListFilter{Kind: machine.KindEpic})
 	if ref != nil {
 		return 0, ref
 	}
-	return countIntakeEpics(all), nil
+	return countBrainstormEpics(all), nil
 }
 
-// intakeFull refuses when the counted epics fill the intake cap.
-func intakeFull(epics int, l config.Limit) *cli.Refusal {
+// brainstormFull refuses when the counted epics fill the brainstorm cap.
+func brainstormFull(epics int, l config.Limit) *cli.Refusal {
 	if epics < l.Cap {
 		return nil
 	}
@@ -108,23 +108,23 @@ func intakeFull(epics int, l config.Limit) *cli.Refusal {
 		Hint: fmt.Sprintf("%d epics in counted document states fill the cap of %d in %s", epics, l.Cap, fieldOf(l))}
 }
 
-// IntakeCap refuses a new intake with CAP_FULL while the project's epics
-// in counted document states fill the intake cap in force for the project
+// BrainstormCap refuses a new brainstorm with CAP_FULL while the project's epics
+// in counted document states fill the brainstorm cap in force for the project
 // (KTD30). It reads host config and the project's config at each call, so a
-// changed cap applies with no restart. Intake runs in a room, so `room open
-// --kind intake` asks it before the room opens. It checks the cap only: a
+// changed cap applies with no restart. Brainstorm runs in a room, so `room open
+// --kind brainstorm` asks it before the room opens. It checks the cap only: a
 // room holds no run and no stage mutex.
-func (a *Admission) IntakeCap(ctx context.Context, project string) *cli.Refusal {
+func (a *Admission) BrainstormCap(ctx context.Context, project string) *cli.Refusal {
 	if a.items == nil {
 		return cli.InternalRefusal(errors.New("admission: no machine attached"))
 	}
-	limits, ref := a.limitsFor(ctx, project, config.StageIntake)
+	limits, ref := a.limitsFor(ctx, project, config.StageBrainstorm)
 	if ref != nil {
 		return ref
 	}
-	epics, ref := a.intakeEpics(ctx, project)
+	epics, ref := a.brainstormEpics(ctx, project)
 	if ref != nil {
 		return ref
 	}
-	return intakeFull(epics, limits[0])
+	return brainstormFull(epics, limits[0])
 }

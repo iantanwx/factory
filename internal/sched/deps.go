@@ -29,7 +29,7 @@ const DependencyAdvanceJob = "dependency-advance"
 // advanceDependencies is one tick of dependency-advance for one project. It
 // applies unblock, as the server, to each backlog ticket and epic whose
 // every blocks edge leads to an item that landed (blockersLanded). A ready
-// epic that enters on prd_needed first asks the intake cap, and a full cap
+// epic that enters on prd_needed first asks the brainstorm cap, and a full cap
 // leaves it in backlog for the next tick: the cap bounds the PRD epics in
 // flight (D6). An item that another writer moved meanwhile is left alone.
 // It then routes each bug that waits for a build whose end it reads
@@ -64,7 +64,7 @@ func (s *Scheduler) advanceDependencies(ctx context.Context, project string) err
 }
 
 // unblockLanded applies unblock to one backlog item once every blocker
-// landed, and once the intake cap admits a PRD epic.
+// landed, and once the brainstorm cap admits a PRD epic.
 func (s *Scheduler) unblockLanded(ctx context.Context, bc beadsx.Client, project string, it machine.Item, pulls openHeads) error {
 	ready, err := blockersLanded(ctx, bc, it, pulls)
 	if err != nil {
@@ -74,12 +74,12 @@ func (s *Scheduler) unblockLanded(ctx context.Context, bc beadsx.Client, project
 		return nil
 	}
 	if it.Kind == machine.KindEpic && it.Fact(machine.FactEpicEntry) == machine.PRDNeeded {
-		switch r := s.cfg.Admission.IntakeCap(ctx, project); {
+		switch r := s.cfg.Admission.BrainstormCap(ctx, project); {
 		case r == nil:
 		case r.Code == cli.CodeCapFull:
 			return nil
 		default:
-			return fmt.Errorf("sched: the intake cap for %s: %s: %s", it.ID, r.Code, r.Hint)
+			return fmt.Errorf("sched: the brainstorm cap for %s: %s: %s", it.ID, r.Code, r.Hint)
 		}
 	}
 	res := s.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: it.ID, Verb: machine.VerbUnblock,

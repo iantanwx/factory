@@ -22,7 +22,7 @@ Read these first, in this order:
 4. `../loop-reflect/SKILL.md`, when the operator corrects you a second time.
 5. `../loop-encode-lessons/SKILL.md`, which `loop-reflect` starts.
 6. `../loop-sdlc-documents/SKILL.md`, where each project keeps its PRDs, specs and ADRs.
-7. `../loop-sdlc-split/SKILL.md`, when an intake room's decision splits an epic.
+7. `../loop-sdlc-split/SKILL.md`, when a brainstorm room's decision splits an epic.
 8. `.loop/policy/coordinator.md` in each project, when it exists. It names the project's decision
    routes, standing authorizations and report additions. A project's health limits live in the
    `health` block of its project config `.loop/config.yaml`. The policy keeps no limit.
@@ -329,9 +329,9 @@ note quotes the decision's trigger. Read the trigger of each one.
   The decision moves to `needs_human`.
 - The question no longer exists: `loop decision moot <decision> --note "<why>"`.
 
-The pending decision "The intake cap of `<project>` is full" holds the epics that section 8
+The pending decision "The brainstorm cap of `<project>` is full" holds the epics that section 8
 parked. Read the project's epics with `loop work list --project <project> --kind epic`. When the
-epics in counted document states drop below the intake cap, or the operator raises the cap, run
+epics in counted document states drop below the brainstorm cap, or the operator raises the cap, run
 `loop decision moot <decision> --note "<the count, or the new cap>"`. Each epic that it blocks then
 leaves `backlog` as the cap admits it.
 
@@ -357,7 +357,7 @@ rubric routes to a person. Score the finding first. Pass the level with `--score
 `--choice outside` when one answer acts outside the repository:
 
 ```bash
-loop room open --kind intake|decision|review|architect --project <project> --reason "<why>" --score <level> [--choice outside] [--item <item>]
+loop room open --kind brainstorm|decision|review|architect --project <project> --reason "<why>" --score <level> [--choice outside] [--item <item>]
 ```
 
 The server refuses an open with no score. It refuses levels 1 to 3 with `ROUTED_TO_LOOP`, opens no
@@ -367,12 +367,12 @@ choice of two or three options, so ask them with the question tool first, by sec
 `loop room list` shows each room. Close a room with `loop room close <room>` when it applied its
 decision, or when the operator is done with it. A room never closes itself.
 
-A new intake room with no `--item` adds an epic. The server refuses it with `CAP_FULL` while the
-project's epics in counted document states fill the intake cap in host config. Tell the operator
+A new brainstorm room with no `--item` adds an epic. The server refuses it with `CAP_FULL` while the
+project's epics in counted document states fill the brainstorm cap in host config. Tell the operator
 which epics hold the cap. Open the room when the count drops, or when the operator raises the cap.
 
-When an intake room's decision splits an epic, do the steps that `../loop-sdlc-split/SKILL.md`
-gives the coordinator. Retitle the epic that the split keeps, and open one intake room for each
+When a brainstorm room's decision splits an epic, do the steps that `../loop-sdlc-split/SKILL.md`
+gives the coordinator. Retitle the epic that the split keeps, and open one brainstorm room for each
 other part.
 
 ## 8. New work
@@ -393,7 +393,7 @@ what the work must do.
   `backlog`, and `dependency-advance` moves it when each blocker landed.
 
 - **Level 4 or 5, or the Choice outside.** Only the operator can say what the work must do. The
-  work starts with a PRD, in an intake room opened with that score by section 7.
+  work starts with a PRD, in a brainstorm room opened with that score by section 7.
 
 When the operator asks for the work with no PRD, file a ticket. Quote the operator's words:
 
@@ -406,15 +406,15 @@ When `loop epic create --request` refuses, it created nothing. Act on its rule:
 - **`USAGE` with rule `prd_author_disabled`.** The project's `.loop/config.yaml` lists no
   `unattended-brainstorm` stage, so no run would write the PRD. File a ticket in the project that
   adds the line `unattended-brainstorm: {}` under `stages:` in that file. Put the operator's request in its body. Run the same `loop epic create --request` again when that ticket is `done`.
-- **`CAP_FULL`.** The project's epics in counted document states fill the intake cap. Park the
+- **`CAP_FULL`.** The project's epics in counted document states fill the brainstorm cap. Park the
   request in the record, never in your chat:
 
-  1. Find the project's pending cap decision, titled "The intake cap of `<project>` is full", with
+  1. Find the project's pending cap decision, titled "The brainstorm cap of `<project>` is full", with
      `loop decision list --project <project> --status pending`. Reuse it. When none
      exists, file it:
 
      ```bash
-     loop decision file --project <project> --title "The intake cap of <project> is full" --trigger "the epics in counted document states drop below the intake cap, or the operator raises the cap" --waits-for-a-person "the coordinator"
+     loop decision file --project <project> --title "The brainstorm cap of <project> is full" --trigger "the epics in counted document states drop below the brainstorm cap, or the operator raises the cap" --waits-for-a-person "the coordinator"
      ```
 
   2. Run the same `loop epic create --request` again, with the same words and

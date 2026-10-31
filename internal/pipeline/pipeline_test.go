@@ -24,7 +24,7 @@ func (w *world) submitted() (string, int) {
 	return data["epic"].(string), pr
 }
 
-// prd submit from an intake room pushes the PRD, opens one PR and creates
+// prd submit from a brainstorm room pushes the PRD, opens one PR and creates
 // one epic in prd_review. A replay, and a retry after a crash between the
 // bead and the PR, change nothing more.
 func TestPRDSubmitCreatesOneEpicInReview(t *testing.T) {
@@ -64,7 +64,7 @@ func TestPRDSubmitCreatesOneEpicInReview(t *testing.T) {
 	}
 }
 
-// Only an intake room submits a PRD, a PRD needs story labels (R45), and
+// Only a brainstorm room submits a PRD, a PRD needs story labels (R45), and
 // a refused submit opens no PR.
 func TestPRDSubmitRefusals(t *testing.T) {
 	w := newWorld(t)
@@ -73,9 +73,9 @@ func TestPRDSubmitRefusals(t *testing.T) {
 		return headFlags(head, map[string]string{"path": prdPath, "title": "Widgets"})
 	}
 	wantCode(t, w.call(w.run("run-x", "", machine.StageImplementer), "", "prd submit", flags()), cli.CodeCapabilityDenied)
-	wantCode(t, w.call(w.intakeRoom(), "", "prd submit", flags()), cli.CodeUsage)
+	wantCode(t, w.call(w.brainstormRoom(), "", "prd submit", flags()), cli.CodeUsage)
 	other := headFlags(head, map[string]string{"path": "docs/prd/missing.md", "title": "Widgets"})
-	wantCode(t, w.call(w.intakeRoom(), "", "prd submit", other), cli.CodeUsage)
+	wantCode(t, w.call(w.brainstormRoom(), "", "prd submit", other), cli.CodeUsage)
 	if n := len(w.api.World.PRs()); n != 0 {
 		t.Fatalf("a refused submit opened %d PRs", n)
 	}
@@ -127,8 +127,8 @@ func TestOperatorMergeIsTheSignoff(t *testing.T) {
 
 // AE7: the first reject starts one amender run, and the amender's PR
 // update returns the epic to review. The second reject waits in the
-// operator's inbox for an intake room, and no amender run starts.
-func TestFirstRejectAmendsSecondWaitsForAnIntakeRoom(t *testing.T) {
+// operator's inbox for a brainstorm room, and no amender run starts.
+func TestFirstRejectAmendsSecondWaitsForABrainstormRoom(t *testing.T) {
 	w := newWorld(t)
 	epic, _ := w.submitted()
 	w.review(epic, "reject")
@@ -163,7 +163,7 @@ func TestFirstRejectAmendsSecondWaitsForAnIntakeRoom(t *testing.T) {
 		t.Fatalf("an amender run would start again: %+v %+v", c, ref)
 	}
 	e := entry(w.inbox(), "escalation/"+testProject+"/"+epic)
-	if e == nil || e.Awaits != inbox.AwaitsPerson || !strings.Contains(e.Text, "intake room") {
+	if e == nil || e.Awaits != inbox.AwaitsPerson || !strings.Contains(e.Text, "brainstorm room") {
 		t.Fatalf("the inbox entry = %+v", e)
 	}
 }

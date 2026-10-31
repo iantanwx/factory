@@ -36,7 +36,7 @@ type Firing struct {
 // each registered instance job, then for each project each run stage and
 // agent job, enabled or not, and each registered project job. A run stage
 // or an agent job is enabled where the project's config lists it, except
-// intake, which runs in a room. snap returns a project's config, or nil
+// brainstorm, which runs in a room. snap returns a project's config, or nil
 // when it has none, so the project fires its jobs only. A project's
 // schedule is the one config.Effective puts in force. An instance job keeps
 // host config's.
@@ -54,7 +54,7 @@ func Firings(hc *config.HostConfig, projects []config.Project, snap func(project
 			out = append(out, Firing{Project: p.ID, Stage: stage, Kind: kind, Enabled: enabled, Schedule: t.Schedule(stage)})
 		}
 		listed := func(stage string) bool {
-			return sn != nil && sn.Config.StageEnabled(stage) && stage != config.StageIntake
+			return sn != nil && sn.Config.StageEnabled(stage) && stage != config.StageBrainstorm
 		}
 		for _, stage := range config.RunStages() {
 			add(stage, FiringRun, listed(stage))

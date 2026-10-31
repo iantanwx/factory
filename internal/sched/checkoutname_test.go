@@ -77,9 +77,9 @@ func TestCheckoutNameFitsTheHostLimit(t *testing.T) {
 // and purpose. The slug comes from the item title, or from the reason of a
 // room with no item. The room id ends the name.
 func TestRoomCheckoutNameSaysWhatTheRoomDoes(t *testing.T) {
-	got := RoomCheckoutName("factorio", "intake", "", "Write the PRD of the retro, from the notes", "room-2e507194")
-	if want := "loop-factorio-intake-room-write-the-prd-of-the-retro-from-room-2e507194"; got != want {
-		t.Errorf("an intake room with no item = %q, want %q", got, want)
+	got := RoomCheckoutName("factorio", "brainstorm", "", "Write the PRD of the retro, from the notes", "room-2e507194")
+	if want := "loop-factorio-brainstorm-room-write-the-prd-of-the-retro-from-room-2e507194"; got != want {
+		t.Errorf("a brainstorm room with no item = %q, want %q", got, want)
 	}
 	got = RoomCheckoutName("factorio", "review", "factorio-pwpi", "Name a room checkout after its project", "room-2e507194")
 	if want := "loop-factorio-review-room-factorio-pwpi-name-a-room-checkout-after-its-room-2e507194"; got != want {

@@ -42,7 +42,7 @@ throughput:
   decomposer: {cap: 2, schedule: "10,40 * * * *"}
   triage: {cap: 1, schedule: "14,44 * * * *"}
   reproducer: {cap: 2, schedule: "12,42 * * * *"}
-  intake: {cap: 8, schedule: "20,50 * * * *"}
+  brainstorm: {cap: 8, schedule: "20,50 * * * *"}
   merge-handoff: {cap: 1, schedule: "*/5 * * * *"}
   dependency-advance: {cap: 1, schedule: "*/5 * * * *"}
   decision-timers: {cap: 1, schedule: "* * * * *"}

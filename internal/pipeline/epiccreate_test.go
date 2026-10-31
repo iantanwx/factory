@@ -33,7 +33,7 @@ func archEpic(extra map[string]string) map[string]string {
 // project holds no new item and no new edge after it.
 func TestC4EpicCreateRefusesBeforeAnyWrite(t *testing.T) {
 	w := newWorld(t)
-	w.intakeCap = 1
+	w.brainstormCap = 1
 	w.commitPRD(prdText)
 	ok(t, w.submit("k-prd"))
 	open := w.newItem(machine.KindTicket, machine.VerbCreate)
@@ -60,7 +60,7 @@ func TestC4EpicCreateRefusesBeforeAnyWrite(t *testing.T) {
 			false, cli.CodeUsage, "blocker_kind"},
 		{"a bug blocker on an architecture epic", func() map[string]string { return archEpic(map[string]string{"blocked-by": open + "," + bug}) },
 			false, cli.CodeUsage, "blocker_kind"},
-		{"a full intake cap", func() map[string]string { return prdEpic(nil) },
+		{"a full brainstorm cap", func() map[string]string { return prdEpic(nil) },
 			false, cli.CodeCapFull, "cap_full"},
 	} {
 		w.disabled[machine.StageUnattendedBrainstorm] = c.disable
@@ -70,7 +70,7 @@ func TestC4EpicCreateRefusesBeforeAnyWrite(t *testing.T) {
 		}
 	}
 	w.disabled[machine.StageUnattendedBrainstorm] = false
-	for name, principal := range map[string]rpc.Principal{"a run": w.run("run-x", "", machine.StageImplementer), "a room": w.intakeRoom()} {
+	for name, principal := range map[string]rpc.Principal{"a run": w.run("run-x", "", machine.StageImplementer), "a room": w.brainstormRoom()} {
 		res := w.call(principal, "", "epic create", prdEpic(nil))
 		if r := wantCode(t, res, cli.CodeCapabilityDenied); r.Rule != "coordinator_only" {
 			t.Errorf("%s: rule %q, want coordinator_only", name, r.Rule)
@@ -203,13 +203,13 @@ func TestC5EpicCreateCrashAfterTheEdgesReplaysToBacklog(t *testing.T) {
 	}
 }
 
-// C6: at an intake cap of 1 with one epic in prd_review, a PRD epic with
+// C6: at a brainstorm cap of 1 with one epic in prd_review, a PRD epic with
 // no blocker is CAP_FULL and nothing is created. With --blocked-by it is
 // created in backlog. A replay of a create that landed before the cap
 // filled returns that epic. An architecture epic never asks the cap.
-func TestC6TheIntakeCapRefusesANewPRDEpic(t *testing.T) {
+func TestC6TheBrainstormCapRefusesANewPRDEpic(t *testing.T) {
 	w := newWorld(t)
-	w.intakeCap = 1
+	w.brainstormCap = 1
 	early := ok(t, w.call(w.coordinator(), "k-early", "epic create", prdEpic(nil)))
 	if early["status"] != machine.PRDNeeded {
 		t.Fatalf("the first PRD epic answered %v, want %s", early, machine.PRDNeeded)

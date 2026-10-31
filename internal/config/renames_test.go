@@ -293,7 +293,7 @@ func TestC5ManifestOldStageNameRaisesTheAlert(t *testing.T) {
 func TestStageRenamesKeepTheirInvariants(t *testing.T) {
 	// The room package imports this one, so the room stages are spelled
 	// here: room.Stage of each room.Kinds.
-	stages := append(RunStages(), "intake-room", "decision-room", "review-room", "architect-room")
+	stages := append(RunStages(), "brainstorm-room", "decision-room", "review-room", "architect-room")
 	current := slices.Concat(ThroughputKeys(), ProjectJobs(), InstanceJobs(), stages)
 	for _, p := range StageRenames() {
 		if _, chained := NewStageName(p[1]); chained {
@@ -375,5 +375,24 @@ func TestPRDAuthorIsNowUnattendedBrainstorm(t *testing.T) {
 		if !slices.Contains(RetiredWords(), w) {
 			t.Errorf("RetiredWords() = %v, want %q", RetiredWords(), w)
 		}
+	}
+}
+
+// C9, C12: the intake cap key is now brainstorm, and the old word is
+// retired. A host config that holds throughput.intake loads it as
+// throughput.brainstorm.
+func TestIntakeIsNowBrainstorm(t *testing.T) {
+	if n, ok := NewStageName("intake"); !ok || n != "brainstorm" {
+		t.Errorf("NewStageName(intake) = %q, %v, want brainstorm", n, ok)
+	}
+	if !slices.Contains(RetiredWords(), "intake") {
+		t.Errorf("RetiredWords() = %v, want intake", RetiredWords())
+	}
+	h, err := ParseHost([]byte(strings.Replace(validHost, "  brainstorm: {cap: 8,", "  intake: {cap: 8,", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := h.Throughput["brainstorm"]; !ok || e.Cap != 8 {
+		t.Fatalf("throughput.intake did not load as throughput.brainstorm with cap 8: %v", h.Throughput)
 	}
 }

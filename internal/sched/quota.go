@@ -56,7 +56,7 @@ var DefaultEfforts = map[string]string{
 	config.StageTriage:               "medium",
 	config.StageReproducer:           "medium",
 	config.StageRetro:                "medium",
-	config.StageIntake:               "medium",
+	config.StageBrainstorm:           "medium",
 }
 
 // QuotaLimit is the used percent at which the chooser skips a harness,

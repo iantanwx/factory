@@ -57,7 +57,7 @@ func mergesOf(w *acceptance.World, n int) []gt.MergeCall {
 // leaves prd_signoff, then spec_signoff, at once.
 func TestSignoffAnswerMergesTheDocumentAtItsPinnedHead(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
-	epic := submitPRD(w, openIntake(w, "the operator wants widgets"), "Widgets")
+	epic := submitPRD(w, openBrainstorm(w, "the operator wants widgets"), "Widgets")
 
 	head := docPass(w, epic)
 	wantStatus(w, epic, machine.PRDSignoff)
@@ -111,7 +111,7 @@ func TestSignoffAnswerMergesTheDocumentAtItsPinnedHead(t *testing.T) {
 // merges that head.
 func TestSignoffAnswerRefusesAMovedHeadAndRaisesTheEntryAgain(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
-	epic := submitPRD(w, openIntake(w, "the operator wants widgets"), "Widgets")
+	epic := submitPRD(w, openBrainstorm(w, "the operator wants widgets"), "Widgets")
 	reviewed := docPass(w, epic)
 	before := signoffEntry(w, epic)
 	pr := docPR(w, epic)
@@ -153,7 +153,7 @@ func TestSignoffAnswerRefusesAMovedHeadAndRaisesTheEntryAgain(t *testing.T) {
 // stored answer.
 func TestSignoffAnswerWithTheSameWordsMergesTheSpecAfterThePRD(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
-	epic := submitPRD(w, openIntake(w, "the operator wants widgets"), "Widgets")
+	epic := submitPRD(w, openBrainstorm(w, "the operator wants widgets"), "Widgets")
 	entry := "signoff/" + acceptance.Project + "/" + epic
 
 	prdHead := docPass(w, epic)
@@ -194,7 +194,7 @@ func TestSignoffAnswerWithTheSameWordsMergesTheSpecAfterThePRD(t *testing.T) {
 // for is a new write at the spec's head.
 func TestStoredPRDAnswerIsNotReplayedAtTheSpecSignoff(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
-	epic := submitPRD(w, openIntake(w, "the operator wants widgets"), "Widgets")
+	epic := submitPRD(w, openBrainstorm(w, "the operator wants widgets"), "Widgets")
 	entry := "signoff/" + acceptance.Project + "/" + epic
 	keep := func() {
 		t.Helper()

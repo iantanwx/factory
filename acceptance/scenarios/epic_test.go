@@ -47,14 +47,14 @@ func openRoom(w *acceptance.World, kind, item, reason string) (string, string) {
 	return id, co
 }
 
-// openIntake opens an intake room and returns its checkout.
-func openIntake(w *acceptance.World, reason string) string {
+// openBrainstorm opens a brainstorm room and returns its checkout.
+func openBrainstorm(w *acceptance.World, reason string) string {
 	w.T.Helper()
-	_, co := openRoom(w, "intake", "", reason)
+	_, co := openRoom(w, "brainstorm", "", reason)
 	return co
 }
 
-// submitPRD commits a PRD in an intake room and submits it. It returns the
+// submitPRD commits a PRD in a brainstorm room and submits it. It returns the
 // epic.
 func submitPRD(w *acceptance.World, co, title string) string {
 	w.T.Helper()
@@ -125,15 +125,15 @@ func ticketBody(change string) string {
 		"## Files\n\n- May change: `widgets/`.\n\n## Done means\n\nThe gates pass.\n\n## Out of scope\n\nNothing.\n"
 }
 
-// F4 and AE7: a PRD from intake to tickets. The doc-reviewer rejects the
+// F4 and AE7: a PRD from brainstorm to tickets. The doc-reviewer rejects the
 // PRD, the reviser revises it once, and the second reject waits in the
 // operator's inbox. The answer returns it to review, a pass waits for the
 // operator's merge, and the spec follows the same review. The decomposer
 // turns the approved spec into tickets that cite story labels. The last
 // ticket's merge closes the epic.
-func TestF4AE7APRDFromIntakeToTicketsAndDone(t *testing.T) {
+func TestF4AE7APRDFromBrainstormToTicketsAndDone(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
-	co := openIntake(w, "the operator wants widgets")
+	co := openBrainstorm(w, "the operator wants widgets")
 	epic := submitPRD(w, co, "Widgets")
 	w.Must(w.Coordinator("work", "note", epic, "--project", acceptance.Project, "--body", "The operator wrote this PRD in the room."))
 	w.Must(w.Coordinator("work", "edit", epic, "--project", acceptance.Project, "--title", "Widgets v1"))
@@ -162,7 +162,7 @@ func TestF4AE7APRDFromIntakeToTicketsAndDone(t *testing.T) {
 		t.Fatalf("a reviser run started after the second reject: %+v", st)
 	}
 	entry := "escalation/" + acceptance.Project + "/" + epic
-	if e := w.Entry(entry); e == nil || !contains(asString(e["text"]), "intake room") {
+	if e := w.Entry(entry); e == nil || !contains(asString(e["text"]), "brainstorm room") {
 		t.Fatalf("the escalation entry = %v", e)
 	}
 	w.Must(w.Coordinator("inbox", "answer", entry, "--body", "The operator revised the PRD in a room."))
