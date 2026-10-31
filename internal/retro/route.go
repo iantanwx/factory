@@ -51,9 +51,10 @@ type Stored struct {
 	Target    Target         `json:"target,omitempty"`
 	Status    LearningStatus `json:"status"`
 	Reason    Reason         `json:"reason,omitempty"`
+	LandedRef string         `json:"landed_ref,omitempty"`
 }
 
-const storedColumns = `id, retro_item, statement, cases, coalesce(extends, 0), target, status, reason`
+const storedColumns = `id, retro_item, statement, cases, coalesce(extends, 0), target, status, reason, landed_ref`
 
 func scanStored(scan func(...any) error) (Stored, error) {
 	var (
@@ -61,7 +62,7 @@ func scanStored(scan func(...any) error) (Stored, error) {
 		id, ext int64
 		cases   string
 	)
-	if err := scan(&id, &s.RetroItem, &s.Statement, &cases, &ext, &s.Target, &s.Status, &s.Reason); err != nil {
+	if err := scan(&id, &s.RetroItem, &s.Statement, &cases, &ext, &s.Target, &s.Status, &s.Reason, &s.LandedRef); err != nil {
 		return Stored{}, err
 	}
 	s.ID = learningID(id)
@@ -105,7 +106,7 @@ type Escalation struct {
 // first.
 func Escalations(ctx context.Context, tx *sql.Tx) ([]Escalation, error) {
 	var out []Escalation
-	err := eachRow(ctx, tx, `SELECT l.id, l.retro_item, l.statement, l.cases, coalesce(l.extends, 0), l.target, l.status, l.reason,
+	err := eachRow(ctx, tx, `SELECT l.id, l.retro_item, l.statement, l.cases, coalesce(l.extends, 0), l.target, l.status, l.reason, l.landed_ref,
 		l.project, l.panel, coalesce(r.run_id, ''), l.created_at
 		FROM learnings l LEFT JOIN retros r ON r.project = l.project AND r.item = l.retro_item
 		WHERE l.status = ? ORDER BY l.id`, []any{StatusEscalated}, func(rows *sql.Rows) error {
@@ -145,6 +146,8 @@ type Routed struct {
 	Target Target `json:"target,omitempty"`
 	Reason Reason `json:"reason,omitempty"`
 	Entry  string `json:"entry,omitempty"` // the inbox entry of an escalated learning
+	// Ref is the ticket, bug or fault a landed learning made.
+	Ref string `json:"landed_ref,omitempty"`
 }
 
 // Result is the answer of `loop retro route`: each learning's route, and
@@ -158,10 +161,11 @@ type Result struct {
 // errRefused rolls back a route that a refusal ended.
 var errRefused = errors.New("retro: the route was refused")
 
-// RouteAll checks every case, decides, holds or escalates each panel, puts
-// the one notice and marks the retro done, in that order, in one
-// transaction. A refusal writes nothing. A land route records the learning
-// landed, and creates nothing yet.
+// RouteAll checks every case, decides each panel, stores its learning and
+// marks the retro done, in one transaction. A refusal writes nothing. Then
+// it lands each landed learning and puts the one notice. A done retro with
+// no notice is a route that stopped before its notice, and a repeat by the
+// run that holds it finishes that route.
 func RouteAll(ctx context.Context, w World, runID string, panels []Panel) (Result, *cli.Refusal) {
 	var (
 		r  Retro
@@ -174,6 +178,18 @@ func RouteAll(ctx context.Context, w World, runID string, panels []Panel) (Resul
 	})
 	if err != nil {
 		return Result{}, cli.InternalRefusal(err)
+	}
+	if ok && r.State == StateDone {
+		var n int
+		err := w.Store.Read(ctx, func(tx *sql.Tx) error {
+			return tx.QueryRowContext(ctx, `SELECT count(*) FROM notices WHERE source = ? AND ref = ?`, noticeSource, r.Project+"/"+r.Item).Scan(&n)
+		})
+		if err != nil {
+			return Result{}, cli.InternalRefusal(err)
+		}
+		if n == 0 {
+			return w.finish(ctx, r)
+		}
 	}
 	if ref := routable(r, ok); ref != nil {
 		return Result{}, ref
@@ -188,7 +204,6 @@ func RouteAll(ctx context.Context, w World, runID string, panels []Panel) (Resul
 			record[c.Ref] = true
 		}
 	}
-	res := Result{Learnings: []Routed{}}
 	err = w.Store.Write(ctx, func(tx *store.Tx) error {
 		// A second route can start while the first writes, so the state
 		// is read again where it changes.
@@ -204,7 +219,7 @@ func RouteAll(ctx context.Context, w World, runID string, panels []Panel) (Resul
 			return err
 		}
 		for _, p := range panels {
-			rt, refused, err := routeOne(tx, r, p, c, record)
+			refused, err := routeOne(tx, r, p, c, record)
 			if err != nil {
 				return err
 			}
@@ -212,14 +227,7 @@ func RouteAll(ctx context.Context, w World, runID string, panels []Panel) (Resul
 				ref = refused
 				return errRefused
 			}
-			res.Learnings = append(res.Learnings, rt)
 		}
-		id, err := putNotice(tx, r, res.Learnings)
-		if err != nil {
-			return err
-		}
-		// The entry id of a notice, as the inbox prints it.
-		res.Notice = "notice/" + strconv.FormatInt(id, 10)
 		_, err = tx.Exec(`UPDATE retros SET state = ?, finished_at = ? WHERE project = ? AND item = ?`,
 			StateDone, tx.Now().UnixMilli(), r.Project, r.Item)
 		return err
@@ -230,7 +238,55 @@ func RouteAll(ctx context.Context, w World, runID string, panels []Panel) (Resul
 	if err != nil {
 		return Result{}, cli.InternalRefusal(err)
 	}
-	r.State, res.Retro = StateDone, r
+	return w.finish(ctx, r)
+}
+
+// finish lands each landed learning of the done retro r that holds no
+// landed_ref, records the id it made, and puts the notice last.
+func (w World) finish(ctx context.Context, r Retro) (Result, *cli.Refusal) {
+	var ls []Stored
+	err := w.Store.Read(ctx, func(tx *sql.Tx) (err error) {
+		ls, err = readStored(ctx, tx, `project = ? AND retro_item = ?`, r.Project, r.Item)
+		return err
+	})
+	if err != nil {
+		return Result{}, cli.InternalRefusal(err)
+	}
+	r.State = StateDone
+	res := Result{Retro: r, Learnings: []Routed{}}
+	for _, l := range ls {
+		n, _ := parseLearningID(l.ID)
+		if l.Status == StatusLanded && l.LandedRef == "" {
+			id, ref := w.Land(ctx, r, l)
+			if ref != nil {
+				return Result{}, ref
+			}
+			if err := w.Store.Write(ctx, func(tx *store.Tx) error {
+				_, err := tx.Exec(`UPDATE learnings SET landed_ref = ? WHERE id = ?`, id, n)
+				return err
+			}); err != nil {
+				return Result{}, cli.InternalRefusal(err)
+			}
+			l.LandedRef = id
+		}
+		rt := Routed{ID: l.ID, Route: "hold", Target: l.Target, Reason: l.Reason, Ref: l.LandedRef}
+		switch l.Status.Route(l.Target, l.Reason).(type) {
+		case Land:
+			rt.Route = "land"
+		case Escalate:
+			rt.Route, rt.Entry = "escalate", EntryOf(n)
+		}
+		res.Learnings = append(res.Learnings, rt)
+	}
+	err = w.Store.Write(ctx, func(tx *store.Tx) error {
+		id, err := putNotice(tx, r, res.Learnings)
+		// The entry id of a notice, as the inbox prints it.
+		res.Notice = "notice/" + strconv.FormatInt(id, 10)
+		return err
+	})
+	if err != nil {
+		return Result{}, cli.InternalRefusal(err)
+	}
 	return res, nil
 }
 
@@ -261,7 +317,7 @@ func loopProject(tx *store.Tx, project string) (bool, error) {
 // routeOne checks the cases of one panel, decides its route and stores its
 // learning. A learning that extends a held one takes its cases, and the
 // held one moves to counted.
-func routeOne(tx *store.Tx, r Retro, p Panel, c RouteContext, record map[CaseRef]bool) (Routed, *cli.Refusal, error) {
+func routeOne(tx *store.Tx, r Retro, p Panel, c RouteContext, record map[CaseRef]bool) (*cli.Refusal, error) {
 	l := p.Learning
 	var (
 		prior   []CaseRef
@@ -276,17 +332,17 @@ func routeOne(tx *store.Tx, r Retro, p Panel, c RouteContext, record map[CaseRef
 				n, r.Project, StatusHeld).Scan)
 		}
 		if !ok || errors.Is(err, sql.ErrNoRows) {
-			return Routed{}, &cli.Refusal{Code: cli.CodeUsage, Rule: "extends_not_held",
+			return &cli.Refusal{Code: cli.CodeUsage, Rule: "extends_not_held",
 				Hint: fmt.Sprintf("the learning %q extends %s, which is no held learning of %s; `loop retro held` lists them", l.Statement, l.Extends, r.Project)}, nil
 		}
 		if err != nil {
-			return Routed{}, nil, err
+			return nil, err
 		}
 		prior, extends = held.Cases, sql.NullInt64{Int64: n, Valid: true}
 	}
 	for _, cs := range l.Cases {
 		if !record[cs] && !slices.Contains(prior, cs) {
-			return Routed{}, &cli.Refusal{Code: cli.CodeUsage, Rule: "case_not_in_record", Item: r.Item,
+			return &cli.Refusal{Code: cli.CodeUsage, Rule: "case_not_in_record", Item: r.Item,
 				Hint: fmt.Sprintf("the learning %q names case %s, which is neither in the record of %s nor in the learning it extends; `loop retro record` prints the record",
 					l.Statement, cs, r.Item)}, nil
 		}
@@ -299,41 +355,29 @@ func routeOne(tx *store.Tx, r Retro, p Panel, c RouteContext, record map[CaseRef
 	}
 	if extends.Valid {
 		if _, err := tx.Exec(`UPDATE learnings SET status = ? WHERE id = ?`, StatusCounted, extends.Int64); err != nil {
-			return Routed{}, nil, err
+			return nil, err
 		}
 	}
 	// A land route's target is the one every judge named.
-	out := Routed{Route: "hold", Target: sharedTarget(p.Answers)}
-	status := StatusHeld
+	status, reason := StatusHeld, Reason("")
 	switch rt := Decide(p, c).(type) {
 	case Land:
-		out.Route, status = "land", StatusLanded
+		status = StatusLanded
 	case Escalate:
-		out.Route, status, out.Reason = "escalate", StatusEscalated, rt.Reason
+		status, reason = StatusEscalated, rt.Reason
 	}
 	rawCases, err := json.Marshal(cases)
 	if err != nil {
-		return Routed{}, nil, err
+		return nil, err
 	}
 	panel, err := json.Marshal(p)
 	if err != nil {
-		return Routed{}, nil, err
+		return nil, err
 	}
-	res, err := tx.Exec(`INSERT INTO learnings (project, retro_item, statement, cases, extends, panel, reason, target, status, created_at)
+	_, err = tx.Exec(`INSERT INTO learnings (project, retro_item, statement, cases, extends, panel, reason, target, status, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.Project, r.Item, l.Statement, string(rawCases), extends, string(panel),
-		out.Reason, out.Target, status, tx.Now().UnixMilli())
-	if err != nil {
-		return Routed{}, nil, err
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return Routed{}, nil, err
-	}
-	out.ID = learningID(id)
-	if status == StatusEscalated {
-		out.Entry = EntryOf(id)
-	}
-	return out, nil, nil
+		reason, sharedTarget(p.Answers), status, tx.Now().UnixMilli())
+	return nil, err
 }
 
 // sharedTarget is the one target every judge named, or empty.
@@ -357,7 +401,7 @@ func putNotice(tx *store.Tx, r Retro, routed []Routed) (int64, error) {
 		for _, rt := range routed {
 			switch rt.Route {
 			case "land":
-				landed = append(landed, fmt.Sprintf("- %s at %s", rt.ID, rt.Target))
+				landed = append(landed, fmt.Sprintf("- %s at %s: %s", rt.ID, rt.Target, rt.Ref))
 			case "escalate":
 				escalated = append(escalated, fmt.Sprintf("- %s, reason %s, entry %s", rt.ID, rt.Reason, rt.Entry))
 			default:

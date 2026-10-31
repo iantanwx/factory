@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -128,6 +129,8 @@ type World struct {
 	// Comments is nil on a server with no GitHub, and the record then
 	// holds no comments.
 	Comments CommentReader
+	// Faults files the loop fault of a landed loop_fault learning.
+	Faults *fault.Service
 }
 
 // BuildRecord reads the record of r's item and, for an epic, of each of
