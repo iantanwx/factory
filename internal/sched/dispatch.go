@@ -125,6 +125,13 @@ func reasons(why map[string]string) string {
 	return strings.Join(out, "; ")
 }
 
+// ReservedRefusal refuses a start whose checkout tracks a loop- skill
+// directory the pack lacks. It does not count.
+func ReservedRefusal(item string, e *brief.ReservedError) *cli.Refusal {
+	return &cli.Refusal{Code: cli.CodeConfigConflict, Rule: "reserved_skill_name", Item: item,
+		Hint: "the repository tracks " + strings.Join(e.Dirs, ", ") + ", a loop- skill directory the release pack does not hold; rename it"}
+}
+
 // start runs one admitted run up to its session. Each failure settles the
 // run uncounted, releases its claim and restores the frontier state.
 func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, hc *config.HostConfig, prof Profile) (*Started, *cli.Refusal) {
@@ -179,6 +186,10 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		ref := &cli.Refusal{Code: cli.CodeConfigConflict, Rule: "injected_path_tracked", Item: ad.Item,
 			Hint: "the repository tracks a path the loop injects: " + strings.Join(conflict.Paths, ", ") + "; move or rename it"}
 		return fail(ref, true, AlertConfigConflict, err)
+	}
+	var reserved *brief.ReservedError
+	if errors.As(err, &reserved) {
+		return fail(ReservedRefusal(ad.Item, reserved), true, AlertConfigConflict, err)
 	}
 	if err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
