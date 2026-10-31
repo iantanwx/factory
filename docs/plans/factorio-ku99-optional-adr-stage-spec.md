@@ -133,12 +133,11 @@ first entry).
   `architecture` and stops no merge. The base audit applies no reviewed-head rule to an
   `adr_merged` commit, as ADR 0012 decides. We chose this over a review that gates the merge,
   because a gating review supersedes part of ADR 0012, and the epic's own test then needs a new
-  ADR. Only the operator chooses between the two (Open questions, first entry).
-- **This spec proposes that an ADR whose Ticket line reads `none`, or names an epic outside
-  `architecture`, gets no review.** We propose this over an item made for each such pull request,
-  because a run takes one item, and no item holds such a pull request. This narrows A22, which
-  the operator signed for each ADR pull request. So it stays a proposal until the operator answers
-  it (Open questions, fifth entry).
+  ADR. The operator chose the advisory review (Open questions, first entry).
+- **An ADR whose Ticket line reads `none`, or names an epic outside `architecture`, gets no
+  review.** We chose this over an item made for each such pull request, because a run takes one
+  item, and no item holds such a pull request. This narrows A22, which the operator signed for
+  each ADR pull request. The operator accepted the narrowing (Open questions, fifth entry).
 
 ## Assumptions
 
@@ -658,8 +657,8 @@ holds refuses with rule `head_changed`, and the epic stays in `adr_review`.
 **C28. Boundary: a merge or a close ends the review.** Proves A22. A merge that adds the ADR
 while the epic is in `adr_review` moves it to `spec_needed` and drops the reviewer's lease. A close
 with no merge applies `adr_withdrawn`, and the epic returns to `architecture`. An open pull
-request whose ADR reads `**Ticket:** none` moves no epic. This last case holds only if the
-operator accepts the narrowing of A22 (Open questions, fifth entry).
+request whose ADR reads `**Ticket:** none` moves no epic. This last case holds because the
+operator accepted the narrowing of A22 (Open questions, fifth entry).
 *A reactor test for each case.*
 
 **C29. Behaviour: the doc-reviewer rejects an ADR that binds one epic.** Proves A23.
@@ -684,17 +683,27 @@ the operator in its chat.
   that part of ADR 0012, because that decision passes the epic's test. GitHub refuses no merge
   here (ADR 0012 § Context), so a gating review can only raise an alert after the merge. The
   proposed answer is advisory. This blocks work entry 7.
+  **Answered (operator, 2026-10-31):** Advisory. A reject returns the epic to `architecture` and
+  stops no merge, so ADR 0012 stands.
+  The operator chose "Accept all five (Recommended)" in the coordinator's chat.
 - PRD open question 2. The epic body says the operator can send an epic to `architecture` "at
   any time". This spec allows the send from `prd_needed` to `prd_signoff`, where it marks the
   epic for its PRD merge, and from `spec_needed`, `spec_review`, `spec_signoff` and
   `spec_amending`, where it moves the epic. It refuses the send from `spec_approved`,
   `decomposing` and `execution` (C15), because tickets exist or the decomposer is about to cut
   them. Is that set right? The proposed answer is yes. This blocks work entry 3.
+  **Answered (operator, 2026-10-31):** Yes. The send starts from `prd_needed` to `prd_signoff`
+  and from `spec_needed`, `spec_review`, `spec_signoff` and `spec_amending`. It is refused from
+  `spec_approved`, `decomposing` and `execution`.
+  The operator chose "Accept all five (Recommended)" in the coordinator's chat.
 - PRD open question 4. The operator sees the PRD review's `adr_needed` at sign-off, in the review
   comment that the sign-off entry names. Can the operator overrule it, so that the epic skips the
   ADR stage at its PRD merge? A yes adds `loop epic adr <epic> --off --request "<words>"`, from
   `prd_signoff` only, which clears `adr_needed` and `adr_sent`. The proposed answer is yes. This
   blocks work entry 5.
+  **Answered (operator, 2026-10-31):** Yes. Work entry 5 adds `loop epic adr --off` from
+  `prd_signoff` only.
+  The operator chose "Accept all five (Recommended)" in the coordinator's chat.
 - Three decisions of this spec pass the test that this epic writes. The `adr_review` state binds
   every later epic's table and changes stored state. The Binds line and the Why an ADR section are
   a file layout that every later ADR follows. The higher-number rule changes how every epic leaves
@@ -702,6 +711,9 @@ the operator in its chat.
   binds no decision until work entry 1 lands, and the PRD that the operator signed off states the
   flow and the template parts. Do these three stay in this spec, or does each take an ADR first?
   The proposed answer is Deferred: they stay in this spec. This blocks work entries 2, 3 and 7.
+  **Deferred (operator, 2026-10-31):** The three decisions stay in this spec, and none takes an
+  ADR first.
+  The operator chose "Accept all five (Recommended)" in the coordinator's chat.
 - PRD A22 says that each ADR pull request gets one doc-reviewer verdict. This spec reviews only an
   ADR pull request whose Ticket line names an epic in `architecture` (Decisions, The ADR review).
   Two cases get no review. The first is an ADR whose Ticket line reads `none`, such as a
@@ -713,3 +725,6 @@ the operator in its chat.
   request, and a doc-reviewer claims it. That adds a kind, its table and a work entry. The
   proposed answer is to narrow A22 to an ADR pull request that names an epic in `architecture`,
   and to leave the two cases to the operator, who reads the alert. This blocks work entry 7.
+  **Answered (operator, 2026-10-31):** Narrow A22 to an ADR pull request that names an epic in
+  `architecture`. The two cases go to the operator, who reads the alert.
+  The operator chose "Accept all five (Recommended)" in the coordinator's chat.
