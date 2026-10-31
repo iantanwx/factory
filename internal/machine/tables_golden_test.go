@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/iantanwx/loop/internal/cli"
@@ -133,5 +134,29 @@ func TestC12TheReviserTakesTheAmenderRows(t *testing.T) {
 	}
 	if !reflect.DeepEqual(from, []any{"prd_amending", "spec_amending"}) {
 		t.Fatalf("the golden amender rows start from %v, want prd_amending and spec_amending", from)
+	}
+}
+
+// C12: the pair prd-author to unattended-brainstorm is in the table, and
+// the epic table's one prd-author row of the golden file now claims under
+// unattended-brainstorm. The build names prd-author in no table.
+func TestC12PRDAuthorRowNowNamesUnattendedBrainstorm(t *testing.T) {
+	if n, ok := config.NewStageName("prd-author"); !ok || n != "unattended-brainstorm" {
+		t.Fatalf("NewStageName(prd-author) = %q, %v, want unattended-brainstorm", n, ok)
+	}
+	raw, err := os.ReadFile(goldenTables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), `"stage": "prd-author"`); n != 1 {
+		t.Fatalf("the golden tables name prd-author %d times, want 1", n)
+	}
+	s, err := cli.Surface().Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	epic := string(s.TransitionTables[string(KindEpic)])
+	if strings.Contains(epic, `"prd-author"`) || strings.Count(epic, `"unattended-brainstorm"`) != 1 {
+		t.Fatalf("the epic table names prd-author, or unattended-brainstorm other than once: %s", epic)
 	}
 }

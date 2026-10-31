@@ -140,7 +140,7 @@ stages:
   doc-reviewer: {}
   reviser: {}
   spec-author: {}
-  prd-author: {}
+  unattended-brainstorm: {}
   decomposer: {}
   fixer: {}
   reproducer: {}

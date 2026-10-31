@@ -340,3 +340,16 @@ func TestC1AmenderCapLoadsAsTheRevisersCap(t *testing.T) {
 		t.Fatalf("Renames = %+v, want %+v", pc.Renames, want)
 	}
 }
+
+// C9, C12: the prd-author stage is now unattended-brainstorm, and its old
+// key and its old role words are retired.
+func TestPRDAuthorIsNowUnattendedBrainstorm(t *testing.T) {
+	if n, ok := NewStageName("prd-author"); !ok || n != "unattended-brainstorm" {
+		t.Fatalf("NewStageName(prd-author) = %q, %v, want unattended-brainstorm", n, ok)
+	}
+	for _, w := range []string{"prd-author", "PRD author"} {
+		if !slices.Contains(RetiredWords(), w) {
+			t.Errorf("RetiredWords() = %v, want %q", RetiredWords(), w)
+		}
+	}
+}

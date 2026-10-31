@@ -76,14 +76,14 @@ const (
 // Stages that claim an item. The config package owns the stage list, and
 // the scheduler reads the claim rows for the states each stage takes.
 const (
-	StageImplementer  = config.StageImplementer
-	StageCodeReviewer = config.StageCodeReviewer
-	StageDocReviewer  = config.StageDocReviewer
-	StageReviser      = config.StageReviser
-	StagePRDAuthor    = config.StagePRDAuthor
-	StageSpecAuthor   = config.StageSpecAuthor
-	StageDecomposer   = config.StageDecomposer
-	StageReproducer   = config.StageReproducer
+	StageImplementer          = config.StageImplementer
+	StageCodeReviewer         = config.StageCodeReviewer
+	StageDocReviewer          = config.StageDocReviewer
+	StageReviser              = config.StageReviser
+	StageUnattendedBrainstorm = config.StageUnattendedBrainstorm
+	StageSpecAuthor           = config.StageSpecAuthor
+	StageDecomposer           = config.StageDecomposer
+	StageReproducer           = config.StageReproducer
 )
 
 // Lease effects of a row.

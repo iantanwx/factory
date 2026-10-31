@@ -12,14 +12,15 @@ import (
 )
 
 // drafting creates a PRD epic from the coordinator's request, and claims
-// it for the prd-author run id. It returns the epic and the run's token.
+// it for the unattended-brainstorm run id. It returns the epic and the
+// run's token.
 func (w *world) drafting(id string) (string, rpc.Principal) {
 	w.t.Helper()
 	epic := ok(w.t, w.call(w.coordinator(), "", "epic create", prdEpic(nil)))["epic"].(string)
-	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StagePRDAuthor, RunID: id}); res.Refusal != nil {
-		w.t.Fatalf("prd-author claim: %+v", *res.Refusal)
+	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageUnattendedBrainstorm, RunID: id}); res.Refusal != nil {
+		w.t.Fatalf("unattended-brainstorm claim: %+v", *res.Refusal)
 	}
-	return epic, w.run(id, epic, machine.StagePRDAuthor)
+	return epic, w.run(id, epic, machine.StageUnattendedBrainstorm)
 }
 
 // runSubmit runs prd submit as pr at the checkout's head.
@@ -29,9 +30,9 @@ func (w *world) runSubmit(pr rpc.Principal) cli.Result {
 	return w.call(pr, "", "prd submit", headFlags(head, map[string]string{"path": prdPath, "title": "Watchlists"}))
 }
 
-// C10: a prd-author run submits the PRD of the epic it holds. HEAD lands on
-// loop/<epic>, one PR opens, and the epic moves to prd_review with
-// prd_path, doc_pr and no owner. The project holds one epic before and
+// C10: an unattended-brainstorm run submits the PRD of the epic it holds.
+// HEAD lands on loop/<epic>, one PR opens, and the epic moves to
+// prd_review with prd_path, doc_pr and no owner. The project holds one epic before and
 // after. A replay answers the same, and a first reject lands on
 // prd_amending, as for a room's PRD.
 func TestC10ARunSubmitsThePRDOfTheEpicItHolds(t *testing.T) {
@@ -95,7 +96,7 @@ func TestC11PRDSubmitRefusesARunThatMayNotSubmit(t *testing.T) {
 	stale.Epoch--
 	needed, _ := w.drafting("run-pb")
 	w.mustApply(machine.Request{Item: needed, Verb: "release", Actor: machine.Server("test")})
-	notDrafting := w.run("run-pb", needed, machine.StagePRDAuthor)
+	notDrafting := w.run("run-pb", needed, machine.StageUnattendedBrainstorm)
 
 	for _, c := range []struct {
 		name       string

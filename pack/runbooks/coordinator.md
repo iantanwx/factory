@@ -387,7 +387,7 @@ what the work must do.
   loop epic create --project <project> --title "<title>" --body "<what the epic delivers>" --request "<the operator's words>"
   ```
 
-  The `prd-author` stage writes the PRD from the `request` fact. The doc-reviewer reviews it, and
+  The `unattended-brainstorm` stage writes the PRD from the `request` fact. The doc-reviewer reviews it, and
   the operator reads it first at sign-off. When the work waits on other work, name each ticket,
   epic or decision it waits on with `--blocked-by <item>,<item>`. The epic then waits in
   `backlog`, and `dependency-advance` moves it when each blocker landed.
@@ -404,8 +404,8 @@ loop work create --title "<title>" --body "<body>" --request "<the operator's wo
 When `loop epic create --request` refuses, it created nothing. Act on its rule:
 
 - **`USAGE` with rule `prd_author_disabled`.** The project's `.loop/config.yaml` lists no
-  `prd-author` stage, so no run would write the PRD. File a ticket in the project that adds the
-  line `prd-author: {}` under `stages:` in that file. Put the operator's request in its body. Run the same `loop epic create --request` again when that ticket is `done`.
+  `unattended-brainstorm` stage, so no run would write the PRD. File a ticket in the project that
+  adds the line `unattended-brainstorm: {}` under `stages:` in that file. Put the operator's request in its body. Run the same `loop epic create --request` again when that ticket is `done`.
 - **`CAP_FULL`.** The project's epics in counted document states fill the intake cap. Park the
   request in the record, never in your chat:
 

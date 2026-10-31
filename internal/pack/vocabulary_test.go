@@ -49,6 +49,20 @@ func TestC9PackHoldsNoRetiredWord(t *testing.T) {
 	}
 }
 
+// C9: the prd-author rename retires its words, and no file of the pack
+// holds one.
+func TestC9PackHoldsNoPRDAuthorWord(t *testing.T) {
+	words := []string{"prd-author", "PRD author"}
+	for _, w := range words {
+		if !slices.Contains(config.RetiredWords(), w) {
+			t.Errorf("RetiredWords() lacks %q", w)
+		}
+	}
+	if hits := retiredHits(t, packsrc.Files, words); len(hits) > 0 {
+		t.Fatalf("the pack holds a retired word:\n%s", strings.Join(hits, "\n"))
+	}
+}
+
 // The walk finds a retired word whole, in any case, and names its file and
 // line. It ignores the word inside a longer word.
 func TestRetiredHitsNameFileLineAndWord(t *testing.T) {

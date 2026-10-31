@@ -11,35 +11,49 @@ import (
 	"github.com/iantanwx/loop/internal/pack"
 )
 
-const prdAuthorRunbook = "runbooks/prd-author.md"
+const brainstormRunbook = "runbooks/unattended-brainstorm.md"
 
-// C15: the manifest names the prd-author runbook, unattended, with the six
-// skills of spec factorio-4n0 Work entry 4, and the runbook names itself
-// loop-prd-author.
-func TestPRDAuthorRunbookIsUnattendedWithItsSkills(t *testing.T) {
+// C10: the manifest names the unattended-brainstorm runbook, unattended,
+// with the six skills of spec factorio-4n0 Work entry 4, and holds no
+// prd-author key. The runbook lays out as loop-unattended-brainstorm,
+// names itself so, and sends the writer to the brainstorm skill and its
+// PRD template.
+func TestC10UnattendedBrainstormRunbookHasItsNewName(t *testing.T) {
 	m, err := pack.ReadManifest(pack.Source())
 	if err != nil {
 		t.Fatal(err)
 	}
-	rb, ok := m.Runbooks["prd-author"]
+	if _, old := m.Runbooks["prd-author"]; old {
+		t.Error("the manifest still names a prd-author runbook")
+	}
+	rb, ok := m.Runbooks["unattended-brainstorm"]
 	if !ok {
-		t.Fatal("the manifest names no prd-author runbook")
+		t.Fatal("the manifest names no unattended-brainstorm runbook")
 	}
 	if rb.Attended {
-		t.Error("the prd-author runs with nobody present, and its runbook says it is attended")
+		t.Error("the unattended brainstorm runs with nobody present, and its runbook says it is attended")
 	}
 	want := []string{"loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-sdlc-documents", "loop-brainstorm"}
 	if !slices.Equal(slices.Sorted(slices.Values(rb.Skills)), slices.Sorted(slices.Values(want))) {
-		t.Errorf("prd-author skills = %v, want %v", rb.Skills, want)
+		t.Errorf("unattended-brainstorm skills = %v, want %v", rb.Skills, want)
 	}
-	if !strings.Contains(read(t, prdAuthorRunbook), "\nname: loop-prd-author\n") {
-		t.Error("the prd-author runbook does not name itself loop-prd-author")
+	if got := pack.RunbookSource("unattended-brainstorm"); got != brainstormRunbook {
+		t.Errorf("RunbookSource(unattended-brainstorm) = %q, want %q", got, brainstormRunbook)
+	}
+	text := read(t, brainstormRunbook)
+	if !strings.Contains(text, "\nname: loop-unattended-brainstorm\n") {
+		t.Error("the unattended-brainstorm runbook does not name itself loop-unattended-brainstorm")
+	}
+	for _, ptr := range []string{"`../loop-brainstorm/SKILL.md`", "`../loop-brainstorm/prd.md`"} {
+		if !strings.Contains(text, ptr) {
+			t.Errorf("the unattended-brainstorm runbook does not name %s", ptr)
+		}
 	}
 }
 
 // C15: ADR 0001 D4 ports no intake author. Outside tests, pack, internal
 // and cmd hold no name of tickertown's intake author or its coverage verb.
-// The walk must read the PRD author's runbook, so a walk that reads
+// The walk must read the unattended brainstorm's runbook, so a walk that reads
 // nothing cannot pass.
 func TestNoIntakeAuthorIsPorted(t *testing.T) {
 	root := filepath.Join("..", "..")
@@ -54,7 +68,7 @@ func TestNoIntakeAuthorIsPorted(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if filepath.ToSlash(path) == "../../pack/"+prdAuthorRunbook {
+			if filepath.ToSlash(path) == "../../pack/"+brainstormRunbook {
 				readRunbook = true
 			}
 			for _, b := range banned {
@@ -69,16 +83,16 @@ func TestNoIntakeAuthorIsPorted(t *testing.T) {
 		}
 	}
 	if !readRunbook {
-		t.Errorf("the walk did not read pack/%s", prdAuthorRunbook)
+		t.Errorf("the walk did not read pack/%s", brainstormRunbook)
 	}
 }
 
-// C18: the PRD author's runbook holds ADR 0001's source rule. The request
+// C18: the unattended brainstorm's runbook holds ADR 0001's source rule. The request
 // and amendment facts are the only sources a story quotes, a requirement
 // with no source goes under Open questions, a request with no story goes
 // to a level 4 escalation, and the author never splits.
-func TestPRDAuthorRunbookHoldsTheSourceRule(t *testing.T) {
-	text := strings.Join(strings.Fields(read(t, prdAuthorRunbook)), " ")
+func TestUnattendedBrainstormRunbookHoldsTheSourceRule(t *testing.T) {
+	text := strings.Join(strings.Fields(read(t, brainstormRunbook)), " ")
 	for _, want := range []string{
 		"These two facts are the only source a story quotes",
 		"the `request` fact",
@@ -88,7 +102,7 @@ func TestPRDAuthorRunbookHoldsTheSourceRule(t *testing.T) {
 		"Never split",
 	} {
 		if !strings.Contains(text, want) {
-			t.Errorf("the prd-author runbook does not hold %q", want)
+			t.Errorf("the unattended-brainstorm runbook does not hold %q", want)
 		}
 	}
 }
@@ -120,17 +134,18 @@ func joined(t *testing.T, name, text, start, end string) string {
 	return strings.Join(strings.Fields(rest), " ")
 }
 
-// C16: the coordinator routes level 1 to 3 product work to the PRD author,
+// C16: the coordinator routes level 1 to 3 product work to the unattended
+// brainstorm,
 // and parks a request that the intake cap refuses on a pending decision,
 // so the request waits in the record and never in the chat.
-func TestCoordinatorRoutesProductWorkToThePRDAuthor(t *testing.T) {
+func TestCoordinatorRoutesProductWorkToTheUnattendedBrainstorm(t *testing.T) {
 	coordinator := read(t, "runbooks/coordinator.md")
 	route := section(t, coordinator, "8. New work")
 	for _, want := range []string{
 		"loop epic create --request",
 		"--blocked-by",
 		"`prd_author_disabled`",
-		"`prd-author: {}`",
+		"`unattended-brainstorm: {}`",
 		"`CAP_FULL`",
 		"loop decision file",
 		"--blocked-by <decision>",
@@ -157,9 +172,9 @@ func TestCoordinatorRoutesProductWorkToThePRDAuthor(t *testing.T) {
 	}
 }
 
-// C19: the shared instructions name the PRD author, its states and its
-// check, and the plan and ADR 0001 hold the second entry path.
-func TestSharedInstructionsNameThePRDAuthor(t *testing.T) {
+// C19: the shared instructions name the unattended brainstorm, its states
+// and its check, and the plan and ADR 0001 hold the second entry path.
+func TestSharedInstructionsNameTheUnattendedBrainstorm(t *testing.T) {
 	review := section(t, read(t, "runbooks/doc-reviewer.md"), "2. Review a PRD")
 	for _, want := range []string{"the `request` fact", "the `amendment` fact", "each story"} {
 		if !strings.Contains(review, want) {
@@ -168,8 +183,8 @@ func TestSharedInstructionsNameThePRDAuthor(t *testing.T) {
 	}
 
 	glossary := read(t, "skills/loop-sdlc-glossary/SKILL.md")
-	if !strings.Contains(section(t, glossary, "Stages"), "| `prd-author` |") {
-		t.Error("the glossary's stage table names no `prd-author`")
+	if !strings.Contains(section(t, glossary, "Stages"), "| `unattended-brainstorm` |") {
+		t.Error("the glossary's stage table names no `unattended-brainstorm`")
 	}
 	epic := joined(t, "glossary", glossary, "- **Epic**:", "- **")
 	for _, want := range []string{"`backlog`", "`prd_needed`", "`prd_drafting`"} {
@@ -177,13 +192,13 @@ func TestSharedInstructionsNameThePRDAuthor(t *testing.T) {
 			t.Errorf("the glossary's epic states do not name %s: %s", want, epic)
 		}
 	}
-	if prd := joined(t, "glossary", glossary, "- **PRD**:", "- **"); !strings.Contains(prd, "a PRD author or an intake room") {
+	if prd := joined(t, "glossary", glossary, "- **PRD**:", "- **"); !strings.Contains(prd, "an unattended brainstorm or an intake room") {
 		t.Errorf("the glossary's PRD entry does not name its two writers: %s", prd)
 	}
 
 	split := read(t, splitSkill)
-	if !strings.Contains(section(t, split, "3. Who splits"), "The PRD author never splits") {
-		t.Error("split skill section 3 does not say that the PRD author never splits")
+	if !strings.Contains(section(t, split, "3. Who splits"), "The unattended brainstorm never splits") {
+		t.Error("split skill section 3 does not say that the unattended brainstorm never splits")
 	}
 	never := section(t, split, "10. Never")
 	if !strings.Contains(never, "the coordinator, with `loop epic create`") {
@@ -193,8 +208,8 @@ func TestSharedInstructionsNameThePRDAuthor(t *testing.T) {
 		t.Error("split skill section 10 still names `loop epic create --architecture` as the coordinator's only create")
 	}
 
-	if stages := joined(t, "loop-init", read(t, "skills/loop-init/SKILL.md"), "stages:", "signoff:"); !strings.Contains(stages, "prd-author: {}") {
-		t.Error("the loop-init config template does not list `prd-author: {}` under stages")
+	if stages := joined(t, "loop-init", read(t, "skills/loop-init/SKILL.md"), "stages:", "signoff:"); !strings.Contains(stages, "unattended-brainstorm: {}") {
+		t.Error("the loop-init config template does not list `unattended-brainstorm: {}` under stages")
 	}
 
 	plan := repoFile(t, "docs/plans/2026-10-21-1328-feat-standalone-sdlc-loop-plan.md")

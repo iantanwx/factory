@@ -141,11 +141,11 @@ func epicEdges() []edge {
 		{Initial, "create_prd", PRDNeeded}, {Initial, "create_prd", Backlog},
 		{Initial, "create_architecture", Backlog},
 		{Backlog, "unblock", PRDNeeded}, {Backlog, "unblock", Architecture},
-		// factorio-4n0: only a prd-author run claims a PRD epic, and its
-		// settlement returns the epic to the queue.
+		// factorio-4n0: only an unattended-brainstorm run claims a PRD
+		// epic, and its settlement returns the epic to the queue.
 		{PRDNeeded, "claim", PRDDrafting},
 		{PRDDrafting, "release", PRDNeeded}, {PRDDrafting, "reclaim", PRDNeeded},
-		// factorio-4n0: the prd-author run submits the PRD it wrote.
+		// factorio-4n0: the unattended-brainstorm run submits the PRD it wrote.
 		{PRDDrafting, "prd_submit", PRDReview},
 		{PRDReview, "review_reject", PRDAmending},
 		{PRDAmending, "prd_amended", PRDReview},

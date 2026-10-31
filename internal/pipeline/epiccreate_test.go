@@ -50,7 +50,7 @@ func TestC4EpicCreateRefusesBeforeAnyWrite(t *testing.T) {
 			false, cli.CodePRDRequired, "no_operator_request"},
 		{"a blank --request", func() map[string]string { return prdEpic(map[string]string{"request": "  "}) },
 			false, cli.CodePRDRequired, "no_operator_request"},
-		{"a project without prd-author", func() map[string]string { return prdEpic(nil) },
+		{"a project without unattended-brainstorm", func() map[string]string { return prdEpic(nil) },
 			true, cli.CodeUsage, "prd_author_disabled"},
 		{"an unknown blocker on a PRD epic", func() map[string]string { return prdEpic(map[string]string{"blocked-by": open + ",tk-404"}) },
 			false, cli.CodeNotFound, "no_blocker"},
@@ -63,13 +63,13 @@ func TestC4EpicCreateRefusesBeforeAnyWrite(t *testing.T) {
 		{"a full intake cap", func() map[string]string { return prdEpic(nil) },
 			false, cli.CodeCapFull, "cap_full"},
 	} {
-		w.disabled["prd-author"] = c.disable
+		w.disabled[machine.StageUnattendedBrainstorm] = c.disable
 		res := w.call(w.coordinator(), "", "epic create", c.pr())
 		if r := wantCode(t, res, c.code); r.Rule != c.rule {
 			t.Errorf("%s: rule %q, want %q", c.name, r.Rule, c.rule)
 		}
 	}
-	w.disabled["prd-author"] = false
+	w.disabled[machine.StageUnattendedBrainstorm] = false
 	for name, principal := range map[string]rpc.Principal{"a run": w.run("run-x", "", machine.StageImplementer), "a room": w.intakeRoom()} {
 		res := w.call(principal, "", "epic create", prdEpic(nil))
 		if r := wantCode(t, res, cli.CodeCapabilityDenied); r.Rule != "coordinator_only" {

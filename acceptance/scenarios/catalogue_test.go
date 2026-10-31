@@ -27,11 +27,11 @@ var tableOnly = map[string]string{
 	"epic create_architecture[open_dependency]": "TestEpicEntersByItsBlockers",
 	"epic unblock": "TestUnblockLandsOnTheRecordedEntry",
 	// No epic reaches prd_needed until `epic create --request` lands, so no
-	// prd-author run claims one.
-	"epic claim prd_needed":     "TestOnlyAPRDAuthorClaimsAPRDEpic",
-	"epic release prd_drafting": "TestASettledPRDAuthorReturnsTheEpicToPRDNeeded",
-	"epic reclaim prd_drafting": "TestASettledPRDAuthorReturnsTheEpicToPRDNeeded",
-	// No scenario starts a prd-author run yet, so no run submits the PRD of
+	// unattended-brainstorm run claims one.
+	"epic claim prd_needed":     "TestOnlyAnUnattendedBrainstormClaimsAPRDEpic",
+	"epic release prd_drafting": "TestASettledUnattendedBrainstormReturnsTheEpicToPRDNeeded",
+	"epic reclaim prd_drafting": "TestASettledUnattendedBrainstormReturnsTheEpicToPRDNeeded",
+	// No scenario starts an unattended-brainstorm run yet, so no run submits the PRD of
 	// the epic it holds. The key names the state, so a room's submit from
 	// initial stays checked end to end.
 	"epic prd_submit prd_drafting": "TestC10ARunSubmitsThePRDOfTheEpicItHolds",
