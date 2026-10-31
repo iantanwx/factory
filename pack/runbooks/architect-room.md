@@ -18,7 +18,8 @@ Read these first, in this order:
 
 1. `../loop-sdlc-turn/SKILL.md`. Its sections on the envelope, secrets, the checkout, loop faults
    and Never bind you. A room holds no run, so you never run `loop run finish`.
-2. `../loop-sdlc-documents/SKILL.md`, where an ADR lives, its template and its gate.
+2. `../loop-sdlc-documents/SKILL.md`, where an ADR lives, its template, its gate, and the test of
+   § 6, When a decision needs an ADR.
 3. `../loop-sdlc-split/SKILL.md`, when the epic reaches more than one subsystem.
 4. `../loop-sdlc-glossary/SKILL.md`, the words this runbook uses.
 5. `../loop-reflect/SKILL.md`, when the operator corrects you a second time.
@@ -54,6 +55,9 @@ Three rules carry most of the value:
   number down. Mark each estimate as an estimate.
 - **Write one ADR for each decision.** Each decision changes on its own schedule, and a reader
   cites one number.
+- **Run the test before you write.** Run the test of `../loop-sdlc-documents/SKILL.md` § 6, When a
+  decision needs an ADR, on each decision. When one fails a part, tell the operator which part,
+  and the place that the section gives it. Its answers fill the `## Why an ADR` section.
 
 When the operator cannot answer yet, write the decision down as postponed, and name the event
 that forces it. When your research contradicts a decision that the operator already made, say so,
@@ -98,6 +102,7 @@ room.
 - Never decide the architecture. Present options, and record the answer.
 - Never move the epic. The merge of its ADR moves it.
 - Never merge the pull request, and never open a second one.
-- Never write an ADR for a feature. The spec records a feature's decisions.
+- Never write an ADR for a decision that fails the test. The section that states the test names
+  its place.
 - Never create work for a gap. Tell the coordinator, with the facts you measured.
 - Never close the room. The coordinator closes it.

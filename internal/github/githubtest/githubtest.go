@@ -358,6 +358,9 @@ type PR struct {
 	// Files lists each path the PR modifies. With none, the PR has the
 	// files that SetFiles counts.
 	Files []string
+	// BaseSHA is the tip of main that the head holds. Add and a PR the
+	// server opens set it to the tip of the moment.
+	BaseSHA string
 }
 
 func (p *PR) json() map[string]any {
@@ -434,6 +437,9 @@ func (w *World) Add(pr *PR) *PR {
 	}
 	if pr.State == "" {
 		pr.State = "open"
+	}
+	if pr.BaseSHA == "" {
+		pr.BaseSHA = w.mainTip()
 	}
 	pr.UpdatedAt = w.tick()
 	w.prs = append(w.prs, pr)
@@ -644,7 +650,7 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			head = w.HeadOf(body["head"])
 		}
 		pr := &PR{Number: len(w.prs) + 1, Head: body["head"], Base: body["base"], State: "open", Title: body["title"],
-			Body: body["body"], HeadSHA: head, UpdatedAt: w.tick()}
+			Body: body["body"], HeadSHA: head, BaseSHA: w.mainTip(), UpdatedAt: w.tick()}
 		w.prs = append(w.prs, pr)
 		WriteJSON(rw, 201, pr.json())
 	case r.Method == http.MethodGet && rePull.MatchString(path):

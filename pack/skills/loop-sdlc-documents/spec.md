@@ -18,6 +18,7 @@
 - **Epic:** <epic id>
 - **Source:** `docs/prd/<slug>.md` for a feature epic. For an architecture epic, list
   each `docs/adr/NNNN-<slug>.md` whose `**Ticket:**` line names this epic.
+  For a PRD epic that went through the ADR stage, name the PRD and each such ADR.
 - **Stories covered:** <US-nn, US-nn>, or none for an architecture epic, which no story asks for.
 
 ## Scope check
@@ -402,5 +403,15 @@ with no such run is undecided.
 >   first bar.
 > - Does the engine read intraday bars? This blocks work entry 4.
 >   **Deferred (operator, 2026-03-02):** To the intraday epic. Work entry 4 reads daily bars only.
+
+A Decisions entry that passes the test of `../loop-sdlc-documents/SKILL.md` § 6, When a decision
+needs an ADR, takes an open question that starts `**Needs an ADR:**` and names the entry. Only an
+`**Answered` run that cites an ADR number decides it.
+
+> **Good**
+>
+> - **Needs an ADR:** Decisions, "The engine stores each result as one Parquet file". It binds the
+>   report epic too, it rejects one row per trade in Postgres, it sets a file layout that others
+>   read, and it decides how. This blocks work entries 2 and 3.
 
 - <Question> This blocks <which work entry>.

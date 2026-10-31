@@ -181,7 +181,11 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 		first.Project = ps[0].ID
 		cc = &first
 	}
-	if err := s.startCoordinator(ctx, cc, &cs); err != nil {
+	var reserved *brief.ReservedError
+	if err := s.startCoordinator(ctx, cc, &cs); errors.As(err, &reserved) {
+		s.raise(ctx, config.Alert{Project: cs.Project, Kind: AlertConfigConflict, DedupeKey: AlertConfigConflict + ":" + stageKey(cs.Project, CoordinatorStage),
+			Subject: "the coordinator session did not start", Body: ReservedRefusal("", reserved).Hint})
+	} else if err != nil {
 		s.raise(ctx, config.Alert{Kind: AlertCoordinator, DedupeKey: AlertCoordinator,
 			Subject: "the coordinator session did not start", Body: err.Error()})
 	}

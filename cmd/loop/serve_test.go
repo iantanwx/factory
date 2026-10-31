@@ -121,6 +121,10 @@ func TestProductionWiringWithFakes(t *testing.T) {
 	if opts.Sched.Pack.FS == nil || opts.Sched.Pack.Version == "" {
 		t.Fatal("the skill pack is not wired")
 	}
+	// C12: the server fetches userspace pins into the state directory.
+	if opts.Sched.FetchSkill == nil || opts.Sched.SkillStore.Dir != filepath.Join(cfg.StateDir, "userspace-skills") {
+		t.Fatalf("the userspace skill fetch is not wired: store %q", opts.Sched.SkillStore.Dir)
+	}
 	var srv *server.Server
 	opts.Setup = append(opts.Setup, func(s *server.Server) error { srv = s; return nil })
 	// The install check reads the service unit under HOME.

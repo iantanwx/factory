@@ -31,6 +31,7 @@ import (
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // File names in the instance directory.
@@ -147,12 +148,18 @@ type Server struct {
 	Rooms       *room.Service
 	// Faults keeps loop fault reports. Every server composes it: a
 	// fault belongs to the instance, not to a project's beads.
-	Faults  *fault.Service
+	Faults *fault.Service
+	// Retro serves the retro verbs. It is composed with the machine, and
+	// is nil otherwise.
+	Retro   *retro.Service
 	Started time.Time
 
 	human *human
 	// caches drops a project's cached config from every loader.
 	caches configCaches
+	// skills fetches each project's userspace pins, or is nil when
+	// Options.Sched.FetchSkill is.
+	skills *userspace.Syncer
 	// overwatch is the sweep's world and part list, composed with the
 	// machine.
 	overwatch overwatchState
@@ -336,7 +343,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		Logger:          logger,
 		HoldsItem:       holdsItem(st, opts.HoldsItem),
 		ReadsItem: func(ctx context.Context, p rpc.Principal, item string) (bool, error) {
-			return readsEpic(ctx, s.Machine, p, item)
+			return readsItem(ctx, st, s.Machine, p, item)
 		},
 		Checkouts: opts.Checkouts,
 		Proc:      opts.Proc,
@@ -348,6 +355,9 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	s = &Server{
 		Instance: dir, HostPath: hostPath, Store: st, Secrets: sec, Redactor: red,
 		Tokens: tokens, RPC: srv, Started: time.Now(), opts: opts, log: srv.Logger(),
+	}
+	if opts.Sched.FetchSkill != nil {
+		s.skills = userspace.NewSyncer(opts.Sched.SkillStore, opts.Sched.FetchSkill, config.StoreAlerter(st), s.log)
 	}
 	s.Projects = &config.Projects{
 		HostPath:    hostPath,
@@ -379,7 +389,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			claims = s.Admission
 		}
 		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: claims,
-			Terminal: escalation.CloseFor, Applied: retro.SignalsFor, Registry: cli.Surface(), Logger: srv.Logger()})
+			Terminal: terminal, Applied: retro.SignalsFor, Registry: cli.Surface(), Logger: srv.Logger()})
 		if err != nil {
 			return nil, err
 		}
@@ -392,6 +402,10 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		s.Machine.SetRetroReader(func(ctx context.Context, project, item string) (machine.RetroOnItem, error) {
 			return retro.OnItem(ctx, st, project, item)
 		})
+		s.Retro = &retro.Service{World: retro.World{Store: st, Machine: s.Machine}, Redactor: red}
+		if err := s.Retro.Register(srv); err != nil {
+			return nil, err
+		}
 		if s.Admission != nil {
 			s.Admission.Attach(s.Machine)
 			if err := srv.Handle("work peek", s.peek); err != nil {
@@ -411,6 +425,15 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	return s, nil
 }
 
+// terminal is the machine's Terminal hook: it closes the item's waiting
+// escalations, then queues the item's retro.
+func terminal(tx *store.Tx, ev machine.TerminalEvent) error {
+	if err := escalation.CloseFor(tx, ev); err != nil {
+		return err
+	}
+	return retro.Enqueue(tx, ev)
+}
+
 func readPreviousVersion(dir string) string {
 	data, err := os.ReadFile(filepath.Join(dir, PreviousVersionFile))
 	if err != nil {
@@ -423,6 +446,15 @@ func readPreviousVersion(dir string) string {
 // server calls it after secret set, secret import and project remove.
 func (s *Server) RefreshRedactor(ctx context.Context) error {
 	return s.Redactor.Refresh(ctx, s.Secrets)
+}
+
+// readsItem opens a read of an item p does not hold: the epic of the held
+// item, and for a room each item its reason names or it created.
+func readsItem(ctx context.Context, st *store.Store, m *machine.Machine, p rpc.Principal, item string) (bool, error) {
+	if ok, err := readsEpic(ctx, m, p, item); ok || err != nil || p.Kind != cli.PrincipalRoom {
+		return ok, err
+	}
+	return room.Reads(ctx, st, p.RunID, p.Project, item)
 }
 
 // readsEpic opens a read of the held item's epic (KTD12 binds moves, not

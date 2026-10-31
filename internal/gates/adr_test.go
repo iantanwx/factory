@@ -171,7 +171,7 @@ func TestADRTemplateAgreesWithTheGate(t *testing.T) {
 	}
 	filled := strings.NewReplacer(
 		"# ADR NNNN: <the decision, in one line>", "# ADR 0042: We choose the boring option",
-		"**Status:** Proposed | Accepted | Superseded by ADR NNNN", "**Status:** Proposed",
+		"**Status:** Proposed | Accepted", "**Status:** Proposed",
 		"**Date:** YYYY-MM-DD", "**Date:** 2026-10-23",
 		"**Ticket:** <epic id>", "**Ticket:** loop-a3f8",
 	).Replace(strings.Join(kept, "\n"))
