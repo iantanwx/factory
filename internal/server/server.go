@@ -189,6 +189,11 @@ func Run(ctx context.Context, opts Options) (err error) {
 			return fmt.Errorf("server: setup: %w", err)
 		}
 	}
+	// A drain lasts until the server restarts, so this start ends the drain
+	// that the store holds on.
+	if err := sched.EndDrains(ctx, s.Store, s.humanClock()()); err != nil {
+		return fmt.Errorf("server: end the drain: %w", err)
+	}
 
 	socket := cli.SocketPath(dir)
 	if err := rpc.PrepareSocket(socket); err != nil {

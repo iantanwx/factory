@@ -318,7 +318,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 
 	out := Admitted{RunID: r.RunID, Project: r.Project, Stage: r.Stage, Item: r.Item, Inputs: snap.inputs, Release: a.cfg.Release}
 	err := a.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-		if isMutexStage(r.Stage) {
+		if MutexStage(r.Stage) {
 			holder, err := mutexHolder(tx, r.Project, r.Stage)
 			if err != nil {
 				return err
@@ -372,7 +372,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 				return err
 			}
 		}
-		if isMutexStage(r.Stage) {
+		if MutexStage(r.Stage) {
 			return takeMutex(tx, r.Project, r.Stage, r.RunID)
 		}
 		return nil
@@ -547,7 +547,7 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 	full := false
 	err := a.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		q := readTx{ctx, tx}
-		if isMutexStage(stage) {
+		if MutexStage(stage) {
 			holder, err := mutexHolder(q, project, stage)
 			if err != nil || holder != "" {
 				full = holder != ""
