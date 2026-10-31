@@ -12,6 +12,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/machine"
@@ -492,11 +493,13 @@ func (in *Inbox) alerts(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 				e.Text = fmt.Sprintf("%s\n\nRaised %d times, %d of them after the finding.", body, count, count-foundCount)
 			}
 			e.Text += "\n\nThe finding:\n\n" + AgentText(findingRun, finding)
-		case kind == sched.AlertStartFailed:
+		case kind == sched.AlertStartFailed || kind == config.AlertOldStageNames:
 			// A stage's cron raises this again at each refused dispatch,
 			// for one cause. The entry keeps the time of the first raise,
 			// so a repeat rings no one even before a finding (F-41). The
-			// text shows the count and the last raise.
+			// text shows the count and the last raise. Each config read
+			// raises old_stage_names again, and the next clean read
+			// clears it, so it keeps its first raise too (F-65).
 			e.At = first
 			if count > 1 {
 				e.Text = fmt.Sprintf("%s\n\nRaised %d times. Last raised at %s.", body, count, time.UnixMilli(at).UTC().Format(time.RFC3339))
