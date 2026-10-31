@@ -155,22 +155,21 @@ loop's maintainers.
 - Jev scores how far apart the two judges' answers are, by the convergence scale of the triage
   rubric.
   → § US-03
-  → .claude/skills/loop-sdlc-triage/SKILL.md § The convergence score
+  → pack/skills/loop-sdlc-triage/SKILL.md § The convergence score
 - A judge answers Q1 `pack PR` only in the loop's own project.
   → § US-03
+  → docs/adr/0009-overwatch.md § Consequences
 - Q3 applies to the targets `pack PR`, `project policy` and `userspace skill`. Q3 does not apply to
   `loop fault` or `project ticket`.
-  → § US-03
+  → § US-04
 - A learning lands when both judges name one target, both answer `two or more`, and Jev's
   convergence and confidence are each at or above the triage rubric's thresholds.
   → § US-03
-  → .claude/skills/loop-sdlc-triage/SKILL.md § The two thresholds a person may change
+  → pack/skills/loop-sdlc-triage/SKILL.md § The two thresholds a person may change
 - A learning that Q3 applies to lands only when both judges answer `edit` or `extend`.
   → § US-03
 - A learning that either judge answers `one` lands nothing. The retro records it as a note on the
   item, and a later retro counts it as a case.
-  → § US-03
-- A learning that would weaken or delete a rule that the operator recorded lands nothing.
   → § US-03
 - A `project policy` or `userspace skill` learning lands as a pull request in the project. The
   project's review and merge rules land it, with no sign-off by the operator.
@@ -222,8 +221,6 @@ loop's maintainers.
   above both thresholds, opens a pull request in the project, and the loop asks the operator nothing.
 - **A14.** A retro outside the loop's own project never opens a pull request in the loop's own
   project.
-- **A15.** A learning that would delete a rule the operator recorded reaches the operator, and
-  nothing lands.
 - **A16.** Each retro puts exactly one inbox notice, and the notice asks no question.
 - **A17.** Each escalation from a retro holds both judges' answers and Jev's reading.
 - **A18.** A userspace rule that two projects hold produces one loop fault that names both
@@ -231,6 +228,10 @@ loop's maintainers.
 - **A19.** A userspace rule that one project holds produces no loop fault.
 - **A20.** An epic or a bug that reached done or closed before this epic ships gets no retro.
 - **A21.** A `project ticket` learning that lands is a bug report in the project.
+- **A22.** An item whose second attempt fails carries a signal note before the epic reaches done or the
+  bug closes.
+- **A23.** A document that gets its second reject carries a signal note before the epic reaches done.
+- **A24.** A userspace rule that an open loop fault already names produces no second loop fault.
 
 ## Boundaries with other epics
 
@@ -244,11 +245,11 @@ loop's maintainers.
 - **The triage panel.** `loop escalation judge` and the triage rubric own the two judges, Jev, the
   convergence scale and the two thresholds. This epic adds the retro's three questions. It changes
   neither the triage rubric nor its thresholds.
-  → .claude/skills/loop-sdlc-triage/SKILL.md
+  → pack/skills/loop-sdlc-triage/SKILL.md
 - **Corrections in a session.** `loop-reflect` owns a correction that a person makes in a session,
   and the correction ledger. This epic reads the record of unattended runs, and it adds no ledger
   row.
-  → .claude/skills/loop-reflect/SKILL.md
+  → pack/skills/loop-reflect/SKILL.md
 - **Overwatch.** factorio-a7r owns the sweep, which reads and never writes. When the sweep finds a
   signal, the coordinator or the server writes the note. The sweep itself writes none.
 - **Loop faults.** `loop fault report` owns the fault record. This epic files faults through it.
