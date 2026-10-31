@@ -52,7 +52,7 @@ var DefaultEfforts = map[string]string{
 	config.StagePRDAuthor:    "high",
 	config.StageSpecAuthor:   "high",
 	config.StageDecomposer:   "high",
-	config.StageAmender:      "medium",
+	config.StageReviser:      "medium",
 	config.StageFixer:        "medium",
 	config.StageReproducer:   "medium",
 	config.StageRetro:        "medium",

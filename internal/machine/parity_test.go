@@ -98,10 +98,10 @@ func TestParityEachStateHasItsClaimingStage(t *testing.T) {
 		{KindTicket, Repair, StageImplementer, Repair},
 		{KindTicket, InReview, StageCodeReviewer, InReview},
 		{KindEpic, PRDReview, StageDocReviewer, PRDReview},
-		{KindEpic, PRDAmending, StageAmender, PRDAmending},
+		{KindEpic, PRDAmending, StageReviser, PRDAmending},
 		{KindEpic, SpecNeeded, StageSpecAuthor, SpecDrafting},
 		{KindEpic, SpecReview, StageDocReviewer, SpecReview},
-		{KindEpic, SpecAmending, StageAmender, SpecAmending},
+		{KindEpic, SpecAmending, StageReviser, SpecAmending},
 		{KindEpic, SpecApproved, StageDecomposer, Decomposing},
 		{KindBug, Reported, StageReproducer, Reproducing},
 	}

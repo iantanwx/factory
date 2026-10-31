@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/pack"
 	packsrc "github.com/iantanwx/loop/pack"
 )
 
@@ -54,5 +56,39 @@ func TestRetiredHitsNameFileLineAndWord(t *testing.T) {
 	got := retiredHits(t, fsys, []string{"old-stage"})
 	if len(got) != 1 || got[0] != "runbooks/a.md:2: old-stage" {
 		t.Fatalf("hits = %q, want one at runbooks/a.md:2", got)
+	}
+}
+
+// C9, work entry 3: amender is a retired word, and no file of the pack
+// holds it.
+func TestC9PackHoldsNoAmender(t *testing.T) {
+	if !slices.Contains(config.RetiredWords(), "amender") {
+		t.Errorf("RetiredWords() = %v, want amender", config.RetiredWords())
+	}
+	if hits := retiredHits(t, packsrc.Files, []string{"amender"}); len(hits) > 0 {
+		t.Errorf("the pack names the amender:\n%s", strings.Join(hits, "\n"))
+	}
+}
+
+// C10, work entry 3: the reviser's runbook lays out as loop-reviser/SKILL.md,
+// and the manifest holds no amender.
+func TestC10TheReviserHasItsRunbookUnderItsNewName(t *testing.T) {
+	m, err := pack.ReadManifest(pack.Source())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Runbooks["reviser"]; !ok {
+		t.Error("the manifest holds no reviser runbook")
+	}
+	if _, ok := m.Runbooks["amender"]; ok {
+		t.Error("the manifest still holds the amender runbook")
+	}
+	laid, err := pack.Layout(pack.Source())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := fs.ReadFile(laid, "loop-reviser/SKILL.md")
+	if err != nil || !strings.Contains(string(b), "name: loop-reviser\n") {
+		t.Fatalf("loop-reviser/SKILL.md = %q, %v, want the reviser's runbook", b, err)
 	}
 }

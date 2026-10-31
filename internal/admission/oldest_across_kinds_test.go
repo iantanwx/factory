@@ -49,7 +49,7 @@ func TestPeekTakesTheOldestAmendmentAcrossPRDAndSpec(t *testing.T) {
 		spec := w.put(machine.KindEpic, machine.SpecAmending, "spec")
 		time.Sleep(5 * time.Millisecond)
 		prd := w.put(machine.KindEpic, machine.PRDAmending, "prd")
-		c, r := w.a.Peek(context.Background(), prj, machine.StageAmender)
+		c, r := w.a.Peek(context.Background(), prj, machine.StageReviser)
 		if r != nil || c == nil || c.Item != spec || c.Status != machine.SpecAmending {
 			t.Fatalf("peek = %+v %+v, want the spec amendment %s, which waited longer than the PRD amendment %s", c, r, spec, prd)
 		}
@@ -61,7 +61,7 @@ func TestPeekTakesTheOldestAmendmentAcrossPRDAndSpec(t *testing.T) {
 		prd := w.put(machine.KindEpic, machine.PRDAmending, "prd")
 		time.Sleep(5 * time.Millisecond)
 		w.move(spec, machine.SpecReview, machine.SpecAmending)
-		c, r := w.a.Peek(context.Background(), prj, machine.StageAmender)
+		c, r := w.a.Peek(context.Background(), prj, machine.StageReviser)
 		if r != nil || c == nil || c.Item != prd || c.Status != machine.PRDAmending {
 			t.Fatalf("peek = %+v %+v, want the PRD amendment %s, which waited longer than the spec amendment %s", c, r, prd, spec)
 		}

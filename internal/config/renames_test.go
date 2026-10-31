@@ -321,3 +321,22 @@ func TestRetiredWordsHoldEachOldKey(t *testing.T) {
 		t.Fatal("a new name has a new name")
 	}
 }
+
+// C1, work entry 3: stages.amender.cap: 2 loads as the reviser's cap of 2,
+// and the read names amender and reviser.
+func TestC1AmenderCapLoadsAsTheRevisersCap(t *testing.T) {
+	pc, err := ParseProjectConfig([]byte("merge:\n  mechanism: direct\nstages:\n  amender:\n    cap: 2\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pc.CheckStages(codeKnown()); err != nil {
+		t.Fatalf("CheckStages: %v", err)
+	}
+	if c := pc.Stages["reviser"].Cap; c == nil || *c != 2 {
+		t.Fatalf("stages.reviser.cap = %v, want 2", c)
+	}
+	want := []Rename{{Source: ProjectConfigPath, Old: "amender", New: "reviser"}}
+	if !slices.Equal(pc.Renames, want) {
+		t.Fatalf("Renames = %+v, want %+v", pc.Renames, want)
+	}
+}

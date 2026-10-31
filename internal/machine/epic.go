@@ -64,9 +64,9 @@ func setEpicEntry(state string) setter {
 }
 
 // amendingFor is where a person's unanswered comment sends a document in
-// review or in sign-off: the amender answers it, and no stage writes the
+// review or in sign-off: the reviser answers it, and no stage writes the
 // document meanwhile. A reviewer writes nothing, and a sign-off waits on
-// a person, so the amender is the one writer in each. Drafting states are
+// a person, so the reviser is the one writer in each. Drafting states are
 // left out: their author is the writer, and answers the comment in the
 // draft. Ported from AMENDABLE_STATES in scripts/sdlc/amend-states.ts
 // (alpha).
@@ -112,7 +112,7 @@ func personComment(c *change) *cli.Refusal {
 	return nil
 }
 
-// amendedUnchanged holds when the amender answered a comment on a signed
+// amendedUnchanged holds when the reviser answered a comment on a signed
 // off document and pushed nothing: the document returns to sign-off, and
 // costs no review round. A revision, or a reply to a reject, returns to
 // review. Workbench in scripts/sdlc/amend-states.ts (alpha) says why the
@@ -125,7 +125,7 @@ func amendedUnchanged(signoff string) func(c *change) bool {
 
 var clearAmend = clearFacts(FactAmendFrom, FactAmendHead)
 
-// prdReject is the first reject (the amender revises once) or the second
+// prdReject is the first reject (the reviser revises once) or the second
 // (a person decides, and no unattended stage revises again: AE7).
 func firstPRDReject(c *change) bool  { return count(c, FactPRDRejects) == 0 }
 func secondPRDReject(c *change) bool { return count(c, FactPRDRejects) > 0 }
@@ -358,11 +358,11 @@ func epicTable() *Table {
 
 		claim(PRDNeeded, PRDDrafting, StagePRDAuthor),
 		claim(PRDReview, ToSame, StageDocReviewer),
-		claim(PRDAmending, ToSame, StageAmender),
+		claim(PRDAmending, ToSame, StageReviser),
 		claim(ADRReview, ToSame, StageDocReviewer),
 		specClaim(claim(SpecNeeded, SpecDrafting, StageSpecAuthor)),
 		claim(SpecReview, ToSame, StageDocReviewer),
-		claim(SpecAmending, ToSame, StageAmender),
+		claim(SpecAmending, ToSame, StageReviser),
 		claim(SpecApproved, Decomposing, StageDecomposer),
 
 		// A pass pins the head the reviewer read: the sign-off entry names

@@ -8,10 +8,10 @@ import (
 )
 
 // 1.12: a person's comment on a document in review or in sign-off moves
-// the epic to the amender, for the PRD and for the spec alike. A
+// the epic to the reviser, for the PRD and for the spec alike. A
 // revision returns the document to review. A reply that changed nothing
 // returns the document to the state the comment found it in.
-func TestPersonCommentMovesTheDocumentToTheAmender(t *testing.T) {
+func TestPersonCommentMovesTheDocumentToTheReviser(t *testing.T) {
 	cases := []struct {
 		from, amending, unchanged, verb, review string
 	}{
@@ -31,7 +31,7 @@ func TestPersonCommentMovesTheDocumentToTheAmender(t *testing.T) {
 				if it.Status != c.amending || it.Fact(FactAmendFrom) != c.from || it.Fact(FactAmendHead) != "h1" {
 					t.Fatalf("after the comment: %s %v", it.Status, it.Facts)
 				}
-				w.claim(ep, StageAmender, "r-amend")
+				w.claim(ep, StageReviser, "r-amend")
 				head, want := "h1", c.unchanged
 				if revised {
 					head, want = "h2", c.review
@@ -47,7 +47,7 @@ func TestPersonCommentMovesTheDocumentToTheAmender(t *testing.T) {
 }
 
 // A person's comment does not count as a doc-reviewer's reject: the
-// first reject after it still goes to the amender, not to a person.
+// first reject after it still goes to the reviser, not to a person.
 func TestPersonCommentIsNoReject(t *testing.T) {
 	w := newWorld(t)
 	ep := w.create(KindEpic, "prd_submit", nil)
@@ -57,7 +57,7 @@ func TestPersonCommentIsNoReject(t *testing.T) {
 	if it := w.show(ep); it.Status != PRDAmending || it.Fact(FactPRDRejects) != "1" {
 		t.Fatalf("the first reject after a comment: %s %v", it.Status, it.Facts)
 	}
-	// The amender's revision after a reject returns to review, whatever
+	// The reviser's revision after a reject returns to review, whatever
 	// head it pushed.
 	w.must(ep, "prd_amended", map[string]string{"head": "h2"})
 	if got := w.show(ep).Status; got != PRDReview {
@@ -65,7 +65,7 @@ func TestPersonCommentIsNoReject(t *testing.T) {
 	}
 }
 
-// The operator can merge a document while the amender answers a comment.
+// The operator can merge a document while the reviser answers a comment.
 // The merge is the sign-off, and the epic moves on from it.
 func TestDocumentMergedWhileAmendingIsTheSignoff(t *testing.T) {
 	w := newWorld(t)
@@ -73,7 +73,7 @@ func TestDocumentMergedWhileAmendingIsTheSignoff(t *testing.T) {
 	ep := w.create(KindEpic, "prd_submit", nil)
 	w.must(ep, "review_pass", map[string]string{"head": "h1"})
 	w.must(ep, VerbPersonComment, map[string]string{"head": "h1"})
-	l := w.claim(ep, StageAmender, "r-amend")
+	l := w.claim(ep, StageReviser, "r-amend")
 	ev := MergeEvent{Project: prj, Item: ep, Base: "main", Into: "main", SHA: "m1"}
 	mustOK(t, w.m.MergeObserved(ctx, ev))
 	mustOK(t, w.m.MergeObserved(ctx, ev))

@@ -69,7 +69,7 @@ func TestEpicRowsEndToEnd(t *testing.T) {
 	e2 := submitPRD(w, co, "Gizmos")
 	w.Must(w.Coordinator("room", "close", room))
 	docReview(w, e2, "reject")
-	failTwice(w, machine.StageAmender, e2, machine.PRDAmending)
+	failTwice(w, machine.StageReviser, e2, machine.PRDAmending)
 	w.ClosePR(docPR(w, e2))
 	w.React()
 	wantStatus(w, e2, machine.Escalated)
@@ -85,7 +85,7 @@ func TestEpicRowsEndToEnd(t *testing.T) {
 
 	// escalate: a run on the epic raises a finding only the owner can
 	// answer, and the fixer's panel sends it to the operator.
-	stage := map[string]string{machine.PRDReview: machine.StageDocReviewer, machine.PRDAmending: machine.StageAmender}[resumed]
+	stage := map[string]string{machine.PRDReview: machine.StageDocReviewer, machine.PRDAmending: machine.StageReviser}[resumed]
 	if stage == "" {
 		t.Fatalf("the epic resumed to %s, which no stage here claims", resumed)
 	}

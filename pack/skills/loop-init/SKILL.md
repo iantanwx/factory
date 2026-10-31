@@ -138,7 +138,7 @@ stages:
   implementer: {}
   code-reviewer: {}
   doc-reviewer: {}
-  amender: {}
+  reviser: {}
   spec-author: {}
   prd-author: {}
   decomposer: {}

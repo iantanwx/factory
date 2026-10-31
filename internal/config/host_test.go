@@ -37,7 +37,7 @@ throughput:
   code-reviewer: {cap: 8, schedule: "*/5 * * * *"}
   doc-reviewer: {cap: 10, schedule: "26,56 * * * *"}
   reviewers: {cap: 10}
-  amender: {cap: 2, schedule: "16,46 * * * *"}
+  reviser: {cap: 2, schedule: "16,46 * * * *"}
   spec-author: {cap: 2, schedule: "25,55 * * * *"}
   decomposer: {cap: 2, schedule: "10,40 * * * *"}
   fixer: {cap: 1, schedule: "14,44 * * * *"}

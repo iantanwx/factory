@@ -146,11 +146,11 @@ func TestIntakeRoomSubmitsAPRDThroughTheServer(t *testing.T) {
 
 	// AE7.
 	w.docReview(epic, "reject")
-	st, ref := w.srv.Sched.Dispatch(ctx, "alpha", machine.StageAmender)
+	st, ref := w.srv.Sched.Dispatch(ctx, "alpha", machine.StageReviser)
 	if ref != nil || st == nil || st.Item != epic {
 		t.Fatalf("the first reject started no amender run: %+v %+v", st, ref)
 	}
-	if again, _ := w.srv.Sched.Dispatch(ctx, "alpha", machine.StageAmender); again != nil {
+	if again, _ := w.srv.Sched.Dispatch(ctx, "alpha", machine.StageReviser); again != nil {
 		t.Fatalf("a second amender run started: %+v", again)
 	}
 	if _, ref := w.srv.Sched.Finish(ctx, st.RunID, "done"); ref != nil {
@@ -164,7 +164,7 @@ func TestIntakeRoomSubmitsAPRDThroughTheServer(t *testing.T) {
 	if got := w.show(epic).Status; got != machine.Escalated {
 		t.Fatalf("after the second reject: %s", got)
 	}
-	if st, _ := w.srv.Sched.Dispatch(ctx, "alpha", machine.StageAmender); st != nil {
+	if st, _ := w.srv.Sched.Dispatch(ctx, "alpha", machine.StageReviser); st != nil {
 		t.Fatalf("an amender run started after the second reject: %+v", st)
 	}
 	e := entryByID(w.entries("person"), "escalation/alpha/"+epic)

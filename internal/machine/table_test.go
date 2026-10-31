@@ -166,7 +166,7 @@ func epicEdges() []edge {
 		{PRDReview, "doc_merged", PRDSignoff},
 		{SpecReview, "doc_merged", SpecSignoff},
 		// Added (1.12): a person's unanswered comment on a document in
-		// review or sign-off goes to the amender. A revision returns to
+		// review or sign-off goes to the reviser. A revision returns to
 		// review, and a reply on a signed-off document that changed
 		// nothing returns to sign-off. A merge while amending is the
 		// sign-off.

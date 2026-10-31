@@ -14,7 +14,7 @@
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents", "loop-domain-modeling"]
     },
-    "amender": {
+    "reviser": {
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-encode-lessons", "loop-sdlc-documents", "loop-unslop", "loop-commit"]
     },

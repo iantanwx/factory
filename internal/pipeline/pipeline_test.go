@@ -136,15 +136,15 @@ func TestFirstRejectAmendsSecondWaitsForAnIntakeRoom(t *testing.T) {
 	if it.Status != machine.PRDAmending || it.Fact(machine.FactPRDRejects) != "1" {
 		t.Fatalf("after the first reject: %+v", it)
 	}
-	c, ref := w.adm.Peek(w.ctx, testProject, machine.StageAmender)
+	c, ref := w.adm.Peek(w.ctx, testProject, machine.StageReviser)
 	if ref != nil || c == nil || c.Item != epic {
 		t.Fatalf("the amender's work query = %+v %+v", c, ref)
 	}
-	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageAmender, RunID: "run-amd"}); res.Refusal != nil {
+	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageReviser, RunID: "run-amd"}); res.Refusal != nil {
 		t.Fatalf("amender claim: %+v", *res.Refusal)
 	}
 	gt.Commit(t, w.checkout, "amend", map[string]string{prdPath: prdText + "\nRevised.\n"})
-	amd := w.run("run-amd", epic, machine.StageAmender)
+	amd := w.run("run-amd", epic, machine.StageReviser)
 	head := gt.Git(t, w.checkout, "rev-parse", "HEAD")
 	ok(t, w.call(amd, "", "branch push", headFlags(head, map[string]string{})))
 	ok(t, w.call(amd, "", "pr open", map[string]string{"title": "Widgets"}))
@@ -159,7 +159,7 @@ func TestFirstRejectAmendsSecondWaitsForAnIntakeRoom(t *testing.T) {
 	if it := w.show(epic); it.Status != machine.Escalated || it.Fact(machine.FactPRDRejects) != "2" {
 		t.Fatalf("after the second reject: %+v", it)
 	}
-	if c, ref := w.adm.Peek(w.ctx, testProject, machine.StageAmender); c != nil || ref != nil {
+	if c, ref := w.adm.Peek(w.ctx, testProject, machine.StageReviser); c != nil || ref != nil {
 		t.Fatalf("an amender run would start again: %+v %+v", c, ref)
 	}
 	e := entry(w.inbox(), "escalation/"+testProject+"/"+epic)

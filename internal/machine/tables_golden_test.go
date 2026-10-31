@@ -95,3 +95,43 @@ func TestRenameStagesMapsNamesOnly(t *testing.T) {
 		t.Fatalf("renameStages = %v, want %v", got, want)
 	}
 }
+
+// C12, work entry 3: the pair amender to reviser moves each golden row of
+// the amender to the reviser, and the build's row is that row.
+func TestC12TheReviserTakesTheAmenderRows(t *testing.T) {
+	raw, err := os.ReadFile(goldenTables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var golden map[string]struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	if err := json.Unmarshal(raw, &golden); err != nil {
+		t.Fatal(err)
+	}
+	s, err := cli.Surface().Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var build struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	if err := json.Unmarshal(s.TransitionTables["epic"], &build); err != nil {
+		t.Fatal(err)
+	}
+	var from []any
+	for i, row := range golden["epic"].Rows {
+		if row["stage"] != "amender" {
+			continue
+		}
+		want := renameStages(row, config.NewStageName)
+		got := renameStages(build.Rows[i], func(string) (string, bool) { return "", false })
+		if !reflect.DeepEqual(got, want) || build.Rows[i]["stage"] != "reviser" {
+			t.Errorf("epic row %d: got %v, want %v under stage reviser", i, got, want)
+		}
+		from = append(from, row["from"].([]any)...)
+	}
+	if !reflect.DeepEqual(from, []any{"prd_amending", "spec_amending"}) {
+		t.Fatalf("the golden amender rows start from %v, want prd_amending and spec_amending", from)
+	}
+}
