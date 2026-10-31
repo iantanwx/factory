@@ -265,6 +265,27 @@ func WorktreeOf(ctx context.Context, dir string, projects []config.Project) (com
 
 func keptKey(checkout string) string { return AlertCheckoutKept + ":" + checkout }
 
+// SettleRemovedKept settles as deleted the checkouts row that the
+// checkout_kept alert names when its path is gone: a person removed the
+// checkout by hand and answered the alert (F-62). A row whose path stands
+// stays as it is, and the cleanup pass judges its checkout.
+func SettleRemovedKept(tx *store.Tx, alert int64) error {
+	var id, path string
+	err := tx.QueryRow(`SELECT c.id, c.path FROM alerts a JOIN checkouts c ON c.id = substr(a.dedupe_key, length(?) + 1)
+		WHERE a.id = ? AND a.kind = ? AND c.state <> ?`, keptKey(""), alert, AlertCheckoutKept, CheckoutDeleted).Scan(&id, &path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	_, err = tx.Exec(`UPDATE checkouts SET state = ?, updated_at = ? WHERE id = ?`, CheckoutDeleted, tx.Now().UnixMilli(), id)
+	return err
+}
+
 // alertKept raises the alert of a kept checkout once for each reason, so a
 // pass that finds the same reason rings nobody again, and an answered alert
 // stays answered until the reason changes.
