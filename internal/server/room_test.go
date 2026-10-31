@@ -16,6 +16,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/room"
+	"github.com/iantanwx/loop/internal/sched"
 )
 
 const roomManifest = "secrets:\n  - name: API_KEY\n    source: op://vault/item/field\n"
@@ -561,5 +562,36 @@ func TestRoomCheckoutNamesWhatTheRoomDoes(t *testing.T) {
 			t.Errorf("%s room record checkout %q, want %q", c.kind, got, co)
 		}
 		w.coordinator("room", "close", id)
+	}
+}
+
+// C5: a room whose checkout tracks a loop- skill directory the pack lacks
+// does not start. The open is refused with CONFIG_CONFLICT and rule
+// reserved_skill_name, its hint names the directory, and a config
+// conflict alert is raised.
+func TestRoomRefusesATrackedReservedSkillDir(t *testing.T) {
+	w := newRoomWorld(t)
+	p, err := w.srv.Projects.Show("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := p.Path
+	if err := os.MkdirAll(filepath.Join(repo, ".claude", "skills", "loop-x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".claude", "skills", "loop-x", "SKILL.md"), []byte("# x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, repo, "add", "-A")
+	gitT(t, repo, "commit", "-q", "-m", "track loop-x")
+	gitT(t, repo, "push", "-q", "origin", "main")
+
+	item := todoTicket(t, w.bx)
+	env, _ := w.coordinator("room", "open", "--kind", "review", "--project", "alpha", "--item", item, "--reason", "r", "--score", "4")
+	if env["code"] != cli.CodeConfigConflict || env["rule"] != "reserved_skill_name" || !strings.Contains(fmt.Sprint(env["hint"]), ".claude/skills/loop-x") {
+		t.Fatalf("room open = %v", env)
+	}
+	if n := w.count(`SELECT count(*) FROM alerts WHERE kind = ? AND state = 'open'`, sched.AlertConfigConflict); n != 1 {
+		t.Fatalf("%d open %s alerts, want 1", n, sched.AlertConfigConflict)
 	}
 }

@@ -569,6 +569,16 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 		}
 	}
 	res, err := brief.Inject(ctx, brief.Injection{Checkout: r.Checkout, Harness: s.cfg.Harness, Pack: s.cfg.Pack, Brief: b, Env: brief.GroupEnv(manifest, env)})
+	var reserved *brief.ReservedError
+	if errors.As(err, &reserved) {
+		_ = fail(cli.CodeConfigConflict, err)
+		ref := sched.ReservedRefusal(r.Item, reserved)
+		if aerr := config.StoreAlerter(s.cfg.Store).Raise(context.WithoutCancel(ctx), config.Alert{Project: r.Project, Kind: sched.AlertConfigConflict,
+			DedupeKey: sched.AlertConfigConflict + ":" + r.Project + "/room", Subject: fmt.Sprintf("%s room %s did not start", r.Kind, r.ID), Body: ref.Hint}); aerr != nil {
+			s.log.ErrorContext(ctx, "raise an alert", "kind", sched.AlertConfigConflict, "err", aerr)
+		}
+		return ref
+	}
 	if err != nil {
 		return fail(cli.CodeInternal, err)
 	}

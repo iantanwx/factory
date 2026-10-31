@@ -125,6 +125,13 @@ func reasons(why map[string]string) string {
 	return strings.Join(out, "; ")
 }
 
+// ReservedRefusal refuses a start whose checkout tracks a loop- skill
+// directory the pack lacks. It does not count.
+func ReservedRefusal(item string, e *brief.ReservedError) *cli.Refusal {
+	return &cli.Refusal{Code: cli.CodeConfigConflict, Rule: "reserved_skill_name", Item: item,
+		Hint: "the repository tracks " + strings.Join(e.Dirs, ", ") + ", a loop- skill directory the release pack does not hold; rename it"}
+}
+
 // start runs one admitted run up to its session. Each failure settles the
 // run uncounted, releases its claim and restores the frontier state.
 func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, hc *config.HostConfig, prof Profile) (*Started, *cli.Refusal) {
@@ -180,6 +187,10 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 			Hint: "the repository tracks a path the loop injects: " + strings.Join(conflict.Paths, ", ") + "; move or rename it"}
 		return fail(ref, true, AlertConfigConflict, err)
 	}
+	var reserved *brief.ReservedError
+	if errors.As(err, &reserved) {
+		return fail(ReservedRefusal(ad.Item, reserved), true, AlertConfigConflict, err)
+	}
 	if err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
@@ -192,6 +203,20 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		return err
 	}); err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
+	}
+	// Another actor can move the item out of its claimed status while the
+	// start runs, such as a cancel that drops the lease (F-59). The run
+	// then starts no session, and it counts nothing against the item.
+	if ad.Item != "" {
+		l, err := s.cfg.Machine.Lease(ctx, ad.Project, ad.Item)
+		if err != nil {
+			return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
+		}
+		if l.Owner != ad.RunID {
+			ref := &cli.Refusal{Code: cli.CodeLeaseNotHeld, Rule: "lease_lost_during_start", Item: ad.Item,
+				Hint: fmt.Sprintf("%s left its claimed status while run %s started; the run starts no session", ad.Item, ad.RunID)}
+			return fail(ref, false, "", errors.New(ref.Hint))
+		}
 	}
 	// Every stage start waits for the model receipt (ADR 0006 D1).
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindStage, Checkout: co.Path, Harness: prof.Harness,

@@ -90,6 +90,9 @@ func ReadManifest(src fs.FS) (*Manifest, error) {
 			return nil, fmt.Errorf("pack: %s: runbook %q is not a lower-case stage name", ManifestFile, stage)
 		}
 		for _, s := range rb.Skills {
+			if !strings.HasPrefix(s, brief.SkillPrefix) {
+				return nil, fmt.Errorf("pack: %s: runbook %q reads skill %q, a userspace skill; a kernel runbook names only %s* skills", ManifestFile, stage, s, brief.SkillPrefix)
+			}
 			if !slices.Contains(m.Skills, s) {
 				return nil, fmt.Errorf("pack: %s: runbook %q reads skill %q, which the manifest does not list", ManifestFile, stage, s)
 			}

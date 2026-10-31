@@ -55,8 +55,9 @@ Stories that must land together are one unit. An epic that fails either question
 `../loop-sdlc-split/SKILL.md` states where the seam falls. Write each PRD in turn, and submit each
 one.
 
-A decision with no product source is architecture, not a requirement. Record it as a decision, and
-keep it out of the PRD.
+A decision with no product source is no requirement, so keep it out of the PRD. Run the test of
+`../loop-sdlc-documents/SKILL.md` § 6, When a decision needs an ADR, on it. Tell the operator the
+place that the section gives it: an ADR when it passes, or the one place for a decision that fails.
 
 ## 4. What a PRD holds
 

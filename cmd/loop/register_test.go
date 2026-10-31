@@ -120,6 +120,90 @@ func TestRegisterInstallsTheSkills(t *testing.T) {
 	}
 }
 
+// committedClone is a clone with one commit that tracks each of files.
+func committedClone(t *testing.T, files ...string) string {
+	t.Helper()
+	clone := t.TempDir()
+	for _, f := range files {
+		writeClone(t, clone, f, f+"\n")
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}, {"commit", "-q", "--allow-empty", "-m", "init"}} {
+		cmd := exec.Command("git", append([]string{"-C", clone, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	return clone
+}
+
+func writeClone(t *testing.T, clone, p, body string) {
+	t.Helper()
+	full := filepath.Join(clone, filepath.FromSlash(p))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// C5: register refuses a clone that tracks a loop- skill directory the
+// pack lacks, and writes no skill.
+func TestRegisterRefusesATrackedReservedSkillDir(t *testing.T) {
+	clone := committedClone(t, ".agents/skills/loop-x/SKILL.md")
+	p, _, err := pack.Brief(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = installSkills(context.Background(), clone, p)
+	var re *brief.ReservedError
+	if !errors.As(err, &re) || !slices.Equal(re.Dirs, []string{".agents/skills/loop-x"}) {
+		t.Fatalf("err = %v; want a *ReservedError for .agents/skills/loop-x", err)
+	}
+	for _, root := range []string{".claude/skills", ".agents/skills"} {
+		if _, err := os.Stat(filepath.Join(clone, root, "loop-init")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("a refused register wrote %s/loop-init", root)
+		}
+	}
+}
+
+// C6: register clears each untracked loop- skill directory the pack lacks
+// under both skill roots, keeps an untracked skill outside the prefix, and
+// changes no tracked file.
+func TestRegisterClearsOnlyStaleUntrackedLoopDirs(t *testing.T) {
+	clone := committedClone(t, ".claude/skills/committed/SKILL.md")
+	for _, root := range []string{".claude/skills", ".agents/skills"} {
+		writeClone(t, clone, root+"/loop-neon/SKILL.md", "# stale\n")
+		writeClone(t, clone, root+"/house-style/SKILL.md", "# house style\n")
+	}
+	p, _, err := pack.Brief(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skills, _ := p.Skills(); slices.Contains(skills, "loop-neon") {
+		t.Fatal("the pack holds loop-neon, so it is no stale directory")
+	}
+	if _, err := installSkills(context.Background(), clone, p); err != nil {
+		t.Fatal(err)
+	}
+	for _, root := range []string{".claude/skills", ".agents/skills"} {
+		if _, err := os.Stat(filepath.Join(clone, root, "loop-neon")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the stale %s/loop-neon is still there (%v)", root, err)
+		}
+		if got, err := os.ReadFile(filepath.Join(clone, root, "house-style", "SKILL.md")); err != nil || string(got) != "# house style\n" {
+			t.Fatalf("%s/house-style/SKILL.md = %q, %v", root, got, err)
+		}
+		if _, err := os.Stat(filepath.Join(clone, root, "loop-init", "SKILL.md")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := exec.Command("git", "-C", clone, "status", "--porcelain", "--untracked-files=no").Output()
+	if err != nil || len(out) != 0 {
+		t.Fatalf("register changed a tracked file: %q %v", out, err)
+	}
+}
+
 // tree reads each file under dir with its mode, by slash path.
 func tree(t *testing.T, dir string) map[string]string {
 	t.Helper()
