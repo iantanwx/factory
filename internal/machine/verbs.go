@@ -87,13 +87,13 @@ func request(call *rpc.Call, prj, target, verb string, params map[string]string)
 
 // borrowed refuses a run's write on an item its token does not hold. The
 // capability check lets a run reach such an item in one case only: the
-// fixer reads and notes the item of the escalation it routes. So the only
-// writes a run makes on a borrowed item are a note, and the fixer's
-// supersede when a finding's answer leaves the ticket no work.
+// triage run reads and notes the item of the escalation it routes. So the
+// only writes a run makes on a borrowed item are a note, and the triage
+// run's supersede when a finding's answer leaves the ticket no work.
 func borrowed(call *rpc.Call, target string) *cli.Refusal {
 	p, path := call.Principal, call.Inv.Verb.Path
 	if p.Kind != cli.PrincipalRun || p.Item == target || path == "work note" ||
-		path == "work supersede" && p.Stage == config.StageFixer {
+		path == "work supersede" && p.Stage == config.StageTriage {
 		return nil
 	}
 	return &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "borrowed_item", Item: target,

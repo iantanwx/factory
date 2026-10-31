@@ -21,9 +21,9 @@ func (w *humanWorld) escalateToPerson() (item, entry string) {
 		w.t.Fatalf("raise = %d %v", code, env)
 	}
 	id := fmt.Sprint(env["data"].(map[string]any)["escalation"].(map[string]any)["escalation"])
-	fixer := w.runToken("fix-1", "", "fixer")
-	panelFile(w.t, fixer, "preference", nil)
-	if env, code := w.as(fixer, "escalation", "route", id, "--file", "panel.json"); code != 0 ||
+	triage := w.runToken("fix-1", "", "triage")
+	panelFile(w.t, triage, "preference", nil)
+	if env, code := w.as(triage, "escalation", "route", id, "--file", "panel.json"); code != 0 ||
 		env["data"].(map[string]any)["route"] != string(escalation.RoutePerson) {
 		w.t.Fatalf("route = %d %v", code, env)
 	}

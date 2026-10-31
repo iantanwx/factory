@@ -14,7 +14,9 @@ import (
 // so no other code reads an old name. No new name is also an old name, each
 // new name is a stage of this loop, and no old name is one. The release
 // after the renames empties it, and an old name then refuses the config.
-var stageRenames = map[string]string{}
+var stageRenames = map[string]string{
+	"fixer": StageTriage,
+}
 
 // retiredWords are the old role words that name no stage key.
 var retiredWords = []string{}

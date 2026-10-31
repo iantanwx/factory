@@ -21,16 +21,16 @@ is not two judges. A run argues for the choice it already made. So the server bu
 things with the score. An escalation with no score is impossible. The server refuses a level that
 the run itself puts in the loop half. Every escalation records a level that a later audit reads.
 
-**The fixer asks two judges.** For each finding,
+**The triage run asks two judges.** For each finding,
 `loop escalation judge <escalation> --finding "<one sentence>"` asks two judges the two questions
 below. A convergence reader then scores how far apart the two answers are.
 `loop escalation route <escalation> --file <panel file>` sends the panels to the server, and the
-server routes each finding. The judges say who answers. The fixer says what the
+server routes each finding. The judges say who answers. The triage run says what the
 answer is.
 
 **The escalating run's own score is evidence, and it is no judge's answer.** The server refuses
-every level under the cut, so a run that escalates states 4 or 5. A fixer that read that number as
-a judge's answer would send every escalation to a person.
+every level under the cut, so a run that escalates states 4 or 5. A triage run that read that
+number as a judge's answer would send every escalation to a person.
 
 ## The rubric routes a finding, and it never answers one
 
@@ -179,9 +179,9 @@ out is not recoverable. So `outside` routes the finding to a person whatever the
 This question still over-escalates at level 4 and level 5, and the loop accepts that trade. Those
 two levels reach a person whatever the gate says, so the gate costs nothing there.
 
-**The narrow question puts nothing outside the repository in the loop's hands.** The fixer's one
-write for an escalation is a route and a note. So an answer the loop gives cannot send a message or
-change a vendor.
+**The narrow question puts nothing outside the repository in the loop's hands.** The triage
+run's one write for an escalation is a route and a note. So an answer the loop gives cannot send a
+message or change a vendor.
 
 ## The route
 

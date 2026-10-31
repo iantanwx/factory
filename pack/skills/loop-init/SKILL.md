@@ -142,7 +142,7 @@ stages:
   spec-author: {}
   prd-author: {}
   decomposer: {}
-  fixer: {}
+  triage: {}
   reproducer: {}
   retro: {}
 signoff:

@@ -3,6 +3,7 @@ package cli_test
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,5 +72,16 @@ func TestRetiredInNamesTheHelpText(t *testing.T) {
 	texts := map[string]string{"x summary": "Ask the Old-Stage.", "y summary": "The old-stager is fine."}
 	if got := retiredIn(texts, []string{"old-stage"}); len(got) != 1 || got[0] != "x summary: old-stage" {
 		t.Fatalf("hits = %q, want x summary only", got)
+	}
+}
+
+// C9, factorio-2mwq: "fixer" is a retired word, and no help text and no
+// caller label of the surface holds it.
+func TestC9HelpHoldsNoFixer(t *testing.T) {
+	if !slices.Contains(config.RetiredWords(), "fixer") {
+		t.Fatalf("RetiredWords() = %v, want fixer", config.RetiredWords())
+	}
+	if hits := retiredIn(helpTexts(cli.Surface()), []string{"fixer"}); len(hits) > 0 {
+		t.Fatalf("the surface names the fixer:\n%s", strings.Join(hits, "\n"))
 	}
 }

@@ -70,7 +70,7 @@ func escalationID(t *testing.T, r acceptance.Result) string {
 	return strconv.Itoa(int(id))
 }
 
-// routeAs starts a fixer run, which the waiting escalation admits, and
+// routeAs starts a triage run, which the waiting escalation admits, and
 // submits the panels for escalation id. It returns the route.
 func routeAs(w *acceptance.World, id string, panels ...escalation.Panel) string {
 	w.T.Helper()
@@ -78,9 +78,9 @@ func routeAs(w *acceptance.World, id string, panels ...escalation.Panel) string 
 	if err != nil {
 		w.T.Fatal(err)
 	}
-	fixer := w.Dispatch(escalation.FixerStage)
-	r := w.Must(w.In(fixer.Checkout, "escalation", "route", id, "--file", w.WriteFile("panel.json", text)))
-	w.Must(w.In(fixer.Checkout, "run", "finish", "--outcome", "done"))
+	triage := w.Dispatch(escalation.TriageStage)
+	r := w.Must(w.In(triage.Checkout, "escalation", "route", id, "--file", w.WriteFile("panel.json", text)))
+	w.Must(w.In(triage.Checkout, "run", "finish", "--outcome", "done"))
 	return r.Str("route")
 }
 

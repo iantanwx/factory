@@ -271,7 +271,7 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 			return Entry{}, err
 		}
 		if rec != nil {
-			text = append(text, fmt.Sprintf("Escalated at level %d %s, choice %s, and the fixer's panel routed it to a person. The finding:",
+			text = append(text, fmt.Sprintf("Escalated at level %d %s, choice %s, and the triage panel routed it to a person. The finding:",
 				rec.Level, rec.LevelName, rec.Choice), AgentText(rec.RunID, rec.Finding))
 		} else {
 			text = append(text, "Escalated: "+orDefault(says, "the item reached escalated"))
@@ -374,10 +374,10 @@ func (in *Inbox) panels(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 			name = escalation.Levels[level-1].Name
 		}
 		out = append(out, Entry{ID: rowEntry(KindPanel, id), Kind: KindPanel, Awaits: AwaitsCoordinator, Project: project, Item: item,
-			Title: fmt.Sprintf("escalation %d on %s waits for the fixer's panel", id, item),
-			Text: fmt.Sprintf("Raised at level %d %s, choice %s. The fixer's next run judges it, and no stage takes the item until then. The finding:",
+			Title: fmt.Sprintf("escalation %d on %s waits for the triage panel", id, item),
+			Text: fmt.Sprintf("Raised at level %d %s, choice %s. The next triage run judges it, and no stage takes the item until then. The finding:",
 				level, name, choice) + "\n\n" + AgentText(run, finding),
-			Next: "the fixer runs `loop escalation judge` and `loop escalation route`", At: at})
+			Next: "a triage run calls `loop escalation judge` and `loop escalation route`", At: at})
 	}
 	return out, rs.Err()
 }

@@ -21,16 +21,15 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 )
 
-// JevKeyVar is the name of Jev's key. The key path (KTD22, settled here):
-// it is a project manifest secret of this name. The operator stores it with
+// JevKeyVar is the name of Jev's key. The key path (KTD22, settled here): it
+// is a project manifest secret of this name. The operator stores it with
 // `loop secret set TYPESAFE_API_KEY --project <id>` or `loop secret import`,
 // and the server writes it into each run's .env at mode 0600 as it writes
-// every manifest secret, and removes it at settlement (KTD17). The fixer's
-// `escalation judge` reads it from its own checkout's .env, or from its
-// process environment, and never prints it. The judge reads the root .env
-// only, so the entry names no dir, and its stages, when set, hold fixer.
-// The server holds no harness
-// login and calls Jev never.
+// every manifest secret, and removes it at settlement (KTD17). The triage
+// run's `escalation judge` reads it from its own checkout's .env, or from
+// its process environment, and never prints it. The judge reads the root
+// .env only, so the entry names no dir, and its stages, when set, hold
+// triage. The server holds no harness login and calls Jev never.
 const JevKeyVar = "TYPESAFE_API_KEY"
 
 // JevBase and JevModel are Jev's endpoint and model alias (jev.ts and
@@ -370,10 +369,10 @@ func rubricPath(flag, cwd, checkout string) (string, error) {
 }
 
 // JudgeVerb is the handler of `loop escalation judge` (KTD22). It runs in
-// the fixer's own process: it asks both judges, then Jev, routes the panel
-// with the server's thresholds, writes the panel file and prints it with
-// the decision. `escalation route` submits that file, and the server routes
-// it again, so the route is never a value the fixer typed.
+// the triage run's own process: it asks both judges, then Jev, routes the
+// panel with the server's thresholds, writes the panel file and prints it
+// with the decision. `escalation route` submits that file, and the server
+// routes it again, so the route is never a value the triage run typed.
 func JudgeVerb(j Judging) cli.Handler {
 	return func(ctx context.Context, inv cli.Invocation) cli.Result {
 		getwd := j.Getwd
@@ -391,7 +390,7 @@ func JudgeVerb(j Judging) cli.Handler {
 		checkout, _ := find(cwd)
 		esc := strings.TrimSpace(inv.Arg("escalation"))
 		if esc == "" {
-			return cli.Reject(cli.CodeUsage, "no_escalation", "name the escalation the finding belongs to; `loop work peek --stage fixer` lists them")
+			return cli.Reject(cli.CodeUsage, "no_escalation", "name the escalation the finding belongs to; `loop work peek --stage triage` lists them")
 		}
 		finding := strings.TrimSpace(inv.Flags["finding"])
 		if finding == "" {

@@ -231,7 +231,7 @@ These rules bind every runbook. Your runbook adds the rules that are its own.
 
 - **Never take a second item.** One run is one item and, for a change, one pull request.
 - **Never write to an item your run does not hold.** The server refuses it, and the attempt to
-  write is a fault in your run. The fixer has one exception. It may note the item of the
+  write is a fault in your run. The triage run has one exception. It may note the item of the
   escalation that it routes.
 - **Never merge.** The server hands an eligible pull request to the project's merge mechanism. The
   operator signs off a PRD or a spec. The coordinator records that approval, and the server merges

@@ -29,8 +29,8 @@ const (
 	StateClosed = "closed"
 )
 
-// FixerStage is the stage that routes escalations.
-const FixerStage = "fixer"
+// TriageStage is the stage that routes escalations.
+const TriageStage = "triage"
 
 // HoldKind is the holds row kind an escalation that waits for its panel
 // takes.
@@ -95,7 +95,7 @@ func (s *Service) log() *slog.Logger {
 // raise is `loop escalation raise`: a run scores its own finding. A score
 // the rubric routes to the loop is refused with ROUTED_TO_LOOP, and a
 // triaged note on the item records the reason; the item keeps its state.
-// Any other score waits for the fixer's panel, and holds its item so no
+// Any other score waits for the triage panel, and holds its item so no
 // stage takes it first.
 func (s *Service) raise(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
@@ -175,22 +175,22 @@ func (s *Service) raise(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	s.changed()
 	return cli.Found(map[string]any{"escalation": rec,
-		"next": "the fixer's panel routes it; no stage takes the item until then, and your lease is untouched"})
+		"next": "the triage panel routes it; no stage takes the item until then, and your lease is untouched"})
 }
 
-// route is `loop escalation route`: the fixer submits the panel file that
-// `escalation judge` wrote. The server routes the panel again with its own
-// thresholds, so the route is never a value the fixer typed.
+// route is `loop escalation route`: the triage run submits the panel file
+// that `escalation judge` wrote. The server routes the panel again with its
+// own thresholds, so the route is never a value the triage run typed.
 func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
-	// The surface's "fixer" label admits every run, so the stage narrows
-	// it here: only the fixer's panel routes.
-	if p.Stage != FixerStage {
-		return cli.Reject(cli.CodeCapabilityDenied, "fixer_only", "only a fixer run routes an escalation; a run raises its own with `loop escalation raise`")
+	// The surface's "triage" label admits every run, so the stage narrows
+	// it here: only the triage panel routes.
+	if p.Stage != TriageStage {
+		return cli.Reject(cli.CodeCapabilityDenied, "triage_only", "only a triage run routes an escalation; a run raises its own with `loop escalation raise`")
 	}
 	id, err := strconv.ParseInt(strings.TrimSpace(inv.Arg("escalation")), 10, 64)
 	if err != nil || id < 1 {
-		return cli.Reject(cli.CodeUsage, "bad_escalation", "the escalation id is a positive number; `loop work peek --stage fixer` lists them")
+		return cli.Reject(cli.CodeUsage, "bad_escalation", "the escalation id is a positive number; `loop work peek --stage triage` lists them")
 	}
 	content, ok := cli.FileContent(inv)
 	if !ok {
@@ -215,7 +215,7 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Internal(err)
 	}
 	if p.Project != "" && rec.Project != p.Project {
-		return cli.Reject(cli.CodeCapabilityDenied, "other_project", "a fixer routes the escalations of its own project only")
+		return cli.Reject(cli.CodeCapabilityDenied, "other_project", "a triage run routes the escalations of its own project only")
 	}
 	if rec.State == StateClosed {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "already_routed", Item: rec.Item,
@@ -252,9 +252,9 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 			}
 		}
 		tr, _ := ParseTriage(strconv.Itoa(rec.Level), rec.Choice)
-		why := "The fixer's panel routed this escalation back to the loop: " + strings.Join(d.Because, "; ")
+		why := "The triage panel routed this escalation back to the loop: " + strings.Join(d.Because, "; ")
 		if released {
-			why += fmt.Sprintf("\n\nThe fixer released `%s` from `%s` into %q in the item's body: %s",
+			why += fmt.Sprintf("\n\nThe triage run released `%s` from `%s` into %q in the item's body: %s",
 				rel.Path, rel.Forbids, "May change", rel.Condition)
 		}
 		note := TriagedNote(tr, why+"\n\nThe finding: "+rec.Finding)
@@ -347,8 +347,9 @@ func (s *Service) Get(ctx context.Context, id int64) (Record, error) {
 	return rec, err
 }
 
-// Pending lists a project's escalations that wait for the fixer's panel,
-// oldest first. The fixer reads them through `loop work peek --stage fixer`.
+// Pending lists a project's escalations that wait for the triage panel,
+// oldest first. The triage run reads them through `loop work peek --stage
+// triage`.
 func (s *Service) Pending(ctx context.Context, project string) ([]Record, error) {
 	var out []Record
 	err := s.Store.Read(ctx, func(tx *sql.Tx) error {
@@ -429,7 +430,7 @@ func lastStatus(q Querier, project, item string) (*machine.Table, string, error)
 // CloseFor closes the item's escalations that wait for their panel, and
 // drops the item's escalation holds. The machine calls it in the
 // transaction that lands the item in a terminal state: no panel can route
-// an escalation of a terminal item, so it must not head the fixer's queue
+// an escalation of a terminal item, so it must not head the triage queue
 // (F-25).
 func CloseFor(tx *store.Tx, ev machine.TerminalEvent) error {
 	project, item := ev.Project, ev.Item

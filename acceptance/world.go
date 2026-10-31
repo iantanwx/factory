@@ -61,7 +61,7 @@ stages:
   amender: {}
   spec-author: {}
   decomposer: {}
-  fixer: {}
+  triage: {}
   reproducer: {}
 `
 

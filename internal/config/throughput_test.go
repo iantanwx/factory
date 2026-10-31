@@ -51,7 +51,7 @@ func TestThroughputKeysHoldStagesJobsAndPools(t *testing.T) {
 // schedule and a pool with one.
 func TestThroughputRefusals(t *testing.T) {
 	cases := map[string]struct{ edit, names string }{
-		"missing stage":        {"  fixer: {cap: 1, schedule: \"14,44 * * * *\"}\n", "throughput.fixer"},
+		"missing stage":        {"  triage: {cap: 1, schedule: \"14,44 * * * *\"}\n", "throughput.triage"},
 		"missing native job":   {"  decision-timers: {cap: 1, schedule: \"* * * * *\"}\n", "throughput.decision-timers"},
 		"missing pool":         {"  reviewers: {cap: 10}\n", "throughput.reviewers"},
 		"zero cap":             {"  implementer: {cap: 4, ", "throughput.implementer.cap"},
@@ -142,13 +142,13 @@ func TestHostLoaderReloadsAndKeepsTheLastGoodConfig(t *testing.T) {
 	if cfg, err = l.Load(ctx); err != nil || cfg.Throughput["implementer"].Cap != 2 {
 		t.Fatalf("a reload did not take the new cap: %+v, %v", cfg, err)
 	}
-	write(strings.Replace(validHost, "  fixer: {cap: 1, schedule: \"14,44 * * * *\"}\n", "", 1))
+	write(strings.Replace(validHost, "  triage: {cap: 1, schedule: \"14,44 * * * *\"}\n", "", 1))
 	cfg, err = l.Load(ctx)
 	if err != nil || cfg.Throughput["implementer"].Cap != 2 {
 		t.Fatalf("an invalid file did not keep the last good config: %+v, %v", cfg, err)
 	}
-	if len(alerts.raised) != 1 || !strings.Contains(alerts.raised[0], "throughput.fixer") {
-		t.Fatalf("alerts = %v, want one that names throughput.fixer", alerts.raised)
+	if len(alerts.raised) != 1 || !strings.Contains(alerts.raised[0], "throughput.triage") {
+		t.Fatalf("alerts = %v, want one that names throughput.triage", alerts.raised)
 	}
 	write(validHost)
 	if cfg, err = l.Load(ctx); err != nil || cfg.Throughput["implementer"].Cap != 4 {
@@ -201,7 +201,7 @@ func TestAgentJobIsAnItemlessStageWithItsOwnLimit(t *testing.T) {
 // to load and names the field.
 func TestAgentJobRefusals(t *testing.T) {
 	cases := map[string]struct{ entry, names string }{
-		"shadows a stage":      {"  fixer: {cap: 1, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.fixer"},
+		"shadows a stage":      {"  triage: {cap: 1, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.triage"},
 		"shadows a native job": {"  merge-handoff: {cap: 1, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.merge-handoff"},
 		"shadows a pool":       {"  reviewers: {cap: 1, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.reviewers"},
 		"bad name":             {"  Nightly: {cap: 1, schedule: \"0 3 * * *\", runbook: a.md}\n", "agent_jobs.Nightly"},
@@ -447,7 +447,7 @@ func TestC23OverdueRefusals(t *testing.T) {
 }
 
 // A host config that v0.0.58 wrote holds no retro entry. It loads, and the
-// retro stage reads cap 1 on the fixer's schedule without writing the entry.
+// retro stage reads cap 1 on the triage schedule without writing the entry.
 func TestOldHostConfigLoadsWithNoRetroEntry(t *testing.T) {
 	if !slices.Contains(RunStages(), "retro") {
 		t.Fatalf("RunStages lacks retro: %v", RunStages())

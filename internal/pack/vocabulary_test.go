@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/pack"
 	packsrc "github.com/iantanwx/loop/pack"
 )
 
@@ -54,5 +56,44 @@ func TestRetiredHitsNameFileLineAndWord(t *testing.T) {
 	got := retiredHits(t, fsys, []string{"old-stage"})
 	if len(got) != 1 || got[0] != "runbooks/a.md:2: old-stage" {
 		t.Fatalf("hits = %q, want one at runbooks/a.md:2", got)
+	}
+}
+
+// C9, factorio-2mwq: "fixer" is a retired word, and no pack file holds it.
+func TestC9PackHoldsNoFixer(t *testing.T) {
+	if !slices.Contains(config.RetiredWords(), "fixer") {
+		t.Fatalf("RetiredWords() = %v, want fixer", config.RetiredWords())
+	}
+	if hits := retiredHits(t, packsrc.Files, []string{"fixer"}); len(hits) > 0 {
+		t.Fatalf("the pack names the fixer:\n%s", strings.Join(hits, "\n"))
+	}
+}
+
+// C10, factorio-2mwq: the triage stage has its runbook under its new name.
+// It lays out as loop-triage/SKILL.md, and the manifest holds no fixer key.
+func TestC10TriageRunbookLaysOutUnderItsNewName(t *testing.T) {
+	m, err := pack.ReadManifest(packsrc.Files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m.Runbooks["triage"]; !ok {
+		t.Fatal("the manifest holds no triage runbook")
+	}
+	if _, ok := m.Runbooks["fixer"]; ok {
+		t.Fatal("the manifest still holds the triage runbook")
+	}
+	tree, err := pack.Layout(packsrc.Files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := fs.ReadFile(tree, "loop-triage/SKILL.md")
+	if err != nil {
+		t.Fatalf("the layout holds no loop-triage/SKILL.md: %v", err)
+	}
+	if !strings.Contains(string(raw), "name: loop-triage\n") {
+		t.Fatal("loop-triage/SKILL.md does not name itself loop-triage")
+	}
+	if _, err := fs.Stat(tree, "loop-fixer"); err == nil {
+		t.Fatal("the layout still holds loop-fixer")
 	}
 }
