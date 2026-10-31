@@ -68,7 +68,7 @@ const maxPullPages = 10
 // base. CI cancelled by a newer push
 // is superseded, not red. An ADR on the base whose Ticket line names an
 // architecture epic moves the epic to spec_needed. A person's unanswered
-// comment on a document in review or sign-off moves its epic to the amender.
+// comment on a document in review or sign-off moves its epic to the reviser.
 // A first-parent commit of the base that no review passed raises an alert.
 type Reactor struct {
 	s   *Service
@@ -682,7 +682,7 @@ func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 	return errors.Join(errs...)
 }
 
-// amendments moves to the amender each epic whose open document PR holds
+// amendments moves to the reviser each epic whose open document PR holds
 // a person's comment that the loop has not answered (1.12): a PRD or a
 // spec in review or in sign-off. The machine refuses to move an epic a
 // run holds, so a held epic waits, and loses nothing: only a reply
