@@ -29,14 +29,11 @@ type ManifestEntry struct {
 	// a key that one app uses reaches that app's .env only (parity 9.3).
 	Dir string `yaml:"dir,omitempty"`
 	// Stages names the stages whose runs receive the secret. Absent for
-	// every stage (parity 11.2).
+	// every stage (parity 11.2). A name this release does not know loads and
+	// reaches no run, so a base branch can name a stage of a later release
+	// before the host runs it (F-63).
 	Stages []string `yaml:"stages,omitempty"`
 }
-
-// manifestStages are the stages an entry may name: each stage that runs an
-// agent, and each room. The room package's Kinds give the room names, and
-// its test proves each room's stage is one of these.
-var manifestStages = append(RunStages(), "intake-room", "decision-room", "review-room", "architect-room")
 
 // ForStage returns the entries a run of stage receives: each entry with no
 // stages, and each entry that names stage, in manifest order.
@@ -100,10 +97,7 @@ func ParseManifest(data []byte) (*Manifest, error) {
 			ck.fail(f+".stages", "must name at least one stage; leave it out for every stage")
 		}
 		for j, st := range e.Stages {
-			switch {
-			case !slices.Contains(manifestStages, st):
-				ck.fail(fmt.Sprintf("%s.stages[%d]", f, j), "is not a stage of this loop: one of %s", strings.Join(manifestStages, ", "))
-			case slices.Contains(e.Stages[:j], st):
+			if slices.Contains(e.Stages[:j], st) {
 				ck.fail(fmt.Sprintf("%s.stages[%d]", f, j), "names a stage twice")
 			}
 		}

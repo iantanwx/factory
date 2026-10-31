@@ -109,7 +109,6 @@ func TestParseManifestRefuses(t *testing.T) {
 		"dot dir":         validManifest + "  - name: WEB_KEY\n    dir: .\n",
 		"backslash dir":   validManifest + "  - name: WEB_KEY\n    dir: apps\\web\n",
 		"git dir":         validManifest + "  - name: WEB_KEY\n    dir: .git/hooks\n",
-		"unknown stage":   validManifest + "  - name: WEB_KEY\n    stages: [deploy]\n",
 		"empty stages":    validManifest + "  - name: WEB_KEY\n    stages: []\n",
 		"twice a stage":   validManifest + "  - name: WEB_KEY\n    stages: [implementer, implementer]\n",
 	}
