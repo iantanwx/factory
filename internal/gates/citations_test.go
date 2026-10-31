@@ -103,6 +103,17 @@ func TestStoryFindings(t *testing.T) {
 	if got := storyFindings(prdFile, prdWith()); len(got) != 0 {
 		t.Fatalf("two stories = %v", got)
 	}
+	// C-bug-1: only an unfenced story heading defines a label, as on submit.
+	for name, text := range map[string]string{
+		"prose":    "# Engine\n\nThe design stage owns US-07 of docs/prd/design-stage.md.\n",
+		"table":    "# Engine\n\n| Story |\n| --- |\n| US-01 |\n",
+		"citation": "# Engine\n\n## Requirements\n\n- Run it.\n  → § US-01\n",
+		"fence":    "# Engine\n\n```\n## US-01 An example story\n```\n",
+	} {
+		if got := rules(storyFindings(prdFile, text)); !slices.Equal(got, []string{"no_stories"}) {
+			t.Fatalf("a label only in %s = %v", name, got)
+		}
+	}
 	got := storyFindings(prdFile, prdWith()+"\n### US-01 Run it again\n")
 	if !slices.Equal(rules(got), []string{"duplicate_story"}) || !strings.Contains(got[0].Message, "line 5") {
 		t.Fatalf("a label defined twice = %v", got)
@@ -132,6 +143,17 @@ func TestCitationsDroppedStory(t *testing.T) {
 	}
 	if got[0].File != prdFile || !strings.Contains(got[0].Message, "US-10") || got[1].File != "docs/prd/loop-b1-gone.md" || !strings.Contains(got[1].Message, "gone") {
 		t.Fatalf("dropped = %v", got)
+	}
+}
+
+// C-bug-1: a label the base PRD named only in prose was no story of it, so
+// a change that drops the sentence drops no story.
+func TestCitationsDroppedStoryCountsOnlyStoryHeadings(t *testing.T) {
+	ok := prdWith("- Cited.", "  → § US-01")
+	r := testRepo(t, map[string]string{prdFile: ok + "\n## Boundaries\n\nThe design stage owns US-07 of docs/prd/design-stage.md.\n"})
+	commit(t, r, "docs: drop the boundary", map[string]string{prdFile: ok})
+	if got, err := Citations(context.Background(), r); err != nil || len(got) != 0 {
+		t.Fatalf("dropped prose label = %v %v", got, err)
 	}
 }
 
