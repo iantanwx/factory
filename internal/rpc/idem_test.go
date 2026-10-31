@@ -352,3 +352,88 @@ func TestConditionalRefusalIsNotReplayed(t *testing.T) {
 		t.Fatalf("the retry after the cap freed must run again: %v", env)
 	}
 }
+
+// factorio-ny3n: a sign-off answer names an entry and no item. Its key
+// holds the state of the epic the entry names. So a repeat at the same
+// state replays, and the same words at the next sign-off of that entry
+// are a new write.
+func TestSignoffAnswerKeyHoldsTheStateOfTheEntrysEpic(t *testing.T) {
+	h := newHarness(t)
+	state := &itemState{status: "prd_signoff", seq: 3}
+	var read atomic.Value
+	h.handle("work show", func(ctx context.Context, c *Call) cli.Result {
+		read.Store(c.Inv.Flags["project"] + "/" + c.Inv.Arg("item"))
+		return state.handler(ctx, c)
+	})
+	var calls atomic.Int32
+	h.handle("inbox answer", func(context.Context, *Call) cli.Result {
+		return cli.Found(map[string]any{"answer": calls.Add(1)})
+	})
+	h.start()
+	coord := h.issue("coordinator-r-1", cli.PrincipalCoordinator, "")
+	answer := func() map[string]any {
+		t.Helper()
+		env, code := h.run(coord, "inbox", "answer", "signoff/alpha/E-1", "--body", "Approve")
+		if code != 0 {
+			t.Fatalf("exit %d: %v", code, env)
+		}
+		return env
+	}
+
+	answer()
+	if got := read.Load(); got != "alpha/E-1" {
+		t.Fatalf("the key read %v, want the state of alpha/E-1", got)
+	}
+	if env := answer(); env["replayed"] != true || calls.Load() != 1 {
+		t.Fatalf("a repeat at the same state = %v after %d answers, want a replay", env, calls.Load())
+	}
+	state.set("spec_signoff", 7)
+	if env := answer(); env["replayed"] == true || calls.Load() != 2 {
+		t.Fatalf("the same words at the next sign-off = %v after %d answers, want a new write", env, calls.Load())
+	}
+}
+
+// A replay guard reads a stored answer before the server replays it. Its
+// refusal is the answer in place of the replay, and the handler does not
+// run again.
+func TestReplayGuardRefusesAStoredAnswer(t *testing.T) {
+	h := newHarness(t)
+	var calls atomic.Int32
+	h.handle("work note", func(context.Context, *Call) cli.Result {
+		calls.Add(1)
+		return cli.Found(map[string]any{"head": "h1"})
+	})
+	var head atomic.Value
+	head.Store("h1")
+	if err := h.srv.GuardReplay("work note", func(_ context.Context, _ *Call, stored cli.Envelope) *cli.Result {
+		if stored.Data.(map[string]any)["head"] == head.Load() {
+			return nil
+		}
+		return new(cli.Refuse(cli.Refusal{Code: cli.CodeStatusChanged, Rule: "answer_at_other_head"}))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.start()
+	a := h.issue("run-a", cli.PrincipalRun, "T-A")
+	tf, _ := cli.ReadTokenFile(a)
+	h.proc.setCwd(a)
+	conn, err := grpc.NewClient("unix://"+cli.SocketPath(h.dir), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	req := &loopv1.VerbRequest{Verb: "work note", Args: []string{"T-A"}, Flags: map[string]string{"body": "b"},
+		IdempotencyKey: "k1-guard", RunToken: tf.Token, ClientVersion: cli.Version}
+	for range 2 {
+		if env, _ := rawCall(t, conn, "/loop.v1.WorkService/Note", req); !env.GetOk() {
+			t.Fatalf("the call at the stored head: %v", env)
+		}
+	}
+	head.Store("h2")
+	if env, _ := rawCall(t, conn, "/loop.v1.WorkService/Note", req); env.GetRefusal().GetRule() != "answer_at_other_head" {
+		t.Fatalf("the replay at another head = %v, want the guard's refusal", env)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("the handler ran %d times, want once", n)
+	}
+}

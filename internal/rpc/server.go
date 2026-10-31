@@ -104,6 +104,7 @@ type Server struct {
 
 	mu       sync.RWMutex
 	handlers map[string]Handler
+	guards   map[string]ReplayGuard
 
 	keyMu sync.Mutex
 	keys  map[string]*keyLock
@@ -151,6 +152,7 @@ func New(opts Options) (*Server, error) {
 		matrix:   m,
 		log:      NewRedactingLogger(next, opts.Redactor),
 		handlers: map[string]Handler{},
+		guards:   map[string]ReplayGuard{},
 		keys:     map[string]*keyLock{},
 	}
 	s.grpc = grpc.NewServer(
@@ -176,6 +178,25 @@ func (s *Server) Handle(path string, h Handler) error {
 		return fmt.Errorf("rpc: verb %q already has a handler", path)
 	}
 	s.handlers[path] = h
+	return nil
+}
+
+// ReplayGuard reads the stored answer of a write before the server
+// replays it. A non-nil result is the answer in place of the replay, and
+// the stored answer stays.
+type ReplayGuard func(ctx context.Context, call *Call, stored cli.Envelope) *cli.Result
+
+// GuardReplay sets the replay guard of one write by its path.
+func (s *Server) GuardReplay(path string, g ReplayGuard) error {
+	if v, ok := s.reg.Verb(path); !ok || !v.Write {
+		return fmt.Errorf("rpc: no write %q", path)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, dup := s.guards[path]; dup {
+		return fmt.Errorf("rpc: write %q already has a replay guard", path)
+	}
+	s.guards[path] = g
 	return nil
 }
 
@@ -443,6 +464,14 @@ func (s *Server) idempotent(ctx context.Context, call *Call, key string) (cli.Re
 		env, err := s.replayed(rec, call.Request.GetRequestId())
 		if err != nil {
 			return cli.Internal(fmt.Errorf("read the stored answer: %w", err)), nil
+		}
+		s.mu.RLock()
+		guard := s.guards[inv.Verb.Path]
+		s.mu.RUnlock()
+		if guard != nil {
+			if res := guard(ctx, call, *env); res != nil {
+				return *res, nil
+			}
 		}
 		return cli.Result{}, env
 	}

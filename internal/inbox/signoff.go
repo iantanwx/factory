@@ -186,3 +186,28 @@ func (in *Inbox) project(id string) (config.Project, error) {
 	}
 	return config.Project{}, fmt.Errorf("no project %s", id)
 }
+
+// answerAtOtherHead guards the replay of an answer to a sign-off entry.
+// The PRD and the spec of one epic share the entry, so a stored answer
+// can approve another head than the head the entry names now. Such an
+// answer is refused, and never replayed as success. A stored answer at
+// the entry's head, or after the epic left its sign-off, replays.
+func (in *Inbox) answerAtOtherHead(ctx context.Context, call *rpc.Call, stored cli.Envelope) *cli.Result {
+	kind, project, item, _, ok := parseEntry(call.Inv.Arg("entry"))
+	data, _ := stored.Data.(map[string]any)
+	approved, _ := data["head"].(string)
+	if !ok || kind != KindSignoff || approved == "" {
+		return nil
+	}
+	it, ref := in.cfg.Machine.Read(ctx, project, item)
+	if ref != nil || it.Status != machine.PRDSignoff && it.Status != machine.SpecSignoff {
+		return nil
+	}
+	head := it.Fact(machine.FactReviewedHead)
+	if head == approved {
+		return nil
+	}
+	return new(cli.Refuse(cli.Refusal{Code: cli.CodeStatusChanged, Rule: "answer_at_other_head", Item: item, CurrentStatus: it.Status,
+		Hint: fmt.Sprintf("the stored answer of this command approved head %s, and the entry names head %s now; "+
+			"run the command again, and the CLI sends it as a new answer at head %s", approved, head, head)}))
+}

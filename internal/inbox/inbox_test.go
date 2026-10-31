@@ -274,3 +274,38 @@ func TestSpecSignoffRecordsTheSpecPath(t *testing.T) {
 		t.Fatalf("after the PRD sign-off: %s %v", it.Status, it.Facts)
 	}
 }
+
+// factorio-ny3n: the server never replays a stored sign-off answer as
+// success when it approved another head than the head the entry names
+// now. A stored answer at the entry's head, or after the epic left its
+// sign-off, still replays.
+func TestStoredSignoffAnswerAtAnotherHeadIsRefused(t *testing.T) {
+	callOf := func(ep string) *rpc.Call {
+		inv, bad := cli.Surface().Validate("inbox answer", []string{"signoff/" + prj + "/" + ep}, map[string]string{"body": "Approve"}, "r")
+		if bad != nil {
+			t.Fatal(bad)
+		}
+		return &rpc.Call{Inv: inv}
+	}
+	stored := func(head string) cli.Envelope {
+		return cli.Envelope{OK: true, Data: map[string]any{"merged": true, "pr": 6.0, "head": head}}
+	}
+	w, ep := newSignoffWorld(t, machine.SpecSignoff, nil, nil)
+	call := callOf(ep)
+
+	res := w.in.answerAtOtherHead(w.ctx, call, stored("h0"))
+	if res == nil || res.Refusal == nil || res.Refusal.Code != cli.CodeStatusChanged || res.Refusal.Rule != "answer_at_other_head" {
+		t.Fatalf("the PRD's stored answer at the spec sign-off = %+v, want a refusal", res)
+	}
+	if !strings.Contains(res.Refusal.Hint, "h0") || !strings.Contains(res.Refusal.Hint, signoffHead) {
+		t.Fatalf("the hint %q names neither head", res.Refusal.Hint)
+	}
+	if res := w.in.answerAtOtherHead(w.ctx, call, stored(signoffHead)); res != nil {
+		t.Fatalf("a stored answer at the entry's head = %+v, want a replay", res)
+	}
+
+	moved, ep := newSignoffWorld(t, machine.SpecNeeded, nil, nil)
+	if res := moved.in.answerAtOtherHead(moved.ctx, callOf(ep), stored("h0")); res != nil {
+		t.Fatalf("a stored answer after the epic left its sign-off = %+v, want a replay", res)
+	}
+}
