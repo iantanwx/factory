@@ -679,9 +679,8 @@ sequenceDiagram
    the same head and `loop pr rerun` to `implementer.md` for a red pixel gate on an accepted state.
    - Files: `internal/gates/pixel.go`, `internal/gates/pixel_test.go`,
      `pack/runbooks/implementer.md`, `internal/pack/screens_test.go`
-   - Needs: entry 7 for the gate, and the answer to Open questions 1. It reads a fixture manifest,
-     and the Interfaces section fixes the shape of `Manifest.Accepted`, so it needs entry 8 for no
-     part of its proof.
+   - Needs: entry 7 for the gate, entry 8 for the `Accepted` field of `captures.Manifest`, and the
+     answer to Open questions 1
    - Proves: C29
    - Done when: a state marked `pixel 0.5%` with an accepted share of 120 passes at 240 differing
      pixels of 20000 and fails at 241, and the pack test reads the rerun step.
