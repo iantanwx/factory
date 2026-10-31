@@ -31,7 +31,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | `code-reviewer` | Reviews the pull request of one ticket | ticket `in_review` |
 | `unattended-brainstorm` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
 | `doc-reviewer` | Reviews one PRD, one spec or one ADR pull request | epic `prd_review`, `spec_review`, `adr_review` |
-| `amender` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
+| `reviser` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
 | `planner` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
 | `decomposer` | Cuts one approved spec into tickets in one batch | epic `spec_approved` |
 | `triage` | Routes each escalation through the triage panel | escalations that wait for a panel |
@@ -40,7 +40,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 
 The server performs every other move. It reacts to GitHub: a red build moves a ticket to `repair`,
 a new head after a pass returns it to `in_review`, and a merge moves it to `done`. A person's
-unanswered comment on a PRD or a spec in review or in sign-off moves its epic to the amender. It hands each
+unanswered comment on a PRD or a spec in review or in sign-off moves its epic to the reviser. It hands each
 eligible pull request to the project's merge mechanism. No agent merges.
 
 ## Loop states

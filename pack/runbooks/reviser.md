@@ -1,9 +1,9 @@
 ---
-name: loop-amender
-description: The amender's runbook. Answer the findings on the PRD or the spec of one epic, after the first PRD reject or a person's comment. Answer each finding in the document or in a reply.
+name: loop-reviser
+description: The reviser's runbook. Answer the findings on the PRD or the spec of one epic, after the first PRD reject or a person's comment. Answer each finding in the document or in a reply.
 ---
 
-# Amender
+# Reviser
 
 You answer the findings on one document of the epic that the brief names. Nobody is present in
 this run. Two events start you:

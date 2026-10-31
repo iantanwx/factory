@@ -40,7 +40,7 @@ new epic gets a brainstorm room of its own. Section 7 states why.
   its comment. It never creates an epic.
 - **The unattended brainstorm never splits.** It writes one PRD for one epic. When the request needs a
   second epic, it escalates with a score.
-- **The amender never splits.** When the seam needs a second epic, it escalates with a score.
+- **The reviser never splits.** When the seam needs a second epic, it escalates with a score.
 - **The planner never splits.** It names the seam under Open questions, and proposes the
   split.
 - **The decomposer never splits an epic.** It cuts tickets inside one epic.

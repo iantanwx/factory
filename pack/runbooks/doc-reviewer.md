@@ -64,10 +64,10 @@ rule `adr_needed_scope`.
 What happens after your verdict:
 
 - A pass moves the epic to `prd_signoff`. The operator signs it off by merge.
-- A first reject moves the epic to `prd_amending`. The amender revises it once from your comment.
+- A first reject moves the epic to `prd_amending`. The reviser revises it once from your comment.
 - A second reject escalates the epic to the operator.
 
-So write a reject that the amender can act on from the comment alone.
+So write a reject that the reviser can act on from the comment alone.
 
 ## 3. Review a spec
 

@@ -58,7 +58,7 @@ func parseLadder(text string) ladder {
 		}
 		l.rungs = append(l.rungs, ladderRung{n, pack.Bare(row.Cells[1])})
 	}
-	for _, row := range pack.Table(text, "scope", "the correction binds", "what the amender does") {
+	for _, row := range pack.Table(text, "scope", "the correction binds", "what the reviser does") {
 		l.scopes = append(l.scopes, pack.Bare(row.Cells[0]))
 	}
 	for _, row := range pack.Table(text, "channel", "where the person wrote it", "what locates the correction") {

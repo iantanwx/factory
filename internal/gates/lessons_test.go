@@ -19,7 +19,7 @@ const ladderRungs = "| Strength | Mechanism | Where it lives in a project |\n| -
 	"| 1 | A type that cannot hold the bad value | The code itself |\n" +
 	"| 2 | A gate that fails CI | A gate |"
 
-const ladderRest = "| Scope | The correction binds | What the amender does |\n| --- | --- | --- |\n" +
+const ladderRest = "| Scope | The correction binds | What the reviser does |\n| --- | --- | --- |\n" +
 	"| `repository` | Every later document | Names its lesson |\n" +
 	"| `document` | One paragraph | Reaches no rung |\n\n" +
 	"| Channel | Where the person wrote it | What locates the correction |\n| --- | --- | --- |\n" +

@@ -56,7 +56,7 @@ A correction binds the repository, or it binds one paragraph. Ask three question
 3. Look for a lesson in the ledger that covers it. Add to that lesson. Never open a second lesson
    for one rule.
 
-| Scope | The correction binds | What the amender does |
+| Scope | The correction binds | What the reviser does |
 | --- | --- | --- |
 | `repository` | Every later document of the same kind | Records the correction, and names its lesson |
 | `document` | The paragraph that the correction marks | Records the correction, and reaches no rung |
