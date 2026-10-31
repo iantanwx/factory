@@ -1835,9 +1835,10 @@ var EscalationService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	RetroService_Record_FullMethodName = "/loop.v1.RetroService/Record"
-	RetroService_Held_FullMethodName   = "/loop.v1.RetroService/Held"
-	RetroService_Route_FullMethodName  = "/loop.v1.RetroService/Route"
+	RetroService_Record_FullMethodName   = "/loop.v1.RetroService/Record"
+	RetroService_Held_FullMethodName     = "/loop.v1.RetroService/Held"
+	RetroService_Route_FullMethodName    = "/loop.v1.RetroService/Route"
+	RetroService_Compared_FullMethodName = "/loop.v1.RetroService/Compared"
 )
 
 // RetroServiceClient is the client API for RetroService service.
@@ -1847,6 +1848,7 @@ type RetroServiceClient interface {
 	Record(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Held(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Route(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Compared(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type retroServiceClient struct {
@@ -1887,6 +1889,16 @@ func (c *retroServiceClient) Route(ctx context.Context, in *VerbRequest, opts ..
 	return out, nil
 }
 
+func (c *retroServiceClient) Compared(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, RetroService_Compared_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RetroServiceServer is the server API for RetroService service.
 // All implementations must embed UnimplementedRetroServiceServer
 // for forward compatibility.
@@ -1894,6 +1906,7 @@ type RetroServiceServer interface {
 	Record(context.Context, *VerbRequest) (*Envelope, error)
 	Held(context.Context, *VerbRequest) (*Envelope, error)
 	Route(context.Context, *VerbRequest) (*Envelope, error)
+	Compared(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedRetroServiceServer()
 }
 
@@ -1912,6 +1925,9 @@ func (UnimplementedRetroServiceServer) Held(context.Context, *VerbRequest) (*Env
 }
 func (UnimplementedRetroServiceServer) Route(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Route not implemented")
+}
+func (UnimplementedRetroServiceServer) Compared(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Compared not implemented")
 }
 func (UnimplementedRetroServiceServer) mustEmbedUnimplementedRetroServiceServer() {}
 func (UnimplementedRetroServiceServer) testEmbeddedByValue()                      {}
@@ -1988,6 +2004,24 @@ func _RetroService_Route_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RetroService_Compared_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RetroServiceServer).Compared(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RetroService_Compared_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RetroServiceServer).Compared(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RetroService_ServiceDesc is the grpc.ServiceDesc for RetroService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2006,6 +2040,10 @@ var RetroService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Route",
 			Handler:    _RetroService_Route_Handler,
+		},
+		{
+			MethodName: "Compared",
+			Handler:    _RetroService_Compared_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
