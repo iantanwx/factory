@@ -126,7 +126,7 @@ func ticketBody(change string) string {
 }
 
 // F4 and AE7: a PRD from brainstorm to tickets. The doc-reviewer rejects the
-// PRD, the amender revises it once, and the second reject waits in the
+// PRD, the reviser revises it once, and the second reject waits in the
 // operator's inbox. The answer returns it to review, a pass waits for the
 // operator's merge, and the spec follows the same review. The decomposer
 // turns the approved spec into tickets that cite story labels. The last
@@ -138,15 +138,15 @@ func TestF4AE7APRDFromBrainstormToTicketsAndDone(t *testing.T) {
 	w.Must(w.Coordinator("work", "note", epic, "--project", acceptance.Project, "--body", "The operator wrote this PRD in the room."))
 	w.Must(w.Coordinator("work", "edit", epic, "--project", acceptance.Project, "--title", "Widgets v1"))
 
-	// AE7: the first reject goes to the amender, once.
+	// AE7: the first reject goes to the reviser, once.
 	docReview(w, epic, "reject")
 	wantStatus(w, epic, machine.PRDAmending)
-	am := w.Dispatch(machine.StageAmender)
+	am := w.Dispatch(machine.StageReviser)
 	if am.Item != epic {
-		t.Fatalf("the amender took %s", am.Item)
+		t.Fatalf("the reviser took %s", am.Item)
 	}
-	if again, _ := w.TryDispatch(machine.StageAmender); again != nil {
-		t.Fatalf("a second amender run started: %+v", again)
+	if again, _ := w.TryDispatch(machine.StageReviser); again != nil {
+		t.Fatalf("a second reviser run started: %+v", again)
 	}
 	syncItem(w, am.Checkout)
 	w.Commit(am.Checkout, "amend the PRD", map[string]string{prdPath: prdText + "\nRevised once.\n"})
@@ -158,8 +158,8 @@ func TestF4AE7APRDFromBrainstormToTicketsAndDone(t *testing.T) {
 	// The second reject waits for the operator, and no stage revises it.
 	docReview(w, epic, "reject")
 	wantStatus(w, epic, machine.Escalated)
-	if st, _ := w.TryDispatch(machine.StageAmender); st != nil {
-		t.Fatalf("an amender run started after the second reject: %+v", st)
+	if st, _ := w.TryDispatch(machine.StageReviser); st != nil {
+		t.Fatalf("a reviser run started after the second reject: %+v", st)
 	}
 	entry := "escalation/" + acceptance.Project + "/" + epic
 	if e := w.Entry(entry); e == nil || !contains(asString(e["text"]), "brainstorm room") {

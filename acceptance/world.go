@@ -58,7 +58,7 @@ stages:
   implementer: {}
   code-reviewer: {}
   doc-reviewer: {}
-  amender: {}
+  reviser: {}
   planner: {}
   decomposer: {}
   triage: {}

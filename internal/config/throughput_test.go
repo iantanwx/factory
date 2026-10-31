@@ -55,7 +55,7 @@ func TestThroughputRefusals(t *testing.T) {
 		"missing native job":   {"  decision-timers: {cap: 1, schedule: \"* * * * *\"}\n", "throughput.decision-timers"},
 		"missing pool":         {"  reviewers: {cap: 10}\n", "throughput.reviewers"},
 		"zero cap":             {"  implementer: {cap: 4, ", "throughput.implementer.cap"},
-		"no schedule":          {"  amender: {cap: 2, schedule: \"16,46 * * * *\"}\n", "throughput.amender.schedule"},
+		"no schedule":          {"  reviser: {cap: 2, schedule: \"16,46 * * * *\"}\n", "throughput.reviser.schedule"},
 		"pool with a schedule": {"  reviewers: {cap: 10}\n", "throughput.reviewers.schedule"},
 		"unknown stage":        {"", "throughput.merger"},
 	}
@@ -66,7 +66,7 @@ func TestThroughputRefusals(t *testing.T) {
 			case "zero cap":
 				doc = strings.Replace(doc, c.edit, "  implementer: {cap: 0, ", 1)
 			case "no schedule":
-				doc = strings.Replace(doc, c.edit, "  amender: {cap: 2}\n", 1)
+				doc = strings.Replace(doc, c.edit, "  reviser: {cap: 2}\n", 1)
 			case "pool with a schedule":
 				doc = strings.Replace(doc, c.edit, "  reviewers: {cap: 10, schedule: \"* * * * *\"}\n", 1)
 			case "unknown stage":

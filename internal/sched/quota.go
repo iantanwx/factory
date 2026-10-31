@@ -52,7 +52,7 @@ var DefaultEfforts = map[string]string{
 	config.StageUnattendedBrainstorm: "high",
 	config.StagePlanner:              "high",
 	config.StageDecomposer:           "high",
-	config.StageAmender:              "medium",
+	config.StageReviser:              "medium",
 	config.StageTriage:               "medium",
 	config.StageReproducer:           "medium",
 	config.StageRetro:                "medium",

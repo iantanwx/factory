@@ -31,7 +31,7 @@ const (
 	StageImplementer          = "implementer"
 	StageCodeReviewer         = "code-reviewer"
 	StageDocReviewer          = "doc-reviewer"
-	StageAmender              = "amender"
+	StageReviser              = "reviser"
 	StageUnattendedBrainstorm = "unattended-brainstorm"
 	StagePlanner              = "planner"
 	StageDecomposer           = "decomposer"
@@ -46,7 +46,7 @@ const (
 // The stage set (R13). The native jobs claim no item.
 var (
 	runStages = []string{
-		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StageUnattendedBrainstorm,
+		StageImplementer, StageCodeReviewer, StageDocReviewer, StageReviser, StageUnattendedBrainstorm,
 		StagePlanner, StageDecomposer, StageTriage, StageReproducer, StageRetro, StageBrainstorm,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch", "orca-acceptance"}
@@ -105,7 +105,7 @@ func DefaultThroughput() map[string]Throughput {
 		StageCodeReviewer:         {Cap: 8, Schedule: every5},
 		StageDocReviewer:          {Cap: 10, Schedule: "26,56 * * * *"},
 		"reviewers":               {Cap: 10},
-		StageAmender:              {Cap: 2, Schedule: "16,46 * * * *"},
+		StageReviser:              {Cap: 2, Schedule: "16,46 * * * *"},
 		StageUnattendedBrainstorm: {Cap: 2, Schedule: "5,35 * * * *"},
 		StagePlanner:              {Cap: 2, Schedule: "25,55 * * * *"},
 		StageDecomposer:           {Cap: 2, Schedule: "10,40 * * * *"},

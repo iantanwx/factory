@@ -47,12 +47,12 @@ func TestPersonCommentOnASignedOffSpecWakesTheAmender(t *testing.T) {
 	if it.Status != machine.SpecAmending || it.Fact(machine.FactAmendFrom) != machine.SpecSignoff || it.Fact(machine.FactAmendHead) != shaB {
 		t.Fatalf("after the comment: %s %v", it.Status, it.Facts)
 	}
-	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageAmender, RunID: "run-" + machine.StageAmender})
+	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageReviser, RunID: "run-" + machine.StageReviser})
 	mustOK(t, res)
 	if _, _, err := e.svc.Reply(ctx, e.project, spec.Number, 0, "The spec now cites ADR-0013 nowhere; it needs no change.", "k1"); err != nil {
 		t.Fatal(err)
 	}
-	mustOK(t, e.runCall("pr open", id, machine.StageAmender, map[string]string{"title": "spec"}, nil))
+	mustOK(t, e.runCall("pr open", id, machine.StageReviser, map[string]string{"title": "spec"}, nil))
 	if it := e.status(id); it.Status != machine.SpecSignoff || it.Owner != "" {
 		t.Fatalf("after the amender's reply: %s owner %q", it.Status, it.Owner)
 	}
@@ -150,12 +150,12 @@ func TestPersonReviewSummaryWakesTheAmender(t *testing.T) {
 	if it := e.status(id); it.Status != machine.SpecAmending || it.Fact(machine.FactAmendFrom) != machine.SpecSignoff {
 		t.Fatalf("after the review summary: %s %v", it.Status, it.Facts)
 	}
-	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageAmender, RunID: "run-" + machine.StageAmender})
+	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageReviser, RunID: "run-" + machine.StageReviser})
 	mustOK(t, res)
 	if _, _, err := e.svc.Reply(ctx, e.project, spec.Number, 0, "The cap is named in section 4.", "k1"); err != nil {
 		t.Fatal(err)
 	}
-	mustOK(t, e.runCall("pr open", id, machine.StageAmender, map[string]string{"title": "spec"}, nil))
+	mustOK(t, e.runCall("pr open", id, machine.StageReviser, map[string]string{"title": "spec"}, nil))
 	e.tick(r)
 	if got := e.status(id).Status; got != machine.SpecSignoff {
 		t.Fatalf("an answered review summary left the epic in %s", got)
@@ -209,17 +209,17 @@ func TestRevisionReturnsToReviewWhileGitHubLagsThePush(t *testing.T) {
 	r := e.reactor()
 	w.Say(spec.Number, gt.Said{Login: "operator", Association: "OWNER", Body: "Name the cap."})
 	e.tick(r)
-	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageAmender, RunID: "run-" + machine.StageAmender})
+	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageReviser, RunID: "run-" + machine.StageReviser})
 	mustOK(t, res)
 	const shaC = "cccccccccccccccccccccccccccccccccccccccc"
-	pid, err := e.svc.recordPush(ctx, testProject, id, SpecBranchFor(id), shaB, shaC, "run-"+machine.StageAmender)
+	pid, err := e.svc.recordPush(ctx, testProject, id, SpecBranchFor(id), shaB, shaC, "run-"+machine.StageReviser)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := e.svc.settlePush(ctx, pid, "done"); err != nil {
 		t.Fatal(err)
 	}
-	mustOK(t, e.runCall("pr open", id, machine.StageAmender, map[string]string{"title": "spec"}, nil))
+	mustOK(t, e.runCall("pr open", id, machine.StageReviser, map[string]string{"title": "spec"}, nil))
 	if got := e.status(id).Status; got != machine.SpecReview {
 		t.Fatalf("a pushed revision landed on %s", got)
 	}
