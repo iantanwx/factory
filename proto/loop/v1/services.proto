@@ -71,6 +71,8 @@ service EscalationService {
 
 service RetroService {
   rpc Record(VerbRequest) returns (Envelope);
+  rpc Held(VerbRequest) returns (Envelope);
+  rpc Route(VerbRequest) returns (Envelope);
 }
 
 service DecisionService {

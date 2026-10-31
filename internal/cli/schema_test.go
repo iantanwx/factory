@@ -324,3 +324,29 @@ func TestSchemaListsRetroRecord(t *testing.T) {
 		t.Fatalf("retro record admits %v, item scoped %v", m.Verbs["retro record"], m.IsItemScoped("retro record"))
 	}
 }
+
+// C11, C29: loop schema lists retro held, a read, and retro route, a write
+// that sends the panel file. Only a run may call them, and neither names
+// an item.
+func TestSchemaListsRetroHeldAndRoute(t *testing.T) {
+	env, code := runJSON(t, New(), "schema", "--json")
+	if code != 0 {
+		t.Fatalf("schema failed: %v", env)
+	}
+	data := env["data"].(map[string]any)
+	held := findVerb(t, data, "retro held")
+	if held["rpc"] != "/loop.v1.RetroService/Held" || held["write"] != false || !slices.Equal(held["callers"].([]any), []any{"retro"}) {
+		t.Fatalf("retro held = %v", held)
+	}
+	route := findVerb(t, data, "retro route")
+	if route["rpc"] != "/loop.v1.RetroService/Route" || route["write"] != true || !slices.Equal(route["callers"].([]any), []any{"retro"}) ||
+		len(route["args"].([]any)) != 0 {
+		t.Fatalf("retro route = %v", route)
+	}
+	m, _ := Surface().CapabilityMatrix()
+	for _, path := range []string{"retro held", "retro route"} {
+		if !slices.Equal(m.Verbs[path], []string{PrincipalRun}) || m.IsItemScoped(path) {
+			t.Fatalf("%s admits %v, item scoped %v", path, m.Verbs[path], m.IsItemScoped(path))
+		}
+	}
+}

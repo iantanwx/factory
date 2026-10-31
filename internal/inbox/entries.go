@@ -15,6 +15,7 @@ import (
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/sched"
 )
@@ -51,7 +52,8 @@ func parseEntry(id string) (kind, project, item string, row int64, ok bool) {
 	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindDecision || parts[0] == KindSignoff || parts[0] == KindAsk ||
 		parts[0] == KindArchitecture || parts[0] == KindPause):
 		return parts[0], parts[1], parts[2], 0, parts[1] != "" && parts[2] != ""
-	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel || parts[0] == KindNotice):
+	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel || parts[0] == KindNotice ||
+		parts[0] == KindLearning):
 		n, err := strconv.ParseInt(parts[1], 10, 64)
 		return parts[0], "", "", n, err == nil && n > 0
 	case len(parts) == 2 && (parts[0] == KindRoom || parts[0] == KindPause):
@@ -161,7 +163,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			e.Link = it.link
 			out = append(out, e)
 		}
-		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults, in.pauses, in.notices} {
+		for _, read := range []func(context.Context, *sql.Tx) ([]Entry, error){in.panels, in.questions, in.rooms, in.alerts, in.faults, in.pauses, in.notices, in.learnings} {
 			es, err := read(ctx, tx)
 			if err != nil {
 				return err
@@ -584,4 +586,41 @@ func (in *Inbox) notices(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 			Next: "tell the operator; `loop inbox answer " + e + " --body <anything>` dismisses it", At: at})
 	}
 	return out, rs.Err()
+}
+
+// learnings shows each retro learning that the route escalated. It waits
+// on a person. Its text holds the learning and its cases, each judge's
+// answers and Jev's reading, so the operator decides from the entry alone.
+func (in *Inbox) learnings(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
+	ls, err := retro.Escalations(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Entry, 0, len(ls))
+	for _, l := range ls {
+		id, _ := strings.CutPrefix(l.ID, "L-")
+		e := KindLearning + "/" + id
+		cases := make([]string, len(l.Cases))
+		for i, c := range l.Cases {
+			cases[i] = string(c)
+		}
+		judges := make([]string, len(l.Panel.Answers))
+		for i, a := range l.Panel.Answers {
+			judges[i] = fmt.Sprintf("%s: target %s, evidence %s, change %s. Reason: %s", a.Judge, a.Target, a.Evidence, a.Change, a.Reason)
+		}
+		jev := "Jev: no reading."
+		if r := l.Panel.Reading; r != nil {
+			jev = fmt.Sprintf("Jev: agreement %.2f, confidence %.2f.", escalation.Agreement(r), r.Confidence)
+			if why := escalation.Unusable(r); why != "" {
+				jev += " The reading is unusable: " + why + "."
+			}
+		}
+		out = append(out, Entry{ID: e, Kind: KindLearning, Awaits: AwaitsPerson, Project: l.Project, Item: l.RetroItem,
+			Title: fmt.Sprintf("learning %s from the retro of %s escalated, reason %s", l.ID, l.RetroItem, l.Reason),
+			Text: "The learning and its cases:\n\n" + AgentText(l.RunID, l.Statement+"\n\nCases: "+strings.Join(cases, ", ")) +
+				"\n\nThe judges:\n\n" + AgentText(l.RunID, strings.Join(judges, "\n")) + "\n\n" + jev,
+			Next: "loop inbox answer " + e + " --body <the operator's answer>; then apply it with `loop work create --request` or `loop fault report`, or do nothing",
+			At:   l.At})
+	}
+	return out, nil
 }

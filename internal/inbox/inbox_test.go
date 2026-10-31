@@ -67,6 +67,7 @@ func TestEntryIDsRoundTrip(t *testing.T) {
 		{"pause/alpha/implementer", "pause", "alpha", "implementer", 0},
 		{"pause/implementer", "pause", "", "implementer", 0},
 		{"notice/4", KindNotice, "", "", 4},
+		{"learning/5", KindLearning, "", "", 5},
 	} {
 		k, p, i, r, ok := parseEntry(tc.id)
 		if !ok || k != tc.kind || p != tc.project || i != tc.item || r != tc.row {

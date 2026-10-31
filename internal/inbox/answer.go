@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -104,8 +105,9 @@ func (in *Inbox) waitVerb(ctx context.Context, call *rpc.Call) cli.Result {
 // with --amend enters the item's inputs, so a twice-failed item is
 // admitted again (R10). An asked bug report returns to reported with its
 // reporter's answer. A fired decision settles as answered. A sign-off
-// merges the document at the head its entry named. A question records the
-// answer, an alert closes, and a notice is dismissed.
+// merges the document at the head its entry named. A question and an
+// escalated learning record the answer, an alert closes, and a notice is
+// dismissed.
 func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	id, body := call.Inv.Arg("entry"), strings.TrimSpace(call.Inv.Flags["body"])
 	if body == "" {
@@ -234,6 +236,21 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		in.Changed()
 		return cli.Found(map[string]any{"entry": id, "dismissed": true})
+	case KindLearning:
+		var ok bool
+		if err := in.cfg.Store.Write(ctx, func(tx *store.Tx) (err error) {
+			if ok, err = retro.Settle(tx, row, body); err != nil || !ok {
+				return err
+			}
+			return clearDefer(tx, id)
+		}); err != nil {
+			return cli.Internal(err)
+		}
+		if !ok {
+			return cli.Reject(cli.CodeNotFound, "no_learning", fmt.Sprintf("no escalated learning L-%d waits for an answer", row))
+		}
+		in.Changed()
+		return cli.Found(map[string]any{"entry": id, "answered": true})
 	case KindSignoff:
 		return in.signoff(ctx, call, id, project, item, body)
 	case KindArchitecture:
