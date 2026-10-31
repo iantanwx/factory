@@ -207,11 +207,17 @@ func parseFlags(v *Verb, rest []string) ([]string, map[string]string, *Result) {
 		if _, dup := flags[f.Name]; dup && valueFault == nil {
 			valueFault = usage("repeated_flag", fmt.Sprintf("--%s is given twice", f.Name), v.Path)
 		}
+		if f.Stage && valueFault == nil {
+			valueFault = renamedStage(v.Path, "--"+f.Name, value)
+		}
 		canon, err := canonical(f, value)
 		if err != nil && valueFault == nil {
 			valueFault = usage("bad_flag_value", fmt.Sprintf("--%s: %v", f.Name, err), v.Path)
 		}
 		flags[f.Name] = canon
+	}
+	if valueFault == nil {
+		valueFault = renamedArg(v, args)
 	}
 	if valueFault != nil {
 		return nil, nil, valueFault
@@ -325,6 +331,11 @@ func (r *Registry) Validate(path string, args []string, flags map[string]string,
 		if !ok {
 			return inv, usage("unknown_flag", fmt.Sprintf("%s has no flag --%s", path, name), path)
 		}
+		if f.Stage {
+			if res := renamedStage(path, "--"+name, value); res != nil {
+				return inv, res
+			}
+		}
 		canon, err := canonical(f, value)
 		if err != nil || canon != value {
 			return inv, usage("bad_flag_value", fmt.Sprintf("--%s: the value is not canonical", name), path)
@@ -338,6 +349,9 @@ func (r *Registry) Validate(path string, args []string, flags map[string]string,
 	}
 	if len(inv.Args) > len(v.Args) {
 		return inv, usage("extra_argument", fmt.Sprintf("%s takes at most %d arguments", path, len(v.Args)), path)
+	}
+	if res := renamedArg(v, inv.Args); res != nil {
+		return inv, res
 	}
 	for i, a := range v.Args {
 		if a.Required && i >= len(inv.Args) {

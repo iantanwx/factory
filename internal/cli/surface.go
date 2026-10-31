@@ -47,7 +47,7 @@ var (
 	entryArg      = arg("entry", "the inbox entry id")
 	escalationArg = arg("escalation", "the escalation id")
 	roomArg       = arg("room", "the room id")
-	stageArg      = arg("stage", "the stage name")
+	stageArg      = Arg{Name: "stage", Required: true, Description: "the stage name", Stage: true}
 	secretArg     = arg("name", "the secret name; the value never prints")
 	projectArg    = arg("project", "the project id")
 	faultArg      = arg("fault", "the fault id, F-<n>")
@@ -91,7 +91,7 @@ var (
 
 var surface = []Verb{
 	server("work", "peek", "name the next item a stage would take", runOrCoordinator, nil,
-		Flag{Name: "stage", Type: FlagString, Required: true, Description: "the stage whose work query to run"}, projectFlag),
+		Flag{Name: "stage", Type: FlagString, Required: true, Description: "the stage whose work query to run", Stage: true}, projectFlag),
 	server("work", "show", "show one work item", readers, []Arg{itemArg}, projectFlag),
 	server("work", "list", "list work items", readers, nil, projectFlag,
 		Flag{Name: "kind", Type: FlagString, Enum: []string{"ticket", "epic", "decision", "bug"}, Description: "only items of this kind"},
@@ -146,7 +146,7 @@ var surface = []Verb{
 	server("run", "show", "show one run", coordinator, []Arg{runArg}),
 	server("run", "list", "list runs, the newest first", coordinator, nil,
 		Flag{Name: "project", Type: FlagString, Description: "only this project's runs; every project when absent"},
-		Flag{Name: "stage", Type: FlagString, Description: "only runs of this stage"},
+		Flag{Name: "stage", Type: FlagString, Description: "only runs of this stage", Stage: true},
 		Flag{Name: "live", Type: FlagBool, Description: "only runs that have not ended"},
 		Flag{Name: "limit", Type: FlagInt, Description: "the most runs to list, 1 to 500; 50 when absent"}),
 	server("run", "events", "list one run's events", coordinator, []Arg{runArg}),
@@ -236,7 +236,7 @@ var surface = []Verb{
 	server("fault", "show", "show one loop fault: its status, its resolution and the release this host runs", faultCallers, []Arg{faultArg}),
 	server("fault", "list", "list loop faults, newest first", faultCallers, nil,
 		Flag{Name: "project", Type: FlagString, Description: "only faults filed from this project"},
-		Flag{Name: "stage", Type: FlagString, Description: "only faults filed from this stage"},
+		Flag{Name: "stage", Type: FlagString, Description: "only faults filed from this stage", Stage: true},
 		Flag{Name: "status", Type: FlagString, Enum: []string{"open", "acknowledged", "fixed", "duplicate", "not-a-fault"}, Description: "only faults in this status"}),
 	write(server("fault", "ack", "acknowledge an open loop fault", coordinator, []Arg{faultArg})),
 	write(server("fault", "resolve", "resolve a loop fault with exactly one resolution", coordinator, []Arg{faultArg},
@@ -268,7 +268,7 @@ var surface = []Verb{
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the finding: the root cause, its evidence and the act that ends it"})),
 
 	write(server("room", "open", "open a room for a finding the triage rubric routes to a person, or reopen an idle or interrupted one", coordinator, nil,
-		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review", "architect"}, Description: "the kind of room; an architect room serves one architecture epic"},
+		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review", "architect"}, Description: "the kind of room; an architect room serves one architecture epic", Stage: true},
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
 		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none, and an architect room names an epic in architecture"},
 		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"},
