@@ -58,13 +58,10 @@ func stageColumnTables(t *testing.T, s *Store) map[string][]column {
 	return out
 }
 
-// insertRow adds one row to table with stage set, and a fresh value in
-// each other column that needs one. The project of each row is its own,
-// so no two rows share a key.
-func insertRow(t *testing.T, s *Store, table string, cols []column, stage string, seq int) {
+// insertRow adds one row to table with project and stage set, and a
+// fresh value in each other column that needs one.
+func insertRow(t *testing.T, s *Store, table string, cols []column, project, stage string, seq int) {
 	t.Helper()
-	project := fmt.Sprintf("p%d", seq)
-	addProject(t, s, project)
 	var names []string
 	var values []any
 	for _, c := range cols {
@@ -136,10 +133,32 @@ func dumpTables(t *testing.T, s *Store, tables []string) map[string][]string {
 	return out
 }
 
+// keyOf reads the primary key columns of a dumped row.
+func keyOf(row string, cols []column) string {
+	pk := map[string]bool{}
+	for _, c := range cols {
+		pk[c.name] = c.pk
+	}
+	var key []string
+	for field := range strings.SplitSeq(row, ";") {
+		if name, _, _ := strings.Cut(field, "="); pk[name] {
+			key = append(key, field)
+		}
+	}
+	return strings.Join(key, ";")
+}
+
+// stageInKey reports whether the primary key of a table holds its stage.
+func stageInKey(cols []column) bool {
+	return slices.ContainsFunc(cols, func(c column) bool { return c.name == "stage" && c.pk })
+}
+
 // C8: after RenameStages no column named stage, in any table, holds an
 // old name of the table. Each row keeps every other value, and a second
-// call changes no row. The tables come from the schema, so a table that
-// gains a stage column later is covered.
+// call changes no row. Where the primary key holds the stage and a row
+// under the new name shares the key of a row under the old name, the row
+// under the new name stays and the other goes. The tables come from the
+// schema, so a table that gains a stage column later is covered.
 func TestC8RenameStagesLeavesNoOldStageName(t *testing.T) {
 	renames := [][2]string{{"old-a", "new-a"}, {"old-b", "new-b"}}
 	names := []string{"old-a", "new-a", "old-b", "new-b", "implementer"}
@@ -153,15 +172,40 @@ func TestC8RenameStagesLeavesNoOldStageName(t *testing.T) {
 			}
 			olds, seq := 0, 0
 			tableNames := slices.Sorted(maps.Keys(tables))
+			insert := func(table, project, stage string) {
+				if strings.HasPrefix(stage, "old-") {
+					olds++
+				}
+				seq++
+				insertRow(t, s, table, tables[table], project, stage, seq)
+			}
+			// newProject gives a row its own project, so it shares a key
+			// only with the twin it is given.
+			newProject := func() string {
+				project := fmt.Sprintf("p%d", seq+1)
+				addProject(t, s, project)
+				return project
+			}
+			keyed := 0
 			for _, table := range tableNames {
 				for range rng.IntN(4) {
 					stage := names[rng.IntN(len(names))]
-					if strings.HasPrefix(stage, "old-") {
-						olds++
+					project := newProject()
+					insert(table, project, stage)
+					if strings.HasPrefix(stage, "old-") && rng.IntN(2) == 0 {
+						insert(table, project, "new-"+strings.TrimPrefix(stage, "old-"))
 					}
-					seq++
-					insertRow(t, s, table, tables[table], stage, seq)
 				}
+				// Each table whose key holds the stage gets one twin pair.
+				if stageInKey(tables[table]) {
+					keyed++
+					project := newProject()
+					insert(table, project, "new-a")
+					insert(table, project, "old-a")
+				}
+			}
+			if keyed < 2 {
+				t.Fatalf("the schema holds %d tables keyed on the stage, want 2 or more", keyed)
 			}
 			before := dumpTables(t, s, tableNames)
 
@@ -174,12 +218,26 @@ func TestC8RenameStagesLeavesNoOldStageName(t *testing.T) {
 			}
 			after := dumpTables(t, s, tableNames)
 			for _, table := range tableNames {
-				want := slices.Clone(before[table])
-				for i, row := range want {
+				var want, moved []string
+				for _, row := range before[table] {
+					renamed := row
 					for _, r := range renames {
-						row = strings.Replace(row, "stage=true/"+r[0]+";", "stage=true/"+r[1]+";", 1)
+						renamed = strings.Replace(renamed, "stage=true/"+r[0]+";", "stage=true/"+r[1]+";", 1)
 					}
-					want[i] = row
+					if renamed == row {
+						want = append(want, row)
+					} else {
+						moved = append(moved, renamed)
+					}
+				}
+				kept := map[string]bool{}
+				for _, row := range want {
+					kept[keyOf(row, tables[table])] = true
+				}
+				for _, row := range moved {
+					if !stageInKey(tables[table]) || !kept[keyOf(row, tables[table])] {
+						want = append(want, row)
+					}
 				}
 				slices.Sort(want)
 				if !slices.Equal(after[table], want) {

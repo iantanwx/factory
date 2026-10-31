@@ -56,3 +56,36 @@ func TestC8StartRenamesAnOldStageInTheStore(t *testing.T) {
 		t.Fatalf("%d pause rows under the new name after a second start, want 1", n)
 	}
 }
+
+// C8: a start completes when one key holds a pause under the old name and
+// a pause under the new name, as after an upgrade, a rollback, a pause
+// under the old name and a second upgrade. The pause under the new name
+// stays, and no pause holds the old name.
+func TestC8StartCompletesWhenAKeyHoldsBothNames(t *testing.T) {
+	withStageRenames(t, [2]string{"old-stage", machine.StageImplementer})
+	w := newHumanWorld(t, "")
+	todoTicket(t, w.bx)
+	if err := w.srv.Store.Write(context.Background(), func(tx *store.Tx) error {
+		_, err := tx.Exec(`INSERT INTO stage_pauses (project, stage, reason, paused_by, paused_at) VALUES
+			('alpha', ?, 'held under the new name', 'coordinator:coord-1', 1),
+			('alpha', 'old-stage', 'held after a rollback', 'coordinator:coord-1', 2)`, machine.StageImplementer)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	w.restart()
+	if n := w.count(`SELECT count(*) FROM stage_pauses WHERE stage = 'old-stage'`); n != 0 {
+		t.Fatalf("%d pause rows under the old name after a start, want 0", n)
+	}
+	if n := w.count(`SELECT count(*) FROM stage_pauses WHERE project = 'alpha' AND stage = ?`, machine.StageImplementer); n != 1 {
+		t.Fatalf("%d pause rows under the new name after a start, want 1", n)
+	}
+	if n := w.count(`SELECT count(*) FROM stage_pauses WHERE project = 'alpha' AND stage = ? AND reason = 'held under the new name'`,
+		machine.StageImplementer); n != 1 {
+		t.Fatalf("the pause under the new name did not stay")
+	}
+	if env, code := w.coordinator("work", "peek", "--stage", machine.StageImplementer, "--project", "alpha"); code != 1 {
+		t.Fatalf("work peek of the paused stage = %d %v, want exit 1", code, env)
+	}
+}
