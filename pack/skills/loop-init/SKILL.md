@@ -142,7 +142,7 @@ stages:
   planner: {}
   unattended-brainstorm: {}
   decomposer: {}
-  fixer: {}
+  triage: {}
   reproducer: {}
   retro: {}
 signoff:

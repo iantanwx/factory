@@ -630,10 +630,10 @@ func TestPeek(t *testing.T) {
 	if c, r := w.a.Peek(ctx, prj, machine.StageImplementer); c != nil || r != nil {
 		t.Fatalf("peek at the cap = %+v %+v", c, r)
 	}
-	// The fixer claims no item, and it has work only while an escalation
+	// The triage stage claims no item, and it has work only while an escalation
 	// waits for its panel.
-	if c, r := w.a.Peek(ctx, prj, "fixer"); r != nil || c != nil {
-		t.Fatalf("peek of the fixer with no escalation = %+v %+v", c, r)
+	if c, r := w.a.Peek(ctx, prj, "triage"); r != nil || c != nil {
+		t.Fatalf("peek of the triage run with no escalation = %+v %+v", c, r)
 	}
 	if err := w.st.Write(ctx, func(tx *store.Tx) error {
 		_, err := tx.Exec(`INSERT INTO escalations (project, item, level, choice, finding, created_at, updated_at)
@@ -642,7 +642,7 @@ func TestPeek(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if c, r := w.a.Peek(ctx, prj, "fixer"); r != nil || c == nil || c.Item != "" {
+	if c, r := w.a.Peek(ctx, prj, "triage"); r != nil || c == nil || c.Item != "" {
 		t.Fatalf("peek of a stage with no item = %+v %+v", c, r)
 	}
 	if _, r := w.a.Peek(ctx, prj, "nonsense"); r == nil || r.Code != cli.CodeUsage {
@@ -663,12 +663,12 @@ func TestEveryClaimStageHasAThroughputEntry(t *testing.T) {
 }
 
 // Inside a live run, the work query leaves that run out of its stage's
-// cap, so a fixer run sees the escalation it was started for. The live
+// cap, so a triage run sees the escalation it was started for. The live
 // run of any other caller still fills the cap (factorio-5w6).
 func TestPeekAsLeavesOutOnlyTheCallersRun(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
-	w.setCaps(map[string]int{"fixer": 1})
+	w.setCaps(map[string]int{"triage": 1})
 	if err := w.st.Write(ctx, func(tx *store.Tx) error {
 		_, err := tx.Exec(`INSERT INTO escalations (project, item, level, choice, finding, created_at, updated_at)
 			VALUES (?, 'tk-x', 4, 'inside', 'f', 0, 0)`, prj)
@@ -676,29 +676,29 @@ func TestPeekAsLeavesOutOnlyTheCallersRun(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	fixer := w.mustAdmit("fixer", "")
+	triage := w.mustAdmit("triage", "")
 	other := w.mustAdmit(machine.StageImplementer, w.ticket(machine.Todo))
-	if c, r := w.a.Peek(ctx, prj, "fixer"); c != nil || r != nil {
+	if c, r := w.a.Peek(ctx, prj, "triage"); c != nil || r != nil {
 		t.Fatalf("peek with no calling run at the cap = %+v %+v", c, r)
 	}
-	if c, r := w.a.PeekAs(ctx, prj, "fixer", other.RunID); c != nil || r != nil {
+	if c, r := w.a.PeekAs(ctx, prj, "triage", other.RunID); c != nil || r != nil {
 		t.Fatalf("peek from a live run of another stage at the cap = %+v %+v", c, r)
 	}
-	if c, r := w.a.PeekAs(ctx, prj, "fixer", "run-gone"); c != nil || r != nil {
+	if c, r := w.a.PeekAs(ctx, prj, "triage", "run-gone"); c != nil || r != nil {
 		t.Fatalf("peek from a run that is not live at the cap = %+v %+v", c, r)
 	}
-	if c, r := w.a.PeekAs(ctx, prj, "fixer", fixer.RunID); r != nil || c == nil || c.Stage != "fixer" || c.Item != "" {
-		t.Fatalf("peek from the live fixer run = %+v %+v", c, r)
+	if c, r := w.a.PeekAs(ctx, prj, "triage", triage.RunID); r != nil || c == nil || c.Stage != "triage" || c.Item != "" {
+		t.Fatalf("peek from the live triage run = %+v %+v", c, r)
 	}
-	// A second live fixer run past the cap still fills it for the first.
+	// A second live triage run past the cap still fills it for the first.
 	if err := w.st.Write(ctx, func(tx *store.Tx) error {
 		_, err := tx.Exec(`INSERT INTO runs (run_id, project, stage, item, harness, model, state, started_at, release)
-			VALUES ('fix-2', ?, 'fixer', '', 'claude', 'opus', 'admitted', 0, 'dev')`, prj)
+			VALUES ('fix-2', ?, 'triage', '', 'claude', 'opus', 'admitted', 0, 'dev')`, prj)
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if c, r := w.a.PeekAs(ctx, prj, "fixer", fixer.RunID); c != nil || r != nil {
-		t.Fatalf("peek from the fixer run with a second fixer live = %+v %+v", c, r)
+	if c, r := w.a.PeekAs(ctx, prj, "triage", triage.RunID); c != nil || r != nil {
+		t.Fatalf("peek from the triage run with a second triage run live = %+v %+v", c, r)
 	}
 }

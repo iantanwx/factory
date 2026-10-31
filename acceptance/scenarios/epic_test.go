@@ -216,7 +216,7 @@ func TestF4AE7APRDFromIntakeToTicketsAndDone(t *testing.T) {
 
 	// C10: a person's answer returns a ticket escalated from backlog to
 	// backlog, where it waits on its open blocker. The escalate write is
-	// the one the server makes when the fixer routes an escalation to a
+	// the one the server makes when the triage run routes an escalation to a
 	// person.
 	res := w.Srv.Machine.Apply(context.Background(), machine.Request{Project: acceptance.Project, Item: ids["name"],
 		Verb: machine.VerbEscalate, ExpectedStatus: machine.Backlog, Actor: machine.Server("escalation")})

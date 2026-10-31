@@ -23,7 +23,7 @@ const (
 	DevOnly Level = "dev"
 )
 
-// Requirement is one binary that the loop runs. The judges of the fixer's
+// Requirement is one binary that the loop runs. The judges of the triage
 // panel are not rows: the judge_binaries line checks them.
 type Requirement struct {
 	Bin string

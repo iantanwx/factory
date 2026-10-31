@@ -26,7 +26,7 @@ type Throughput struct {
 }
 
 // The run stages (R13). The machine's claim rows use these names. Intake,
-// the fixer and the retro claim no item.
+// the triage stage and the retro claim no item.
 const (
 	StageImplementer          = "implementer"
 	StageCodeReviewer         = "code-reviewer"
@@ -35,7 +35,7 @@ const (
 	StageUnattendedBrainstorm = "unattended-brainstorm"
 	StagePlanner              = "planner"
 	StageDecomposer           = "decomposer"
-	StageFixer                = "fixer"
+	StageTriage               = "triage"
 	StageReproducer           = "reproducer"
 	// StageRetro learns from a finished epic or bug.
 	StageRetro = "retro"
@@ -47,7 +47,7 @@ const (
 var (
 	runStages = []string{
 		StageImplementer, StageCodeReviewer, StageDocReviewer, StageAmender, StageUnattendedBrainstorm,
-		StagePlanner, StageDecomposer, StageFixer, StageReproducer, StageRetro, StageIntake,
+		StagePlanner, StageDecomposer, StageTriage, StageReproducer, StageRetro, StageIntake,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch", "orca-acceptance"}
 	// optional lists the keys that a later release added. A host config
@@ -99,7 +99,7 @@ func isPool(key string) bool {
 // wait and not how many runs start.
 func DefaultThroughput() map[string]Throughput {
 	every5 := "*/5 * * * *"
-	fixer := "14,44 * * * *"
+	triage := "14,44 * * * *"
 	return map[string]Throughput{
 		StageImplementer:          {Cap: 8, Schedule: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"},
 		StageCodeReviewer:         {Cap: 8, Schedule: every5},
@@ -109,9 +109,9 @@ func DefaultThroughput() map[string]Throughput {
 		StageUnattendedBrainstorm: {Cap: 2, Schedule: "5,35 * * * *"},
 		StagePlanner:              {Cap: 2, Schedule: "25,55 * * * *"},
 		StageDecomposer:           {Cap: 2, Schedule: "10,40 * * * *"},
-		StageFixer:                {Cap: 1, Schedule: fixer},
+		StageTriage:               {Cap: 1, Schedule: triage},
 		StageReproducer:           {Cap: 2, Schedule: "12,42 * * * *"},
-		StageRetro:                {Cap: 1, Schedule: fixer},
+		StageRetro:                {Cap: 1, Schedule: triage},
 		StageIntake:               {Cap: 8, Schedule: "20,50 * * * *"},
 		"merge-handoff":           {Cap: 1, Schedule: every5},
 		"dependency-advance":      {Cap: 1, Schedule: every5},

@@ -11,7 +11,7 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 )
 
-// questionsPart reads the escalations that the fixer's panel sent to a
+// questionsPart reads the escalations that the triage panel sent to a
 // person, and the questions the coordinator prepared (C12). An escalation
 // whose entry holds no unanswered question is work: the coordinator
 // prepares one. A prepared question waits on the operator, so it reads

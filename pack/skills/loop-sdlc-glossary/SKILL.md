@@ -34,7 +34,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | `amender` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
 | `planner` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
 | `decomposer` | Cuts one approved spec into tickets in one batch | epic `spec_approved` |
-| `fixer` | Routes each escalation through the triage panel | escalations that wait for a panel |
+| `triage` | Routes each escalation through the triage panel | escalations that wait for a panel |
 | `reproducer` | Turns one bug report into a failing test and a shaped ticket | bug `reported` |
 | `retro` | Learns from one epic that reached `done` or one bug that closed, and routes each learning | retros that wait for a run |
 

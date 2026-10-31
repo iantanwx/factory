@@ -61,7 +61,7 @@ stages:
   amender: {}
   planner: {}
   decomposer: {}
-  fixer: {}
+  triage: {}
   reproducer: {}
 `
 

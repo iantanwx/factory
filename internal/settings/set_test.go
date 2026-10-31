@@ -34,7 +34,7 @@ func newSetFixture(t *testing.T, cfg string) *setFixture {
 	t.Helper()
 	f := &setFixture{fixture: newFixture(t)}
 	hc := config.DefaultHost("/var/lib/loop")
-	hc.AgentJobs = map[string]config.AgentJob{"triage": {Cap: 1, Schedule: "0 * * * *", Runbook: "docs/triage.md"}}
+	hc.AgentJobs = map[string]config.AgentJob{"bug-sweep": {Cap: 1, Schedule: "0 * * * *", Runbook: "docs/bug-sweep.md"}}
 	f.svc.Host = func(context.Context) (*config.HostConfig, error) { return hc, nil }
 	f.commit(cfg, "coordinator")
 	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "loop.db"))
@@ -142,7 +142,7 @@ func TestC21ValueThatDoesNotValidateIsRefused(t *testing.T) {
 	}{
 		{"a cap of 0", "stages.implementer.cap", strp("0"), nil},
 		{"an unknown key", "stages.implementr.cap", strp("2"), nil},
-		{"a key its stage kind cannot hold", "stages.fixer.runs_per_tick", strp("2"), nil},
+		{"a key its stage kind cannot hold", "stages.triage.runs_per_tick", strp("2"), nil},
 		{"a malformed schedule", "stages.implementer.schedule", strp("every hour"), nil},
 		{"the value in force", "stages.implementer.cap", strp("3"), nil},
 		{"enabled false on an unlisted stage", "stages.reproducer.enabled", strp("false"), nil},
@@ -157,7 +157,7 @@ func TestC21ValueThatDoesNotValidateIsRefused(t *testing.T) {
 	}
 }
 
-// C32: a field other than enabled on a run stage, the fixer or an agent
+// C32: a field other than enabled on a run stage, the triage stage or an agent
 // job that the file does not list is refused, and the hint names the
 // enabled setting to change first. Enabled on that stage, and a field of
 // intake or of a project job that the file does not list, each land one
@@ -165,8 +165,8 @@ func TestC21ValueThatDoesNotValidateIsRefused(t *testing.T) {
 func TestC32FieldOnAnUnlistedStageIsRefused(t *testing.T) {
 	for _, c := range []struct{ key, enabled string }{
 		{"stages.reproducer.cap", "stages.reproducer.enabled"},
-		{"stages.fixer.model", "stages.fixer.enabled"},
-		{"stages.triage.schedule", "stages.triage.enabled"},
+		{"stages.triage.model", "stages.triage.enabled"},
+		{"stages.bug-sweep.schedule", "stages.bug-sweep.enabled"},
 	} {
 		t.Run(c.key, func(t *testing.T) {
 			f := newSetFixture(t, baseConfig)

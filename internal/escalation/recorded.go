@@ -45,12 +45,12 @@ func (d RecordedDecision) String() string {
 // settled does not reach a person again (F-26).
 func (s *Service) decisions(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
-	if p.Stage != FixerStage {
-		return cli.Reject(cli.CodeCapabilityDenied, "fixer_only", "only a fixer run reads the decisions recorded for an escalation")
+	if p.Stage != TriageStage {
+		return cli.Reject(cli.CodeCapabilityDenied, "triage_only", "only a triage run reads the decisions recorded for an escalation")
 	}
 	id, err := strconv.ParseInt(strings.TrimSpace(inv.Arg("escalation")), 10, 64)
 	if err != nil || id < 1 {
-		return cli.Reject(cli.CodeUsage, "bad_escalation", "the escalation id is a positive number; `loop work peek --stage fixer` lists them")
+		return cli.Reject(cli.CodeUsage, "bad_escalation", "the escalation id is a positive number; `loop work peek --stage triage` lists them")
 	}
 	rec, err := s.Get(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -60,7 +60,7 @@ func (s *Service) decisions(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Internal(err)
 	}
 	if p.Project != "" && rec.Project != p.Project {
-		return cli.Reject(cli.CodeCapabilityDenied, "other_project", "a fixer reads the escalations of its own project only")
+		return cli.Reject(cli.CodeCapabilityDenied, "other_project", "a triage run reads the escalations of its own project only")
 	}
 	out, err := s.Recorded(ctx, rec.Project, rec.Item)
 	if err != nil {

@@ -87,3 +87,14 @@ func TestRetiredInNamesTheHelpText(t *testing.T) {
 		t.Fatalf("hits = %q, want x summary only", got)
 	}
 }
+
+// C9, factorio-2mwq: "fixer" is a retired word, and no help text and no
+// caller label of the surface holds it.
+func TestC9HelpHoldsNoFixer(t *testing.T) {
+	if !slices.Contains(config.RetiredWords(), "fixer") {
+		t.Fatalf("RetiredWords() = %v, want fixer", config.RetiredWords())
+	}
+	if hits := retiredIn(helpTexts(cli.Surface()), []string{"fixer"}); len(hits) > 0 {
+		t.Fatalf("the surface names the fixer:\n%s", strings.Join(hits, "\n"))
+	}
+}

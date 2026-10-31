@@ -30,7 +30,7 @@
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-bro", "loop-unslop"]
     },
-    "fixer": {
+    "triage": {
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage"]
     },
