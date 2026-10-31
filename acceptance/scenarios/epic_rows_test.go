@@ -38,7 +38,7 @@ func failTwice(w *acceptance.World, stage, item, want string) {
 func TestEpicRowsEndToEnd(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
 
-	room, co := openRoom(w, "intake", "", "the operator wants gadgets")
+	room, co := openRoom(w, "brainstorm", "", "the operator wants gadgets")
 	e1 := submitPRD(w, co, "Gadgets")
 	w.Must(w.Coordinator("room", "close", room))
 	failTwice(w, machine.StageDocReviewer, e1, machine.PRDReview)
@@ -65,7 +65,7 @@ func TestEpicRowsEndToEnd(t *testing.T) {
 	failTwice(w, machine.StageDecomposer, e1, machine.SpecApproved)
 
 	// A closed PRD PR escalates the epic, and the answer resumes it.
-	room, co = openRoom(w, "intake", "", "the operator wants gizmos")
+	room, co = openRoom(w, "brainstorm", "", "the operator wants gizmos")
 	e2 := submitPRD(w, co, "Gizmos")
 	w.Must(w.Coordinator("room", "close", room))
 	docReview(w, e2, "reject")
@@ -109,7 +109,7 @@ func TestEpicRowsEndToEnd(t *testing.T) {
 func TestEpicCancelEndToEnd(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
 
-	room, co := openRoom(w, "intake", "", "the operator wants sprockets")
+	room, co := openRoom(w, "brainstorm", "", "the operator wants sprockets")
 	ep := submitPRD(w, co, "Sprockets")
 	w.Must(w.Coordinator("room", "close", room))
 	pr := docPR(w, ep)

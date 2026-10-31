@@ -33,8 +33,8 @@ nothing.
 
 ## 3. Who splits
 
-Only the operator agrees to a split, in an intake room. The room keeps the epic it holds, and each
-new epic gets an intake room of its own. Section 7 states why.
+Only the operator agrees to a split, in a brainstorm room. The room keeps the epic it holds, and each
+new epic gets a brainstorm room of its own. Section 7 states why.
 
 - **The doc-reviewer names the seam.** At the PRD stage it rejects the PRD and names the seam in
   its comment. It never creates an epic.
@@ -63,7 +63,7 @@ and the cancel deletes the record of why the work exists.
 1. Rewrite the epic's PRD so that it holds one part only. Keep its path. Never move a PRD after its
    epic exists, because the server reads the story labels at that path.
 2. Push the revision to the epic's pull request with `loop branch push`.
-3. Write the new title and the other parts in the decision file, and apply it by the intake-room
+3. Write the new title and the other parts in the decision file, and apply it by the brainstorm-room
    runbook. A room cannot retitle an epic. The coordinator reads the decision, and runs
    `loop work edit <epic> --title "<title>"`.
 
@@ -91,13 +91,13 @@ names the new id. Run `loop gates --docs` on the ADR before its pull request ope
 
 ## 7. Create each sibling in a room of its own
 
-One intake room creates one epic. The server keys the epic to the room. A second
+One brainstorm room creates one epic. The server keys the epic to the room. A second
 `loop prd submit` from the same room finds the first epic again, and a room that holds an epic
 submits nothing.
 
 1. The decision file of the first room names each other part: its title, its scope and the seam.
 2. The coordinator opens one room for each part:
-   `loop room open --kind intake --project <project> --reason "<the part and the seam>" --score <level>`.
+   `loop room open --kind brainstorm --project <project> --reason "<the part and the seam>" --score <level>`.
 3. Each new room writes its PRD by section 6, then submits it once:
 
 ```bash
@@ -136,13 +136,13 @@ loop work list --kind epic --status prd_review          # each sibling appears o
 - **The submit refuses with `prd_past_review`.** The epic left PRD review. The split is too late,
   so section 4 applies.
 - **The room open refuses with `CAP_FULL`.** The project's epics in counted document states fill
-  the intake cap. Each sibling waits until the count drops, or until the operator raises the cap.
+  the brainstorm cap. Each sibling waits until the count drops, or until the operator raises the cap.
   Tell the operator which epics hold the cap.
 
 ## 10. Never
 
 - Never split an epic that the operator has not agreed to split.
-- Never create an epic from a run. Only an intake room creates one, with `loop prd submit`, or the
+- Never create an epic from a run. Only a brainstorm room creates one, with `loop prd submit`, or the
   coordinator, with `loop epic create`.
 - Never create an epic before its document passes its gates.
 - Never cancel an epic that a split can keep.

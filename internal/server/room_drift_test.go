@@ -15,7 +15,7 @@ import (
 func TestCleanupSettlesAClosedRoomsMissingCheckout(t *testing.T) {
 	w := newRoomWorld(t)
 	ctx := context.Background()
-	r := w.openRoom("intake", "", "the operator has a new idea")
+	r := w.openRoom("brainstorm", "", "the operator has a new idea")
 	id, co := r["room"].(string), r["checkout"].(string)
 	if env, code := w.coordinator("room", "close", id); code != 0 || w.room(id).State != room.Closed {
 		t.Fatalf("close = %d %v", code, env)

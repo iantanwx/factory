@@ -130,7 +130,7 @@ func editSetting(hc *config.HostConfig, raw []byte, key string, value *string, d
 	stage, field, _ := strings.Cut(rest, ".")
 	if section == "stages" && field != "enabled" {
 		kind, _ := config.KindOf(stage, known)
-		if _, listed := base.Stages[stage]; !listed && kind != config.KindIntake && kind != config.KindProjectJob {
+		if _, listed := base.Stages[stage]; !listed && kind != config.KindBrainstorm && kind != config.KindProjectJob {
 			return edit{}, invalid(key, fmt.Sprintf("the project does not list %s, so a new entry would turn it on; set stages.%s.enabled first", stage, stage))
 		}
 	}

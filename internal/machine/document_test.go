@@ -68,15 +68,15 @@ func TestEpicMergeWithNoDocumentRowIsNothing(t *testing.T) {
 }
 
 // AE7: the history of the second reject tells the operator to open an
-// intake room, and the inbox prints it.
-func TestSecondPRDRejectNamesTheIntakeRoom(t *testing.T) {
+// brainstorm room, and the inbox prints it.
+func TestSecondPRDRejectNamesTheBrainstormRoom(t *testing.T) {
 	w := newWorld(t)
 	ep := w.create(KindEpic, "prd_submit", nil)
 	w.must(ep, "review_reject", nil)
 	w.must(ep, "prd_amended", nil)
 	w.must(ep, "review_reject", nil)
 	h := w.history(ep)
-	if says := h[len(h)-1].Says; !strings.Contains(says, "intake room") {
+	if says := h[len(h)-1].Says; !strings.Contains(says, "brainstorm room") {
 		t.Fatalf("the second reject says %q", says)
 	}
 }

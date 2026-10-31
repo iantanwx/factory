@@ -36,7 +36,7 @@ func TestPRDReviewADRNeededEndToEnd(t *testing.T) {
 // adrNeededPass submits a PRD and passes its review with --adr-needed.
 func adrNeededPass(w *acceptance.World, title string) string {
 	w.T.Helper()
-	room, co := openRoom(w, "intake", "", "the operator wants "+title)
+	room, co := openRoom(w, "brainstorm", "", "the operator wants "+title)
 	epic := submitPRD(w, co, title)
 	w.Must(w.Coordinator("room", "close", room))
 	run := w.Dispatch(machine.StageDocReviewer)
