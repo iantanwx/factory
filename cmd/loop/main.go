@@ -8,6 +8,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/escalation"
+	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/reviewproof"
 )
 
@@ -16,8 +17,8 @@ func main() {
 }
 
 // run builds the binary's registry: the surface, the socket client for
-// every server verb, the host verbs, serve, escalation judge and review
-// proof.
+// every server verb, the host verbs, serve, escalation judge, retro judge
+// and review proof.
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	r := cli.Surface()
 	c := &cli.Client{Stdin: stdin}
@@ -38,6 +39,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	judging := escalation.Live()
 	judging.Recorded = escalation.ServerRecorded(r, c.Remote)
 	if err := r.SetHandler("escalation judge", escalation.JudgeVerb(judging)); err != nil {
+		panic(err)
+	}
+	// The retro panel reuses the triage judges and Jev, and reads the
+	// record of the run's retro from the server.
+	if err := r.SetHandler("retro judge", retro.JudgeVerb(retro.LiveJudging(r, c.Remote))); err != nil {
 		panic(err)
 	}
 	// The proof runs the tests in the reviewer's own checkout, so its

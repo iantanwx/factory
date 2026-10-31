@@ -204,6 +204,9 @@ var surface = []Verb{
 
 	server("retro", "record", "bind the oldest pending retro of the run's project, or the one the run holds, and print its record: for the item and an epic's tickets, each review round, run, escalation, loop fault, pull request comment, note and signal, each with its case reference", []string{"retro"}, nil),
 	server("retro", "held", "list the held learnings of the run's project, each with its cases", []string{"retro"}, nil),
+	client("retro", "judge", "ask two judges the retro rubric's three questions about each learning, with its cases, and Jev about each pair, in the run's process, and write the panel file that `loop retro route` sends", []string{"retro"}, nil,
+		Flag{Name: "file", Type: FlagString, Required: true, Description: "the learnings file, read in the run's process"},
+		Flag{Name: "out", Type: FlagString, Description: "the panel file to write; a new temporary file when absent"}),
 	write(server("retro", "route", "send the panel file that `loop retro judge` wrote: the server checks each case against the bound retro's record, decides each learning's route with its own thresholds, stores each learning, puts one notice and marks the retro done", []string{"retro"}, nil, fileFlag)),
 
 	write(server("decision", "file", "file a decision that waits for its trigger", runOrCoordinator, nil, projectFlag,
