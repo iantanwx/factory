@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -35,6 +34,7 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
+	"github.com/iantanwx/loop/internal/shape"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -113,20 +113,6 @@ var errCrash = errors.New("pipeline: stopped at a kill point")
 
 func (p *Pipeline) stop(point string) bool { return p.crash != nil && p.crash(point) }
 
-// storyRe matches a story label of a PRD (R45): US-01, US-02 and on.
-var storyRe = regexp.MustCompile(`\bUS-[0-9]+\b`)
-
-// storyLabels lists the labels a PRD holds, once each, in order.
-func storyLabels(text string) []string {
-	var out []string
-	for _, l := range storyRe.FindAllString(text, -1) {
-		if !slices.Contains(out, l) {
-			out = append(out, l)
-		}
-	}
-	return out
-}
-
 // prdLabels reads the story labels of an epic's merged PRD on the base
 // branch. An epic whose PRD has not merged is PRD_REQUIRED.
 func (p *Pipeline) prdLabels(ctx context.Context, epic machine.Item) ([]string, *cli.Refusal) {
@@ -140,7 +126,7 @@ func (p *Pipeline) prdLabels(ctx context.Context, epic machine.Item) ([]string, 
 		return nil, &cli.Refusal{Code: cli.CodePRDRequired, Rule: "prd_unreadable", Item: epic.ID,
 			Hint: fmt.Sprintf("the base branch holds no readable %s yet: %v", path, err)}
 	}
-	return storyLabels(string(data)), nil
+	return shape.StoryLabels(string(data)), nil
 }
 
 // citeCheck refuses stories that are empty or that name a label the PRD

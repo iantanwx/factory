@@ -28,6 +28,19 @@ type section struct {
 // sections splits text at its "## " headings.
 func sections(text string) []section {
 	out := []section{{}}
+	for _, l := range lines(text) {
+		if !l.Fenced && strings.HasPrefix(l.Text, "## ") {
+			out = append(out, section{Heading: strings.TrimSpace(l.Text[3:]), Line: l.N})
+			continue
+		}
+		out[len(out)-1].Lines = append(out[len(out)-1].Lines, l)
+	}
+	return out
+}
+
+// lines splits text into its lines, and marks each line of a fenced block.
+func lines(text string) []line {
+	var out []line
 	fence := "" // the open block's marker, or "" outside a block
 	for i, raw := range strings.Split(text, "\n") {
 		l := line{N: i + 1, Text: strings.TrimSuffix(raw, "\r")}
@@ -41,11 +54,8 @@ func sections(text string) []section {
 		case fenceOpen.MatchString(t):
 			l.Fenced = true
 			fence = fenceOpen.FindString(t)
-		case strings.HasPrefix(l.Text, "## "):
-			out = append(out, section{Heading: strings.TrimSpace(l.Text[3:]), Line: l.N})
-			continue
 		}
-		out[len(out)-1].Lines = append(out[len(out)-1].Lines, l)
+		out = append(out, l)
 	}
 	return out
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/shape"
 )
 
 // intakeStage is the token stage of an intake room's session
@@ -84,10 +85,10 @@ func (p *Pipeline) prdSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	if err != nil {
 		return cli.Reject(cli.CodeUsage, "no_prd", fmt.Sprintf("the checkout's HEAD holds no %s; commit the PRD and submit again", file))
 	}
-	stories := storyLabels(string(text))
+	stories := shape.StoryLabels(string(text))
 	if len(stories) == 0 {
 		return cli.Reject(cli.CodeUsage, "no_story_labels",
-			"the PRD holds no story label; label each user story US-01, US-02 and on (R45), then submit again")
+			"the PRD defines no story heading; head each user story US-01, US-02 and on, such as `## US-01 ...` (R45), then submit again")
 	}
 
 	epic, ref := p.findOrCreate(ctx, machine.CreateRequest{Project: prj.ID, Kind: machine.KindEpic, Title: title,
@@ -194,10 +195,10 @@ func (p *Pipeline) runPRDSubmit(ctx context.Context, call *rpc.Call) cli.Result 
 	if err != nil {
 		return cli.Reject(cli.CodeUsage, "no_prd", fmt.Sprintf("the checkout's HEAD holds no %s; commit the PRD and submit again", file))
 	}
-	stories := storyLabels(string(text))
+	stories := shape.StoryLabels(string(text))
 	if len(stories) == 0 {
 		return cli.Reject(cli.CodeUsage, "no_story_labels",
-			"the PRD holds no story label; label each user story US-01, US-02 and on (R45), then submit again")
+			"the PRD defines no story heading; head each user story US-01, US-02 and on, such as `## US-01 ...` (R45), then submit again")
 	}
 
 	push, err := p.cfg.GitHub.Push(ctx, github.PushRequest{Project: prj.ID, Item: epic.ID, Branch: github.BranchFor(epic.ID),
