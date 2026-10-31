@@ -48,7 +48,7 @@
       "agents": ["loop-alert-root-cause", "loop-checkout-forensics", "loop-doctor", "loop-escalation-prep"],
       "policy": "coordinator"
     },
-    "intake-room": {
+    "brainstorm-room": {
       "attended": true,
       "skills": ["loop-sdlc-turn", "loop-brainstorm", "loop-sdlc-split", "loop-sdlc-glossary", "loop-reflect", "loop-unslop", "loop-commit"]
     },

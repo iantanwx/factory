@@ -1,11 +1,11 @@
 ---
 name: loop-brainstorm
-description: How an intake room and the operator write one PRD together, from a vague idea to user stories with labels and acceptance criteria. Read this in an intake room before your first message.
+description: How a brainstorm room and the operator write one PRD together, from a vague idea to user stories with labels and acceptance criteria. Read this in a brainstorm room before your first message.
 ---
 
 # loop-brainstorm
 
-An intake room turns the operator's idea into a PRD. The operator decides. You ask, you draft and
+A brainstorm room turns the operator's idea into a PRD. The operator decides. You ask, you draft and
 you check. The PRD then enters the loop, and no person reads it again until the doc-reviewer
 passes it and the operator signs it off by merge. So every question the PRD leaves open reaches an
 agent that cannot ask it.

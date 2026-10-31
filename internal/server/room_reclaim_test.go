@@ -19,7 +19,7 @@ import (
 func TestCleanupDeletesAClosedRoomsCleanCheckout(t *testing.T) {
 	w := newRoomWorld(t)
 	ctx := context.Background()
-	r := w.openRoom("intake", "", "the operator has a new idea")
+	r := w.openRoom("brainstorm", "", "the operator has a new idea")
 	id, co := r["room"].(string), r["checkout"].(string)
 	if env, code := w.coordinator("room", "close", id); code != 0 || w.room(id).State != room.Closed {
 		t.Fatalf("close = %d %v", code, env)
@@ -53,7 +53,7 @@ func TestCleanupDeletesAClosedRoomsCleanCheckout(t *testing.T) {
 func TestCleanupKeepsADirtyRoomCheckoutAndSaysSo(t *testing.T) {
 	w := newRoomWorld(t)
 	ctx := context.Background()
-	r := w.openRoom("intake", "", "the operator has a new idea")
+	r := w.openRoom("brainstorm", "", "the operator has a new idea")
 	id, co := r["room"].(string), r["checkout"].(string)
 	if err := os.WriteFile(filepath.Join(co, "notes.md"), []byte("draft\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func TestCleanupKeepsADirtyRoomCheckoutAndSaysSo(t *testing.T) {
 func TestCleanupKeepsAnUnpushedRoomCommitAndSaysWhy(t *testing.T) {
 	w := newRoomWorld(t)
 	ctx := context.Background()
-	r := w.openRoom("intake", "", "the operator has a new idea")
+	r := w.openRoom("brainstorm", "", "the operator has a new idea")
 	id, co := r["room"].(string), r["checkout"].(string)
 	if err := os.WriteFile(filepath.Join(co, "notes.md"), []byte("draft\n"), 0o644); err != nil {
 		t.Fatal(err)

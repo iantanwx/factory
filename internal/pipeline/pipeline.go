@@ -1,5 +1,5 @@
 // Package pipeline is the document pipeline and work entry. Work
-// enters as a PRD that an intake room submits: the server pushes its
+// enters as a PRD that a brainstorm room submits: the server pushes its
 // branch, opens its PR and creates the epic in prd_review in one call. Or
 // the coordinator creates a PRD epic from the operator's request with epic
 // create, and it waits in prd_needed for its unattended brainstorm. The
@@ -50,10 +50,10 @@ type Config struct {
 	// write. An empty redactor when nil.
 	Redactor *secrets.Redactor
 	Logger   *slog.Logger
-	// IntakeCap refuses a new PRD epic with CAP_FULL while the project's
-	// epics in counted states fill the intake cap. Admission.IntakeCap is
+	// BrainstormCap refuses a new PRD epic with CAP_FULL while the project's
+	// epics in counted states fill the brainstorm cap. Admission.BrainstormCap is
 	// one. Required.
-	IntakeCap func(ctx context.Context, project string) *cli.Refusal
+	BrainstormCap func(ctx context.Context, project string) *cli.Refusal
 	// StageEnabled says whether the project's config lists a stage.
 	// Required.
 	StageEnabled func(ctx context.Context, project, stage string) (bool, error)
@@ -74,8 +74,8 @@ type Pipeline struct {
 // New returns the pipeline.
 func New(cfg Config) (*Pipeline, error) {
 	if cfg.Store == nil || cfg.Machine == nil || cfg.Beads == nil || cfg.GitHub == nil || cfg.Projects == nil ||
-		cfg.IntakeCap == nil || cfg.StageEnabled == nil {
-		return nil, errors.New("pipeline: the pipeline needs a store, the machine, beads, GitHub, the projects, the intake cap and the stage list")
+		cfg.BrainstormCap == nil || cfg.StageEnabled == nil {
+		return nil, errors.New("pipeline: the pipeline needs a store, the machine, beads, GitHub, the projects, the brainstorm cap and the stage list")
 	}
 	if cfg.Redactor == nil {
 		cfg.Redactor = secrets.NewRedactor()
@@ -197,10 +197,10 @@ func (p *Pipeline) registration(id string) (config.Project, *cli.Refusal) {
 func (p *Pipeline) roomOf(ctx context.Context, run string) (string, error) {
 	var id string
 	err := p.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT id FROM rooms WHERE run_id = ? AND kind = 'intake'`, run).Scan(&id)
+		return tx.QueryRowContext(ctx, `SELECT id FROM rooms WHERE run_id = ? AND kind = 'brainstorm'`, run).Scan(&id)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("pipeline: no intake room holds session %s", run)
+		return "", fmt.Errorf("pipeline: no brainstorm room holds session %s", run)
 	}
 	return id, err
 }

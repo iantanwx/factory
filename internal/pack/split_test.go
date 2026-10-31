@@ -59,7 +59,7 @@ func TestSplitSkillGatesEachDocumentBeforeItCreatesAnEpic(t *testing.T) {
 	}
 }
 
-// One intake room creates one epic: prdSubmit keys the epic to the room.
+// One brainstorm room creates one epic: prdSubmit keys the epic to the room.
 // So the procedure opens one room for each sibling, and says that the
 // loop records no edge between two epics (tickertown sdlc-split
 // section 4).
@@ -72,7 +72,7 @@ func TestSplitSkillCreatesEachSiblingInARoomOfItsOwn(t *testing.T) {
 		t.Fatal("prdSubmit no longer keys the epic to the room; the split skill's sibling step is stale")
 	}
 	s := section(t, read(t, splitSkill), "7. Create")
-	for _, want := range []string{"loop room open --kind intake", "One intake room creates one epic", "no edge between two epics"} {
+	for _, want := range []string{"loop room open --kind brainstorm", "One brainstorm room creates one epic", "no edge between two epics"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the sibling step does not say %q", want)
 		}

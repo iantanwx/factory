@@ -270,9 +270,9 @@ var surface = []Verb{
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the finding: the root cause, its evidence and the act that ends it"})),
 
 	write(server("room", "open", "open a room for a finding the triage rubric routes to a person, or reopen an idle or interrupted one", coordinator, nil,
-		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"intake", "decision", "review", "architect"}, Description: "the kind of room; an architect room serves one architecture epic", Stage: true},
+		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"brainstorm", "decision", "review", "architect"}, Description: "the kind of room; an architect room serves one architecture epic", Stage: true},
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
-		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; an intake room may name none, and an architect room names an epic in architecture"},
+		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; a brainstorm room may name none, and an architect room names an epic in architecture"},
 		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"},
 		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},
 		Flag{Name: "choice", Type: FlagString, Enum: []string{"inside", "outside"}, Description: "outside when one answer acts outside the repository; inside when absent"})),
@@ -281,7 +281,7 @@ var surface = []Verb{
 	server("room", "list", "list rooms", coordinator, nil,
 		Flag{Name: "all", Type: FlagBool, Description: "list closed rooms too"}),
 
-	write(server("prd", "submit", "push the PRD commit, open its pull request and move its epic to review: an intake room's new epic, or the epic an unattended-brainstorm run holds", []string{"intake room", "run"}, nil,
+	write(server("prd", "submit", "push the PRD commit, open its pull request and move its epic to review: a brainstorm room's new epic, or the epic an unattended-brainstorm run holds", []string{"brainstorm room", "run"}, nil,
 		Flag{Name: "path", Type: FlagString, Required: true, Description: "the PRD's path in the repository, committed at the checkout's HEAD"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic and pull request title"},
 		Flag{Name: "body", Type: FlagString, Description: "the pull request body"})),

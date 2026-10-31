@@ -120,9 +120,9 @@ func TestCleanupLeavesALoopDirectoryARowOrAnOpenRoomNames(t *testing.T) {
 	gitIn(t, w.repo, "worktree", "add", "-q", "-B", "new-run", run, "origin/main")
 	w.exec(`INSERT INTO checkouts (id, project, item, path, branch, run_id, state, created_at, updated_at)
 		VALUES ('r-9a8b7c6d5e4f', ?, 'tk-9', ?, 'new-run', 'r-9a8b7c6d5e4f', ?, ?, ?)`, prj, run, CheckoutActive, now, now)
-	room := filepath.Join(w.root, "alpha", "loop-alpha-intake-room-write-the-prd-room-1a2b3c4d")
+	room := filepath.Join(w.root, "alpha", "loop-alpha-brainstorm-room-write-the-prd-room-1a2b3c4d")
 	w.exec(`INSERT INTO rooms (id, project, state, opened_at, kind, checkout_name)
-		VALUES ('room-1a2b3c4d', ?, 'opening', ?, 'intake', 'loop-alpha-intake-room-write-the-prd-room-1a2b3c4d')`, prj, now)
+		VALUES ('room-1a2b3c4d', ?, 'opening', ?, 'brainstorm', 'loop-alpha-brainstorm-room-write-the-prd-room-1a2b3c4d')`, prj, now)
 	gitIn(t, w.repo, "worktree", "add", "-q", "-B", "new-room", room, "origin/main")
 	rep := w.s.CleanCheckouts(context.Background())
 	if len(rep.Deleted) != 0 || len(rep.Kept) != 0 || len(rep.Errors) != 0 || !exists(run) || !exists(room) {

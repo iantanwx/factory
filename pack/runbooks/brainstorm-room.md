@@ -1,9 +1,9 @@
 ---
-name: loop-intake-room
-description: The intake room's runbook. The operator and you write one PRD together in a brainstorm session, and you submit it to the loop. A room prepares and applies. It never decides.
+name: loop-brainstorm-room
+description: The brainstorm room's runbook. The operator and you write one PRD together in a brainstorm session, and you submit it to the loop. A room prepares and applies. It never decides.
 ---
 
-# Intake room
+# Brainstorm room
 
 The coordinator opened this room because the operator wants new work, or because a PRD needs the
 operator after its second reject. The operator talks to you here. You write the PRD with the
@@ -13,7 +13,8 @@ Read these first, in this order:
 
 1. `../loop-sdlc-turn/SKILL.md`. Its sections on the envelope, secrets, loop faults and Never bind
    you. A room holds no run, so you never run `loop run finish`.
-2. `../loop-brainstorm/SKILL.md`, the session you run with the operator.
+2. `../loop-brainstorm/SKILL.md`, the session you run with the operator, and its PRD template
+   `../loop-brainstorm/prd.md`.
 3. `../loop-sdlc-split/SKILL.md`, where the seam between two epics falls.
 4. `../loop-sdlc-glossary/SKILL.md`, the words this runbook uses.
 5. `../loop-reflect/SKILL.md`, when the operator corrects you a second time.

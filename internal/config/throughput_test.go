@@ -23,7 +23,7 @@ func TestDefaultThroughputCoversEveryKey(t *testing.T) {
 	if len(d) != len(ThroughputKeys()) {
 		t.Fatalf("DefaultThroughput holds %d entries, want %d", len(d), len(ThroughputKeys()))
 	}
-	for k, want := range map[string]int{"implementer": 8, "reviewers": 10, "code-reviewer": 8, "intake": 8} {
+	for k, want := range map[string]int{"implementer": 8, "reviewers": 10, "code-reviewer": 8, "brainstorm": 8} {
 		if d[k].Cap != want {
 			t.Fatalf("default cap of %s = %d, want %d (R13)", k, d[k].Cap, want)
 		}
@@ -36,7 +36,7 @@ func TestDefaultThroughputCoversEveryKey(t *testing.T) {
 
 func TestThroughputKeysHoldStagesJobsAndPools(t *testing.T) {
 	keys := ThroughputKeys()
-	for _, k := range []string{"implementer", "code-reviewer", "doc-reviewer", "intake", "merge-handoff", "reviewers"} {
+	for _, k := range []string{"implementer", "code-reviewer", "doc-reviewer", "brainstorm", "merge-handoff", "reviewers"} {
 		if !slices.Contains(keys, k) {
 			t.Fatalf("ThroughputKeys lacks %s: %v", k, keys)
 		}

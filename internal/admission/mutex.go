@@ -12,7 +12,7 @@ import (
 )
 
 // mutexStages have one holder for each project at a time, whatever cap
-// host config holds. Two intake runs that overlap could create one epic
+// host config holds. Two brainstorm runs that overlap could create one epic
 // twice (scripts/sdlc/intake-cap.ts, alpha). The stage_mutexes row
 // replaces the mutex issue. The spec author and the reproducer keep the
 // one-run guard of scripts/sdlc/stage-claims.ts (alpha): two spec authors
@@ -22,7 +22,7 @@ import (
 // brainstorm keeps the same guard for the spec author's reason: two runs would each
 // take an epic and break the stage's cadence (ADR 0001, spec factorio-4n0
 // Decisions).
-var mutexStages = []string{config.StageIntake, config.StageSpecAuthor, config.StageReproducer, config.StageUnattendedBrainstorm}
+var mutexStages = []string{config.StageBrainstorm, config.StageSpecAuthor, config.StageReproducer, config.StageUnattendedBrainstorm}
 
 // MutexStage reports whether stage is a mutex stage.
 func MutexStage(stage string) bool { return slices.Contains(mutexStages, stage) }

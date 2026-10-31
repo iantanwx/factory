@@ -136,7 +136,7 @@ func joined(t *testing.T, name, text, start, end string) string {
 
 // C16: the coordinator routes level 1 to 3 product work to the unattended
 // brainstorm,
-// and parks a request that the intake cap refuses on a pending decision,
+// and parks a request that the brainstorm cap refuses on a pending decision,
 // so the request waits in the record and never in the chat.
 func TestCoordinatorRoutesProductWorkToTheUnattendedBrainstorm(t *testing.T) {
 	coordinator := read(t, "runbooks/coordinator.md")
@@ -151,14 +151,14 @@ func TestCoordinatorRoutesProductWorkToTheUnattendedBrainstorm(t *testing.T) {
 		"--blocked-by <decision>",
 		"which epics hold the cap",
 		"Level 4 or 5, or the Choice outside",
-		"intake room",
+		"brainstorm room",
 	} {
 		if !strings.Contains(route, want) {
 			t.Errorf("coordinator section 8 does not name %q", want)
 		}
 	}
 	wake := section(t, coordinator, "6. Decisions")
-	for _, want := range []string{"intake cap", "loop decision moot <decision>", "raises the cap"} {
+	for _, want := range []string{"brainstorm cap", "loop decision moot <decision>", "raises the cap"} {
 		if !strings.Contains(wake, want) {
 			t.Errorf("coordinator section 6 does not name %q", want)
 		}
@@ -192,7 +192,7 @@ func TestSharedInstructionsNameTheUnattendedBrainstorm(t *testing.T) {
 			t.Errorf("the glossary's epic states do not name %s: %s", want, epic)
 		}
 	}
-	if prd := joined(t, "glossary", glossary, "- **PRD**:", "- **"); !strings.Contains(prd, "an unattended brainstorm or an intake room") {
+	if prd := joined(t, "glossary", glossary, "- **PRD**:", "- **"); !strings.Contains(prd, "an unattended brainstorm or a brainstorm room") {
 		t.Errorf("the glossary's PRD entry does not name its two writers: %s", prd)
 	}
 

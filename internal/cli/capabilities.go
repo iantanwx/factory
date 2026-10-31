@@ -23,14 +23,14 @@ var PrincipalKinds = []string{PrincipalNone, PrincipalRun, PrincipalRoom, Princi
 // it admits. A stage label such as "reviewer run" admits every run: the
 // matrix checks the principal's kind, not its stage.
 var callerKinds = map[string][]string{
-	"run":          {PrincipalRun},
-	"reviewer run": {PrincipalRun},
-	"triage":       {PrincipalRun},
-	"decomposer":   {PrincipalRun},
-	"retro":        {PrincipalRun},
-	"room":         {PrincipalRoom},
-	"intake room":  {PrincipalRoom},
-	"coordinator":  {PrincipalCoordinator},
+	"run":             {PrincipalRun},
+	"reviewer run":    {PrincipalRun},
+	"triage":          {PrincipalRun},
+	"decomposer":      {PrincipalRun},
+	"retro":           {PrincipalRun},
+	"room":            {PrincipalRoom},
+	"brainstorm room": {PrincipalRoom},
+	"coordinator":     {PrincipalCoordinator},
 	// "host coordinator" admits the coordinator on a host verb. The verb
 	// stays a host verb: the server still refuses it from inside every
 	// checkout except the coordinator's own (factorio-obc).

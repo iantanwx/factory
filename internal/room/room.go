@@ -60,7 +60,7 @@ const (
 // loop-<kind>-room skill. An architect room serves one architecture epic:
 // the operator and the agent write its ADR, and the ADR's merge moves the
 // epic (parity 1.32).
-var Kinds = []string{"intake", "decision", "review", "architect"}
+var Kinds = []string{"brainstorm", "decision", "review", "architect"}
 
 // Stage is the brief's stage of a room kind, so its runbook is
 // .claude/skills/loop-<kind>-room/SKILL.md.
@@ -89,10 +89,10 @@ type Config struct {
 	Harness agenthost.Harness
 	Model   string
 	Release string
-	// IntakeCap refuses a new intake room while the project's epics in
-	// counted document states fill the intake cap (KTD30). Admission's
-	// IntakeCap is one. Optional: with none, no cap applies.
-	IntakeCap func(ctx context.Context, project string) *cli.Refusal
+	// BrainstormCap refuses a new brainstorm room while the project's epics in
+	// counted document states fill the brainstorm cap (KTD30). Admission's
+	// BrainstormCap is one. Optional: with none, no cap applies.
+	BrainstormCap func(ctx context.Context, project string) *cli.Refusal
 	// Changed is called after each state change. Optional: the inbox wakes
 	// and the notifier rings from it.
 	Changed func()
@@ -285,9 +285,9 @@ func (s *Service) Rooms(ctx context.Context, all bool) ([]Room, error) {
 }
 
 // open is `loop room open`: a new room, or the reopen of an idle or
-// interrupted one of the same kind on the same item. An intake room with
+// interrupted one of the same kind on the same item. A brainstorm room with
 // no item reopens only an idle or interrupted one: a live or opening
-// itemless intake room is never matched, so each such open is a new room.
+// itemless brainstorm room is never matched, so each such open is a new room.
 func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	p, inv := call.Principal, call.Inv
 	if p.Kind != cli.PrincipalCoordinator {
@@ -297,7 +297,7 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	if reason == "" {
 		return cli.Reject(cli.CodeUsage, "no_reason", "--reason says why the room opens; the room agent tells the operator first")
 	}
-	if kind != "intake" && item == "" {
+	if kind != "brainstorm" && item == "" {
 		return cli.Reject(cli.CodeUsage, "no_item", "a "+kind+" room serves one work item; name it with --item")
 	}
 	tr, err := escalation.ParseTriage(inv.Flags["score"], inv.Flags["choice"])
@@ -324,7 +324,7 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		purpose = it.Title
 	}
-	if ref := s.intakeCap(ctx, kind, project, item); ref != nil {
+	if ref := s.brainstormCap(ctx, kind, project, item); ref != nil {
 		return ref.Result()
 	}
 	var r Room
@@ -405,13 +405,13 @@ func architectItem(kind string, it machine.Item) *cli.Refusal {
 			"create the epic with `loop epic create --architecture` first", machine.Architecture, it.ID, it.Kind, it.Status)}
 }
 
-// intakeCap applies the intake cap to a new intake room that names no
-// item: such a room submits a new epic. A live or opening intake room
+// brainstormCap applies the brainstorm cap to a new brainstorm room that names no
+// item: such a room submits a new epic. A live or opening brainstorm room
 // names no item to match, so a second itemless open is a new room and
-// meets the cap. The reopen of an idle or interrupted one, and an intake
+// meets the cap. The reopen of an idle or interrupted one, and a brainstorm
 // room on an existing epic, add no epic, so the cap passes them.
-func (s *Service) intakeCap(ctx context.Context, kind, project, item string) *cli.Refusal {
-	if kind != "intake" || item != "" || s.cfg.IntakeCap == nil {
+func (s *Service) brainstormCap(ctx context.Context, kind, project, item string) *cli.Refusal {
+	if kind != "brainstorm" || item != "" || s.cfg.BrainstormCap == nil {
 		return nil
 	}
 	var reopenable int
@@ -425,7 +425,7 @@ func (s *Service) intakeCap(ctx context.Context, kind, project, item string) *cl
 	if reopenable > 0 {
 		return nil
 	}
-	return s.cfg.IntakeCap(ctx, project)
+	return s.cfg.BrainstormCap(ctx, project)
 }
 
 // leaseFree reports whether no run holds the room's item.

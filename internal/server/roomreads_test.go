@@ -8,9 +8,9 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 )
 
-// An intake room reads with work show the epic its PRD submit created,
+// A brainstorm room reads with work show the epic its PRD submit created,
 // and each epic that its reason names.
-func TestIntakeRoomReadsTheEpicsItCreatedAndItsReasonNames(t *testing.T) {
+func TestBrainstormRoomReadsTheEpicsItCreatedAndItsReasonNames(t *testing.T) {
 	w, _, _ := newDocWorld(t)
 	ctx := context.Background()
 	named, res := w.srv.Machine.Create(ctx, machine.CreateRequest{Project: "alpha", Kind: machine.KindEpic, Title: "named",
@@ -18,7 +18,7 @@ func TestIntakeRoomReadsTheEpicsItCreatedAndItsReasonNames(t *testing.T) {
 	if res.Refusal != nil {
 		t.Fatalf("create epic: %+v", *res.Refusal)
 	}
-	r := w.openRoom("intake", "", "split "+named+" into two epics")
+	r := w.openRoom("brainstorm", "", "split "+named+" into two epics")
 	co := r["checkout"].(string)
 	gt.Commit(t, co, "prd", map[string]string{"docs/prd/widgets.md": "# Widgets\n\n## US-01 See widgets\n"})
 	env, code := w.as(co, "prd", "submit", "--path", "docs/prd/widgets.md", "--title", "Widgets")
@@ -49,7 +49,7 @@ func TestRoomReadsNoOtherItemAndWritesNone(t *testing.T) {
 		ids = append(ids, id)
 	}
 	named, other := ids[0], ids[1]
-	co := w.openRoom("intake", "", "split "+named+" into two epics")["checkout"].(string)
+	co := w.openRoom("brainstorm", "", "split "+named+" into two epics")["checkout"].(string)
 
 	env, code := w.as(co, "work", "show", other, "--project", "alpha")
 	if code != 3 || env["code"] != "CAPABILITY_DENIED" || env["rule"] != "item_not_held" {
