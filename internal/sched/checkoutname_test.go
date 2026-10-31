@@ -72,3 +72,45 @@ func TestCheckoutNameFitsTheHostLimit(t *testing.T) {
 		t.Errorf("checkout name %q, want %q", name, want)
 	}
 }
+
+// factorio-pwpi: a room's checkout is named after its project, kind, item
+// and purpose. The slug comes from the item title, or from the reason of a
+// room with no item. The room id ends the name.
+func TestRoomCheckoutNameSaysWhatTheRoomDoes(t *testing.T) {
+	got := RoomCheckoutName("factorio", "intake", "", "Write the PRD of the retro, from the notes", "room-2e507194")
+	if want := "loop-factorio-intake-room-write-the-prd-of-the-retro-from-room-2e507194"; got != want {
+		t.Errorf("an intake room with no item = %q, want %q", got, want)
+	}
+	got = RoomCheckoutName("factorio", "review", "factorio-pwpi", "Name a room checkout after its project", "room-2e507194")
+	if want := "loop-factorio-review-room-factorio-pwpi-name-a-room-checkout-after-its-room-2e507194"; got != want {
+		t.Errorf("a review room on an item = %q, want %q", got, want)
+	}
+}
+
+// factorio-pwpi: a room's checkout name fits the host's limit by the rule
+// of a run's: the slug shortens first, then the item goes. The room id
+// always stays.
+func TestRoomCheckoutNameFitsTheHostLimit(t *testing.T) {
+	orcaName := regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	title := "Name a room checkout after its project, kind, item and purpose"
+	for n := 1; n <= 63; n++ {
+		project := strings.Repeat("p", n)
+		name := RoomCheckoutName(project, "architect", project+"-kva", title, "room-2e507194")
+		if !orcaName.MatchString(name) {
+			t.Fatalf("project of %d bytes: room checkout name %q (%d bytes) does not fit the host", n, name, len(name))
+		}
+		if head := "loop-" + project + "-architect-room-"; !strings.HasPrefix(name, head) || !strings.HasSuffix(name, "-room-2e507194") {
+			t.Errorf("project of %d bytes: room checkout name %q, want prefix %q and the room id last", n, name, head)
+		}
+	}
+	project := strings.Repeat("p", 44)
+	if name, want := RoomCheckoutName(project, "architect", project+"-kva", title, "room-2e507194"),
+		"loop-"+project+"-architect-room-"+project+"-kva-room-2e507194"; name != want {
+		t.Errorf("room checkout name %q, want %q: the slug goes before the item", name, want)
+	}
+	project = strings.Repeat("p", 45)
+	if name, want := RoomCheckoutName(project, "architect", project+"-kva", title, "room-2e507194"),
+		"loop-"+project+"-architect-room-room-2e507194"; name != want {
+		t.Errorf("room checkout name %q, want %q: the item goes when it does not fit", name, want)
+	}
+}

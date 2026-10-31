@@ -537,3 +537,29 @@ func TestArchitectRoomServesAnArchitectureEpic(t *testing.T) {
 		t.Fatalf("opening the room moved the epic to %s", st)
 	}
 }
+
+// factorio-pwpi: a room's checkout and branch are named after its project,
+// kind, item and purpose. A room with no item takes its slug from the
+// reason. The room keeps the name, so its record shows the same checkout.
+func TestRoomCheckoutNamesWhatTheRoomDoes(t *testing.T) {
+	w := newRoomWorld(t)
+	item := todoTicket(t, w.bx)
+	for _, c := range []struct{ kind, item, reason, want string }{
+		{"intake", "", "Write the PRD of the retro, from the notes", "loop-alpha-intake-room-write-the-prd-of-the-retro-"},
+		{"review", item, "the operator asked to see the diff", "loop-alpha-review-room-" + item + "-item-"},
+	} {
+		r := w.openRoom(c.kind, c.item, c.reason)
+		id := r["room"].(string)
+		co := r["checkout"].(string)
+		if name := filepath.Base(co); !strings.HasPrefix(name, c.want) || !strings.HasSuffix(name, "-"+id) {
+			t.Errorf("%s room checkout %q, want prefix %q and the room id %s last", c.kind, name, c.want, id)
+		}
+		if n := w.count(`SELECT count(*) FROM checkouts WHERE id = ? AND branch = ?`, id, filepath.Base(co)); n != 1 {
+			t.Errorf("%s room checkout row with the branch %q: %d, want 1", c.kind, filepath.Base(co), n)
+		}
+		if got := w.room(id).Checkout; got != co {
+			t.Errorf("%s room record checkout %q, want %q", c.kind, got, co)
+		}
+		w.coordinator("room", "close", id)
+	}
+}

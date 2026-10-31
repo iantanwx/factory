@@ -170,18 +170,19 @@ type Room struct {
 	OpenedAt int64              `json:"opened_at"`
 	Updated  int64              `json:"updated_at"`
 
-	checkoutID string
+	checkoutID   string
+	checkoutName string
 }
 
 const roomCols = `SELECT r.id, r.project, r.item, r.kind, r.state, r.reason, r.opened_by, COALESCE(c.path, ''), COALESCE(r.checkout_id, ''),
-	r.run_id, r.sessions, r.outcome, r.decision, r.session, r.opened_at, r.updated_at
+	r.checkout_name, r.run_id, r.sessions, r.outcome, r.decision, r.session, r.opened_at, r.updated_at
 	FROM rooms r LEFT JOIN checkouts c ON c.id = r.checkout_id`
 
 func scanRoom(row store.Scanner) (Room, error) {
 	var r Room
 	var decision, session string
 	err := row.Scan(&r.ID, &r.Project, &r.Item, &r.Kind, &r.State, &r.Reason, &r.OpenedBy, &r.Checkout, &r.checkoutID,
-		&r.RunID, &r.Sessions, &r.Outcome, &decision, &session, &r.OpenedAt, &r.Updated)
+		&r.checkoutName, &r.RunID, &r.Sessions, &r.Outcome, &decision, &session, &r.OpenedAt, &r.Updated)
 	if err != nil {
 		return r, err
 	}
@@ -262,6 +263,7 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 	if _, err := s.cfg.ProjectConfig(ctx, project); err != nil {
 		return cli.Reject(cli.CodeNotFound, "no_project", fmt.Sprintf("project %s: %v", project, err))
 	}
+	purpose := reason
 	if item != "" {
 		it, ref := s.cfg.Machine.Show(ctx, project, item)
 		if ref != nil {
@@ -270,6 +272,7 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 		if ref := architectItem(kind, it); ref != nil {
 			return ref.Result()
 		}
+		purpose = it.Title
 	}
 	if ref := s.intakeCap(ctx, kind, project, item); ref != nil {
 		return ref.Result()
@@ -293,8 +296,9 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 		now := tx.Now().UnixMilli()
 		r = Room{ID: s.cfg.NewID(), Project: project, Item: item, Kind: kind, State: Opening, Reason: reason, OpenedBy: p.RunID,
 			OpenedAt: now, Updated: now}
-		if _, err := tx.Exec(`INSERT INTO rooms (id, project, item, state, opened_at, kind, reason, opened_by, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.ID, project, item, Opening, now, kind, reason, p.RunID, now); err != nil {
+		r.checkoutName = sched.RoomCheckoutName(project, kind, item, purpose, r.ID)
+		if _, err := tx.Exec(`INSERT INTO rooms (id, project, item, state, opened_at, kind, reason, opened_by, updated_at, checkout_name)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, r.ID, project, item, Opening, now, kind, reason, p.RunID, now, r.checkoutName); err != nil {
 			return err
 		}
 		return takeHold(tx, project, item, r.ID)
@@ -462,7 +466,7 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 		return fail(cli.CodeInternal, err)
 	}
 	if r.Checkout == "" {
-		spec, err := sched.BaseCheckout(ctx, s.cfg.BaseHead, r.Project, snap.BaseBranch(), sched.RoomCheckoutName(r.ID))
+		spec, err := sched.BaseCheckout(ctx, s.cfg.BaseHead, r.Project, snap.BaseBranch(), r.checkoutName)
 		if err != nil {
 			return fail(cli.CodeInternal, fmt.Errorf("room: %w", err))
 		}
