@@ -988,3 +988,5 @@ This epic draws no product screen. A person watches these flows of the loop:
   loads a pinned skill. The sibling epic factorio-4lso adds no config and leaves this question to
   this epic (`docs/prd/shipped-screen-check.md` lines 255 to 257). This blocks work entries 2, 3
   and 4.
+  **Answered.** The operator chose "Hold for 791i" on 2026-10-31 at 11:25Z. The spec stays in
+  sign-off until factorio-791i lands, and entry 2 adds no placeholder `ui` key.
