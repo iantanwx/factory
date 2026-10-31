@@ -41,7 +41,7 @@ func TestStageKindsTheOtherScenariosMiss(t *testing.T) {
 // started at least once. It runs after a full run only.
 func checkStages() []string {
 	want := []string{"coordinator", "implementer", "code-reviewer", "doc-reviewer", "amender", "spec-author",
-		"decomposer", "fixer", "reproducer", "brainstorm-room", "decision-room", "review-room",
+		"decomposer", "triage", "reproducer", "brainstorm-room", "decision-room", "review-room",
 		"architect-room"}
 	got := acceptance.Started()
 	var missing []string

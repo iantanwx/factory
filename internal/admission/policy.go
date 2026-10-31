@@ -108,7 +108,7 @@ type Request struct {
 	Project string
 	Stage   string
 	// Item is the work item the run takes. A stage with no claim row, such
-	// as brainstorm or the fixer, takes none.
+	// as brainstorm or triage, takes none.
 	Item  string
 	RunID string
 	// Harness and Model are recorded on the run. Neither enters the retry
@@ -505,9 +505,9 @@ func (a *Admission) Peek(ctx context.Context, project, stage string) (*Candidate
 }
 
 // PeekAs is Peek asked from inside a run. The caps leave that run out of
-// their count, so a run that fills its stage's cap still finds the work
-// it was started for, such as the fixer's waiting escalations. Every other
-// live run still counts.
+// their count, so a run that fills its stage's cap still finds the work it
+// was started for, such as the triage stage's waiting escalations. Every
+// other live run still counts.
 //
 // The query lists the items of every claim state of the stage, orders
 // them, and returns the first admissible item. An item that admission would

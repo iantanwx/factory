@@ -17,6 +17,7 @@ import (
 var stageRenames = map[string]string{
 	"prd-author": StageUnattendedBrainstorm,
 	"intake":     StageBrainstorm,
+	"fixer":      StageTriage,
 }
 
 // retiredWords are the old role words that name no stage key.

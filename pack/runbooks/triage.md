@@ -1,9 +1,9 @@
 ---
-name: loop-fixer
-description: The fixer's runbook. Route one escalation through the triage panel, one finding at a time, so a person reads only what the loop cannot answer.
+name: loop-triage
+description: The triage stage's runbook. Route one escalation through the triage panel, one finding at a time, so a person reads only what the loop cannot answer.
 ---
 
-# Fixer
+# Triage
 
 A run escalated an item, and the escalation waits for its panel. You split it into findings, ask
 two judges about each finding, and send the panels to the server. The server routes each finding
@@ -19,7 +19,7 @@ Read these first, in this order:
 
 ## 1. Take one escalation
 
-Run `loop work peek --stage fixer`. Exit 1 means no escalation waits. Then finish `done`.
+Run `loop work peek --stage triage`. Exit 1 means no escalation waits. Then finish `done`.
 
 Take the oldest escalation it lists, and only that one. Read its finding, its level, its choice and
 its item. Run `loop work show <item>`, and read each document the finding names. Your run holds no

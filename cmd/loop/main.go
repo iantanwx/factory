@@ -32,7 +32,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if err := r.SetHandler("serve", serveVerb); err != nil {
 		panic(err)
 	}
-	// The triage panel runs in the fixer's own process, where the harness
+	// The triage panel runs in the triage run's own process, where the harness
 	// logins are (KTD22).
 	// The judges read the operator's decisions recorded on the item, which
 	// the server holds.

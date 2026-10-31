@@ -31,7 +31,7 @@ type StageKind int
 // The stage kinds.
 const (
 	KindItemStage  StageKind = iota + 1 // a run stage that claims an item
-	KindFixer                           // the run stage that claims no item
+	KindTriage                          // the run stage that claims no item
 	KindBrainstorm                      // the stage whose cap counts epics
 	KindProjectJob                      // a native job each project runs
 	KindAgentJob                        // an agent job of host config
@@ -43,7 +43,7 @@ var (
 		"escalated.model", "escalated.harness", "escalated.effort"}
 	stageFields = map[StageKind][]string{
 		KindItemStage:  append(slices.Clone(agentFields), "cap", "runs_per_tick"),
-		KindFixer:      append(slices.Clone(agentFields), "cap"),
+		KindTriage:     append(slices.Clone(agentFields), "cap"),
 		KindBrainstorm: {"cap"},
 		KindProjectJob: {"schedule"},
 		KindAgentJob:   agentFields,
@@ -82,8 +82,8 @@ func InstanceJobs() []string { return []string{"github-reactor", "overwatch", "o
 // KindOf returns the kind of name, or false when k holds no such name.
 func KindOf(name string, k Known) (StageKind, bool) {
 	switch {
-	case name == StageFixer:
-		return KindFixer, true
+	case name == StageTriage:
+		return KindTriage, true
 	case name == StageBrainstorm:
 		return KindBrainstorm, true
 	case slices.Contains(k.RunStages, name):

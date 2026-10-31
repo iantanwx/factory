@@ -36,7 +36,7 @@ func at(hour, minute int) time.Time { return time.Date(2026, 10, 24, hour, minut
 
 // newStallsWorld is a world at 09:05 on the host's default schedules:
 // the implementer fires at 3, 8, 13 ... past each hour, the code-reviewer
-// every five minutes and the fixer at 14 and 44. Project factorio enables
+// every five minutes and the triage stage at 14 and 44. Project factorio enables
 // every run stage. Project alpha has no config yet.
 func newStallsWorld(t *testing.T) *stallsWorld {
 	t.Helper()
@@ -161,13 +161,13 @@ func mustContain(t *testing.T, line string, want ...string) {
 	}
 }
 
-// C9: an escalation in awaiting_panel that a fixer run of its project ended
+// C9: an escalation in awaiting_panel that a triage run of its project ended
 // after is work, and the line names the escalation, the run and the key.
-func TestC9AnEscalationThatAFixerRunPassedByIsAStall(t *testing.T) {
+func TestC9AnEscalationThatATriageRunPassedByIsAStall(t *testing.T) {
 	w := newStallsWorld(t)
 	w.escalation(t, "factorio-e1", "awaiting_panel", at(8, 50))
-	w.run(t, "r-0ldf1xer0000", "fixer", "", at(8, 14), at(8, 20)) // ended before the raise
-	w.run(t, "r-332c1c7116a7", "fixer", "", at(8, 59), at(9, 1))
+	w.run(t, "r-0ldf1xer0000", "triage", "", at(8, 14), at(8, 20)) // ended before the raise
+	w.run(t, "r-332c1c7116a7", "triage", "", at(8, 59), at(9, 1))
 	r := readStallsPart(t, w)
 	key := "overwatch:stalls:escalation-1"
 	f, ok := findingOf(r, key)
@@ -183,9 +183,9 @@ func TestC9AnEscalationThatAFixerRunPassedByIsAStall(t *testing.T) {
 	}
 }
 
-// C9: an escalation with no fixer run since its raise waits two fixer
-// fires. The fixer fires at 14 and 44 past each hour.
-func TestC9AnEscalationWaitsTwoFixerFires(t *testing.T) {
+// C9: an escalation with no triage run since its raise waits two triage
+// fires. The triage stage fires at 14 and 44 past each hour.
+func TestC9AnEscalationWaitsTwoTriageFires(t *testing.T) {
 	cases := []struct {
 		name   string
 		raised time.Time
@@ -199,42 +199,42 @@ func TestC9AnEscalationWaitsTwoFixerFires(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			w := newStallsWorld(t)
 			w.escalation(t, "factorio-e1", "awaiting_panel", c.raised)
-			w.run(t, "r-0ldf1xer0000", "fixer", "", at(7, 44), at(7, 50))
+			w.run(t, "r-0ldf1xer0000", "triage", "", at(7, 44), at(7, 50))
 			r := readStallsPart(t, w)
 			f, ok := findingOf(r, "overwatch:stalls:escalation-1")
 			if ok != c.work {
 				t.Fatalf("work = %v, want %v: %+v", ok, c.work, r)
 			}
 			if c.work {
-				mustContain(t, f.Line, "escalation 1", "fixer")
+				mustContain(t, f.Line, "escalation 1", "triage")
 				return
 			}
-			mustContain(t, noteOf(t, r, "panel/1"), "escalation 1", "fixer")
+			mustContain(t, noteOf(t, r, "panel/1"), "escalation 1", "triage")
 		})
 	}
 }
 
-// C9: a live fixer run that started after the raise is the panel at work,
+// C9: a live triage run that started after the raise is the panel at work,
 // and the escalation's move out of awaiting_panel ends the work.
-func TestC9ALiveFixerRunAndAMoveOutOfThePanelAreNotWork(t *testing.T) {
+func TestC9ALiveTriageRunAndAMoveOutOfThePanelAreNotWork(t *testing.T) {
 	w := newStallsWorld(t)
 	w.escalation(t, "factorio-e1", "awaiting_panel", at(8, 10))
-	w.run(t, "r-11vef1xer000", "fixer", "", at(9, 4), time.Time{})
+	w.run(t, "r-11vef1xer000", "triage", "", at(9, 4), time.Time{})
 	w.escalation(t, "factorio-e2", "loop", at(8, 10))
-	w.run(t, "r-332c1c7116a7", "fixer", "", at(8, 14), at(8, 20))
+	w.run(t, "r-332c1c7116a7", "triage", "", at(8, 14), at(8, 20))
 	r := readStallsPart(t, w)
 	if f, ok := findingOf(r, "overwatch:stalls:escalation-2"); ok {
 		t.Errorf("an escalation routed to the loop is work: %q", f.Line)
 	}
-	// escalation 1 has a fixer run that ended after its raise too, so it
-	// is work even while another fixer run is live.
+	// escalation 1 has a triage run that ended after its raise too, so it
+	// is work even while another triage run is live.
 	if _, ok := findingOf(r, "overwatch:stalls:escalation-1"); !ok {
 		t.Errorf("escalation 1 is not work: %+v", r)
 	}
 
 	w = newStallsWorld(t)
 	w.escalation(t, "factorio-e1", "awaiting_panel", at(8, 10))
-	w.run(t, "r-11vef1xer000", "fixer", "", at(9, 4), time.Time{})
+	w.run(t, "r-11vef1xer000", "triage", "", at(9, 4), time.Time{})
 	r = readStallsPart(t, w)
 	if f, ok := findingOf(r, "overwatch:stalls:escalation-1"); ok {
 		t.Errorf("an escalation whose panel runs now is work: %q", f.Line)
@@ -243,7 +243,7 @@ func TestC9ALiveFixerRunAndAMoveOutOfThePanelAreNotWork(t *testing.T) {
 }
 
 // f4 builds the F-4 fixture: escalations 1, 2 and 3 in awaiting_panel,
-// fixer runs r-332c1c7116a7, r-53f391c45f88 and r-131cf44e5259 that ended
+// triage runs r-332c1c7116a7, r-53f391c45f88 and r-131cf44e5259 that ended
 // done after them, and a doorbell that already rang through Notifier.Poke
 // for each panel entry.
 func f4(t *testing.T) (*stallsWorld, *doorbell) {
@@ -252,9 +252,9 @@ func f4(t *testing.T) (*stallsWorld, *doorbell) {
 	w.escalation(t, "factorio-e1", "awaiting_panel", at(7, 50))
 	w.escalation(t, "factorio-e2", "awaiting_panel", at(7, 55))
 	w.escalation(t, "factorio-e3", "awaiting_panel", at(8, 0))
-	w.run(t, "r-332c1c7116a7", "fixer", "", at(8, 14), at(8, 20))
-	w.run(t, "r-53f391c45f88", "fixer", "", at(8, 44), at(8, 50))
-	w.run(t, "r-131cf44e5259", "fixer", "", at(9, 0), at(9, 4))
+	w.run(t, "r-332c1c7116a7", "triage", "", at(8, 14), at(8, 20))
+	w.run(t, "r-53f391c45f88", "triage", "", at(8, 44), at(8, 50))
+	w.run(t, "r-131cf44e5259", "triage", "", at(9, 0), at(9, 4))
 	d := &doorbell{}
 	n := &inbox.Notifier{Inbox: inbox.New(inbox.Config{Store: w.st, Now: w.Now}), Ring: d.ring}
 	for range 2 {
@@ -303,7 +303,7 @@ func TestC9TheF4FixtureRingsOnceAndNamesStalls(t *testing.T) {
 		if i < 0 {
 			t.Fatalf("no line names %s: %q", key, r.Parts[0].Lines)
 		}
-		// The line names the newest fixer run that ended after the raise.
+		// The line names the newest triage run that ended after the raise.
 		mustContain(t, r.Parts[0].Lines[i], "escalation "+n, "r-131cf44e5259")
 	}
 }
@@ -312,7 +312,7 @@ func TestC9TheF4FixtureRingsOnceAndNamesStalls(t *testing.T) {
 // work. Once every key is filed, the tick rings nobody.
 func TestC9AFaultThatNamesTheKeyEndsTheWork(t *testing.T) {
 	w, d := f4(t)
-	w.fault(t, "fixer runs end done with escalations waiting: overwatch:stalls:escalation-1.", "open")
+	w.fault(t, "triage runs end done with escalations waiting: overwatch:stalls:escalation-1.", "open")
 	r := Sweep(context.Background(), w, stallsOnly(t))
 	if r.Parts[0].Code != Work {
 		t.Fatalf("escalations 2 and 3 are filed too: %+v", r)

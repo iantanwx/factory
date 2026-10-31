@@ -9,7 +9,7 @@ import (
 )
 
 // HoldsItem reports whether p holds item now. The default compares item
-// with the token's bound item. The server widens it for a fixer run, and
+// with the token's bound item. The server widens it for a triage run, and
 // the machine checks the lease of each write.
 type HoldsItem func(ctx context.Context, p Principal, item string) (bool, error)
 

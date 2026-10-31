@@ -218,9 +218,9 @@ func TestRoomApplyNeedsAnOperatorStatement(t *testing.T) {
 	co := w.runToken("run-1", item, machine.StageImplementer)
 	env, _ := w.as(co, "escalation", "raise", "--score", "4", "--body", "taste")
 	id := env["data"].(map[string]any)["escalation"].(map[string]any)["escalation"]
-	fixer := w.runToken("fix-1", "", "fixer")
-	panelFile(t, fixer, "preference", nil)
-	if _, code := w.as(fixer, "escalation", "route", fmt.Sprint(id), "--file", "panel.json"); code != 0 {
+	triage := w.runToken("fix-1", "", "triage")
+	panelFile(t, triage, "preference", nil)
+	if _, code := w.as(triage, "escalation", "route", fmt.Sprint(id), "--file", "panel.json"); code != 0 {
 		t.Fatal("route failed")
 	}
 	r := w.openRoom("decision", item, "the escalation needs the operator's taste")

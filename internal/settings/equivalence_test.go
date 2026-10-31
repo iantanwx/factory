@@ -42,7 +42,7 @@ func TestC16SettingsReadShowsWhatIsEnforced(t *testing.T) {
 			if kind != config.KindBrainstorm && rng.IntN(2) == 0 {
 				sc.Schedule = crons[rng.IntN(len(crons))]
 			}
-			if kind == config.KindItemStage || kind == config.KindFixer || kind == config.KindBrainstorm {
+			if kind == config.KindItemStage || kind == config.KindTriage || kind == config.KindBrainstorm {
 				if rng.IntN(2) == 0 {
 					sc.Cap = ptr(1 + rng.IntN(9))
 				}

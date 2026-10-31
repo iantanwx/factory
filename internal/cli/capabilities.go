@@ -25,7 +25,7 @@ var PrincipalKinds = []string{PrincipalNone, PrincipalRun, PrincipalRoom, Princi
 var callerKinds = map[string][]string{
 	"run":             {PrincipalRun},
 	"reviewer run":    {PrincipalRun},
-	"fixer":           {PrincipalRun},
+	"triage":          {PrincipalRun},
 	"decomposer":      {PrincipalRun},
 	"retro":           {PrincipalRun},
 	"room":            {PrincipalRoom},

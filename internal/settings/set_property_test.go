@@ -94,7 +94,7 @@ func genConfig(rng *rand.Rand, k config.Known) string {
 func TestC23ProposedFileDiffersInExactlyTheNamedSetting(t *testing.T) {
 	rng := rand.New(rand.NewPCG(23, 23))
 	hc := config.DefaultHost("/var/lib/loop")
-	hc.AgentJobs = map[string]config.AgentJob{"triage": {Cap: 1, Schedule: "0 * * * *", Runbook: "docs/triage.md"}}
+	hc.AgentJobs = map[string]config.AgentJob{"bug-sweep": {Cap: 1, Schedule: "0 * * * *", Runbook: "docs/bug-sweep.md"}}
 	k := config.KnownStages(hc)
 	keys := rows(hc, nil, nil)
 	accepted, unset := 0, 0
