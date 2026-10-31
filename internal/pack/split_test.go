@@ -20,7 +20,7 @@ func section(t *testing.T, text, prefix string) string {
 	t.Helper()
 	start := strings.Index(text, "\n## "+prefix)
 	if start < 0 {
-		t.Fatalf("%s holds no section %q", splitSkill, prefix)
+		t.Fatalf("the text holds no section %q", prefix)
 	}
 	rest := text[start+1:]
 	if end := strings.Index(rest[3:], "\n## "); end >= 0 {
