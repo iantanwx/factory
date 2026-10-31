@@ -210,3 +210,56 @@ func TestStaleRunCannotPush(t *testing.T) {
 		t.Fatal("the stale run's push landed")
 	}
 }
+
+// neonPinConfig is a project config that pins the userspace skill neon.
+const neonPinConfig = `merge: {mechanism: direct}
+skills:
+  - name: neon
+    repo: owner/repo
+    commit: 0123456789abcdef0123456789abcdef01234567
+    path: ""
+    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+`
+
+// TestC16PushReadsThePinsOfTheLastGoodConfig proves C16 through the
+// server: the push service reads the pin names from the project's last
+// good config, so a run's push under .claude/skills/neon/ is refused. A
+// project with no last good config passes it.
+func TestC16PushReadsThePinsOfTheLastGoodConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		lkg     string
+		refused bool
+	}{
+		{"pinned", neonPinConfig, true},
+		{"no last good config", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newGHWorld(t)
+			ctx := context.Background()
+			if err := w.srv.Projects.Add(ctx, config.Project{ID: "alpha", Repo: gt.Repo, Path: w.checkout}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.lkg != "" {
+				if err := config.StoreLKG(w.srv.Store).SaveLKG(ctx, "alpha", []byte(tc.lkg), nil); err != nil {
+					t.Fatal(err)
+				}
+			}
+			id := w.claim()
+			head := gt.Commit(t, w.checkout, "add neon", map[string]string{".claude/skills/neon/SKILL.md": "x\n"})
+			env := w.run("branch", "push")
+			if !tc.refused {
+				if env["ok"] != true || w.git.RemoteSHA(github.BranchFor(id)) != head {
+					t.Fatalf("branch push = %v", env)
+				}
+				return
+			}
+			if env["code"] != cli.CodeSecretInDiff || env["rule"] != "injected_path" {
+				t.Fatalf("branch push = %v, want SECRET_IN_DIFF injected_path", env)
+			}
+			if w.git.RemoteSHA(github.BranchFor(id)) != "" {
+				t.Fatal("the pinned skill reached the remote")
+			}
+		})
+	}
+}
