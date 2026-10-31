@@ -131,8 +131,8 @@ func (in *Inbox) decidedSpec(ctx context.Context, p config.Project, it machine.I
 	spec, matches := shape.SpecFile(it.ID, changed)
 	if spec == "" {
 		return "", &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "no_spec", Item: it.ID, CurrentStatus: it.Status,
-			Hint: fmt.Sprintf("PR #%d changes %d files at docs/plans/%s-*-spec.md, and a spec sign-off needs exactly one; nothing merged",
-				n, matches, it.ID)}
+			Hint: fmt.Sprintf("PR #%d changes %d files at %s, and a spec sign-off needs exactly one; nothing merged",
+				n, matches, shape.SpecPattern(it.ID))}
 	}
 	raw, err := in.cfg.GitHub.ReadAt(ctx, p, pinned, spec)
 	if err != nil {

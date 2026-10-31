@@ -224,8 +224,8 @@ func claimFindings(claims []agentClaim) []Finding {
 }
 
 // repairGlobs are the documents that the repair rule reads beyond the
-// agent-facing ones: the plans of production work.
-var repairGlobs = []string{"docs/plans/*.md", "docs/plans/*/*.md"}
+// agent-facing ones: the plans and specs of production work.
+var repairGlobs = []string{"docs/specs/*.md", "docs/specs/*/*.md", "docs/plans/*.md", "docs/plans/*/*.md"}
 
 // A sentence that holds back a production repair to keep evidence clean.
 // FORBID with a STAKE forbids a restart or rerun for the sake of evidence.
