@@ -122,3 +122,45 @@ person then had to choose the later ADR.
 No gate reports this fault. The later ADR can state that the earlier ADR keeps its window, and
 that sentence is true on its own. The conflict is arithmetic between two requirements, and the
 `adr` gate reads neither requirement.
+
+## 6. When a decision needs an ADR
+
+An ADR records a decision that binds later work. This section holds the one test that says when a
+decision needs one. Each runbook and skill that asks the question cites this section, and states no
+rule of its own.
+
+A decision needs an ADR only when all four parts hold:
+
+1. **More than one epic.** It binds more than one epic, or the whole project.
+2. **A rejected alternative.** It has a rejected alternative. A choice with no alternative is an
+   assumption.
+3. **Costly to undo.** It makes one of the costly changes below.
+4. **How, not what.** It decides how, not what. A PRD requirement can be its source.
+
+A decision that fails one part needs no ADR, also when the other three hold.
+
+Each of these changes is costly to undo, for part 3:
+
+- It changes a data format, a schema or stored state.
+- It changes a public interface, such as a CLI, an API, a wire format or a file layout that others
+  read.
+- It changes a dependency, a framework or a vendor.
+- It changes the deployment or process topology.
+- It changes a trust or security boundary.
+- It sets a rule that every later epic must follow.
+
+Each decision that fails the test has one place. Write it there, and nowhere else:
+
+| The decision | Its place |
+| --- | --- |
+| A choice inside one epic | The spec's `## Decisions` section |
+| A choice with no alternative | The spec's `## Assumptions` section |
+| A product requirement | The PRD |
+| A rule for agents | A runbook, a skill or `.loop/policy/<role>.md` |
+| A fact that a check can enforce | A gate |
+| A bug fix | The shaped bug ticket |
+
+When an ADR on the base branch already decides the question, a new ADR with a higher number
+supersedes it. The new ADR names the earlier one in its Decision. Nobody edits the earlier ADR. Its
+merge was the operator's sign-off, and an edit changes what the operator signed. A reader finds the
+later ADR by the search of section 5, and section 5 says which requirement holds.
