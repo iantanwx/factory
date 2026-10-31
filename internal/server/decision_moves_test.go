@@ -100,13 +100,13 @@ func TestC14EveryFireRecordsWhy(t *testing.T) {
 	if it.Status != machine.NeedsHuman || !strings.Contains(why, "--by date "+by) || it.Fact("defer_reason") != "" {
 		t.Fatalf("fired by the date = %s %v", it.Status, it.Facts)
 	}
-	e := entryByID(w.entries("person"), "decision/alpha/"+d)
+	e := entryByID(w.entries("person"), "hold/alpha/"+d)
 	if e == nil || !strings.Contains(e["text"].(string), why) {
 		t.Fatalf("the fired entry does not show why %q: %v", why, e)
 	}
 
 	until := w.clock.Now().Add(time.Hour).UTC().Format(time.RFC3339)
-	if env, code := w.coordinator("inbox", "defer", "decision/alpha/"+d, "--until", until, "--reason", "the operator decides on Friday"); code != 0 {
+	if env, code := w.coordinator("inbox", "defer", "hold/alpha/"+d, "--until", until, "--reason", "the operator decides on Friday"); code != 0 {
 		t.Fatalf("defer = %d %v", code, env)
 	}
 	w.clock.Advance(2 * time.Hour)
@@ -137,7 +137,7 @@ func TestC16ADeferredDecisionReturnsWithItsReason(t *testing.T) {
 	ctx := context.Background()
 	d := w.fileDecision("which store", "--waits-for-a-person", "the operator")
 	w.coordinator("decision", "fire", d, "--project", "alpha", "--why", "the first user paid")
-	id := "decision/alpha/" + d
+	id := "hold/alpha/" + d
 	const reason = "the operator reads the cost report on Friday"
 	due := w.clock.Now().Add(time.Hour).UTC()
 	if env, code := w.coordinator("inbox", "defer", id, "--until", due.Format(time.RFC3339), "--reason", reason); code != 0 {

@@ -31,7 +31,7 @@ func helpTexts(r *cli.Registry) map[string]string {
 
 // inboxKinds lists each kind of an inbox entry.
 var inboxKinds = []string{
-	inbox.KindEscalation, inbox.KindPanel, inbox.KindDecision, inbox.KindSignoff, inbox.KindQuestion,
+	inbox.KindEscalation, inbox.KindPanel, inbox.KindHold, inbox.KindSignoff, inbox.KindQuestion,
 	inbox.KindAsk, inbox.KindArchitecture, inbox.KindRoom, inbox.KindAlert, inbox.KindFault,
 	inbox.KindPause, inbox.KindNotice, inbox.KindLearning,
 }

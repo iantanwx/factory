@@ -840,7 +840,8 @@ func (m *Machine) workList(ctx context.Context, call *rpc.Call) cli.Result {
 	if r != nil {
 		return r.Result()
 	}
-	return cli.List(items)
+	// A decision is no work: `decision list` lists it.
+	return cli.List(slices.DeleteFunc(items, func(it Item) bool { return it.Kind == KindDecision }))
 }
 
 // ReviewCommenter posts a review's body on the item's pull request. key is

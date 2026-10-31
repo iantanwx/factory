@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -38,6 +39,9 @@ type Service struct {
 	Redactor *secrets.Redactor
 	// Now is the timers' clock. time.Now when nil.
 	Now func() time.Time
+	// Projects lists the projects that `decision list` reads when its
+	// caller names none.
+	Projects func() ([]config.Project, error)
 	// Changed is called after a write that changes the inbox. Optional.
 	Changed func()
 	Logger  *slog.Logger
@@ -56,9 +60,54 @@ func (s *Service) changed() {
 	}
 }
 
-// Register sets the handler of `decision file`.
+// Register sets the handlers of `decision file` and `decision list`.
 func (s *Service) Register(srv *rpc.Server) error {
-	return srv.Handle("decision file", s.file)
+	if err := srv.Handle("decision file", s.file); err != nil {
+		return err
+	}
+	return srv.Handle("decision list", s.list)
+}
+
+// Listed is one decision that `decision list` answers.
+type Listed struct {
+	Project  string `json:"project"`
+	Decision string `json:"decision"`
+	Title    string `json:"title"`
+	Status   string `json:"status"`
+	Trigger  string `json:"trigger"`
+}
+
+// list is `loop decision list`: the decisions of one project, in id order.
+// A caller that names no project, such as the coordinator, reads every
+// project. A decision is no work, so `work list` never names one.
+func (s *Service) list(ctx context.Context, call *rpc.Call) cli.Result {
+	var projects []string
+	prj, ref := call.Project("a run lists the decisions of its own project only")
+	switch {
+	case ref == nil:
+		projects = []string{prj}
+	case ref.Rule == "no_project" && s.Projects != nil:
+		ps, err := s.Projects()
+		if err != nil {
+			return cli.Internal(err)
+		}
+		for _, p := range ps {
+			projects = append(projects, p.ID)
+		}
+	default:
+		return ref.Result()
+	}
+	out := []Listed{}
+	for _, prj := range projects {
+		its, ref := s.Machine.List(ctx, prj, machine.ListFilter{Kind: machine.KindDecision, Status: call.Inv.Flags["status"]})
+		if ref != nil {
+			return ref.Result()
+		}
+		for _, it := range its {
+			out = append(out, Listed{Project: prj, Decision: it.ID, Title: it.Title, Status: it.Status, Trigger: it.Fact(inbox.FactTrigger)})
+		}
+	}
+	return cli.List(out)
 }
 
 // file is `loop decision file`: a question that waits for its trigger. A
@@ -143,8 +192,8 @@ func (s *Service) Tick(ctx context.Context, project string) error {
 	var dues []due
 	err := s.Store.Read(ctx, func(tx *sql.Tx) error {
 		rs, err := tx.QueryContext(ctx, `SELECT id, item, due_at, coalesce(json_extract(payload, '$.reason'), '') FROM schedule
-			WHERE kind = ? AND project = ? AND state = 'active' AND due_at <= ? AND stage LIKE 'decision/%' ORDER BY due_at, id`,
-			inbox.DeferKind, project, now.UnixMilli())
+			WHERE kind = ? AND project = ? AND state = 'active' AND due_at <= ? AND stage LIKE ? ORDER BY due_at, id`,
+			inbox.DeferKind, project, now.UnixMilli(), inbox.KindHold+"/%")
 		if err != nil {
 			return err
 		}

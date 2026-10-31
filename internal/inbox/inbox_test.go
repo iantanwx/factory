@@ -57,7 +57,7 @@ func TestEntryIDsRoundTrip(t *testing.T) {
 		row                     int64
 	}{
 		{"escalation/alpha/tk-1", KindEscalation, "alpha", "tk-1", 0},
-		{"decision/alpha/tk-2", KindDecision, "alpha", "tk-2", 0},
+		{"hold/alpha/tk-2", KindHold, "alpha", "tk-2", 0},
 		{"signoff/alpha/tk-3", KindSignoff, "alpha", "tk-3", 0},
 		{"question/7", KindQuestion, "", "", 7},
 		{"alert/3", KindAlert, "", "", 3},
