@@ -3,7 +3,7 @@
 // waiting, fired decisions, asked bug reports, architecture epics that
 // nothing works on) and from SQLite (alerts, questions, rooms, stage
 // pauses, notices, escalated retro learnings and escalations that wait for
-// the fixer's panel). Each entry says
+// the triage panel). Each entry says
 // who it waits on, a person or the coordinator, and carries a link, so a
 // coordinator act never reads as a wait on the operator.
 //
@@ -38,7 +38,7 @@ const (
 // Entry kinds.
 const (
 	KindEscalation   = "escalation"    // an item in escalated
-	KindPanel        = "panel"         // an escalation that waits for the fixer's panel
+	KindPanel        = "panel"         // an escalation that waits for the triage panel
 	KindHold         = "hold"          // a fired decision that waits on the operator
 	KindSignoff      = "signoff"       // a document that waits for the operator's approval
 	KindQuestion     = "question"      // a question the coordinator prepared

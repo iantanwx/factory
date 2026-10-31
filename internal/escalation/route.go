@@ -1,11 +1,10 @@
-// Package escalation scores and routes escalations (KTD22). A run
-// raises one with its own score against the triage rubric. A score the
-// rubric routes back to the loop is refused with a triaged note, and the
-// item keeps its state. Any other score waits for the fixer's panel: two
-// judges and Jev, which `loop escalation judge` runs inside the fixer's own
-// process. `loop escalation route` submits that panel. A route to a person
-// moves the item to escalated, puts it in the inbox and rings the
-// coordinator.
+// Package escalation scores and routes escalations (KTD22). A run raises one
+// with its own score against the triage rubric. A score the rubric routes
+// back to the loop is refused with a triaged note, and the item keeps its
+// state. Any other score waits for the triage panel: two judges and Jev,
+// which `loop escalation judge` runs inside the triage run's own process.
+// `loop escalation route` submits that panel. A route to a person moves the
+// item to escalated, puts it in the inbox and rings the coordinator.
 //
 // The rules port scripts/sdlc/triage-route.ts and scripts/sdlc/convergence.ts
 // (alpha), and skills/sdlc-triage/SKILL.md holds them in prose.

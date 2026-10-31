@@ -214,10 +214,10 @@ func TestReviewSubmitRefusesAHeadWithNoOpenPR(t *testing.T) {
 	}
 }
 
-// The fixer reads and notes the item of the escalation it routes, though
+// The triage run reads and notes the item of the escalation it routes, though
 // its token holds no item. Any other item stays refused, and so does any
 // other write on the escalated item.
-func TestFixerNotesTheEscalatedItem(t *testing.T) {
+func TestTriageNotesTheEscalatedItem(t *testing.T) {
 	w := newGHWorld(t)
 	ctx := context.Background()
 	m := w.srv.Machine
@@ -237,7 +237,7 @@ func TestFixerNotesTheEscalatedItem(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	w.token("", escalation.FixerStage, "run-fix", 0)
+	w.token("", escalation.TriageStage, "run-fix", 0)
 	w.t.Chdir(w.checkout)
 	w.cli = cli.Surface()
 	(&cli.Client{Instance: w.dir, Budget: 5 * time.Second, Getwd: func() (string, error) { return w.checkout, nil }}).Attach(w.cli)

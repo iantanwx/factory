@@ -221,12 +221,12 @@ func (s *Server) stopHuman(context.Context) error {
 	return nil
 }
 
-// peek answers `loop work peek --stage`. For the fixer it adds each
-// escalation that waits for its panel, oldest first, so the fixer knows
+// peek answers `loop work peek --stage`. For the triage stage it adds each
+// escalation that waits for its panel, oldest first, so the triage run knows
 // what to judge and route (R20).
 func (s *Server) peek(ctx context.Context, call *rpc.Call) cli.Result {
 	res := s.workPeek(ctx, call)
-	if call.Inv.Flags["stage"] != "fixer" || s.Escalations == nil || res.Refusal != nil || res.Exit != cli.ExitDone {
+	if call.Inv.Flags["stage"] != escalation.TriageStage || s.Escalations == nil || res.Refusal != nil || res.Exit != cli.ExitDone {
 		return res
 	}
 	c, ok := res.Data.(*admission.Candidate)

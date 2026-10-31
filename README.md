@@ -50,5 +50,5 @@ and `loop doctor` prints one `requires_<bin>` line for each binary:
 - `tailscale`, optional, for the tailnet address of the GitHub App flow.
 - `op`, optional, for `loop secret import` from 1Password.
 
-The fixer's judges, `claude` and `codex`, have their own line in
+The triage panel's judges, `claude` and `codex`, have their own line in
 `loop doctor`: `judge_binaries`.

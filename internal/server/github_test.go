@@ -56,7 +56,7 @@ func newGHWorld(t *testing.T) *ghWorld {
 		t.Fatal(err)
 	}
 	w.gh = &GitHub{API: w.api.URL(), GitURL: w.git.URL, Protocols: []string{"http"},
-		Sleep: func(context.Context, time.Duration) error { return nil }, ProjectConfig: fixerConfig(false)}
+		Sleep: func(context.Context, time.Duration) error { return nil }, ProjectConfig: triageConfig(false)}
 	opts := Options{
 		Beads:     func(string) (beadsx.Client, error) { return w.bx, nil },
 		Claims:    allowAll{},

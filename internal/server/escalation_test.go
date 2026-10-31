@@ -283,7 +283,7 @@ func TestEscalationAtLevel2IsRoutedBackToTheLoop(t *testing.T) {
 	}
 }
 
-// An escalation at level 4 waits for the fixer's panel and holds its item.
+// An escalation at level 4 waits for the triage panel and holds its item.
 // The coordinator hears of it within a minute. The panel's route to a person
 // moves the item to escalated, with an inbox entry that waits on a person
 // and links the item. The answer resumes the item to its stored target.
@@ -313,20 +313,20 @@ func TestLevel4EscalationReachesAPersonThroughThePanel(t *testing.T) {
 		t.Fatalf("the panel entry = %v", panel)
 	}
 
-	fixer := w.runToken("fix-1", "", "fixer")
-	env, code = w.as(fixer, "work", "peek", "--stage", "fixer")
+	triage := w.runToken("fix-1", "", "triage")
+	env, code = w.as(triage, "work", "peek", "--stage", "triage")
 	pending, _ := env["data"].(map[string]any)["escalations"].([]any)
 	if code != 0 || len(pending) != 1 || fmt.Sprint(pending[0].(map[string]any)["escalation"]) != id {
-		t.Fatalf("fixer peek = %d %v", code, env)
+		t.Fatalf("triage peek = %d %v", code, env)
 	}
 	// A run of another stage cannot route.
 	other := w.runToken("run-2", "", machine.StageImplementer)
 	panelFile(t, other, "preference", nil)
 	if env, _ := w.as(other, "escalation", "route", id, "--file", "panel.json"); env["code"] != cli.CodeCapabilityDenied {
-		t.Fatalf("a non-fixer route = %v", env)
+		t.Fatalf("a non-triage route = %v", env)
 	}
-	panelFile(t, fixer, "preference", nil)
-	env, code = w.as(fixer, "escalation", "route", id, "--file", "panel.json")
+	panelFile(t, triage, "preference", nil)
+	env, code = w.as(triage, "escalation", "route", id, "--file", "panel.json")
 	if code != 0 || env["data"].(map[string]any)["route"] != string(escalation.RoutePerson) {
 		t.Fatalf("route = %d %v", code, env)
 	}
@@ -367,9 +367,9 @@ func TestPanelThatAgreesOnALoopLevelRoutesBack(t *testing.T) {
 	co := w.runToken("run-1", item, machine.StageImplementer)
 	env, _ := w.as(co, "escalation", "raise", "--score", "5", "--body", "only the owner knows")
 	id := fmt.Sprint(env["data"].(map[string]any)["escalation"].(map[string]any)["escalation"])
-	fixer := w.runToken("fix-1", "", "fixer")
-	panelFile(t, fixer, "computed", &escalation.Reading{Probabilities: map[string]float64{"0": 0, "1": 0, "2": 0.1, "3": 0.9}, Score: 2.9, Confidence: 0.95})
-	env, code := w.as(fixer, "escalation", "route", id, "--file", "panel.json")
+	triage := w.runToken("fix-1", "", "triage")
+	panelFile(t, triage, "computed", &escalation.Reading{Probabilities: map[string]float64{"0": 0, "1": 0, "2": 0.1, "3": 0.9}, Score: 2.9, Confidence: 0.95})
+	env, code := w.as(triage, "escalation", "route", id, "--file", "panel.json")
 	if code != 0 || env["data"].(map[string]any)["route"] != string(escalation.RouteLoop) {
 		t.Fatalf("route = %d %v", code, env)
 	}
@@ -382,11 +382,11 @@ func TestPanelThatAgreesOnALoopLevelRoutesBack(t *testing.T) {
 	}
 	// The same call replays its answer. Another panel on a routed
 	// escalation is refused.
-	if env, _ := w.as(fixer, "escalation", "route", id, "--file", "panel.json"); env["replayed"] != true {
+	if env, _ := w.as(triage, "escalation", "route", id, "--file", "panel.json"); env["replayed"] != true {
 		t.Fatalf("a retry = %v", env)
 	}
-	panelFile(t, fixer, "preference", nil)
-	if env, _ := w.as(fixer, "escalation", "route", id, "--file", "panel.json"); env["code"] != cli.CodeTransitionNotAllowed {
+	panelFile(t, triage, "preference", nil)
+	if env, _ := w.as(triage, "escalation", "route", id, "--file", "panel.json"); env["code"] != cli.CodeTransitionNotAllowed {
 		t.Fatalf("a second route = %v", env)
 	}
 }
@@ -412,9 +412,9 @@ func TestAmendingAnswerReadmitsATwiceFailedItem(t *testing.T) {
 	co := w.runToken("run-x", item, machine.StageImplementer)
 	env, _ := w.as(co, "escalation", "raise", "--score", "5", "--body", "the task names a file that does not exist")
 	id := fmt.Sprint(env["data"].(map[string]any)["escalation"].(map[string]any)["escalation"])
-	fixer := w.runToken("fix-1", "", "fixer")
-	panelFile(t, fixer, "owner-only", nil)
-	if _, code := w.as(fixer, "escalation", "route", id, "--file", "panel.json"); code != 0 {
+	triage := w.runToken("fix-1", "", "triage")
+	panelFile(t, triage, "owner-only", nil)
+	if _, code := w.as(triage, "escalation", "route", id, "--file", "panel.json"); code != 0 {
 		t.Fatal("route failed")
 	}
 	env, code := w.coordinator("inbox", "answer", "escalation/alpha/"+item, "--body", "edit lib/b.go instead", "--amend")
@@ -446,15 +446,15 @@ func TestSecretsAreRefusedInEveryHumanWrite(t *testing.T) {
 	}
 	env, _ := w.as(co, "escalation", "raise", "--score", "4", "--body", "clean")
 	id := fmt.Sprint(env["data"].(map[string]any)["escalation"].(map[string]any)["escalation"])
-	fixer := w.runToken("fix-1", "", "fixer")
-	if err := os.WriteFile(filepath.Join(fixer, "panel.json"), []byte(`{"finding":"`+leak+`"}`), 0o600); err != nil {
+	triage := w.runToken("fix-1", "", "triage")
+	if err := os.WriteFile(filepath.Join(triage, "panel.json"), []byte(`{"finding":"`+leak+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if env, code := w.as(fixer, "escalation", "route", id, "--file", "panel.json"); code != 3 || env["code"] != cli.CodeSecretInOutput {
+	if env, code := w.as(triage, "escalation", "route", id, "--file", "panel.json"); code != 3 || env["code"] != cli.CodeSecretInOutput {
 		t.Fatalf("route = %d %v", code, env)
 	}
-	panelFile(t, fixer, "preference", nil)
-	w.as(fixer, "escalation", "route", id, "--file", "panel.json")
+	panelFile(t, triage, "preference", nil)
+	w.as(triage, "escalation", "route", id, "--file", "panel.json")
 	for _, args := range [][]string{
 		{"inbox", "answer", "escalation/alpha/" + item, "--body", leak},
 		{"inbox", "prepare", "--body", leak},
@@ -532,15 +532,15 @@ func (w *humanWorld) raise5(item, body string) string {
 // scope leaves the body forbidding the work, and the implementer escalates
 // again (TIC-70, alpha). The edit enters the retry identity, so a
 // twice-failed item is admitted again.
-func TestFixerReleaseMovesOnePathIntoMayChangeAndReadmitsTheItem(t *testing.T) {
+func TestTriageReleaseMovesOnePathIntoMayChangeAndReadmitsTheItem(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()
 	item := scopedTicket(t, w.bx)
 	w.failTwice(item)
 	id := w.raise5(item, "the contract needs lib/parse.go, and the ticket forbids lib/**")
-	fixer := w.runToken("fix-1", "", "fixer")
-	panelFile(t, fixer, "derived", agreeing)
-	env, code := w.as(fixer, "escalation", "route", id, "--file", "panel.json",
+	triage := w.runToken("fix-1", "", "triage")
+	panelFile(t, triage, "derived", agreeing)
+	env, code := w.as(triage, "escalation", "route", id, "--file", "panel.json",
 		"--release", "lib/parse.go", "--forbids", "lib/**", "--condition", "Add the second format's parser, and change no other file in lib/.")
 	data, _ := env["data"].(map[string]any)
 	if code != 0 || data["route"] != string(escalation.RouteLoop) || data["released"] != "lib/parse.go" {
@@ -551,9 +551,9 @@ func TestFixerReleaseMovesOnePathIntoMayChangeAndReadmitsTheItem(t *testing.T) {
 		"**May change:**\n" +
 		"- `app/task.go`\n" +
 		"- `lib/parse.go`: Add the second format's parser, and change no other file in lib/. " +
-		"Released from \"Must not change\" by the fixer for escalation " + id + ".\n\n" +
+		"Released from \"Must not change\" by the triage run for escalation " + id + ".\n\n" +
 		"**Must not change:**\n" +
-		"- `lib/**`, the shared library. The fixer released `lib/parse.go` into \"May change\" for escalation " + id +
+		"- `lib/**`, the shared library. The triage run released `lib/parse.go` into \"May change\" for escalation " + id +
 		", and nothing else here.\n" +
 		"- `.github/**`\n\n" +
 		"## Done means\n\n" +
@@ -569,7 +569,7 @@ func TestFixerReleaseMovesOnePathIntoMayChangeAndReadmitsTheItem(t *testing.T) {
 	if ref != nil || c == nil || c.Item != item {
 		t.Fatalf("the released item is not admitted again: %+v %+v", c, ref)
 	}
-	if env, _ := w.as(fixer, "escalation", "route", id, "--file", "panel.json",
+	if env, _ := w.as(triage, "escalation", "route", id, "--file", "panel.json",
 		"--release", "lib/parse.go", "--forbids", "lib/**", "--condition", "Add the second format's parser, and change no other file in lib/."); env["replayed"] != true {
 		t.Fatalf("a retry = %v", env)
 	}
@@ -583,7 +583,7 @@ func TestFixerReleaseMovesOnePathIntoMayChangeAndReadmitsTheItem(t *testing.T) {
 // and leaves the body as the edit wrote it. A body that holds the same
 // path released for another escalation still refuses: that edit is an
 // earlier round's, and this escalation has another cause.
-func TestFixerReleaseAfterACrashFinishesTheRoute(t *testing.T) {
+func TestTriageReleaseAfterACrashFinishesTheRoute(t *testing.T) {
 	const condition = "Add the second format's parser."
 	for name, tc := range map[string]struct {
 		other int64
@@ -608,9 +608,9 @@ func TestFixerReleaseAfterACrashFinishesTheRoute(t *testing.T) {
 				Params: map[string]string{"body": edited}, Actor: machine.Server("escalation")}); res.Refusal != nil {
 				t.Fatalf("edit = %+v", res.Refusal)
 			}
-			fixer := w.runToken("fix-1", "", "fixer")
-			panelFile(t, fixer, "derived", agreeing)
-			env, code := w.as(fixer, "escalation", "route", id, "--file", "panel.json",
+			triage := w.runToken("fix-1", "", "triage")
+			panelFile(t, triage, "derived", agreeing)
+			env, code := w.as(triage, "escalation", "route", id, "--file", "panel.json",
 				"--release", "lib/parse.go", "--forbids", "lib/**", "--condition", condition)
 			data, _ := env["data"].(map[string]any)
 			if code != tc.code || env["rule"] != nil && env["rule"] != tc.rule ||
@@ -627,14 +627,14 @@ func TestFixerReleaseAfterACrashFinishesTheRoute(t *testing.T) {
 	}
 }
 
-// A release the fixer misspelled writes nothing: the escalation still
+// A release the triage run misspelled writes nothing: the escalation still
 // waits for its panel, and the body is the one the ticket was cut with.
-func TestFixerReleaseThatNamesNoEntryWritesNothing(t *testing.T) {
+func TestTriageReleaseThatNamesNoEntryWritesNothing(t *testing.T) {
 	w := newHumanWorld(t, "")
 	item := scopedTicket(t, w.bx)
 	id := w.raise5(item, "the contract needs lib/parse.go")
-	fixer := w.runToken("fix-1", "", "fixer")
-	panelFile(t, fixer, "derived", agreeing)
+	triage := w.runToken("fix-1", "", "triage")
+	panelFile(t, triage, "derived", agreeing)
 	for _, tc := range []struct {
 		rule string
 		args []string
@@ -647,7 +647,7 @@ func TestFixerReleaseThatNamesNoEntryWritesNothing(t *testing.T) {
 		{"condition_not_plain", []string{"--release", "lib/parse.go", "--forbids", "lib/**",
 			"--condition", "Edit only this file; never touch `.github/workflows/ci.yml`."}},
 	} {
-		env, code := w.as(fixer, append([]string{"escalation", "route", id, "--file", "panel.json"}, tc.args...)...)
+		env, code := w.as(triage, append([]string{"escalation", "route", id, "--file", "panel.json"}, tc.args...)...)
 		if code != 2 || env["code"] != cli.CodeUsage || env["rule"] != tc.rule {
 			t.Fatalf("%s: route = %d %v", tc.rule, code, env)
 		}
@@ -663,7 +663,7 @@ func TestFixerReleaseThatNamesNoEntryWritesNothing(t *testing.T) {
 // A path on the never-released list reaches a person, whatever the judges
 // scored, and the body keeps its scope. A release on a panel that routes
 // to a person is not applied either.
-func TestFixerReleaseOfANeverReleasedPathReachesAPerson(t *testing.T) {
+func TestTriageReleaseOfANeverReleasedPathReachesAPerson(t *testing.T) {
 	for name, tc := range map[string]struct {
 		level   string
 		reading *escalation.Reading
@@ -678,10 +678,10 @@ func TestFixerReleaseOfANeverReleasedPathReachesAPerson(t *testing.T) {
 			w := newHumanWorld(t, "")
 			item := scopedTicket(t, w.bx)
 			id := w.raise5(item, "the contract needs a change the ticket forbids")
-			fixer := w.runToken("fix-1", "", "fixer")
-			panelFile(t, fixer, tc.level, tc.reading)
+			triage := w.runToken("fix-1", "", "triage")
+			panelFile(t, triage, tc.level, tc.reading)
 			args := append([]string{"escalation", "route", id, "--file", "panel.json", "--condition", "Change the one file."}, tc.release...)
-			env, code := w.as(fixer, args...)
+			env, code := w.as(triage, args...)
 			data, _ := env["data"].(map[string]any)
 			if code != 0 || data["route"] != string(escalation.RoutePerson) || data["released"] != nil ||
 				!strings.Contains(fmt.Sprint(data["decision"]), tc.because) {

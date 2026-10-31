@@ -11,16 +11,16 @@ import (
 	"github.com/iantanwx/loop/internal/escalation"
 )
 
-// The fixer runbook's join command, run on two files that `escalation
+// The triage runbook's join command, run on two files that `escalation
 // judge --out` writes, yields a file that `escalation route` reads as two
 // panels (F-27).
-func TestFixerJoinCommandFeedsRoute(t *testing.T) {
+func TestTriageJoinCommandFeedsRoute(t *testing.T) {
 	if _, err := exec.LookPath("jq"); err != nil {
 		t.Skip("jq is not on PATH")
 	}
-	line := regexp.MustCompile(`(?m)^jq -s .*panels\.json$`).FindString(read(t, "runbooks/fixer.md"))
+	line := regexp.MustCompile(`(?m)^jq -s .*panels\.json$`).FindString(read(t, "runbooks/triage.md"))
 	if line == "" {
-		t.Fatal("the fixer runbook names no jq command that writes panels.json")
+		t.Fatal("the triage runbook names no jq command that writes panels.json")
 	}
 	dir := t.TempDir()
 	for _, f := range []string{"f1", "f2"} {

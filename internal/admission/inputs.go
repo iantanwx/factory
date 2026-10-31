@@ -127,7 +127,7 @@ func mayChange(body string) []string {
 // FileList returns the indexes of the lines of one list, MayChange or
 // MustNotChange, inside the "## Files" section of a body split into lines.
 // A label that holds its first entry on its own line is in the list. The
-// fixer's scope release reads both lists with it, so the release and the
+// triage run's scope release reads both lists with it, so the release and the
 // retry identity read one list the same way.
 func FileList(lines []string, label string) []int {
 	start := slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == "## Files" })

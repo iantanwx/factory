@@ -17,7 +17,7 @@ func TestClaimStatesIsTheViewOfEachStagesClaimStates(t *testing.T) {
 		config.StageImplementer:  {{machine.KindTicket, machine.Todo}, {machine.KindTicket, machine.Repair}},
 		config.StageCodeReviewer: {{machine.KindTicket, machine.InReview}},
 		config.StageReproducer:   {{machine.KindBug, machine.Reported}},
-		config.StageFixer:        nil,
+		config.StageTriage:       nil,
 		config.StageIntake:       nil,
 	}
 	for stage, w := range want {

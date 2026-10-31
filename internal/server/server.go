@@ -491,8 +491,8 @@ func readsEpic(ctx context.Context, m *machine.Machine, p rpc.Principal, item st
 }
 
 // holdsItem is the item check of the capability matrix (KTD12): next, or
-// the token's item when next is nil, and the fixer's one allowance. A
-// fixer run's token holds no item, because the fixer takes an escalation,
+// the token's item when next is nil, and the triage run's one allowance. A
+// triage run's token holds no item, because triage takes an escalation,
 // not an item. It may read and note the item of an escalation in its own
 // project that waits for its panel, or that this run routed. The machine
 // refuses every other write a run makes on an item its token does not
@@ -503,7 +503,7 @@ func holdsItem(st *store.Store, next rpc.HoldsItem) rpc.HoldsItem {
 	}
 	return func(ctx context.Context, p rpc.Principal, item string) (bool, error) {
 		ok, err := next(ctx, p, item)
-		if ok || err != nil || p.Kind != cli.PrincipalRun || p.Stage != escalation.FixerStage || item == "" {
+		if ok || err != nil || p.Kind != cli.PrincipalRun || p.Stage != escalation.TriageStage || item == "" {
 			return ok, err
 		}
 		var n int

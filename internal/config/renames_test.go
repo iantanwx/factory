@@ -322,6 +322,30 @@ func TestRetiredWordsHoldEachOldKey(t *testing.T) {
 	}
 }
 
+// C12, factorio-2mwq: the table holds the pair fixer to triage, so the
+// golden transition tables map fixer through it.
+func TestC12TableRenamesFixerToTriage(t *testing.T) {
+	if n, ok := NewStageName("fixer"); !ok || n != "triage" {
+		t.Fatalf("NewStageName(fixer) = %q, %v, want triage", n, ok)
+	}
+}
+
+// C5, factorio-2mwq: the manifest this repository held before the rename,
+// stages: [fixer, retro], gives Jev's key to the triage stage.
+func TestC5ManifestFixerReachesTheTriageStage(t *testing.T) {
+	m, err := ParseManifest([]byte("secrets:\n  - name: TYPESAFE_API_KEY\n    stages: [fixer, retro]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.ForStage("triage").Names(); !slices.Equal(got, []string{"TYPESAFE_API_KEY"}) {
+		t.Fatalf("ForStage(triage) = %v, want [TYPESAFE_API_KEY]", got)
+	}
+	want := []Rename{{Source: DefaultManifestPath, Old: "fixer", New: "triage"}}
+	if !slices.Equal(m.Renames, want) {
+		t.Fatalf("Renames = %+v, want %+v", m.Renames, want)
+	}
+}
+
 // C9, C12: the prd-author stage is now unattended-brainstorm, and its old
 // key and its old role words are retired.
 func TestPRDAuthorIsNowUnattendedBrainstorm(t *testing.T) {

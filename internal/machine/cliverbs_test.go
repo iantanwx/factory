@@ -411,7 +411,7 @@ func (e *evidenceLog) check(_ context.Context, project, item, kind, ref string) 
 
 // work supersede closes a ticket with no work left on checked evidence,
 // and the ticket keeps the evidence and the reason. The run that holds the
-// ticket, the fixer and the coordinator may close it. Another run's lease,
+// ticket, the triage run and the coordinator may close it. Another run's lease,
 // a state that holds a pull request, a refused GitHub read or evidence
 // that does not hold each refuse, and record nothing.
 func TestWorkSupersedeClosesOnCheckedEvidence(t *testing.T) {
@@ -469,8 +469,8 @@ func TestWorkSupersedeClosesOnCheckedEvidence(t *testing.T) {
 	held := w.create(KindTicket, "create", nil)
 	impl := w.claimAs(held, StageImplementer, "impl")
 	wantCode(t, sup(coord(), held, commit), cli.CodeLeaseHeld)
-	fixer := rpc.Principal{Kind: cli.PrincipalRun, RunID: "fix", Project: prj, Stage: "fixer"}
-	wantCode(t, sup(fixer, held, commit), cli.CodeLeaseHeld)
+	triage := rpc.Principal{Kind: cli.PrincipalRun, RunID: "fix", Project: prj, Stage: "triage"}
+	wantCode(t, sup(triage, held, commit), cli.CodeLeaseHeld)
 	stranger := w.runOn(other, StageImplementer, "impl-x")
 	wantCode(t, sup(stranger, held, commit), cli.CodeCapabilityDenied)
 	mustOK(t, sup(impl, held, commit))
@@ -478,9 +478,9 @@ func TestWorkSupersedeClosesOnCheckedEvidence(t *testing.T) {
 		t.Fatalf("the holder's supersede: %s owner %q", it.Status, it.Owner)
 	}
 
-	// The fixer closes a ticket nobody holds.
+	// The triage run closes a ticket nobody holds.
 	free := w.create(KindTicket, "create", nil)
-	mustOK(t, sup(fixer, free, map[string]string{"adr": "docs/adr/0007-drop-x.md", "reason": "ADR 0007 drops the feature."}))
+	mustOK(t, sup(triage, free, map[string]string{"adr": "docs/adr/0007-drop-x.md", "reason": "ADR 0007 drops the feature."}))
 	if got := w.show(free).Fact(FactSupersededBy); got != "adr docs/adr/0007-drop-x.md" {
 		t.Fatalf("superseded_by = %q", got)
 	}
@@ -568,15 +568,15 @@ func TestC12CancelStartsOnlyFromTheNamedStates(t *testing.T) {
 	}
 }
 
-// A run reaches an item it does not hold only through the fixer's
+// A run reaches an item it does not hold only through the triage run's
 // allowance, which the capability check grants for the escalated item.
 // Even then the machine lets it note the item, and nothing else but the
 // supersede TestWorkSupersedeClosesOnCheckedEvidence covers.
 func TestABorrowedItemTakesANoteOnly(t *testing.T) {
 	w := newWorld(t)
 	id := w.create(KindTicket, "create", nil)
-	fixer := rpc.Principal{Kind: cli.PrincipalRun, RunID: "fix", Project: prj, Stage: "fixer"}
-	mustOK(t, w.call("work note", fixer, []string{id}, map[string]string{"body": "The panel routed it to the loop."}))
+	triage := rpc.Principal{Kind: cli.PrincipalRun, RunID: "fix", Project: prj, Stage: "triage"}
+	mustOK(t, w.call("work note", triage, []string{id}, map[string]string{"body": "The panel routed it to the loop."}))
 	if got := w.show(id).Fact(FactNote); got != "The panel routed it to the loop." {
 		t.Fatalf("note = %q", got)
 	}
@@ -586,7 +586,7 @@ func TestABorrowedItemTakesANoteOnly(t *testing.T) {
 		"work unblock":  nil,
 		"review submit": {"verdict": "reject"},
 	} {
-		if res := w.call(path, fixer, []string{id}, flags); res.Refusal == nil || res.Refusal.Code != cli.CodeCapabilityDenied {
+		if res := w.call(path, triage, []string{id}, flags); res.Refusal == nil || res.Refusal.Code != cli.CodeCapabilityDenied {
 			t.Errorf("%s on a borrowed item = %+v, want %s", path, res.Refusal, cli.CodeCapabilityDenied)
 		}
 	}

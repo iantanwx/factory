@@ -11,9 +11,9 @@ import (
 	"github.com/iantanwx/loop/internal/admission"
 )
 
-// The one edit a fixer may make to a ticket: a loop route releases one path
-// out of the body's "Must not change" list and into "May change". It ports
-// scripts/sdlc/fixer-scope.ts (alpha).
+// The one edit a triage run may make to a ticket: a loop route releases one
+// path out of the body's "Must not change" list and into "May change". It
+// ports scripts/sdlc/fixer-scope.ts (alpha).
 //
 // A note alone does not work, and alpha measured it on TIC-70. A person
 // widened that ticket's scope in a note and left the body alone. The
@@ -27,7 +27,7 @@ import (
 // reads before anything merges. A wrong narrowing costs a ticket nobody can
 // do.
 
-// NeverReleased holds the paths no fixer releases, whatever the judges
+// NeverReleased holds the paths no triage run releases, whatever the judges
 // scored. Each one is a decision that belongs to a person, and each one is
 // already a rule elsewhere. `.loop/` is the project's loop config: its gates,
 // its policies and its secret names, so releasing it would let the loop
@@ -51,7 +51,7 @@ var NeverReleased = []string{
 	"docs/adr/",
 }
 
-// Release is what the fixer asks for, from the three flags of
+// Release is what the triage run asks for, from the three flags of
 // `escalation route`.
 type Release struct {
 	// Path is the narrower path the ticket may now change.
@@ -73,7 +73,7 @@ type ReleaseRefusal struct {
 }
 
 // RuleNeverReleased is the refusal that sends the escalation to a person
-// rather than back to the fixer.
+// rather than back to the triage run.
 const RuleNeverReleased = "never_released"
 
 var (
@@ -164,7 +164,18 @@ func names(line, clean string) bool {
 // releasedSentence is the sentence the released bullet ends with. It ends
 // in a period, so escalation 7 is not escalation 70.
 func releasedSentence(escalation int64) string {
-	return fmt.Sprintf("Released from %q by the fixer for escalation %d.", admission.MustNotChange, escalation)
+	return releasedSentenceBy("the triage run", escalation)
+}
+
+// releasedBeforeRename is the sentence a release wrote before the triage
+// stage's rename, so a route that crashed across the upgrade still finds
+// its own edit. The release that empties the rename table removes it.
+func releasedBeforeRename(escalation int64) string {
+	return releasedSentenceBy("the fixer", escalation)
+}
+
+func releasedSentenceBy(who string, escalation int64) string {
+	return fmt.Sprintf("Released from %q by %s for escalation %d.", admission.MustNotChange, who, escalation)
 }
 
 // ReleasedBy reports whether the body's "May change" list holds the
@@ -181,7 +192,7 @@ func ReleasedBy(body, path string, escalation int64) bool {
 	return slices.ContainsFunc(allowed, func(i int) bool {
 		bullet := strings.Join(lines[i:bulletEnd(lines, allowed, i)+1], " ")
 		return markerRe.MatchString(lines[i]) && names(lines[i], clean) &&
-			strings.Contains(bullet, releasedSentence(escalation))
+			(strings.Contains(bullet, releasedSentence(escalation)) || strings.Contains(bullet, releasedBeforeRename(escalation)))
 	})
 }
 
@@ -231,7 +242,7 @@ func ReleasePath(body string, r Release) (string, *ReleaseRefusal) {
 	}
 	path = clean
 	if floor := neverReleased(path); floor != "" {
-		return "", &ReleaseRefusal{RuleNeverReleased, fmt.Sprintf("no fixer releases `%s`, because it reaches `%s`, "+
+		return "", &ReleaseRefusal{RuleNeverReleased, fmt.Sprintf("no triage run releases `%s`, because it reaches `%s`, "+
 			"which a person alone may widen", path, floor)}
 	}
 	if !covers(CleanPath(forbids), path) {
@@ -265,7 +276,7 @@ func ReleasePath(body string, r Release) (string, *ReleaseRefusal) {
 	// The new bullet does not name the forbidden entry in backticks: the
 	// retry identity reads every backticked path of "May change".
 	out[last] = fmt.Sprintf("%s\n%s`%s`: %s %s", lines[last], marker, path, condition, releasedSentence(r.Escalation))
-	out[end] = fmt.Sprintf("%s The fixer released `%s` into %q for escalation %d, and nothing else here.",
+	out[end] = fmt.Sprintf("%s The triage run released `%s` into %q for escalation %d, and nothing else here.",
 		lines[end], path, admission.MayChange, r.Escalation)
 	released := strings.Join(out, "\n")
 	if wider := widens(body, released, path); wider != "" {

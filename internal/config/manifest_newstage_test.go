@@ -10,13 +10,13 @@ import (
 // release: the entry reaches each stage this release knows, and the name it
 // does not know reaches no run.
 func TestCBug1ManifestLoadsWhenAnEntryNamesAStageOfALaterRelease(t *testing.T) {
-	doc := "secrets:\n  - name: JEV_API_KEY\n    stages: [fixer, stage-of-a-later-release]\n"
+	doc := "secrets:\n  - name: JEV_API_KEY\n    stages: [triage, stage-of-a-later-release]\n"
 	m, err := ParseManifest([]byte(doc))
 	if err != nil {
 		t.Fatalf("ParseManifest: %v, want the manifest to load under this release", err)
 	}
-	if got := m.ForStage("fixer").Names(); !slices.Equal(got, []string{"JEV_API_KEY"}) {
-		t.Fatalf("ForStage(fixer) = %v, want [JEV_API_KEY]", got)
+	if got := m.ForStage("triage").Names(); !slices.Equal(got, []string{"JEV_API_KEY"}) {
+		t.Fatalf("ForStage(triage) = %v, want [JEV_API_KEY]", got)
 	}
 	if got := m.ForStage("implementer").Names(); len(got) != 0 {
 		t.Fatalf("ForStage(implementer) = %v, want none", got)

@@ -36,10 +36,10 @@ func TestReleasePathMovesOnePathAndNothingElse(t *testing.T) {
 		"## Files\n\n" +
 		"**May change:**\n" +
 		"* `apps/web/src/**`\n" +
-		"* `packages/db/src/**`: Add the one migration. Released from \"Must not change\" by the fixer for escalation 7.\n\n" +
+		"* `packages/db/src/**`: Add the one migration. Released from \"Must not change\" by the triage run for escalation 7.\n\n" +
 		"**Must not change:**\n" +
 		"* `packages/**`, which other\n" +
-		"  tickets own. The fixer released `packages/db/src/**` into \"May change\" for escalation 7, and nothing else here.\n" +
+		"  tickets own. The triage run released `packages/db/src/**` into \"May change\" for escalation 7, and nothing else here.\n" +
 		"* `docs/adr/**`\n\n" +
 		"## Out of scope\n\n" +
 		"- `packages/db/` stays as it is.\n"
@@ -161,6 +161,22 @@ func TestReleasedByNamesOneEscalationAndOnePath(t *testing.T) {
 	}
 	if ReleasedBy(tic70, "packages/db/src/**", 7) {
 		t.Error("a body with no release holds one")
+	}
+}
+
+// A release that a route wrote before the triage stage's rename names the
+// fixer. A route that crashed across the upgrade still finds its own edit.
+func TestReleasedByFindsAReleaseWrittenBeforeTheRename(t *testing.T) {
+	body, r := ReleasePath(tic70, release("packages/db/src/**", "packages/**"))
+	if r != nil {
+		t.Fatal(r)
+	}
+	old := strings.ReplaceAll(body, "by the triage run for escalation", "by the fixer for escalation")
+	if old == body {
+		t.Fatal("the release names no triage run")
+	}
+	if !ReleasedBy(old, "packages/db/src/**", 7) || ReleasedBy(old, "packages/db/src/**", 70) {
+		t.Fatal("ReleasedBy does not read the sentence a release wrote before the rename")
 	}
 }
 

@@ -12,11 +12,11 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 )
 
-// decisionsOf reads `loop escalation decisions <id>` as the fixer, and
+// decisionsOf reads `loop escalation decisions <id>` as the triage run, and
 // returns each decision's source and text.
-func (w *humanWorld) decisionsOf(fixer, id string) [][2]string {
+func (w *humanWorld) decisionsOf(triage, id string) [][2]string {
 	w.t.Helper()
-	env, code := w.as(fixer, "escalation", "decisions", id)
+	env, code := w.as(triage, "escalation", "decisions", id)
 	if code != 0 {
 		w.t.Fatalf("decisions = %d %v", code, env)
 	}
@@ -68,26 +68,26 @@ func TestEscalationDecisionsListsTheOperatorsDecisionsOnTheItem(t *testing.T) {
 	id := fmt.Sprint(env["data"].(map[string]any)["escalation"].(map[string]any)["escalation"])
 
 	if env, _ := w.as(co, "escalation", "decisions", id); env["code"] != cli.CodeCapabilityDenied {
-		t.Fatalf("a non-fixer read = %v", env)
+		t.Fatalf("a non-triage read = %v", env)
 	}
-	fixer := w.runToken("fix-1", "", "fixer")
-	if env, _ := w.as(fixer, "escalation", "decisions", "999"); env["code"] != cli.CodeNotFound {
+	triage := w.runToken("fix-1", "", "triage")
+	if env, _ := w.as(triage, "escalation", "decisions", "999"); env["code"] != cli.CodeNotFound {
 		t.Fatalf("an unknown escalation = %v", env)
 	}
-	got := w.decisionsOf(fixer, id)
+	got := w.decisionsOf(triage, id)
 	if len(got) != 2 || got[0] != [2]string{escalation.SourceNote, note} || got[1][0] != escalation.SourceQuestion ||
 		!strings.Contains(got[1][1], "Which layout? (escalation/alpha/"+item+")") || !strings.Contains(got[1][1], "the left layout") {
 		t.Fatalf("decisions = %q", got)
 	}
 
-	panelFile(t, fixer, "preference", nil)
-	if _, code := w.as(fixer, "escalation", "route", id, "--file", "panel.json"); code != 0 {
+	panelFile(t, triage, "preference", nil)
+	if _, code := w.as(triage, "escalation", "route", id, "--file", "panel.json"); code != 0 {
 		t.Fatal("route failed")
 	}
 	if env, code := w.coordinator("inbox", "answer", "escalation/alpha/"+item, "--body", "use the left layout"); code != 0 {
 		t.Fatalf("answer = %d %v", code, env)
 	}
-	got = w.decisionsOf(fixer, id)
+	got = w.decisionsOf(triage, id)
 	if len(got) != 3 || !slices.Contains(got, [2]string{escalation.SourceAnswer, "use the left layout"}) {
 		t.Fatalf("decisions after the answer = %q", got)
 	}
