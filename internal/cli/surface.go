@@ -202,6 +202,8 @@ var surface = []Verb{
 		Flag{Name: "condition", Type: FlagString, Description: "with --release: what the implementer may do at the path, and nothing wider"})),
 
 	server("retro", "record", "bind the oldest pending retro of the run's project, or the one the run holds, and print its record: for the item and an epic's tickets, each review round, run, escalation, loop fault, pull request comment, note and signal, each with its case reference", []string{"retro"}, nil),
+	server("retro", "held", "list the held learnings of the run's project, each with its cases", []string{"retro"}, nil),
+	write(server("retro", "route", "send the panel file that `loop retro judge` wrote: the server checks each case against the bound retro's record, decides each learning's route with its own thresholds, stores each learning, puts one notice and marks the retro done", []string{"retro"}, nil, fileFlag)),
 
 	write(server("decision", "file", "file a decision that waits for its trigger", runOrCoordinator, nil, projectFlag,
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the question"},

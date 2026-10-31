@@ -10,8 +10,8 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// OnItem reads what the retro keeps on one item: its signals, oldest
-// first. work show prints them.
+// OnItem reads what the retro keeps on one item: its signals and the held
+// learnings whose retro item it is, oldest first. work show prints both.
 func OnItem(ctx context.Context, st *store.Store, project, item string) (machine.RetroOnItem, error) {
 	var out machine.RetroOnItem
 	err := st.Read(ctx, func(tx *sql.Tx) error {
@@ -25,6 +25,17 @@ func OnItem(ctx context.Context, st *store.Store, project, item string) (machine
 				return err
 			}
 			out.Signals = append(out.Signals, raw)
+		}
+		held, err := readStored(ctx, tx, `project = ? AND retro_item = ? AND status = ?`, project, item, StatusHeld)
+		if err != nil {
+			return err
+		}
+		for _, l := range held {
+			raw, err := json.Marshal(l)
+			if err != nil {
+				return err
+			}
+			out.HeldLearnings = append(out.HeldLearnings, raw)
 		}
 		return nil
 	})

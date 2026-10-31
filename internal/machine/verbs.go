@@ -856,11 +856,13 @@ type WaitReader func(ctx context.Context, project, item string) (Wait, error)
 // before the socket binds.
 func (m *Machine) SetWaitReader(f WaitReader) { m.wait = f }
 
-// RetroReader reads what the retro keeps on an item: its signals.
+// RetroReader reads what the retro keeps on an item: its signals and its
+// held learnings.
 type RetroReader func(ctx context.Context, project, item string) (RetroOnItem, error)
 
-// SetRetroReader sets the reader of work show's signals. The server sets
-// it before the socket binds, as it sets the wait reader.
+// SetRetroReader sets the reader of work show's signals and held
+// learnings. The server sets it before the socket binds, as it sets the
+// wait reader.
 func (m *Machine) SetRetroReader(f RetroReader) { m.retro = f }
 
 // PassGate reads CI at head, the head a code review passes. It refuses

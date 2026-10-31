@@ -1836,6 +1836,8 @@ var EscalationService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	RetroService_Record_FullMethodName = "/loop.v1.RetroService/Record"
+	RetroService_Held_FullMethodName   = "/loop.v1.RetroService/Held"
+	RetroService_Route_FullMethodName  = "/loop.v1.RetroService/Route"
 )
 
 // RetroServiceClient is the client API for RetroService service.
@@ -1843,6 +1845,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type RetroServiceClient interface {
 	Record(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Held(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Route(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type retroServiceClient struct {
@@ -1863,11 +1867,33 @@ func (c *retroServiceClient) Record(ctx context.Context, in *VerbRequest, opts .
 	return out, nil
 }
 
+func (c *retroServiceClient) Held(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, RetroService_Held_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *retroServiceClient) Route(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, RetroService_Route_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RetroServiceServer is the server API for RetroService service.
 // All implementations must embed UnimplementedRetroServiceServer
 // for forward compatibility.
 type RetroServiceServer interface {
 	Record(context.Context, *VerbRequest) (*Envelope, error)
+	Held(context.Context, *VerbRequest) (*Envelope, error)
+	Route(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedRetroServiceServer()
 }
 
@@ -1880,6 +1906,12 @@ type UnimplementedRetroServiceServer struct{}
 
 func (UnimplementedRetroServiceServer) Record(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Record not implemented")
+}
+func (UnimplementedRetroServiceServer) Held(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Held not implemented")
+}
+func (UnimplementedRetroServiceServer) Route(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Route not implemented")
 }
 func (UnimplementedRetroServiceServer) mustEmbedUnimplementedRetroServiceServer() {}
 func (UnimplementedRetroServiceServer) testEmbeddedByValue()                      {}
@@ -1920,6 +1952,42 @@ func _RetroService_Record_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RetroService_Held_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RetroServiceServer).Held(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RetroService_Held_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RetroServiceServer).Held(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RetroService_Route_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RetroServiceServer).Route(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RetroService_Route_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RetroServiceServer).Route(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RetroService_ServiceDesc is the grpc.ServiceDesc for RetroService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1930,6 +1998,14 @@ var RetroService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Record",
 			Handler:    _RetroService_Record_Handler,
+		},
+		{
+			MethodName: "Held",
+			Handler:    _RetroService_Held_Handler,
+		},
+		{
+			MethodName: "Route",
+			Handler:    _RetroService_Route_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

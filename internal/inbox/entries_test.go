@@ -392,3 +392,57 @@ func TestANoticeIsAnInboxEntryThatAsksNothing(t *testing.T) {
 		t.Fatalf("second answer = %+v, want NOT_FOUND no_notice", res)
 	}
 }
+
+// An escalated retro learning is an entry that awaits a person. An answer
+// records the operator's words on the learning, and the entry leaves the
+// inbox. A second answer finds no learning that waits.
+func TestAnAnswerSettlesALearningEntry(t *testing.T) {
+	w := newArchWorld(t)
+	w.exec(`INSERT INTO retros (project, item, kind, state, run_id, created_at) VALUES (?, 'ep-1', 'epic', 'done', 'r-retro', 1)`, prj)
+	w.exec(`INSERT INTO learnings (project, retro_item, statement, cases, panel, reason, status, created_at)
+		VALUES (?, 'ep-1', 'split the spec', '["run:r-a"]', '{"learning":{"statement":"split the spec","cases":["run:r-a"]},"answers":[],"reading":null}', 'judges', 'escalated', 5)`, prj)
+	learnings := func() []Entry {
+		t.Helper()
+		es, err := w.in.Entries(w.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []Entry
+		for _, e := range es {
+			if e.Kind == KindLearning {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	es := learnings()
+	if len(es) != 1 || es[0].ID != "learning/1" || es[0].Awaits != AwaitsPerson || es[0].Item != "ep-1" || es[0].At != 5 {
+		t.Fatalf("learning entries = %+v", es)
+	}
+	answer := func() cli.Result {
+		t.Helper()
+		inv, bad := cli.Surface().Validate("inbox answer", []string{"learning/1"}, map[string]string{"body": "file it as a ticket"}, "req-1")
+		if bad != nil {
+			t.Fatalf("validate: %+v", bad)
+		}
+		return w.in.answer(w.ctx, &rpc.Call{Inv: inv, Principal: rpc.Principal{Kind: cli.PrincipalCoordinator}})
+	}
+	if res := answer(); res.Refusal != nil {
+		t.Fatalf("answer = %+v", res.Refusal)
+	}
+	var status, said string
+	if err := w.st.Read(w.ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(w.ctx, `SELECT status, answer FROM learnings WHERE id = 1`).Scan(&status, &said)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status != "answered" || said != "file it as a ticket" {
+		t.Fatalf("the learning is %s with answer %q", status, said)
+	}
+	if es := learnings(); len(es) != 0 {
+		t.Fatalf("learning entries after the answer = %+v", es)
+	}
+	if res := answer(); res.Refusal == nil || res.Refusal.Rule != "no_learning" {
+		t.Fatalf("second answer = %+v, want no_learning", res)
+	}
+}

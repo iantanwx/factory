@@ -21,7 +21,7 @@ type Service struct {
 // Handlers returns the server handlers of the retro verbs, keyed by verb
 // path.
 func (s *Service) Handlers() map[string]rpc.Handler {
-	return map[string]rpc.Handler{"retro record": s.record}
+	return map[string]rpc.Handler{"retro record": s.record, "retro held": s.held, "retro route": s.route}
 }
 
 // Register sets the handlers of the retro verbs.
@@ -38,8 +38,8 @@ func (s *Service) Register(srv *rpc.Server) error {
 // pending one of its project, and prints the retro's record.
 func (s *Service) record(ctx context.Context, call *rpc.Call) cli.Result {
 	p := call.Principal
-	if p.Kind != cli.PrincipalRun || p.Stage != Stage || p.Project == "" {
-		return cli.Reject(cli.CodeCapabilityDenied, "retro_only", "only a retro run reads a retro's record")
+	if ref := retroOnly(p, "reads a retro's record"); ref != nil {
+		return ref.Result()
 	}
 	r, ok, err := Bind(ctx, s.Store, p.Project, p.RunID)
 	if err != nil {
@@ -60,4 +60,52 @@ func (s *Service) record(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 	}
 	return cli.Found(rec)
+}
+
+// retroOnly refuses every caller but a retro run of a project.
+func retroOnly(p rpc.Principal, act string) *cli.Refusal {
+	if p.Kind != cli.PrincipalRun || p.Stage != Stage || p.Project == "" {
+		return &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "retro_only", Hint: "only a retro run " + act}
+	}
+	return nil
+}
+
+// held is `loop retro held`: the held learnings of the run's project, with
+// their cases.
+func (s *Service) held(ctx context.Context, call *rpc.Call) cli.Result {
+	p := call.Principal
+	if ref := retroOnly(p, "reads the held learnings"); ref != nil {
+		return ref.Result()
+	}
+	ls, err := Held(ctx, s.Store, p.Project)
+	if err != nil {
+		return cli.Internal(err)
+	}
+	return cli.List(ls)
+}
+
+// route is `loop retro route`: the run sends the panel file that
+// `loop retro judge` wrote. The server decides each route again with its
+// own thresholds, so a route is never a value the run typed.
+func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
+	p := call.Principal
+	if ref := retroOnly(p, "routes a retro's learnings"); ref != nil {
+		return ref.Result()
+	}
+	content, ok := cli.FileContent(call.Inv)
+	if !ok {
+		return cli.Reject(cli.CodeUsage, "no_file", "--file names the panel file that `loop retro judge` wrote")
+	}
+	if r := s.Redactor.Refusal("secret_in_panel_file", "panel file", content); r != nil {
+		return r.Result()
+	}
+	panels, err := ParsePanels([]byte(content))
+	if err != nil {
+		return cli.Reject(cli.CodeUsage, "bad_panel", err.Error())
+	}
+	res, ref := RouteAll(ctx, s.World, p.RunID, panels)
+	if ref != nil {
+		return ref.Result()
+	}
+	return cli.Found(res)
 }

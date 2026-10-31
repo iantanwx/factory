@@ -261,7 +261,8 @@ type Item struct {
 
 // RetroOnItem is the part of work show that the retro writes.
 type RetroOnItem struct {
-	Signals []json.RawMessage `json:"signals,omitempty"`
+	Signals       []json.RawMessage `json:"signals,omitempty"`
+	HeldLearnings []json.RawMessage `json:"held_learnings,omitempty"`
 }
 
 // Wait is the wait of one item: the lease, the holds, the counted failures

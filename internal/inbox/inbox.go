@@ -2,7 +2,8 @@
 // derived view: its entries come from beads states (escalated, sign-off
 // waiting, fired decisions, asked bug reports, architecture epics that
 // nothing works on) and from SQLite (alerts, questions, rooms, stage
-// pauses, notices and escalations that wait for the fixer's panel). Each entry says
+// pauses, notices, escalated retro learnings and escalations that wait for
+// the fixer's panel). Each entry says
 // who it waits on, a person or the coordinator, and carries a link, so a
 // coordinator act never reads as a wait on the operator.
 //
@@ -22,6 +23,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
@@ -35,18 +37,19 @@ const (
 
 // Entry kinds.
 const (
-	KindEscalation   = "escalation"   // an item in escalated
-	KindPanel        = "panel"        // an escalation that waits for the fixer's panel
-	KindDecision     = "decision"     // a fired decision
-	KindSignoff      = "signoff"      // a document that waits for the operator's approval
-	KindQuestion     = "question"     // a question the coordinator prepared
-	KindAsk          = "ask"          // a bug report whose reproducer asks its reporter
-	KindArchitecture = "architecture" // an architecture epic with no open child and no open room
-	KindRoom         = "room"         // a room that is not closed
-	KindAlert        = "alert"        // an open alert
-	KindFault        = "fault"        // an open or acknowledged loop fault
-	KindPause        = "pause"        // a stage pause of one project or of every project
-	KindNotice       = "notice"       // a change the operator reads; nothing waits on it
+	KindEscalation   = "escalation"    // an item in escalated
+	KindPanel        = "panel"         // an escalation that waits for the fixer's panel
+	KindDecision     = "decision"      // a fired decision
+	KindSignoff      = "signoff"       // a document that waits for the operator's approval
+	KindQuestion     = "question"      // a question the coordinator prepared
+	KindAsk          = "ask"           // a bug report whose reproducer asks its reporter
+	KindArchitecture = "architecture"  // an architecture epic with no open child and no open room
+	KindRoom         = "room"          // a room that is not closed
+	KindAlert        = "alert"         // an open alert
+	KindFault        = "fault"         // an open or acknowledged loop fault
+	KindPause        = "pause"         // a stage pause of one project or of every project
+	KindNotice       = "notice"        // a change the operator reads; nothing waits on it
+	KindLearning     = retro.EntryKind // a retro learning that the route sent to a person
 )
 
 // Defaults.
