@@ -226,8 +226,8 @@ type Decision struct {
 	Score       float64  `json:"score,omitempty"`
 }
 
-// agreement is the share of Jev's belief that the two judges agree.
-func agreement(r *Reading) float64 {
+// Agreement is the share of Jev's belief that the two judges agree.
+func Agreement(r *Reading) float64 {
 	sum := 0.0
 	for k, p := range r.Probabilities {
 		if n, err := strconv.Atoi(k); err == nil && n >= resolvingStep {
@@ -237,8 +237,8 @@ func agreement(r *Reading) float64 {
 	return sum
 }
 
-// unusable says why a reading cannot be acted on, or "".
-func unusable(r *Reading) string {
+// Unusable says why a reading cannot be acted on, or "".
+func Unusable(r *Reading) string {
 	if len(r.Probabilities) != len(ConvergenceSteps) {
 		return fmt.Sprintf("Jev scored against %d levels, and this scale holds %d", len(r.Probabilities), len(ConvergenceSteps))
 	}
@@ -280,13 +280,13 @@ func Decide(p Panel, th Thresholds) Decision {
 	}
 	if p.Reading == nil {
 		because = append(because, "Jev scored no convergence, so nothing measured whether the two judges agree")
-	} else if fault := unusable(p.Reading); fault != "" {
+	} else if fault := Unusable(p.Reading); fault != "" {
 		because = append(because, fault)
 	}
 	if len(because) > 0 {
 		return Decision{Route: RoutePerson, Because: because}
 	}
-	conv := agreement(p.Reading)
+	conv := Agreement(p.Reading)
 	if agreed(p.Judges) {
 		return Decision{Route: RouteLoop, Convergence: conv, Confidence: p.Reading.Confidence, Score: p.Reading.Score}
 	}
