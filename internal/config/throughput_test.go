@@ -445,3 +445,21 @@ func TestC23OverdueRefusals(t *testing.T) {
 		})
 	}
 }
+
+// A host config that v0.0.58 wrote holds no retro entry. It loads, and the
+// retro stage reads cap 1 on the fixer's schedule without writing the entry.
+func TestOldHostConfigLoadsWithNoRetroEntry(t *testing.T) {
+	if !slices.Contains(RunStages(), "retro") {
+		t.Fatalf("RunStages lacks retro: %v", RunStages())
+	}
+	cfg, err := LoadHost(filepath.Join("testdata", "host-v0.0.58.yaml"))
+	if err != nil {
+		t.Fatalf("the v0.0.58 host config does not load: %v", err)
+	}
+	if got, want := cfg.ThroughputFor("retro"), (Throughput{Cap: 1, Schedule: "14,44 * * * *"}); got != want {
+		t.Fatalf("ThroughputFor(retro) = %+v, want %+v", got, want)
+	}
+	if _, ok := cfg.Throughput["retro"]; ok {
+		t.Fatal("ThroughputFor wrote the retro entry into the config")
+	}
+}

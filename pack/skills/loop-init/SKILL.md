@@ -144,6 +144,7 @@ stages:
   decomposer: {}
   fixer: {}
   reproducer: {}
+  retro: {}
 signoff:
   readers: [<the GitHub login of each person who merges a PRD or a spec>]
 ```

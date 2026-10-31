@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // holdRefusal refuses new admission on an item that a room or an
@@ -30,11 +31,26 @@ func holdRefusal(q querier, project, item string) (*cli.Refusal, error) {
 // stageFixer is the stage that routes escalations.
 const stageFixer = "fixer"
 
+// waiting lists each stage that claims no item and has work only while a
+// row of its project waits for it. Peek admits no run of such a stage
+// without one.
+var waiting = map[string]func(q querier, project string) (bool, error){
+	stageFixer:        panelsWaiting,
+	config.StageRetro: retrosWaiting,
+}
+
 // panelsWaiting reports whether an escalation of the project waits for the
-// fixer's panel. Peek admits no fixer run without one.
+// fixer's panel.
 func panelsWaiting(q querier, project string) (bool, error) {
 	var n int
 	err := q.QueryRow(`SELECT EXISTS (SELECT 1 FROM escalations WHERE project = ? AND state = 'awaiting_panel')`, project).Scan(&n)
+	return n == 1, err
+}
+
+// retrosWaiting reports whether a retro of the project waits for a run.
+func retrosWaiting(q querier, project string) (bool, error) {
+	var n int
+	err := q.QueryRow(`SELECT EXISTS (SELECT 1 FROM retros WHERE project = ? AND state = 'pending')`, project).Scan(&n)
 	return n == 1, err
 }
 

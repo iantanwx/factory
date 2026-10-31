@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	docshape "github.com/iantanwx/loop/internal/shape"
 )
 
 var (
@@ -19,8 +21,6 @@ var (
 	citeLine  = regexp.MustCompile(`^\s*→\s*(.*?)\s*$`)
 	mdHeading = regexp.MustCompile(`^#{1,6}\s+(.+?)\s*$`)
 	mdFence   = regexp.MustCompile("^\\s*(?:```|~~~)")
-	// storyLabel is a story label as the server reads it on submit.
-	storyLabel = regexp.MustCompile(`\bUS-[0-9]+\b`)
 	// storyHeading is a heading that defines a story.
 	storyHeading = regexp.MustCompile(`^#{1,6}\s+(US-[0-9]+)\b`)
 )
@@ -38,10 +38,10 @@ var (
 // case. Each PRD holds at least one citation. A fenced block holds
 // examples, and the gate skips it.
 //
-// The story rules follow the server. Each PRD names a story label US-n, or
-// `loop prd submit` refuses it. No two headings define one label. A label
-// that a PRD on the base held stays in that PRD, because specs and tickets
-// cite it.
+// The story rules follow the server. Each PRD defines a story heading US-n,
+// or `loop prd submit` refuses it. A label only in prose is no story. No
+// two headings define one label. A label that a PRD on the base held stays
+// in that PRD, because specs and tickets cite it.
 func Citations(ctx context.Context, r *Repo) ([]Finding, error) {
 	files, err := r.glob([]string{prdDir + "/*.md"})
 	if err != nil {
@@ -57,7 +57,7 @@ func Citations(ctx context.Context, r *Repo) ([]Finding, error) {
 		text := string(raw)
 		out = append(out, citeFindings(r.Root, f, text)...)
 		out = append(out, storyFindings(f, text)...)
-		now[filepath.ToSlash(f)] = labels(text)
+		now[filepath.ToSlash(f)] = docshape.StoryLabels(text)
 	}
 	dropped, err := droppedStories(ctx, r, now)
 	if err != nil {
@@ -189,8 +189,8 @@ func headingMatches(hs []string, want string) bool {
 
 // storyFindings checks the story labels of one PRD.
 func storyFindings(file, text string) []Finding {
-	if !storyLabel.MatchString(text) {
-		return []Finding{{File: file, Rule: "no_stories", Message: "the PRD names no story label; label each story US-01, US-02 and on, or `loop prd submit` refuses it"}}
+	if len(docshape.StoryLabels(text)) == 0 {
+		return []Finding{{File: file, Rule: "no_stories", Message: "the PRD defines no story heading; head each story US-01, US-02 and on, or `loop prd submit` refuses it"}}
 	}
 	var out []Finding
 	first := map[string]int{}
@@ -206,13 +206,6 @@ func storyFindings(file, text string) []Finding {
 		first[m[1]] = i + 1
 	}
 	return out
-}
-
-// labels lists the story labels a PRD names, once each.
-func labels(text string) []string {
-	out := storyLabel.FindAllString(text, -1)
-	slices.Sort(out)
-	return slices.Compact(out)
 }
 
 // droppedStories compares each PRD on the merge base of HEAD and Base with
@@ -242,7 +235,7 @@ func droppedStories(ctx context.Context, r *Repo, now map[string][]string) ([]Fi
 			return nil, err
 		}
 		held, ok := now[f]
-		for _, l := range labels(text) {
+		for _, l := range docshape.StoryLabels(text) {
 			switch {
 			case !ok:
 				findings = append(findings, Finding{File: f, Rule: "dropped_story", Message: fmt.Sprintf("%s was in %s at %s, and the file is gone; its epic reads its PRD by this path", l, f, short(base))})
