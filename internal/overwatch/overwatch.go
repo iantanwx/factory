@@ -120,9 +120,9 @@ type World interface {
 	// Jobs are the native jobs registered on the scheduler. A server with
 	// no scheduler registers none.
 	Jobs() sched.Jobs
-	// DrainSince is when the server began to drain, and zero when it does
-	// not drain or has no scheduler.
-	DrainSince() time.Time
+	// Drains are the drains of the server that the store records, oldest
+	// first, also those that a restart ended.
+	Drains(ctx context.Context) ([]sched.Drain, error)
 	// Pauses are the stage pauses that hold, oldest first.
 	Pauses(ctx context.Context) ([]admission.StagePause, error)
 	// CheckoutDirs lists each directory named loop-* one level under a
