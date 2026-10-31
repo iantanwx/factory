@@ -192,3 +192,22 @@ func TestC25TheCoordinatorReturnsTheEpicAtTheOperatorsWord(t *testing.T) {
 		"The room removes the entry, and records the no under `## Decisions` with the operator's words.",
 	})
 }
+
+// C18: section 8 of the coordinator runbook ends the architecture entry
+// of a PRD epic in the same three ways. Its ticket cites a story of the
+// PRD and takes no ticket shape.
+func TestC18TheCoordinatorEndsAPRDEpicsArchitectureEntry(t *testing.T) {
+	s := flat(pack.Section(read(t, coordinatorRunbook), 2, func(title string) bool {
+		return strings.HasPrefix(title, "8. ")
+	}))
+	holdsAll(t, "the architecture entry in section 8 of the coordinator runbook", s, []string{
+		"A PRD epic that `loop epic adr` sent to the ADR stage also waits in `architecture`, and makes the same entry.",
+		"End the entry in one of three ways, by the operator's choice, for either kind of epic:",
+	})
+	holdsAll(t, "the ADR ticket of a PRD epic in section 8 of the coordinator runbook", s, []string{
+		"Under a PRD epic, cite each story label of the PRD that the decision serves:",
+		`loop work create --project <project> --epic <epic> --story <label> --title "<title>" --body "<body>" --request "<the operator's words>"`,
+		"The ticket takes no ticket shape, because the spec that names its contracts does not exist yet.",
+		"refuses with `STORY_UNKNOWN` and rule `story_not_in_prd`",
+	})
+}

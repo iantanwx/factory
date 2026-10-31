@@ -179,6 +179,33 @@ func TestARoomEndsTheArchitectureEntryAndAnAnswerDoesNot(t *testing.T) {
 	}
 }
 
+// C18 of factorio-ku99: a PRD epic that the operator sent to the ADR
+// stage makes the same architecture entry. Its ticket cites a story of
+// the PRD, so the entry and the refused answer name --story.
+func TestAPRDEpicsArchitectureEntryNamesAStory(t *testing.T) {
+	w := newArchWorld(t)
+	ep := w.create(machine.KindEpic, machine.VerbCreateArchitecture, map[string]string{machine.FactPRDPath: "docs/prd/widgets.md"})
+	id := "architecture/alpha/" + ep
+	story := "loop work create --project alpha --epic " + ep + " --story <a story label of its PRD> --request"
+
+	es := w.entries()
+	if len(es) != 1 || es[0].ID != id || es[0].Awaits != AwaitsCoordinator {
+		t.Fatalf("entries = %+v, want one for %s", es, ep)
+	}
+	if !strings.Contains(es[0].Next, story) || !strings.Contains(es[0].Next, "loop room open --kind architect --project alpha --item "+ep) {
+		t.Fatalf("next = %q; it names the ticket with a story, and the room", es[0].Next)
+	}
+
+	inv, bad := cli.Surface().Validate("inbox answer", []string{id}, map[string]string{"body": "write the ADR"}, "req-1")
+	if bad != nil {
+		t.Fatalf("validate: %+v", bad)
+	}
+	res := w.in.answer(w.ctx, &rpc.Call{Inv: inv, Principal: rpc.Principal{Kind: cli.PrincipalCoordinator}})
+	if r := res.Refusal; r == nil || r.Rule != "architecture_entry" || !strings.Contains(r.Hint, story) {
+		t.Fatalf("answer = %+v; its hint names the ticket with a story", res)
+	}
+}
+
 // C10: each pause is one entry that awaits the coordinator. It quotes the
 // reason, is dated at paused_at, and names its `stage resume` command. An
 // answer refuses with USAGE, rule pause_entry, and the entry stays. A

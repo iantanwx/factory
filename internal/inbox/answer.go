@@ -237,8 +237,12 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	case KindSignoff:
 		return in.signoff(ctx, call, id, project, item, body)
 	case KindArchitecture:
+		epic, ref := in.cfg.Machine.Show(ctx, project, item)
+		if ref != nil {
+			return ref.Result()
+		}
 		return cli.Reject(cli.CodeUsage, "architecture_entry",
-			"an architecture entry ends when a ticket is filed under the epic or a room opens on it, not with an answer: "+archActs(project, item))
+			"an architecture entry ends when a ticket is filed under the epic or a room opens on it, not with an answer: "+archActs(epic))
 	case KindPause:
 		return cli.Reject(cli.CodeUsage, "pause_entry", "a pause entry ends when the stage resumes, not with an answer: "+resumeCommand(project, item))
 	case KindPanel:

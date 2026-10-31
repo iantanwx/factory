@@ -539,6 +539,26 @@ func TestArchitectRoomServesAnArchitectureEpic(t *testing.T) {
 	}
 }
 
+// C18 of factorio-ku99: a PRD epic that the operator sent to the ADR
+// stage waits in architecture, and an architect room opens on it as on an
+// architecture epic. The epic stays a PRD epic in architecture.
+func TestArchitectRoomServesAPRDEpicInTheADRStage(t *testing.T) {
+	w := newRoomWorld(t)
+	epic, res := w.srv.Machine.Create(context.Background(), machine.CreateRequest{Project: "alpha", Kind: machine.KindEpic,
+		Title: "Widget feed", Description: "Feed the widgets.", Verb: machine.VerbCreateArchitecture, Actor: machine.Server("test"),
+		Facts: map[string]string{machine.FactPRDPath: "docs/prd/widgets.md", machine.FactPRDMerged: "m1", machine.FactADRSent: "decide the store first"}})
+	if res.Refusal != nil {
+		t.Fatalf("create the PRD epic in architecture: %+v", *res.Refusal)
+	}
+	r := w.openRoom("architect", epic, "the operator wants to decide the widget store")
+	if r["state"] != room.Live || r["kind"] != "architect" || r["item"] != epic {
+		t.Fatalf("architect room = %v", r)
+	}
+	if it := w.show(epic); it.Status != machine.Architecture || it.Fact(machine.FactPRDMerged) != "m1" {
+		t.Fatalf("opening the room left the epic in %s with prd_merged %q", it.Status, it.Fact(machine.FactPRDMerged))
+	}
+}
+
 // factorio-pwpi: a room's checkout and branch are named after its project,
 // kind, item and purpose. A room with no item takes its slug from the
 // reason. The room keeps the name, so its record shows the same checkout.

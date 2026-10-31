@@ -30,8 +30,9 @@ type CreateResult struct {
 // reproducer stage claims from, under the same rule. With --blocked-by
 // the ticket waits in backlog on each blocker, which is checked before any
 // write. A bug takes no blocker. A ticket under an epic with a PRD holds
-// the Ticket shape, and records it as its shape fact. PRD-less work and a
-// bug are not checked. No ticket body calls a host verb, shaped or not.
+// the Ticket shape, and records it as its shape fact. PRD-less work, a bug
+// and the ADR ticket of a PRD epic in architecture are not checked. No
+// ticket body calls a host verb, shaped or not.
 func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	prj, ref := call.Project(ownProject)
@@ -94,6 +95,19 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 			facts[machine.FactRequest] = request
 			break
 		}
+		// A PRD epic in architecture waits for the ADR the operator sent it
+		// to. Its ticket writes that ADR at the operator's word, as under
+		// an architecture epic, and still cites the PRD's stories. It takes
+		// no ticket shape: the spec that names its contracts comes later.
+		adr := epic.Status == machine.Architecture
+		switch {
+		case adr && pr.Kind != cli.PrincipalCoordinator:
+			return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only",
+				fmt.Sprintf("%s waits in architecture for its ADR; only the coordinator creates the ticket that writes it, when the operator asks for it", epicID))
+		case adr && request == "":
+			return cli.Reject(cli.CodeUsage, "no_operator_request",
+				"the ticket that writes a PRD epic's ADR needs the operator's request: quote the operator's own words with --request")
+		}
 		labels, ref := p.prdLabels(ctx, epic)
 		if ref != nil {
 			return ref.Result()
@@ -101,10 +115,12 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		if m := citeCheck("the ticket", stories, labels); m != "" {
 			return cli.Reject(cli.CodeStoryUnknown, "story_not_in_prd", m)
 		}
-		if r := machine.BodyRefusal(shape.Ticket, "", body); r != nil {
-			return r.Result()
+		if !adr {
+			if r := machine.BodyRefusal(shape.Ticket, "", body); r != nil {
+				return r.Result()
+			}
+			facts[machine.FactShape] = shape.Ticket.Name
 		}
-		facts[machine.FactShape] = shape.Ticket.Name
 		facts[machine.FactEpic] = epicID
 		facts[machine.FactStories] = strings.Join(stories, ",")
 		if request != "" {
