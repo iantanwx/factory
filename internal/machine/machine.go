@@ -87,6 +87,9 @@ type Machine struct {
 	// supersedeCheck reads the evidence of `work supersede` back from
 	// GitHub. Nil refuses every supersede.
 	supersedeCheck SupersedeChecker
+	// closeDocPR closes the document PR of a canceled epic. Nil closes
+	// nothing.
+	closeDocPR DocPRCloser
 	// wait reads why an item waits, for work show. Nil reads nothing.
 	wait WaitReader
 }

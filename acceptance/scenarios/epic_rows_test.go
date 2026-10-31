@@ -102,3 +102,33 @@ func TestEpicRowsEndToEnd(t *testing.T) {
 		t.Fatalf("finish after the escalation = %s", r)
 	}
 }
+
+// F-55, C-bug-1 and C-bug-2: the coordinator cancels an epic whose work
+// moved elsewhere. The epic lands in canceled with the reason, and its
+// open document PR closes with no merge.
+func TestEpicCancelEndToEnd(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+
+	room, co := openRoom(w, "intake", "", "the operator wants sprockets")
+	ep := submitPRD(w, co, "Sprockets")
+	w.Must(w.Coordinator("room", "close", room))
+	pr := docPR(w, ep)
+	if pr.State != "open" {
+		t.Fatalf("the PRD PR is %s before the cancel", pr.State)
+	}
+
+	reason := "ADR 0013 gave the work to another epic."
+	w.Must(w.Coordinator("work", "cancel", ep, "--reason", reason, "--project", acceptance.Project))
+	wantStatus(w, ep, machine.Canceled)
+	if got := w.Show(ep).Facts[machine.FactCancelReason]; got != reason {
+		t.Fatalf("cancel_reason = %q, want %q", got, reason)
+	}
+	pr = w.API.World.PR(pr.Number)
+	if pr.State != "closed" || pr.Merged {
+		t.Fatalf("the PRD PR is %s, merged %v, want closed with no merge", pr.State, pr.Merged)
+	}
+
+	// The reactor reads the closed PR of a terminal epic and changes nothing.
+	w.React()
+	wantStatus(w, ep, machine.Canceled)
+}

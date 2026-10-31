@@ -108,7 +108,7 @@ var surface = []Verb{
 	write(server("work", "unblock", "delete one blocks edge of a ticket, then move it from backlog to todo when no open blocker remains", runOrCoordinator, []Arg{itemArg},
 		Flag{Name: "by", Type: FlagString, Description: "the blocker whose edge to delete; absent only for a ticket with no open blocker"},
 		projectFlag)),
-	write(server("work", "cancel", "cancel an escalated work item, or a bug report the reproducer routes as a loop fault", runOrCoordinator, []Arg{itemArg},
+	write(server("work", "cancel", "cancel an escalated work item, an epic before its execution, or a bug report the reproducer routes as a loop fault; a canceled epic's open document pull request closes with no merge", runOrCoordinator, []Arg{itemArg},
 		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the item closes; the item keeps it, and a person reads it"},
 		projectFlag)),
 	write(server("work", "shape", "shape a bug into a ticket and close the bug as shaped; the answer names the ticket", runOrCoordinator, []Arg{itemArg},
