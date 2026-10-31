@@ -39,9 +39,10 @@ work touches the declared UI, so that a project with no UI never loads it.
 > "ok, let's move it to kernel, conditionally loaded."
 
 Part b: the pack manifest marks a kernel skill as conditional and names its config key. A second
-conditional skill then needs no new code. Part c: the server decides at run start. A run on an
-epic gets the skill when the project declares `ui:`. A run on a ticket gets it only when a path in
-the ticket's `## Files` section matches a `ui.paths` glob. Part d: `brief.json` lists each loaded
+conditional skill then needs no new code. Part c: the server decides at run start. An epic-level
+run (brainstorm room, planner, doc review) gets the skill when the project declares `ui:`. A
+ticket-level run (implementer, simplify, code-reviewer, QA) gets it only when a path in the
+ticket's `## Files` section matches a `ui.paths` glob. Part d: `brief.json` lists each loaded
 skill. A kernel runbook reads `loop-impeccable` only when the brief lists it, and never tests the
 repository itself.
 
@@ -111,9 +112,13 @@ operator decides.
   → § US-01
 - A run whose item is an epic holds `loop-impeccable` when its project declares a `ui` block.
   → § US-02
+- An intake room, which part c calls the brainstorm room, holds `loop-impeccable` when its project
+  declares a `ui` block. The rule holds also before the room holds an epic. An intake room of a
+  project with no `ui` block holds no `loop-impeccable`.
+  → § US-02
 - A run whose item is a ticket holds `loop-impeccable` only when a path in the ticket's `## Files`
   section matches a glob of `ui.paths`.
-  → pack/runbooks/decomposer.md § 3. Cut vertical slices
+  → § US-02
 - `brief.json` lists each skill that the run holds, the kernel skills and the conditional skills
   among them. A conditional skill that the run does not hold is not in the list.
   → § US-02
@@ -128,8 +133,8 @@ operator decides.
 - The overwatch sweep reports a project whose default branch shows a frontend by the signals of
   part e and whose config holds no `ui` block.
   → § US-03
-- The overwatch sweep never writes a `ui` block, as overwatch writes nothing.
-  → docs/adr/0009-overwatch.md
+- The overwatch sweep never writes a `ui` block.
+  → § US-03
 - A `ui` block can name a userspace skill of the project in `design_skill`. Each run that would hold
   `loop-impeccable` then holds no `loop-impeccable`, and its brief names the design skill in its
   place.
@@ -170,6 +175,12 @@ operator decides.
   `loop-impeccable`, in a case where A4 or A6 would give it `loop-impeccable`.
 - **A20.** The brief of that run names the userspace design skill.
 - **A21.** A project config whose `ui.design_skill` is `loop-x` does not load.
+- **A22.** An intake room of a project with a `ui` block holds `loop-impeccable` before its first
+  `loop prd submit`.
+- **A23.** An intake room of a project with no `ui` block holds no `loop-impeccable`.
+- **A24.** A stage run's push that adds a `ui` block to `.loop/config.yaml` is not refused with
+  `SETTINGS_CHANGE`.
+- **A25.** `pack/third-party.json` still pins `impeccable` after this epic lands.
 
 ## Boundaries with other epics
 
@@ -184,7 +195,7 @@ operator decides.
   → docs/adr/0007-shared-skill-pack.md § Decision
 - **The design stage, factorio-a4yq, `docs/prd/design-stage.md`.** It reads "a project declares a
   UI" as "the project config holds a `ui` block", and it owns the capture command and the canvas
-  skill of US-07 in that PRD. This epic owns the `ui` block and its keys `kind`, `paths` and
+  skill of its seventh story. This epic owns the `ui` block and its keys `kind`, `paths` and
   `design_skill`. a4yq may add keys to the block. Its open question asks whether its canvas skill
   is this epic's `design_skill` or a second key. This epic does not decide it.
   → docs/prd/design-stage.md § Boundaries with other epics
@@ -195,7 +206,7 @@ operator decides.
   epic adds no stage.
 - **The vocabulary epic, factorio-vlle, `docs/prd/loop-vocabulary.md`.** It renames the intake room
   to the brainstorm room and the spec-author to the planner. The epic body uses the new names. This
-  PRD uses today's names, and its rule reads the item's kind, so a rename changes no rule.
+  PRD uses today's names, so a rename changes no rule.
 - **Project-scoped settings, `docs/prd/project-scoped-settings.md`.** It owns the `stages`, `pools`
   and `merge` sections. The `ui` block is outside them.
 - **Overwatch, ADR 0009.** It owns the sweep and its parts. This epic adds one report, and the
@@ -218,11 +229,15 @@ operator decides.
 
 ## Open questions
 
-- Which rule applies to a run whose item is neither an epic nor a ticket? A reproducer run holds a
-  bug, a fixer run holds an escalation, and the coordinator holds no item. The epic body names
-  epic runs and ticket runs only. Blocks: A3 to A6.
+- Which rule applies to a run whose item is neither an epic nor a ticket, and to each room other
+  than the intake room? A reproducer run holds a bug, a fixer run holds an escalation, and the
+  coordinator holds no item. The architect room holds an architecture epic. The review room holds
+  one pull request, of a ticket or of a document. The decision room holds an escalation or a
+  decision. The epic body names epic runs, ticket runs and the brainstorm room only. Blocks: A3 to
+  A6.
 - Does a path that a ticket's `## Files` section lists as one the ticket must not change count as a
-  match? The decomposer runbook puts both kinds of path in that section. Blocks: A5 and A6.
+  match? The decomposer runbook puts both kinds of path in that section
+  (`pack/runbooks/decomposer.md § 3. Cut vertical slices`). Blocks: A5 and A6.
 - Which kernel runbooks name `loop-impeccable`? None does today, so part d binds no runbook until
   one names it. The operator called it "our default UI layer". Blocks: A12.
 - Does `loop register` write `loop-impeccable` into the clone of a project with no `ui` block? It
