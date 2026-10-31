@@ -82,7 +82,7 @@ func TestC11StageListPrintsEachFiringWithItsEffectiveValues(t *testing.T) {
 		{Project: prj, Stage: "doc-reviewer", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "amender", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "unattended-brainstorm", Kind: FiringRun, Enabled: false, Schedule: never},
-		{Project: prj, Stage: "spec-author", Kind: FiringRun, Enabled: false, Schedule: never},
+		{Project: prj, Stage: "planner", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "decomposer", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "triage", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "reproducer", Kind: FiringRun, Enabled: false, Schedule: never},

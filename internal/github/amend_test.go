@@ -23,7 +23,7 @@ func (e *env) specInSignoff(head string) (string, *gt.PR) {
 	}
 	apply("review_pass", map[string]string{"head": shaA})
 	apply("doc_merged", map[string]string{"sha": shaM})
-	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageSpecAuthor, RunID: "run-spec"})
+	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StagePlanner, RunID: "run-spec"})
 	mustOK(e.t, res)
 	spec := w.Add(&gt.PR{Head: SpecBranchFor(id), HeadSHA: head})
 	apply("pr_open", map[string]string{"pr": strconv.Itoa(spec.Number)})

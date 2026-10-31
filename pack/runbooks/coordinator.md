@@ -300,14 +300,14 @@ answer must reach the spec, in one of two ways:
   writes the answer.
 
 Either way the head moves, so the entry is raised again at the new head. Record the operator's
-approval of that head. A PRD sign-off reads no open questions, because the spec author settles
+approval of that head. A PRD sign-off reads no open questions, because the planner settles
 them.
 
-A spec can hold an open question that starts `**Needs an ADR:**`. The spec-author found a decision
+A spec can hold an open question that starts `**Needs an ADR:**`. The planner found a decision
 that passes the test of `../loop-sdlc-documents/SKILL.md` § 6, When a decision needs an ADR. The
 entry holds the sign-off until an `**Answered` run in it cites `ADR NNNN`. A `**Deferred` run
 does not decide it. Prepare one question for each such entry: does the decision go to an ADR?
-Recommend the yes, because the spec-author found that the decision passes the test.
+Recommend the yes, because the planner found that the decision passes the test.
 
 - On the operator's yes, send the epic to the ADR stage with the operator's words:
 
@@ -455,7 +455,7 @@ loop epic create --architecture --project <project> --title "<title>" --body "<w
 The epic waits until a merge to the base branch adds an ADR whose Ticket line names the epic id.
 The server reads each Markdown file under `docs/adr/` on the base branch. The ADR is
 `docs/adr/NNNN-<slug>.md`, with the next free number, from the template
-`../loop-sdlc-documents/adr.md`. The `adr` gate refuses an ADR with no Ticket line. The spec author
+`../loop-sdlc-documents/adr.md`. The `adr` gate refuses an ADR with no Ticket line. The planner
 then takes the epic.
 
 While the epic is in `architecture` with no open item and no open room on it, the inbox shows the

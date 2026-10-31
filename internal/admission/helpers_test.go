@@ -377,7 +377,7 @@ func (w *world) workEdit(id, field, value string) {
 	}
 }
 
-// signOff merges the PRD of an epic in prd_signoff, so a spec author may
+// signOff merges the PRD of an epic in prd_signoff, so a planner may
 // claim it.
 func (w *world) signOff(id string) {
 	w.t.Helper()

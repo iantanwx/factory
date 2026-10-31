@@ -60,7 +60,7 @@ func TestCoordinatorFilesABugAndTheReproducerShapesIt(t *testing.T) {
 
 // R46: the coordinator creates an architecture epic. It waits in
 // architecture until a merge to the base adds an ADR whose Ticket line
-// names it. The reactor then moves it to spec_needed, and the spec author
+// names it. The reactor then moves it to spec_needed, and the planner
 // takes it.
 func TestArchitectureEpicWaitsForItsADR(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
@@ -79,8 +79,40 @@ func TestArchitectureEpicWaitsForItsADR(t *testing.T) {
 	if got := w.Show(epic).Facts[machine.FactADR]; got != "docs/adr/0001-widget-store.md" {
 		t.Fatalf("the epic records ADR %q", got)
 	}
-	if run := w.Dispatch(machine.StageSpecAuthor); run.Item != epic {
-		t.Fatalf("the spec-author took %s, want %s", run.Item, epic)
+	if run := w.Dispatch(machine.StagePlanner); run.Item != epic {
+		t.Fatalf("the planner took %s, want %s", run.Item, epic)
+	}
+	wantStatus(w, epic, machine.SpecDrafting)
+}
+
+// C10, factorio-z565: an epic in spec_needed starts a planner run, and its
+// brief names the planner's runbook.
+func TestC10AnEpicInSpecNeededStartsAPlannerRun(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	r := w.Must(w.Coordinator("epic", "create", "--architecture", "--project", acceptance.Project,
+		"--title", "Move the widget store to Postgres", "--body", "The operator asked for an ADR on the widget store."))
+	epic := r.Str("epic")
+	w.PushMain("ADR 1", map[string]string{"docs/adr/0001-widget-store.md": "# ADR 0001: Widget store\n\n**Ticket:** " + epic + "\n\nUse Postgres.\n"}, "")
+	w.React()
+	wantStatus(w, epic, machine.SpecNeeded)
+
+	run := w.Dispatch("planner")
+	if run.Item != epic {
+		t.Fatalf("the planner took %s, want %s", run.Item, epic)
+	}
+	raw, err := os.ReadFile(filepath.Join(run.Checkout, ".loop", "brief.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b struct {
+		Stage   string `json:"stage"`
+		Runbook string `json:"runbook"`
+	}
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatal(err)
+	}
+	if b.Stage != "planner" || b.Runbook != ".claude/skills/loop-planner/SKILL.md" {
+		t.Fatalf("the brief names stage %q and runbook %q, want planner and .claude/skills/loop-planner/SKILL.md", b.Stage, b.Runbook)
 	}
 	wantStatus(w, epic, machine.SpecDrafting)
 }

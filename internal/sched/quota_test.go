@@ -66,7 +66,7 @@ func TestProfilesCarryTheEffort(t *testing.T) {
 	}
 	cases := map[string]string{
 		"implementer": "high", "code-reviewer": "high", "doc-reviewer": "medium",
-		"spec-author": "high", "decomposer": "high", "amender": "medium",
+		"planner": "high", "decomposer": "high", "amender": "medium",
 		"triage": "medium", "reproducer": "medium", "retro": "medium", "brainstorm": "medium", "nightly-qa": "",
 	}
 	for stage, effort := range cases {

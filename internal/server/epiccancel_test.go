@@ -26,7 +26,7 @@ func TestC3RoutedToLoopHintOfAnEpicNamesWorkCancel(t *testing.T) {
 	if _, err := w.bx.Update(ctx, is.ID, beadsx.UpdateSpec{IfStatus: is.Status, Status: machine.SpecNeeded}); err != nil {
 		t.Fatal(err)
 	}
-	run := w.runToken("run-1", is.ID, machine.StageSpecAuthor)
+	run := w.runToken("run-1", is.ID, machine.StagePlanner)
 	env, code := w.as(run, "escalation", "raise", "--score", "2", "--body", "ADR 0013 gave the work to factorio-yzrt")
 	hint, _ := env["hint"].(string)
 	if code != 3 || env["code"] != cli.CodeRoutedToLoop || !strings.Contains(hint, "`loop work cancel`") ||

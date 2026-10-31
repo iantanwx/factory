@@ -54,7 +54,7 @@ func TestEscalateStoresTheResumeTargetAndAnswerReturnsToIt(t *testing.T) {
 	// An epic held in spec_drafting resumes to the queue it came from.
 	ep := w.create(KindEpic, "create_architecture", nil)
 	w.must(ep, "adr_landed", map[string]string{"path": "docs/adr/0001-x.md", "added": "a1"})
-	w.claim(ep, StageSpecAuthor, "r-spec")
+	w.claim(ep, StagePlanner, "r-spec")
 	w.must(ep, "escalate", nil)
 	if got := w.show(ep).Fact(FactResume); got != SpecNeeded {
 		t.Fatalf("spec_drafting resumes to %q, want spec_needed", got)
