@@ -303,7 +303,7 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 		text = append(text, fmt.Sprintf("The %s passed review%s and waits for the operator's approval. On the approval the server merges that head.",
 			docOf(it.Status), at))
 	case KindArchitecture:
-		e.Awaits, e.Next = AwaitsCoordinator, archActs(it.Project, it.ID)
+		e.Awaits, e.Next = AwaitsCoordinator, archActs(it)
 		text = append(text, "The epic is in architecture, and no open ticket under it writes its ADR, and no room serves it.")
 	}
 	if n := it.Fact(machine.FactNote); n != "" && kind != KindSignoff {
@@ -314,10 +314,16 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 }
 
 // archActs names the two acts that end an architecture entry: a ticket
-// filed under the epic, or an architect room opened on it.
-func archActs(project, epic string) string {
-	return fmt.Sprintf("loop work create --project %s --epic %s --request <the operator's words> --title <the ADR ticket>, "+
-		"or loop room open --kind architect --project %s --item %s --reason <why> --score <level>", project, epic, project, epic)
+// filed under the epic, or an architect room opened on it. The ticket
+// under a PRD epic that the operator sent to the ADR stage cites a story
+// of its PRD.
+func archActs(epic machine.Item) string {
+	story := ""
+	if epic.Fact(machine.FactPRDPath) != "" {
+		story = " --story <a story label of its PRD>"
+	}
+	return fmt.Sprintf("loop work create --project %s --epic %s%s --request <the operator's words> --title <the ADR ticket>, "+
+		"or loop room open --kind architect --project %s --item %s --reason <why> --score <level>", epic.Project, epic.ID, story, epic.Project, epic.ID)
 }
 
 // askCount is the number of the ask an asked report holds.

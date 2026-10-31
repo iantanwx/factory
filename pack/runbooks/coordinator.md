@@ -454,18 +454,28 @@ The server reads each Markdown file under `docs/adr/` on the base branch. The AD
 then takes the epic.
 
 While the epic is in `architecture` with no open item and no open room on it, the inbox shows the
-entry `architecture/<project>/<epic>`. It waits on you. An answer refuses with `USAGE` and rule
-`architecture_entry`. End the entry in one of three ways, by the operator's choice:
+entry `architecture/<project>/<epic>`. A PRD epic that `loop epic adr` sent to the ADR stage also
+waits in `architecture`, and makes the same entry. It waits on you. An answer refuses with `USAGE`
+and rule `architecture_entry`. End the entry in one of three ways, by the operator's choice, for
+either kind of epic:
 
 - **The operator asks the loop to write the ADR.** File its ticket under the epic. Quote the
-  operator's words, and cite no story, since the epic has no PRD:
+  operator's words. Under an architecture epic, cite no story, since the epic has no PRD:
 
   ```bash
   loop work create --project <project> --epic <epic> --title "<title>" --body "<body>" --request "<the operator's words>"
   ```
 
-  The ticket carries the epic in its `epic` fact, so the run that holds it reads the epic with
-  `loop work show <epic>`.
+  Under a PRD epic, cite each story label of the PRD that the decision serves:
+
+  ```bash
+  loop work create --project <project> --epic <epic> --story <label> --title "<title>" --body "<body>" --request "<the operator's words>"
+  ```
+
+  The ticket takes no ticket shape, because the spec that names its contracts does not exist yet.
+  The create refuses with `STORY_UNKNOWN` and rule `story_not_in_prd` when no `--story` is given,
+  or when the PRD does not hold a label. The ticket carries the epic in its `epic` fact, so the
+  run that holds it reads the epic with `loop work show <epic>`.
 
 - **The operator wants to write the ADR with an agent.** Open an architect room on the epic, by
   section 7:
