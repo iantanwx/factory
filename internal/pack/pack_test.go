@@ -3,6 +3,7 @@ package pack_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -540,6 +541,78 @@ func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 		}
 		if slices.Sort(listed); !slices.Equal(listed, stages) {
 			t.Errorf("runbooks that list %s = %v, want %v", skill, listed, stages)
+		}
+	}
+}
+
+// C19: the kernel pins asd-ste100 and impeccable, and no other skill.
+func TestC19TheKernelPinsASDAndImpeccableOnly(t *testing.T) {
+	var names []string
+	for _, p := range pack.ThirdPartyPins() {
+		names = append(names, p.Name)
+	}
+	if want := []string{"asd-ste100", "impeccable"}; !slices.Equal(names, want) {
+		t.Fatalf("the kernel pins %v, want %v", names, want)
+	}
+}
+
+// C19: a run of a project with no skills: receives the kernel pins from a
+// fetched set that holds a tree for each of them. It holds loop-asd-ste100
+// and loop-impeccable, and no Neon skill under either root.
+func TestC19ARunHoldsNoNeonSkill(t *testing.T) {
+	src := fstest.MapFS{}
+	err := fs.WalkDir(pack.Source(), ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := fs.ReadFile(pack.Source(), path)
+		src[path] = &fstest.MapFile{Data: data, Mode: 0o644}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fetched set holds a fixture tree for each embedded pin, and the
+	// source pins each tree by its hash, so every embedded pin reaches the run.
+	fetched := fstest.MapFS{}
+	pins := pack.ThirdPartyPins()
+	for i, p := range pins {
+		maps.Copy(fetched, fixtureSkill(p.Name))
+		sub, err := fs.Sub(fetched, p.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pins[i].SHA256, err = pack.TreeHash(sub); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file, err := json.Marshal(map[string][]pack.ThirdParty{"skills": pins})
+	if err != nil {
+		t.Fatal(err)
+	}
+	src[pack.ThirdPartyFile] = &fstest.MapFile{Data: file}
+	p, left, err := pack.BriefOf(src, fetched)
+	if err != nil || len(left) != 0 {
+		t.Fatalf("left out %v, %v", left, err)
+	}
+	for _, h := range []agenthost.Harness{agenthost.Claude, agenthost.Codex} {
+		dir := gitInit(t)
+		_, err := brief.Inject(context.Background(), brief.Injection{Checkout: dir, Harness: h, Pack: p,
+			Brief: brief.Brief{RunID: "r-1", Project: "alpha", Stage: "implementer", Role: "implementer"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"loop-asd-ste100", "loop-impeccable"} {
+			if _, err := os.Stat(filepath.Join(dir, brief.SkillRoot(h), name, "SKILL.md")); err != nil {
+				t.Errorf("%s: a run holds no %s: %v", h, name, err)
+			}
+		}
+		for _, root := range []string{".claude/skills", ".agents/skills"} {
+			for _, name := range []string{"loop-neon", "loop-neon-postgres", "neon", "neon-postgres"} {
+				if _, err := os.Stat(filepath.Join(dir, root, name)); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("%s: a run holds %s/%s (%v)", h, root, name, err)
+				}
+			}
 		}
 	}
 }
