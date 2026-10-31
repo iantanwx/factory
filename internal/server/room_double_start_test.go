@@ -25,7 +25,7 @@ type raceRoomCheckout struct {
 }
 
 func (c raceRoomCheckout) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec) (agenthost.Checkout, error) {
-	if strings.HasPrefix(spec.Name, "loop-room-") {
+	if strings.HasPrefix(spec.Name, "loop-alpha-review-room-") {
 		if c.raced.CompareAndSwap(false, true) {
 			c.race(ctx)
 		}
