@@ -58,6 +58,9 @@ type Config struct {
 	Logger    *slog.Logger
 	// Sleep waits between read retries; a test makes it instant.
 	Sleep func(ctx context.Context, d time.Duration) error
+	// UserSkills reads the pin names of a project's last good config, for
+	// the push scan (ADR 0013). Nil, or no last good config, means none.
+	UserSkills func(ctx context.Context, project string) ([]string, error)
 }
 
 // Service is the server's GitHub actor: one App for each owner, one shared cooldown,

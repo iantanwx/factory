@@ -62,6 +62,8 @@ type env struct {
 	project  config.Project
 	bx       *fake.Client
 	m        *machine.Machine
+	// userSkills are the pin names of the project's last good config.
+	userSkills []string
 }
 
 func newEnv(t *testing.T) *env {
@@ -96,7 +98,8 @@ func (e *env) service() *Service {
 		Apps: OneApp(testAppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
 		API:  e.api.URL(), GitURL: e.git.URL, Protocols: []string{"http"}, MirrorRoot: e.root,
 		Store: e.st, Redactor: e.red, Projects: staticProjects{e.project}, Machine: e.m,
-		Sleep: func(context.Context, time.Duration) error { return nil },
+		Sleep:      func(context.Context, time.Duration) error { return nil },
+		UserSkills: func(context.Context, string) ([]string, error) { return e.userSkills, nil },
 	})
 	if err != nil {
 		e.t.Fatal(err)

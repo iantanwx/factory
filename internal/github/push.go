@@ -125,7 +125,13 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 				Hint: fmt.Sprintf("%s holds %d commit(s) that HEAD lacks; run `loop branch sync`, merge, and push again", req.Branch, len(lacking))}
 		}
 	}
-	commits, err := m.Scan(ctx, s.cfg.Redactor, req.Caller == cli.PrincipalRun, req.Head, remoteRef(base), remote)
+	var pins []string
+	if s.cfg.UserSkills != nil {
+		if pins, err = s.cfg.UserSkills(ctx, p.ID); err != nil {
+			return res, err
+		}
+	}
+	commits, err := m.Scan(ctx, s.cfg.Redactor, req.Caller == cli.PrincipalRun, pins, req.Head, remoteRef(base), remote)
 	if err != nil {
 		return res, err
 	}

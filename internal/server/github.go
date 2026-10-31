@@ -77,7 +77,7 @@ func (g *GitHub) Setup(s *Server) error {
 		API: g.API, GitURL: g.GitURL, Protocols: g.Protocols, HTTP: g.HTTP, Sleep: g.Sleep,
 		MirrorRoot: filepath.Join(s.Instance, MirrorDir),
 		Store:      s.Store, Redactor: s.Redactor, Projects: s.Projects, Machine: s.Machine,
-		Logger: s.RPC.Logger(),
+		Logger: s.RPC.Logger(), UserSkills: s.userSkills,
 	})
 	if err != nil {
 		return err
@@ -131,6 +131,25 @@ func (g *GitHub) Setup(s *Server) error {
 		return fmt.Errorf("server: github: %w", err)
 	}
 	return s.RPC.Handle("doctor-github", g.doctorVerb(s))
+}
+
+// userSkills reads the pin names of project's last good config, never the
+// config of a pushed branch (ADR 0013 decision 1). A project with no last
+// good config has none.
+func (s *Server) userSkills(ctx context.Context, project string) ([]string, error) {
+	raw, _, err := config.StoreLKG(s.Store).LoadLKG(ctx, project)
+	if err != nil || raw == nil {
+		return nil, err
+	}
+	cfg, err := config.ParseProjectConfig(raw)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(cfg.Skills))
+	for _, p := range cfg.Skills {
+		names = append(names, p.Name)
+	}
+	return names, nil
 }
 
 // retroComments reads the comments on an item's pull requests for the
