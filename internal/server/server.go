@@ -31,6 +31,7 @@ import (
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // File names in the instance directory.
@@ -156,6 +157,9 @@ type Server struct {
 	human *human
 	// caches drops a project's cached config from every loader.
 	caches configCaches
+	// skills fetches each project's userspace pins, or is nil when
+	// Options.Sched.FetchSkill is.
+	skills *userspace.Syncer
 	// overwatch is the sweep's world and part list, composed with the
 	// machine.
 	overwatch overwatchState
@@ -351,6 +355,9 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 	s = &Server{
 		Instance: dir, HostPath: hostPath, Store: st, Secrets: sec, Redactor: red,
 		Tokens: tokens, RPC: srv, Started: time.Now(), opts: opts, log: srv.Logger(),
+	}
+	if opts.Sched.FetchSkill != nil {
+		s.skills = userspace.NewSyncer(opts.Sched.SkillStore, opts.Sched.FetchSkill, config.StoreAlerter(st), s.log)
 	}
 	s.Projects = &config.Projects{
 		HostPath:    hostPath,

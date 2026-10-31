@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/sched"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // SchedOptions holds the scheduler's optional parts. The server
@@ -36,6 +37,11 @@ type SchedOptions struct {
 	// sched.OriginBaseHead over the registered projects when nil. The
 	// GitHub mirror is the production source.
 	BaseHead sched.BaseHeadSource
+	// SkillStore keeps each project's fetched userspace skill pins.
+	SkillStore userspace.Store
+	// FetchSkill fetches one userspace pin. When nil, the server fetches
+	// no pin. `loop serve` builds it from release.SkillFetcher.
+	FetchSkill userspace.Fetch
 }
 
 // RefSource returns a reader of a project's committed files and its
@@ -113,8 +119,10 @@ func (c *configCaches) forget(project string) {
 
 // projectLoader reads a project's config and manifest from its default
 // branch through config.Loader, so an invalid commit keeps the last known
-// good config and raises an alert (KTD20). Server.caches drops its cached
-// copy of a project.
+// good config and raises an alert (KTD20). After each load it hands the
+// skill pins of the config in force to the syncer, which fetches in the
+// background (ADR 0013 decision 2). Server.caches drops its cached copy
+// of a project.
 func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 	loader := &config.Loader{LKG: config.StoreLKG(s.Store), Alerts: config.StoreAlerter(s.Store),
 		Check: config.StageCheck(&config.HostLoader{Path: s.HostPath})}
@@ -150,6 +158,9 @@ func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 			return nil, err
 		}
 		snap := &l.ProjectSnapshot
+		if s.skills != nil {
+			s.skills.Observe(ctx, project, snap.Config.Skills)
+		}
 		mu.Lock()
 		if gen[project] == g {
 			cache[project] = cachedSnap{snap: snap, at: time.Now()}

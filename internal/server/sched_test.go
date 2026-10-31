@@ -5,13 +5,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
@@ -22,8 +25,10 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 func gitT(t *testing.T, dir string, args ...string) {
@@ -287,5 +292,60 @@ func TestServerSchedulerReadsPullsForDependencyAdvance(t *testing.T) {
 	}
 	if n := p.reads.Load(); n != 1 {
 		t.Fatalf("%d reads of the open pull requests, want 1", n)
+	}
+}
+
+// C12: after each load, the project loader hands the Skills of the config
+// in force to the syncer. A pin the store lacks is fetched and stored
+// under the state directory, and the load does not wait for the fetch.
+func TestC12ProjectLoaderFetchesThePinsOfTheConfig(t *testing.T) {
+	tree := fstest.MapFS{"SKILL.md": {Data: []byte("---\nname: neon\n---\n"), Mode: 0o644}}
+	sum, err := pack.TreeHash(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := config.SkillPin{Name: "neon", Repo: "neondatabase/agent-skills",
+		Commit: "ccca3334a7542d3133134cc6926f2fafc6edeb1f", Path: "skills/neon", SHA256: sum}
+	st := userspace.Store{Dir: filepath.Join(t.TempDir(), "userspace-skills")}
+	release := make(chan struct{})
+	var fetches atomic.Int32
+	fetch := func(ctx context.Context, p config.SkillPin) (fs.FS, error) {
+		fetches.Add(1)
+		<-release
+		if p != pin {
+			return nil, errors.New("fetched another pin")
+		}
+		return tree, nil
+	}
+	w := newSchedWorld(t, Options{Sched: SchedOptions{SkillStore: st, FetchSkill: fetch}})
+	ctx := context.Background()
+	p, err := w.srv.Projects.Show("alpha")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := "stages:\n  code-reviewer: {}\nmerge:\n  mechanism: direct\nskills:\n  - name: neon\n    repo: " + pin.Repo +
+		"\n    commit: " + pin.Commit + "\n    path: " + pin.Path + "\n    sha256: " + pin.SHA256 + "\n"
+	if err := os.WriteFile(filepath.Join(p.Path, config.ProjectConfigPath), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitT(t, p.Path, "commit", "-q", "-am", "pin neon")
+	gitT(t, p.Path, "push", "-q", "origin", "main")
+
+	if _, err := w.srv.projectLoader(LocalRefs)(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, ok := st.Held("alpha", pin); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the store lacks neon after the load; fetches = %d", fetches.Load())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := fetches.Load(); n != 1 {
+		t.Fatalf("fetches = %d, want 1", n)
 	}
 }
