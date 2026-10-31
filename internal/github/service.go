@@ -221,14 +221,24 @@ const specSuffix = "-spec"
 // merge, and a spec pushed onto it would find the remote ahead.
 func SpecBranchFor(epic string) string { return BranchFor(epic) + specSuffix }
 
+// ADRBranchFor is the branch of an ADR that an epic with a PRD or a landed
+// ADR writes in the ADR stage. Its spec pull request stays open on
+// SpecBranchFor meanwhile, so the ADR needs a branch of its own.
+func ADRBranchFor(epic string) string { return BranchFor(epic) + "-adr" }
+
 // BranchOf is the branch that holds an item's current work. An epic whose
-// PRD merged, or whose ADR landed, writes its spec on SpecBranchFor. Every
-// other item, and an epic before that, uses BranchFor.
+// PRD merged, or whose ADR landed, writes its spec on SpecBranchFor, and
+// its ADR on ADRBranchFor while it is in architecture. Every other item,
+// and an epic before that, uses BranchFor: an epic created for an ADR
+// writes its first one there.
 func BranchOf(it machine.Item) string {
-	if it.Kind == machine.KindEpic && (it.Fact(machine.FactPRDMerged) != "" || it.Fact(machine.FactADR) != "") {
-		return SpecBranchFor(it.ID)
+	if it.Kind != machine.KindEpic || it.Fact(machine.FactPRDMerged) == "" && it.Fact(machine.FactADR) == "" {
+		return BranchFor(it.ID)
 	}
-	return BranchFor(it.ID)
+	if it.Status == machine.Architecture {
+		return ADRBranchFor(it.ID)
+	}
+	return SpecBranchFor(it.ID)
 }
 
 // ItemOf is the item a head branch belongs to, or "". For a spec branch

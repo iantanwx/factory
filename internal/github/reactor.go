@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"path"
 	"regexp"
 	"slices"
 	"strconv"
@@ -363,13 +364,29 @@ func ticketOf(text string) string {
 	return strings.TrimRight(m[1], ".,;")
 }
 
+// adrName is the number at the start of an ADR's file name.
+var adrName = regexp.MustCompile(`^(\d+)-`)
+
+// adrNumber is the number of the ADR at file, or 0 when its name holds
+// none. ADR numbers only grow, so a higher number is a later decision.
+func adrNumber(file string) int {
+	m := adrName.FindStringSubmatch(path.Base(file))
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
 // adrs applies adr_landed to each architecture epic whose id the Ticket
 // line of an ADR on the base branch names (R46): a merge that adds the ADR
 // to the base is the operator's sign-off. An epic the ADR names anywhere
 // else stays where it is. It reads the ADR's text in the mirror at sha,
 // which SyncBase just fetched, and never a GitHub answer. A read finds an
-// ADR that landed while the server was down too. The first ADR in path
-// order whose Ticket line names the epic is the one the epic records.
+// ADR that landed while the server was down too. An epic joins only an ADR
+// with a higher number than the one its adr fact records, because an epic
+// that returns to architecture already read that ADR. Of those, it records
+// the highest. An epic with no adr fact joins any ADR that names it.
 //
 // It also returns to architecture each spec_needed epic whose adr fact
 // names an ADR on the base whose Ticket line names another epic, or none:
@@ -424,7 +441,15 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 		}
 	}
 	for _, ep := range epics {
-		i := slices.IndexFunc(paths, func(path string) bool { return tickets[path] == ep.ID })
+		i, top := -1, -1
+		if joined := ep.Fact(machine.FactADR); joined != "" {
+			top = adrNumber(joined)
+		}
+		for j, path := range paths {
+			if n := adrNumber(path); tickets[path] == ep.ID && n > top {
+				i, top = j, n
+			}
+		}
 		if i < 0 {
 			continue
 		}

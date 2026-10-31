@@ -1,10 +1,12 @@
 package pipeline_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 )
 
@@ -108,5 +110,37 @@ func TestC15EpicADRRefusedOutsideItsRows(t *testing.T) {
 		if after := w.show(epic); after.Status != c.status || after.Seq != before.Seq || after.Fact("adr_sent") != "" {
 			t.Fatalf("%s: the refusal changed the epic: %+v", c.name, after)
 		}
+	}
+}
+
+// C16, across adr_landed: an epic that the send returned to architecture
+// from spec_review writes on its ADR branch, and keeps doc_pr. The merge
+// of an ADR that names it moves it to spec_needed, and the spec author's
+// pr show then finds the same open spec pull request on the spec branch.
+func TestC16SpecPullRequestOutlivesTheADRStage(t *testing.T) {
+	w := newWorld(t)
+	epic, n := w.submitted()
+	w.review(epic, "pass")
+	w.merge(n)
+	w.tick()
+	w.specOpen(epic, "run-spec-1")
+	spec := w.prOf(epic)
+	ok(t, w.call(w.coordinator(), "", "epic adr", sendFlags(sendWords), epic))
+	if it := w.show(epic); it.Status != "architecture" || github.BranchOf(it) != "loop/"+epic+"-adr" {
+		t.Fatalf("after the send: status %s, branch %s", it.Status, github.BranchOf(it))
+	}
+	w.onBase(map[string]string{"docs/adr/0001-widgets.md": "# ADR 0001: Widgets\n\n**Ticket:** " + epic + "\n"})
+	w.tick()
+	it := w.show(epic)
+	if it.Status != "spec_needed" || it.Fact("doc_pr") != strconv.Itoa(spec) || github.BranchOf(it) != "loop/"+epic+"-spec" {
+		t.Fatalf("after the ADR landed: status %s, doc_pr %q, branch %s, want spec_needed, %d, loop/%s-spec", it.Status,
+			it.Fact("doc_pr"), github.BranchOf(it), spec, epic)
+	}
+	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageSpecAuthor, RunID: "run-spec-2"}); res.Refusal != nil {
+		t.Fatalf("spec author claim: %+v", *res.Refusal)
+	}
+	out := ok(t, w.call(w.run("run-spec-2", epic, machine.StageSpecAuthor), "", "pr show", map[string]string{}))
+	if got := out["number"]; got != float64(spec) {
+		t.Fatalf("pr show after the ADR stage = %v, want the spec pull request #%d", out, spec)
 	}
 }
