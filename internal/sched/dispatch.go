@@ -229,13 +229,32 @@ const maxSlug = 32
 // The name fits agenthost.MaxCheckoutName: the slug shortens first, then
 // the item goes. The run id always stays.
 func checkoutName(ad admission.Admitted, title string) string {
-	name, tail := clean("loop-"+ad.Project+"-"+ad.Stage), clean("-"+ad.RunID)
+	return fitName("loop-"+ad.Project+"-"+ad.Stage, ad.Item, title, ad.RunID)
+}
+
+// RoomCheckoutName names a room's checkout after its work:
+// loop-<project>-<kind>-room-<item>-<slug>-<room id>. The slug comes from
+// the item's title, or from the reason of a room with no item. It fits
+// agenthost.MaxCheckoutName by the rule of checkoutName.
+func RoomCheckoutName(project, kind, item, title, id string) string {
+	return fitName("loop-"+project+"-"+kind+"-room", item, title, id)
+}
+
+// fitName joins head, item, a slug of title and id into a checkout name
+// of at most agenthost.MaxCheckoutName bytes. The slug shortens first,
+// then the item goes, with its slug. The id always stays.
+func fitName(head, item, title, id string) string {
+	name, tail := clean(head), clean("-"+id)
 	room := agenthost.MaxCheckoutName - len(name) - len(tail)
-	if item := clean("-" + ad.Item); ad.Item != "" && len(item) <= room {
-		name += item
-		if sl := slug(title, min(maxSlug, room-len(item)-1)); sl != "" {
-			name += "-" + sl
+	if item != "" {
+		it := clean("-" + item)
+		if len(it) > room {
+			return name + tail
 		}
+		name, room = name+it, room-len(it)
+	}
+	if sl := slug(title, min(maxSlug, room-1)); sl != "" {
+		name += "-" + sl
 	}
 	return name + tail
 }
