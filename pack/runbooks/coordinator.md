@@ -298,6 +298,23 @@ Either way the head moves, so the entry is raised again at the new head. Record 
 approval of that head. A PRD sign-off reads no open questions, because the spec author settles
 them.
 
+A spec can hold an open question that starts `**Needs an ADR:**`. The spec-author found a decision
+that passes the test of `../loop-sdlc-documents/SKILL.md` § 6, When a decision needs an ADR. The
+entry holds the sign-off until an `**Answered` run in it cites `ADR NNNN`. A `**Deferred` run
+does not decide it. Prepare one question for each such entry: does the decision go to an ADR?
+Recommend the yes, because the spec-author found that the decision passes the test.
+
+- On the operator's yes, send the epic to the ADR stage with the operator's words:
+
+  ```bash
+  loop epic adr <epic> --request "<the operator's words>"
+  ```
+
+  The epic moves to `architecture`, and its spec pull request stays open.
+- On the operator's no, open a review room on the spec pull request. The room removes the entry,
+  and records the no under `## Decisions` with the operator's words. The head moves, so the entry
+  is raised again at the new head.
+
 ## 6. Decisions that wait on an event
 
 On each wake, the `decisions` part of the sweep prints one note for each `pending` decision. Each

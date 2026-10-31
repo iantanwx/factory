@@ -2,7 +2,10 @@ package github
 
 import (
 	"context"
+	"slices"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // C3: AddedBy answers the newest first-parent commit that adds the path:
@@ -38,6 +41,33 @@ func TestC3AddedByIsTheNewestFirstParentAdd(t *testing.T) {
 		}
 		if got != c.want {
 			t.Errorf("AddedBy(%s) = %q, want %q (the side commit is %s, the tip %s)", c.path, got, c.want, side, tip)
+		}
+	}
+}
+
+// C4: Tree lists the entries git tracks directly under a directory, and
+// marks each directory. A directory or a ref the repository lacks returns
+// no entry and no error.
+func TestC4MirrorTreeListsTheTrackedEntries(t *testing.T) {
+	dir := t.TempDir()
+	gitT(t, dir, "init", "-q", "-b", "main")
+	commit(t, dir, "skills", map[string]string{
+		".claude/skills/neon/SKILL.md":      "neon\n",
+		".claude/skills/neon/ref/a.md":      "a\n",
+		".claude/skills/house-style":        "a file\n",
+		".claude/skills-old/stale/SKILL.md": "old\n",
+	})
+
+	m := &Mirror{git: &Git{Home: t.TempDir()}, Dir: dir}
+	ctx := context.Background()
+	got, err := m.Tree(ctx, "main", ".claude/skills")
+	want := []config.TreeEntry{{Name: "house-style"}, {Name: "neon", Dir: true}}
+	if err != nil || !slices.Equal(got, want) {
+		t.Fatalf("Tree(.claude/skills) = %+v, %v, want %+v", got, err, want)
+	}
+	for _, c := range []struct{ ref, dir string }{{"main", ".agents/skills"}, {"origin/main", ".claude/skills"}} {
+		if got, err := m.Tree(ctx, c.ref, c.dir); err != nil || len(got) != 0 {
+			t.Errorf("Tree(%s, %s) = %+v, %v, want no entry and no error", c.ref, c.dir, got, err)
 		}
 	}
 }

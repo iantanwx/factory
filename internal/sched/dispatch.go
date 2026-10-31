@@ -21,6 +21,7 @@ import (
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // Started is one run that dispatch started.
@@ -132,6 +133,20 @@ func ReservedRefusal(item string, e *brief.ReservedError) *cli.Refusal {
 		Hint: "the repository tracks " + strings.Join(e.Dirs, ", ") + ", a loop- skill directory the release pack does not hold; rename it"}
 }
 
+// UserSkills reads the pins of project that st holds, as a run's pack
+// takes them. It never fetches, so a pin the store lacks is left out
+// (ADR 0013 decision 2).
+func UserSkills(st userspace.Store, project string, pins []config.SkillPin) []brief.UserSkill {
+	if st.Dir == "" {
+		return nil
+	}
+	var out []brief.UserSkill
+	for _, h := range st.HeldSet(project, pins) {
+		out = append(out, brief.UserSkill{Pin: h.Pin, Tree: h.Tree})
+	}
+	return out
+}
+
 // start runs one admitted run up to its session. Each failure settles the
 // run uncounted, releases its claim and restores the frontier state.
 func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, hc *config.HostConfig, prof Profile) (*Started, *cli.Refusal) {
@@ -180,7 +195,8 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	b := s.brief(ctx, ad, snap, hc, prof)
-	res, err := brief.Inject(ctx, brief.Injection{Checkout: co.Path, Harness: prof.Harness, Pack: s.cfg.Pack, Brief: b, Env: brief.GroupEnv(manifest, env)})
+	p := s.cfg.Pack.WithUser(UserSkills(s.cfg.SkillStore, ad.Project, snap.Config.Skills))
+	res, err := brief.Inject(ctx, brief.Injection{Checkout: co.Path, Harness: prof.Harness, Pack: p, Brief: b, Env: brief.GroupEnv(manifest, env)})
 	var conflict *brief.ConflictError
 	if errors.As(err, &conflict) {
 		ref := &cli.Refusal{Code: cli.CodeConfigConflict, Rule: "injected_path_tracked", Item: ad.Item,

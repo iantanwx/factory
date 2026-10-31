@@ -37,6 +37,7 @@ import (
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // Room states.
@@ -80,6 +81,9 @@ type Config struct {
 	Redactor      *secrets.Redactor
 	ProjectConfig sched.ProjectSource
 	Pack          brief.Pack
+	// SkillStore holds the userspace skill pins each room's pack takes. A
+	// store with no Dir holds none.
+	SkillStore userspace.Store
 	// Harness and Model run each room. Claude Code and its default model
 	// when empty.
 	Harness agenthost.Harness
@@ -568,7 +572,8 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 			b.AllowedNext = it.AllowedNext
 		}
 	}
-	res, err := brief.Inject(ctx, brief.Injection{Checkout: r.Checkout, Harness: s.cfg.Harness, Pack: s.cfg.Pack, Brief: b, Env: brief.GroupEnv(manifest, env)})
+	p := s.cfg.Pack.WithUser(sched.UserSkills(s.cfg.SkillStore, r.Project, snap.Config.Skills))
+	res, err := brief.Inject(ctx, brief.Injection{Checkout: r.Checkout, Harness: s.cfg.Harness, Pack: p, Brief: b, Env: brief.GroupEnv(manifest, env)})
 	var reserved *brief.ReservedError
 	if errors.As(err, &reserved) {
 		_ = fail(cli.CodeConfigConflict, err)

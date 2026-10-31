@@ -185,3 +185,25 @@ func TestC21ThePRDReviewRunsTheTestAndNamesTheFlag(t *testing.T) {
 		"the PRD merge lands the epic on `architecture`, not on `spec_needed`",
 	})
 }
+
+// C25: section 5 of the coordinator runbook brings a Needs an ADR question
+// to the operator. The yes sends the epic to the ADR stage with the
+// operator's words. The no opens a review room that removes the entry and
+// records the no under Decisions.
+func TestC25TheCoordinatorReturnsTheEpicAtTheOperatorsWord(t *testing.T) {
+	s := flat(pack.Section(read(t, coordinatorRunbook), 2, func(title string) bool {
+		return strings.HasPrefix(title, "5. ")
+	}))
+	holdsAll(t, "the Needs an ADR question in section 5 of the coordinator runbook", s, []string{
+		"an open question that starts `**Needs an ADR:**`",
+		"Prepare one question for each such entry: does the decision go to an ADR?",
+	})
+	holdsAll(t, "the operator's yes in section 5 of the coordinator runbook", s, []string{
+		"On the operator's yes, send the epic to the ADR stage with the operator's words:",
+		`loop epic adr <epic> --request "<the operator's words>"`,
+	})
+	holdsAll(t, "the operator's no in section 5 of the coordinator runbook", s, []string{
+		"On the operator's no, open a review room on the spec pull request.",
+		"The room removes the entry, and records the no under `## Decisions` with the operator's words.",
+	})
+}
