@@ -183,6 +183,10 @@ read with the event you blame. Read the state back after each write you report.
 - **The operator drops an escalated item.** Run
   `loop work cancel <item> --reason "<the operator's words>"`, and quote the operator's words in
   the report.
+- **A ruling gives an epic's work to another item.** An epic has no `work supersede`. Before
+  decomposing starts, run `loop work cancel <epic> --reason "<the ruling>"`. The server closes the
+  epic's open document pull request with no merge. An epic in decomposing or execution refuses the
+  cancel. Bring it to the operator.
 - **A merged change or a ruling leaves a ticket with no work.** Run
   `loop work supersede <item> --reason "<why>"` with one of `--commit <sha>`, `--done <item>` or
   `--adr <path>`. The server checks that evidence before it closes the ticket.

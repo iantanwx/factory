@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/fault"
+	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -109,13 +110,17 @@ func (s *Scheduler) alertHeld(ctx context.Context, r runRow, out admission.Outco
 		return
 	}
 	if out.Counted && len(out.Failures) >= admission.FailureLimit {
-		var runs []string
+		var runs, ids []string
 		for _, f := range out.Failures {
 			line := fmt.Sprintf("- run %s ended %s", f.RunID, f.Class)
 			if f.Note != "" {
 				line += ": " + f.Note
 			}
 			runs = append(runs, line)
+			ids = append(ids, f.RunID)
+		}
+		if err := retro.RecordAttempts(ctx, s.cfg.Store, r.Project, r.Item, r.Stage, ids); err != nil {
+			s.log.ErrorContext(ctx, "record the attempts signal", "run", r.ID, "item", r.Item, "err", err)
 		}
 		s.raise(ctx, config.Alert{Project: r.Project, Kind: AlertRetryLimit,
 			DedupeKey: AlertRetryLimit + ":" + r.Project + "/" + r.Item + "/" + r.Stage + "/" + out.Inputs,

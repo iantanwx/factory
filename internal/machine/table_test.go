@@ -187,6 +187,9 @@ func epicEdges() []edge {
 	// Text: a closed document PR escalates and never cancels.
 	e = append(e, each([]string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending}, "pr_closed", Escalated)...)
 	e = append(e, each(except(epicLive, Escalated), "escalate", Escalated)...)
+	// Added (F-55): an epic whose work moved elsewhere cancels before it
+	// has children.
+	e = append(e, each(except(epicLive, Decomposing, Execution), "cancel", Canceled)...)
 	// Added: answer returns to every resume target escalate can store.
 	for _, to := range uniqueValues(epicResume) {
 		if to != PRDReview {
