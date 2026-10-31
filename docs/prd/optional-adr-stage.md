@@ -41,6 +41,10 @@ shaped bug ticket.
 When an ADR on the base branch already decides the question, a new ADR with a higher number
 supersedes it. Nobody edits the earlier ADR.
 
+The epic body names the pack files that take the test. `loop-sdlc-documents/SKILL.md` replaces the
+"use one when" sentence. `adr.md`, `coordinator.md` § 8, `spec-author.md` and `architect-room.md`
+take the test. `loop-brainstorm/SKILL.md` names where a decision with no product source goes.
+
 ### US-02 A PRD epic can take an ADR stage between its PRD and its spec
 
 As the operator, I can send a PRD epic to an ADR stage after its PRD, so that an epic whose
@@ -58,6 +62,11 @@ the ADR to the base branch, the epic moves from `architecture` to `spec_needed`.
 then reads the PRD and each ADR whose Ticket line names the epic. The operator can send an epic to
 `architecture` at any time. An epic created with `epic create --architecture` and no PRD keeps
 working as it does today.
+
+Two consequences follow from that flow. A PRD epic in `architecture` waits for its ADR as an
+architecture epic does today, so the coordinator ends its inbox entry in the same three ways. The
+epic stays a PRD epic, so its tickets cite the PRD's story labels, as the tickets of every PRD epic
+do.
 
 ### US-03 The loop runs the test, and sends an epic to the ADR stage when it passes
 
@@ -128,13 +137,13 @@ refuse one that fails the test.
 - The test names one place for each decision that fails it, as US-01 names them.
   → § US-01
 - The test replaces the "Use one when" sentence of the ADR template.
-  → pack/skills/loop-sdlc-documents/adr.md
+  → § US-01
 - The brainstorm skill sends a decision with no product source to the test, and not to an
   unnamed decision record.
-  → pack/skills/loop-brainstorm/SKILL.md § 3. Check the scope first
+  → § US-01
 - The coordinator runbook, the spec-author runbook and the architect room runbook each use the
   same test, and none states a second rule for when a decision needs an ADR.
-  → pack/runbooks/coordinator.md § 8. New work
+  → § US-01
 - When an ADR on the base branch already decides the question, a new ADR with a higher number
   supersedes it, and the earlier ADR stays as it is.
   → § US-01
@@ -150,10 +159,10 @@ refuse one that fails the test.
   → § US-02
 - The coordinator can end the `architecture` inbox entry of a PRD epic in each of the three ways
   that end the entry of an architecture epic today.
-  → pack/runbooks/coordinator.md § 8. New work
+  → § US-02
 - The spec-author reads the PRD and each ADR whose Ticket line names the epic, for every epic that
   went through the ADR stage.
-  → pack/runbooks/spec-author.md § 1. Find the source and the round
+  → § US-02
 - The tickets of a PRD epic that went through the ADR stage cite the PRD's story labels, as the
   tickets of every PRD epic do.
   → § US-02
@@ -235,8 +244,9 @@ refuse one that fails the test.
   line.
 - **A20.** The `adr` gate refuses a new ADR whose `## Why an ADR` section is missing, or answers
   fewer than four parts, and the refusal names the section.
-- **A21.** `loop gates --docs` passes on this repository's 12 existing ADRs with no edit to any of
-  them.
+- **A21.** In any project, an ADR that was on the base branch before this epic's change to the `adr`
+  gate passes the gate with no Binds line and no Why an ADR section, and with no edit to the ADR.
+  This repository's 12 existing ADRs are one fixture.
 - **A22.** Each ADR pull request gets one doc-reviewer verdict at the head the reviewer read.
 - **A23.** The doc-reviewer rejects an ADR whose decision binds one epic only, and the reject names
   the epic that the decision binds.
