@@ -8,10 +8,12 @@ import (
 	"testing"
 )
 
-// gitIn runs git in dir and returns its trimmed output.
+// gitIn runs git in dir and returns its trimmed output. The git starts no
+// auto maintenance or auto gc, which could still write into the repository
+// after gitIn returns (factorio-s7l9).
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", append([]string{"-c", "maintenance.auto=false", "-c", "gc.auto=0"}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
@@ -141,7 +143,7 @@ func TestReleaseJobOfAnOlderCommitReleasesTheTipOfMain(t *testing.T) {
 	older := gitIn(t, work, "rev-parse", "HEAD")
 	gitIn(t, work, "commit", "-q", "--allow-empty", "-m", "c2")
 	tip := gitIn(t, work, "rev-parse", "HEAD")
-	gitIn(t, tmp, "clone", "-q", "--bare", work, origin)
+	gitIn(t, tmp, "clone", "-q", "--bare", "--no-hardlinks", work, origin)
 
 	// actions/checkout with fetch-depth 0 checks out the run's own commit.
 	checkout := filepath.Join(tmp, "checkout")
@@ -170,7 +172,7 @@ func TestReleaseJobOfAnOlderCommitSkipsAReleasedTip(t *testing.T) {
 	older := gitIn(t, work, "rev-parse", "HEAD")
 	gitIn(t, work, "commit", "-q", "--allow-empty", "-m", "c2")
 	gitIn(t, work, "tag", "v0.0.2")
-	gitIn(t, tmp, "clone", "-q", "--bare", work, origin)
+	gitIn(t, tmp, "clone", "-q", "--bare", "--no-hardlinks", work, origin)
 
 	checkout := filepath.Join(tmp, "checkout")
 	gitIn(t, tmp, "clone", "-q", origin, checkout)
