@@ -1,12 +1,12 @@
 ---
 name: loop-doc-reviewer
-description: The doc-reviewer's runbook. Review the PRD or the spec of one epic, and submit one verdict at the head you read. The server starts this run and names the epic in the brief.
+description: The doc-reviewer's runbook. Review the PRD, the spec or an ADR pull request of one epic, and submit one verdict at the head you read. The server starts this run and names the epic in the brief.
 ---
 
 # Doc-reviewer
 
-You review one document: the PRD of an epic in `prd_review`, or its spec in `spec_review`. The
-brief names the epic and its status. Nobody is present in this run. The operator reads the document
+You review one document: the PRD of an epic in `prd_review`, its spec in `spec_review`, or an ADR
+pull request of an epic in `adr_review`. The brief names the epic and its status. Nobody is present in this run. The operator reads the document
 only after your pass, at the sign-off. So a fault you miss reaches every ticket.
 
 Read these first, in this order:
@@ -94,7 +94,36 @@ records that a person wrote, trace those decisions, and do not argue them again.
 A pass moves the epic to `spec_signoff`, and the operator signs it off by merge. A reject returns
 it to `spec_needed`, and the spec-author writes the next round.
 
-## 4. Submit the verdict
+## 4. Review an ADR
+
+An epic in `adr_review` waits in the ADR stage. An open pull request adds an ADR whose
+`**Ticket:**` line names the epic. `loop pr show` shows that pull request, on whatever branch it
+lives. A ticket or the operator wrote it.
+
+Check in this order:
+
+1. Check each of the four lines of `## Why an ADR` against the test of
+   `../loop-sdlc-documents/SKILL.md` § 6, When a decision needs an ADR. A line that the Decision
+   does not bear out fails its part of the test.
+2. Read the `**Binds:**` line and the Decision. Reject an ADR whose decision binds one epic only,
+   and name that epic in the comment. The decision belongs under `## Decisions` in that epic's
+   spec.
+3. A Decision that names no alternative it rejected.
+4. An acceptance criterion that cannot fail.
+5. An earlier ADR that the decision contradicts and does not name as the ADR it supersedes.
+
+Submit by section 5:
+
+```bash
+loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"
+```
+
+The review is advisory. A pass or a reject returns the epic to `architecture`, and stops no merge.
+The operator reads your comment on the pull request, and decides the merge. A merge moves the epic
+to `spec_needed`. A close with no merge ends the review. A new head on the pull request starts a new
+review. Never merge the ADR.
+
+## 5. Submit the verdict
 
 1. Write the whole review as one comment, by `../loop-sdlc-review/SKILL.md`.
 2. Run `loop pr show` again. When the head moved, submit nothing. Start again at section 1 with
@@ -103,7 +132,7 @@ it to `spec_needed`, and the spec-author writes the next round.
    server posts the comment on the pull request and records it with the verdict.
 4. Finish with `loop run finish --outcome done`.
 
-## 5. When a person must decide
+## 6. When a person must decide
 
 Score each finding below by `../loop-sdlc-triage/SKILL.md`. Escalate only at level 4 or 5. When
 another document says which side is wrong, reject, and name that document.
@@ -114,7 +143,7 @@ another document says which side is wrong, reject, and name that document.
 - A spec decided a question that the PRD left open.
 - A spec is right, and the PRD is wrong.
 
-## 6. Never
+## 7. Never
 
 - Never edit the document, and never merge it. The operator's approval is the sign-off, and the server merges.
 - Never create an epic, and never split one.

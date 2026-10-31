@@ -86,7 +86,7 @@ func TestC16SendInTheSpecStageReturnsToArchitecture(t *testing.T) {
 // run holds. Each refusal changes nothing.
 func TestC15SendRefusedOutsideItsRows(t *testing.T) {
 	w := newWorld(t)
-	for _, from := range []string{"spec_drafting", "spec_approved", "decomposing", "execution", "done", "escalated", "architecture"} {
+	for _, from := range []string{"spec_drafting", "spec_approved", "decomposing", "execution", "done", "escalated", "architecture", "adr_review"} {
 		ep := w.create(KindEpic, "create_prd", nil)
 		w.force(ep, from, nil)
 		before := w.show(ep)

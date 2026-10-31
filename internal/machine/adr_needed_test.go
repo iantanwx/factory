@@ -55,8 +55,8 @@ func TestC21PRDPassWithNoFlagClearsADRNeeded(t *testing.T) {
 }
 
 // C21: the flag refuses with USAGE rule adr_needed_scope on a reject, on
-// an epic in spec_review, and on a ticket. Each refusal posts no comment
-// and changes nothing.
+// an epic in spec_review or adr_review, and on a ticket. Each refusal
+// posts no comment and changes nothing.
 func TestC21ADRNeededRefusedOutsideAPRDPass(t *testing.T) {
 	w := newWorld(t)
 	log := &commentLog{}
@@ -67,6 +67,10 @@ func TestC21ADRNeededRefusedOutsideAPRDPass(t *testing.T) {
 	w.force(spec, SpecReview, map[string]string{FactPRDMerged: "m1", FactDocPR: "9"})
 	specRev := w.claimAs(spec, StageDocReviewer, "rev-spec")
 	ticket, codeRev := w.inReview()
+	adr := w.create(KindEpic, "create_prd", nil)
+	w.force(adr, Architecture, map[string]string{FactPRDMerged: "m1"})
+	w.must(adr, "adr_opened", map[string]string{"pr": "12", "head": shaA})
+	adrRev := w.claimAs(adr, StageDocReviewer, "rev-adr")
 
 	cases := []struct {
 		name, item, verdict string
@@ -75,6 +79,8 @@ func TestC21ADRNeededRefusedOutsideAPRDPass(t *testing.T) {
 		{"a PRD reject", prd, "reject", prdRev},
 		{"a spec pass", spec, "pass", specRev},
 		{"a spec reject", spec, "reject", specRev},
+		{"an ADR pass", adr, "pass", adrRev},
+		{"an ADR reject", adr, "reject", adrRev},
 		{"a ticket pass", ticket, "pass", codeRev},
 		{"a ticket reject", ticket, "reject", codeRev},
 	}

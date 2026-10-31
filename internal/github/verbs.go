@@ -104,7 +104,7 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 	if ref != nil {
 		return ref.Result()
 	}
-	branch, ref := s.itemBranch(ctx, prj.ID, item)
+	branch, _, ref := s.itemWork(ctx, prj, item)
 	if ref != nil {
 		return ref.Result()
 	}
@@ -197,6 +197,33 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Found(out)
 }
 
+// itemWork is the branch and the pull request of an item's current work:
+// the open or latest pull request of its branch, or nil when the branch
+// has none. An epic in adr_review reads the ADR pull request that its
+// adr_pr fact names, and the branch that pull request lives on, because
+// an ADR can live on a branch that names no epic.
+func (s *Service) itemWork(ctx context.Context, prj config.Project, item string) (string, *PR, *cli.Refusal) {
+	it, ref := s.item(ctx, prj.ID, item)
+	if ref != nil {
+		return "", nil, ref
+	}
+	if n, err := strconv.Atoi(it.Fact(machine.FactADRPR)); err == nil && it.Kind == machine.KindEpic && it.Status == machine.ADRReview {
+		pr, err := s.GetPR(ctx, prj, n)
+		if err != nil {
+			r := Refusal(err)
+			return "", nil, &r
+		}
+		return pr.Head.Ref, &pr, nil
+	}
+	branch := BranchOf(it)
+	pr, err := s.FindPR(ctx, prj, branch)
+	if err != nil {
+		r := Refusal(err)
+		return "", nil, &r
+	}
+	return branch, pr, nil
+}
+
 // itemPR is the open or latest PR of the call's item.
 func (s *Service) itemPR(ctx context.Context, call *rpc.Call, item string) (config.Project, *PR, *cli.Result) {
 	prj, own, ref := s.subject(call)
@@ -207,14 +234,9 @@ func (s *Service) itemPR(ctx context.Context, call *rpc.Call, item string) (conf
 	if item == "" {
 		item = own
 	}
-	branch, ref := s.itemBranch(ctx, prj.ID, item)
+	_, pr, ref := s.itemWork(ctx, prj, item)
 	if ref != nil {
 		res := ref.Result()
-		return prj, nil, &res
-	}
-	pr, err := s.FindPR(ctx, prj, branch)
-	if err != nil {
-		res := Refuse(err)
 		return prj, nil, &res
 	}
 	if pr == nil {
@@ -398,14 +420,9 @@ func (s *Service) ReviewComment(ctx context.Context, project, item, body, key st
 		r := Refusal(err)
 		return &r
 	}
-	branch, ref := s.itemBranch(ctx, project, item)
+	branch, pr, ref := s.itemWork(ctx, prj, item)
 	if ref != nil {
 		return ref
-	}
-	pr, err := s.FindPR(ctx, prj, branch)
-	if err != nil {
-		r := Refusal(err)
-		return &r
 	}
 	if pr == nil {
 		return &cli.Refusal{Code: cli.CodeNotFound, Rule: "no_pr", Item: item,
@@ -429,12 +446,11 @@ func (s *Service) PRHead(ctx context.Context, project, item string) (string, *cl
 		r := Refusal(err)
 		return "", &r
 	}
-	branch, ref := s.itemBranch(ctx, project, item)
+	branch, pr, ref := s.itemWork(ctx, prj, item)
 	if ref != nil {
 		return "", ref
 	}
-	pr, err := s.FindPR(ctx, prj, branch)
-	if err == nil && pr != nil && pr.State == "open" {
+	if pr != nil && pr.State == "open" {
 		var cur PR
 		if cur, err = s.GetPR(ctx, prj, pr.Number); err == nil {
 			pr = &cur

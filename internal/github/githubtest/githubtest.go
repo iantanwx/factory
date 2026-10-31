@@ -355,9 +355,10 @@ type PR struct {
 	MergeableState string
 	// Reviewers lists each login requested for review, in order.
 	Reviewers []string
-	// Files lists each path the PR modifies. With none, the PR has the
-	// files that SetFiles counts.
+	// Files lists each path the PR modifies, and Added each path it adds.
+	// With neither, the PR has the files that SetFiles counts.
 	Files []string
+	Added []string
 	// BaseSHA is the tip of main that the head holds. Add and a PR the
 	// server opens set it to the tip of the moment.
 	BaseSHA string
@@ -689,9 +690,16 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 		switch m[3] {
 		case "files":
 			out := []any{}
-			if p := w.pr(m[2]); p != nil && p.Files != nil {
-				for _, f := range p.Files[min(len(p.Files), (page-1)*100):min(len(p.Files), page*100)] {
-					out = append(out, map[string]any{"filename": f, "status": "modified", "additions": 1})
+			if p := w.pr(m[2]); p != nil && (p.Files != nil || p.Added != nil) {
+				var all []map[string]any
+				for _, f := range p.Files {
+					all = append(all, map[string]any{"filename": f, "status": "modified", "additions": 1})
+				}
+				for _, f := range p.Added {
+					all = append(all, map[string]any{"filename": f, "status": "added", "additions": 1})
+				}
+				for _, f := range all[min(len(all), (page-1)*100):min(len(all), page*100)] {
+					out = append(out, f)
 				}
 			} else {
 				for i := (page-1)*100 + 1; i <= w.files && i <= page*100; i++ {

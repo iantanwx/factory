@@ -13,11 +13,11 @@ import (
 // C7: the intake count. Over one epic in each epic state, only the states
 // an agent moves on hold a slot: prd_needed, prd_drafting, prd_review,
 // prd_amending, spec_needed, spec_drafting and spec_review. backlog,
-// architecture, sign-off, escalated, canceled and every state past spec
-// review hold none.
+// architecture and adr_review, sign-off, escalated, canceled and every
+// state past spec review hold none.
 func TestIntakeCountHoldsOnlyTheStatesAnAgentMovesOn(t *testing.T) {
 	states := []string{"backlog", "prd_needed", "prd_drafting", "prd_review", "prd_amending", "prd_signoff", "architecture",
-		"spec_needed", "spec_drafting", "spec_review", "spec_signoff", "spec_amending", "spec_approved",
+		"adr_review", "spec_needed", "spec_drafting", "spec_review", "spec_signoff", "spec_amending", "spec_approved",
 		"decomposing", "execution", "escalated", "done", "canceled"}
 	tbl, _ := machine.TableFor(machine.KindEpic)
 	var table []string

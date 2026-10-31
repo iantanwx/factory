@@ -226,3 +226,28 @@ func TestC18TheCoordinatorEndsAPRDEpicsArchitectureEntry(t *testing.T) {
 		"refuses with `STORY_UNKNOWN` and rule `story_not_in_prd`",
 	})
 }
+
+// C29: the doc-reviewer runbook holds a section that starts "Review an
+// ADR". It checks the four lines of Why an ADR against the test, rejects
+// an ADR that binds one epic only and names that epic, submits with loop
+// review submit, and never merges. The architect room no longer says
+// that no stage reviews the pull request.
+func TestC29TheDocReviewerRejectsAnADRThatBindsOneEpic(t *testing.T) {
+	s := flat(pack.Section(read(t, docReviewerRB), 2, func(title string) bool {
+		_, rest, _ := strings.Cut(title, ". ")
+		return strings.HasPrefix(rest, "Review an ADR")
+	}))
+	if s == "" {
+		t.Fatalf("%s holds no section that starts %q", docReviewerRB, "Review an ADR")
+	}
+	holdsAll(t, "the ADR review of the doc-reviewer runbook", s, []string{
+		"Check each of the four lines of `## Why an ADR` against the test of `../loop-sdlc-documents/SKILL.md` § 6, " +
+			adrTestTitle + ".",
+		"Reject an ADR whose decision binds one epic only, and name that epic in the comment.",
+		`loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`,
+		"Never merge the ADR.",
+	})
+	if a := flat(read(t, architectRB)); strings.Contains(a, "No stage reviews the pull request") {
+		t.Errorf("%s still says that no stage reviews the ADR pull request", architectRB)
+	}
+}

@@ -228,14 +228,14 @@ func ADRBranchFor(epic string) string { return BranchFor(epic) + "-adr" }
 
 // BranchOf is the branch that holds an item's current work. An epic whose
 // PRD merged, or whose ADR landed, writes its spec on SpecBranchFor, and
-// its ADR on ADRBranchFor while it is in architecture. Every other item,
-// and an epic before that, uses BranchFor: an epic created for an ADR
-// writes its first one there.
+// its ADR on ADRBranchFor while it is in architecture or adr_review.
+// Every other item, and an epic before that, uses BranchFor: an epic
+// created for an ADR writes its first one there.
 func BranchOf(it machine.Item) string {
 	if it.Kind != machine.KindEpic || it.Fact(machine.FactPRDMerged) == "" && it.Fact(machine.FactADR) == "" {
 		return BranchFor(it.ID)
 	}
-	if it.Status == machine.Architecture {
+	if it.Status == machine.Architecture || it.Status == machine.ADRReview {
 		return ADRBranchFor(it.ID)
 	}
 	return SpecBranchFor(it.ID)
@@ -264,17 +264,24 @@ func SpecEpicOf(branch string) string {
 // itemBranch names the branch of an item's current work. With no machine
 // it is BranchFor.
 func (s *Service) itemBranch(ctx context.Context, project, item string) (string, *cli.Refusal) {
-	if s.cfg.Machine == nil {
-		return BranchFor(item), nil
-	}
-	it, ref := s.cfg.Machine.Read(ctx, project, item)
+	it, ref := s.item(ctx, project, item)
 	if ref != nil {
-		if ref.Code == cli.CodeNotFound {
-			return BranchFor(item), nil
-		}
 		return "", ref
 	}
 	return BranchOf(it), nil
+}
+
+// item reads an item. With no machine, or for an id the machine does not
+// hold, it is an item with only its id, whose branch is BranchFor.
+func (s *Service) item(ctx context.Context, project, id string) (machine.Item, *cli.Refusal) {
+	if s.cfg.Machine == nil {
+		return machine.Item{ID: id}, nil
+	}
+	it, ref := s.cfg.Machine.Read(ctx, project, id)
+	if ref != nil && ref.Code == cli.CodeNotFound {
+		return machine.Item{ID: id}, nil
+	}
+	return it, ref
 }
 
 // repoGet reads one repository path with a token of scope.

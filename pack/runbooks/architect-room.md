@@ -83,8 +83,9 @@ When the operator calls the ADRs ready, open the pull request of the epic's bran
 loop pr open --title "docs(adr): <NNNN> <the decision>" --body "<each ADR, and the operator's answer it records>"
 ```
 
-The epic stays in `architecture`. No stage reviews the pull request, and no merge mechanism takes
-it. The operator merges it on GitHub, and that merge is the sign-off. Then the server moves the
+The server moves the epic to `adr_review`, and the doc-reviewer reviews the pull request once at
+each head. Its verdict returns the epic to `architecture`. The review is advisory, and no merge
+mechanism takes the pull request. The operator merges it on GitHub, and that merge is the sign-off. Then the server moves the
 epic to `spec_needed`, and the spec author takes it. Give the operator the link to the pull
 request.
 

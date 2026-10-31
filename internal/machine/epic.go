@@ -21,6 +21,7 @@ const (
 	SpecAmending = "spec_amending"
 	PRDSignoff   = "prd_signoff"
 	Architecture = "architecture"
+	ADRReview    = "adr_review"
 	SpecNeeded   = "spec_needed"
 	SpecDrafting = "spec_drafting"
 	SpecReview   = "spec_review"
@@ -44,6 +45,7 @@ var epicResume = map[string]string{
 	PRDAmending:  PRDAmending,
 	PRDSignoff:   PRDSignoff,
 	Architecture: Architecture,
+	ADRReview:    Architecture,
 	SpecNeeded:   SpecNeeded,
 	SpecDrafting: SpecNeeded,
 	SpecReview:   SpecNeeded,
@@ -205,6 +207,9 @@ func adrIs(c *change) *cli.Refusal {
 	return nil
 }
 
+// headNamed refuses a verdict that names no head.
+func headNamed(c *change) *cli.Refusal { return c.needParam("head") }
+
 // childrenTerminal refuses to close an epic while a child is open. A
 // child names its epic in the fact "epic".
 func childrenTerminal(c *change) *cli.Refusal {
@@ -313,6 +318,7 @@ func epicTable() *Table {
 		{Name: PRDSignoff, Category: beadsx.CategoryActive},
 		{Name: SpecAmending, Category: beadsx.CategoryActive},
 		{Name: Architecture, Category: beadsx.CategoryActive},
+		{Name: ADRReview, Category: beadsx.CategoryActive},
 		{Name: SpecNeeded, Category: beadsx.CategoryActive},
 		{Name: SpecDrafting, Category: beadsx.CategoryWIP},
 		{Name: SpecReview, Category: beadsx.CategoryActive},
@@ -324,8 +330,8 @@ func epicTable() *Table {
 		{Name: Done, Category: beadsx.CategoryDone, Terminal: true},
 		{Name: Canceled, Category: beadsx.CategoryDone, Terminal: true},
 	}
-	live := []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
-		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
+	live := []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, ADRReview, SpecNeeded, SpecDrafting,
+		SpecReview, SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 	claim := func(from, to, stage string) Row {
 		return Row{Verb: "claim", From: []string{from}, To: to, Stage: stage, when: stageIs(stage),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}}
@@ -353,6 +359,7 @@ func epicTable() *Table {
 		claim(PRDNeeded, PRDDrafting, StagePRDAuthor),
 		claim(PRDReview, ToSame, StageDocReviewer),
 		claim(PRDAmending, ToSame, StageAmender),
+		claim(ADRReview, ToSame, StageDocReviewer),
 		specClaim(claim(SpecNeeded, SpecDrafting, StageSpecAuthor)),
 		claim(SpecReview, ToSame, StageDocReviewer),
 		claim(SpecAmending, ToSame, StageAmender),
@@ -397,6 +404,24 @@ func epicTable() *Table {
 		// base audit passes (ADR 0012). The tick's head is not always it.
 		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded,
 			set: all(needCopy("path", FactADR), needCopy("added", FactADRMerged)), Facts: []string{FactADR, FactADRMerged}},
+		// A merge that outran the ADR review ends it, as an outran document
+		// merge does, and revokes the review lease.
+		{Verb: VerbADRLanded, From: []string{ADRReview}, To: SpecNeeded, BumpsEpoch: true, Lease: LeaseDrop,
+			set: all(needCopy("path", FactADR), needCopy("added", FactADRMerged)), Facts: []string{FactADR, FactADRMerged}},
+		// The doc-reviewer reviews each ADR pull request of an epic in
+		// architecture once at each head. The review is advisory: a verdict
+		// returns the epic to architecture, and the merge stays the
+		// operator's. Each verdict names its head, so the reactor opens no
+		// second review at it.
+		{Verb: VerbADROpened, From: []string{Architecture}, To: ADRReview,
+			set: all(needCopy("pr", FactADRPR), needCopy("head", FactADRHead)), Facts: []string{FactADRPR, FactADRHead}},
+		{Verb: "review_pass", From: []string{ADRReview}, To: Architecture, Command: "review submit", Lease: LeaseDrop,
+			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
+		{Verb: "review_reject", From: []string{ADRReview}, To: Architecture, Command: "review submit", Lease: LeaseDrop,
+			guard: headNamed},
+		// The ADR pull request closed with no merge, so nothing is left to
+		// review.
+		{Verb: VerbADRWithdrawn, From: []string{ADRReview}, To: Architecture, BumpsEpoch: true, Lease: LeaseDrop},
 		// An epic that an ADR named only in prose returns to wait for its
 		// own ADR (F-10). The server alone performs it.
 		{Verb: VerbADRMisjoined, From: []string{SpecNeeded}, To: Architecture, guard: adrIs, set: clearFacts(FactADR, FactADRMerged),
@@ -450,7 +475,7 @@ func epicTable() *Table {
 	}
 	rows = withReviews(rows)
 	pairs := [][2]string{{PRDDrafting, PRDNeeded}, {SpecDrafting, SpecNeeded}, {Decomposing, SpecApproved},
-		{PRDReview, PRDReview}, {PRDAmending, PRDAmending}, {SpecReview, SpecReview}, {SpecAmending, SpecAmending}}
+		{PRDReview, PRDReview}, {PRDAmending, PRDAmending}, {ADRReview, ADRReview}, {SpecReview, SpecReview}, {SpecAmending, SpecAmending}}
 	rows = append(rows, releaseRows("release", false, pairs, nil)...)
 	rows = append(rows, releaseRows("reclaim", true, pairs, nil)...)
 	return &Table{Kind: KindEpic, BeadType: "epic", States: states, Rows: rows}
@@ -469,6 +494,6 @@ func uniqueValues(m map[string]string) []string {
 }
 
 func epicStateOrder() []string {
-	return []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, SpecNeeded, SpecDrafting, SpecReview,
-		SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution}
+	return []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, ADRReview, SpecNeeded, SpecDrafting,
+		SpecReview, SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution}
 }
