@@ -11,10 +11,10 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 )
 
-// A fixer run that the scheduler admitted asks peek for its own work. Its
-// own live run fills the fixer cap of 1, and that must not hide the
+// A triage run that the scheduler admitted asks peek for its own work. Its
+// own live run fills the triage cap of 1, and that must not hide the
 // escalation it was started for (factorio-4zx, loop fault F-4).
-func TestFixerPeekInsideAnAdmittedFixerRunListsTheWaitingEscalation(t *testing.T) {
+func TestTriagePeekInsideAnAdmittedTriageRunListsTheWaitingEscalation(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()
 	item := todoTicket(t, w.bx)
@@ -25,22 +25,22 @@ func TestFixerPeekInsideAnAdmittedFixerRunListsTheWaitingEscalation(t *testing.T
 	}
 	id := fmt.Sprint(env["data"].(map[string]any)["escalation"].(map[string]any)["escalation"])
 
-	// Before any fixer run is live, the scheduler's peek sees the work.
-	if c, ref := w.srv.Admission.Peek(ctx, "alpha", config.StageFixer); c == nil || ref != nil {
-		t.Fatalf("peek before the fixer starts = %+v %+v", c, ref)
+	// Before any triage run is live, the scheduler's peek sees the work.
+	if c, ref := w.srv.Admission.Peek(ctx, "alpha", config.StageTriage); c == nil || ref != nil {
+		t.Fatalf("peek before the triage run starts = %+v %+v", c, ref)
 	}
-	// The scheduler admits the fixer run, as dispatch does: a live run row.
-	ad, ref := w.srv.Admission.Admit(ctx, admission.Request{Project: "alpha", Stage: config.StageFixer,
+	// The scheduler admits the triage run, as dispatch does: a live run row.
+	ad, ref := w.srv.Admission.Admit(ctx, admission.Request{Project: "alpha", Stage: config.StageTriage,
 		RunID: "fix-1", Harness: string(agenthost.Claude), Model: "opus"})
 	if ref != nil {
-		t.Fatalf("admit the fixer = %+v", ref)
+		t.Fatalf("admit the triage run = %+v", ref)
 	}
-	fixer := w.runToken(ad.RunID, "", config.StageFixer)
+	triage := w.runToken(ad.RunID, "", config.StageTriage)
 
-	env, code = w.as(fixer, "work", "peek", "--stage", "fixer")
+	env, code = w.as(triage, "work", "peek", "--stage", "triage")
 	data, _ := env["data"].(map[string]any)
 	pending, _ := data["escalations"].([]any)
 	if code != 0 || len(pending) != 1 || fmt.Sprint(pending[0].(map[string]any)["escalation"]) != id {
-		t.Fatalf("peek inside the admitted fixer run = %d %v, want escalation %s", code, env, id)
+		t.Fatalf("peek inside the admitted triage run = %d %v, want escalation %s", code, env, id)
 	}
 }

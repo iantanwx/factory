@@ -142,7 +142,7 @@ stages:
   spec-author: {}
   unattended-brainstorm: {}
   decomposer: {}
-  fixer: {}
+  triage: {}
   reproducer: {}
   retro: {}
 signoff:

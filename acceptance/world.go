@@ -61,7 +61,7 @@ stages:
   reviser: {}
   spec-author: {}
   decomposer: {}
-  fixer: {}
+  triage: {}
   reproducer: {}
 `
 

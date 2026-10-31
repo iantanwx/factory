@@ -12,18 +12,18 @@ import (
 // judgeKeyValue is the stored judge key. No answer may hold it.
 const judgeKeyValue = "tsk-judge-0123456789abcdef"
 
-// fixerConfig answers a project config whose fixer stage is on or off.
-func fixerConfig(on bool) func(context.Context, string) (*config.ProjectSnapshot, error) {
+// triageConfig answers a project config whose triage stage is on or off.
+func triageConfig(on bool) func(context.Context, string) (*config.ProjectSnapshot, error) {
 	return func(context.Context, string) (*config.ProjectSnapshot, error) {
 		return &config.ProjectSnapshot{Config: &config.ProjectConfig{
-			Stages: map[string]config.StageConfig{config.StageFixer: {Enabled: &on}}}}, nil
+			Stages: map[string]config.StageConfig{config.StageTriage: {Enabled: &on}}}}, nil
 	}
 }
 
-// C20: for a project whose config enables the fixer, judge_key passes
+// C20: for a project whose config enables the triage stage, judge_key passes
 // when TYPESAFE_API_KEY is stored for the project or globally, and fails
 // naming the command that stores it. It never holds the value. A project
-// with no fixer gets no line.
+// with no triage stage gets no line.
 func TestC20TheJudgeKeyLine(t *testing.T) {
 	w := doctorWorld(t)
 	ctx := context.Background()
@@ -54,7 +54,7 @@ func TestC20TheJudgeKeyLine(t *testing.T) {
 		}
 	}
 
-	w.gh.ProjectConfig = fixerConfig(true)
+	w.gh.ProjectConfig = triageConfig(true)
 	if got := key(); got != "fail" {
 		t.Fatalf("no stored key: judge_key %s", got)
 	}
@@ -69,8 +69,8 @@ func TestC20TheJudgeKeyLine(t *testing.T) {
 	if got := key(); got != "pass" {
 		t.Fatalf("a global key: judge_key %s", got)
 	}
-	w.gh.ProjectConfig = fixerConfig(false)
+	w.gh.ProjectConfig = triageConfig(false)
 	if got := key(); got != "absent" {
-		t.Fatalf("no fixer: judge_key %s", got)
+		t.Fatalf("no triage stage: judge_key %s", got)
 	}
 }

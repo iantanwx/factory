@@ -18,7 +18,7 @@ import (
 
 // stallsPart is the part `stalls`, with tickertown's `sweep` folded in
 // (ADR 0009, "Which parts port"): work that stopped moving. An escalation
-// that the fixer's panel passed by is work (C9). An item in a state that a
+// that the triage panel passed by is work (C9). An item in a state that a
 // stage takes stalls at the second fire of that stage with no run since it
 // entered the state (C10), unless a live run of any stage holds its
 // lease. A fire that took only older items of the stage's queue is the
@@ -40,20 +40,20 @@ var stallsPart = Part{Name: "stalls", Read: readStalls}
 // cap (spec, Decisions).
 const stallFires = 2
 
-// panelRow is one escalation in awaiting_panel, and the fixer runs of its
+// panelRow is one escalation in awaiting_panel, and the triage runs of its
 // project.
 type panelRow struct {
 	id            int64
 	project, item string
 	raised        time.Time
-	// passed is the newest fixer run of the project that ended after the
+	// passed is the newest triage run of the project that ended after the
 	// raise, and passedAt is when it ended. Empty when none did.
 	passed   string
 	passedAt time.Time
-	// live is a fixer run of the project that has not ended. Empty when
+	// live is a triage run of the project that has not ended. Empty when
 	// none runs.
-	live  string
-	fixer *sched.Cron // the fixer's schedule in the project
+	live   string
+	triage *sched.Cron // the triage schedule in the project
 }
 
 // itemRow is one item in a state that a stage takes.
@@ -169,7 +169,7 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 	err = st.Read(ctx, func(tx *sql.Tx) error {
 		var err error
 		rows.panels, err = readPanels(ctx, tx, func(project string) (*sched.Cron, error) {
-			return scheduleOf(hc, configs[project], config.StageFixer)
+			return scheduleOf(hc, configs[project], config.StageTriage)
 		})
 		if err != nil {
 			return err
@@ -410,9 +410,9 @@ func readLost(ctx context.Context, tx *sql.Tx, row *lostRow) error {
 		row.item.Project, row.item.ID).Scan(&row.leased, &row.live)
 }
 
-// readPanels reads each escalation in awaiting_panel, and the fixer runs
+// readPanels reads each escalation in awaiting_panel, and the triage runs
 // of its project.
-func readPanels(ctx context.Context, tx *sql.Tx, fixer func(project string) (*sched.Cron, error)) ([]panelRow, error) {
+func readPanels(ctx context.Context, tx *sql.Tx, triage func(project string) (*sched.Cron, error)) ([]panelRow, error) {
 	rs, err := tx.QueryContext(ctx, `SELECT id, project, item, created_at FROM escalations WHERE state = ? ORDER BY id`,
 		escalation.StateAwaitingPanel)
 	if err != nil {
@@ -436,17 +436,17 @@ func readPanels(ctx context.Context, tx *sql.Tx, fixer func(project string) (*sc
 		p := &out[i]
 		var ended sql.NullInt64
 		err := tx.QueryRowContext(ctx, `SELECT run_id, ended_at FROM runs WHERE project = ? AND stage = ? AND ended_at > ?
-			ORDER BY ended_at DESC, run_id LIMIT 1`, p.project, config.StageFixer, p.raised.UnixMilli()).Scan(&p.passed, &ended)
+			ORDER BY ended_at DESC, run_id LIMIT 1`, p.project, config.StageTriage, p.raised.UnixMilli()).Scan(&p.passed, &ended)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
 		p.passedAt = time.UnixMilli(ended.Int64)
 		err = tx.QueryRowContext(ctx, `SELECT run_id FROM runs WHERE project = ? AND stage = ? AND ended_at IS NULL
-			ORDER BY started_at, run_id LIMIT 1`, p.project, config.StageFixer).Scan(&p.live)
+			ORDER BY started_at, run_id LIMIT 1`, p.project, config.StageTriage).Scan(&p.live)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
-		if p.fixer, err = fixer(p.project); err != nil {
+		if p.triage, err = triage(p.project); err != nil {
 			return nil, err
 		}
 	}
@@ -460,17 +460,17 @@ func classifyStalls(rows stallRows, now time.Time, drains []sched.Drain) Reading
 	for _, p := range rows.panels {
 		key := Key("stalls", fmt.Sprintf("escalation-%d", p.id))
 		head := fmt.Sprintf("escalation %d (panel/%d) of %s on %s waits in %s", p.id, p.id, p.project, p.item, escalation.StateAwaitingPanel)
-		switch n := fires(p.fixer, p.raised, now); {
+		switch n := fires(p.triage, p.raised, now); {
 		case p.passed != "":
-			r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s, and fixer run %s ended at %s, after its raise at %s (%s)",
+			r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s, and triage run %s ended at %s, after its raise at %s (%s)",
 				head, p.passed, stamp(p.passedAt), stamp(p.raised), key)})
 		case p.live != "":
-			r.Notes = append(r.Notes, fmt.Sprintf("%s: fixer run %s runs now", head, p.live))
+			r.Notes = append(r.Notes, fmt.Sprintf("%s: triage run %s runs now", head, p.live))
 		case n >= stallFires:
-			r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s: the fixer fired twice since its raise at %s, and no fixer run ended (%s)",
+			r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s: the triage stage fired twice since its raise at %s, and no triage run ended (%s)",
 				head, stamp(p.raised), key)})
 		default:
-			r.Notes = append(r.Notes, fmt.Sprintf("%s: %s of the fixer since its raise at %s", head, fireCount(n), stamp(p.raised)))
+			r.Notes = append(r.Notes, fmt.Sprintf("%s: %s of the triage stage since its raise at %s", head, fireCount(n), stamp(p.raised)))
 		}
 	}
 	for _, row := range rows.items {

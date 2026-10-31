@@ -28,19 +28,19 @@ func holdRefusal(q querier, project, item string) (*cli.Refusal, error) {
 		Hint: fmt.Sprintf("%s %s holds %s; no stage takes it until the %s lets it go", kind, holder, item, kind)}, nil
 }
 
-// stageFixer is the stage that routes escalations.
-const stageFixer = "fixer"
+// stageTriage is the stage that routes escalations.
+const stageTriage = "triage"
 
 // waiting lists each stage that claims no item and has work only while a
 // row of its project waits for it. Peek admits no run of such a stage
 // without one.
 var waiting = map[string]func(q querier, project string) (bool, error){
-	stageFixer:        panelsWaiting,
+	stageTriage:       panelsWaiting,
 	config.StageRetro: retrosWaiting,
 }
 
 // panelsWaiting reports whether an escalation of the project waits for the
-// fixer's panel.
+// triage panel.
 func panelsWaiting(q querier, project string) (bool, error) {
 	var n int
 	err := q.QueryRow(`SELECT EXISTS (SELECT 1 FROM escalations WHERE project = ? AND state = 'awaiting_panel')`, project).Scan(&n)

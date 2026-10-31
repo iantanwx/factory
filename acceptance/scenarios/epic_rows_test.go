@@ -84,7 +84,7 @@ func TestEpicRowsEndToEnd(t *testing.T) {
 	}
 
 	// escalate: a run on the epic raises a finding only the owner can
-	// answer, and the fixer's panel sends it to the operator.
+	// answer, and the triage panel sends it to the operator.
 	stage := map[string]string{machine.PRDReview: machine.StageDocReviewer, machine.PRDAmending: machine.StageReviser}[resumed]
 	if stage == "" {
 		t.Fatalf("the epic resumed to %s, which no stage here claims", resumed)

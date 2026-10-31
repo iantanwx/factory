@@ -9,7 +9,7 @@ import (
 )
 
 // Migration 0010 closes each escalation that already waits for its panel
-// on a terminal item, and drops its hold, so it leaves the fixer's queue.
+// on a terminal item, and drops its hold, so it leaves the triage queue.
 // An escalation on an item that can still move keeps waiting, and the id
 // sequence goes on where it stood, past a deleted row (F-25).
 func TestMigrationClosesEscalationsStuckOnTerminalItems(t *testing.T) {

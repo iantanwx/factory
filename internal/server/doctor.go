@@ -37,7 +37,7 @@ type ProjectDoctor struct {
 // platform credentials never leave the server: for each project, the
 // installation's permissions, the default
 // branch's rules, project config on the default branch, the rate limit,
-// and the judge key of a project that runs the fixer. A check
+// and the judge key of a project that runs the triage stage. A check
 // that cannot run is a failed line, never a pass.
 func (g *GitHub) Doctor(ctx context.Context, projects *config.Projects) ([]ProjectDoctor, error) {
 	if g.Service == nil {
@@ -148,8 +148,9 @@ func pause(ctx context.Context, d time.Duration) error {
 }
 
 // judgeKeyLine checks that Jev's key is stored for a project whose config
-// enables the fixer, for the project or globally. It reads no value. A
-// project with no fixer reads no key, so it gets no line (ADR 0004 D12).
+// enables the triage stage, for the project or globally. It reads no value.
+// A project with no triage stage reads no key, so it gets no line (ADR 0004
+// D12).
 func (g *GitHub) judgeKeyLine(ctx context.Context, p config.Project) (github.CheckLine, bool) {
 	line := github.CheckLine{Check: "judge_key"}
 	snap, err := g.ProjectConfig(ctx, p.ID)
@@ -157,7 +158,7 @@ func (g *GitHub) judgeKeyLine(ctx context.Context, p config.Project) (github.Che
 		line.Detail = "the project config could not be read: " + err.Error()
 		return line, true
 	}
-	if !snap.Config.StageEnabled(config.StageFixer) {
+	if !snap.Config.StageEnabled(config.StageTriage) {
 		return line, false
 	}
 	for _, scope := range []string{p.ID, config.GlobalScope} {
@@ -171,7 +172,7 @@ func (g *GitHub) judgeKeyLine(ctx context.Context, p config.Project) (github.Che
 			return line, true
 		}
 	}
-	line.Detail = fmt.Sprintf("the fixer's judges need %s: store it with loop secret set %s --project %s, or once with --scope global",
+	line.Detail = fmt.Sprintf("the triage panel's judges need %s: store it with loop secret set %s --project %s, or once with --scope global",
 		escalation.JevKeyVar, escalation.JevKeyVar, p.ID)
 	return line, true
 }

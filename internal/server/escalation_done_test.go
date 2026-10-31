@@ -12,9 +12,9 @@ import (
 )
 
 // An escalation whose item reaches done before its panel never heads the
-// fixer's queue: the server closes it, peek for the fixer offers the next
+// triage queue: the server closes it, peek for the triage run offers the next
 // escalation, and a route on the closed one answers already_routed (F-25).
-func TestEscalationOnADoneItemLeavesTheFixerQueue(t *testing.T) {
+func TestEscalationOnADoneItemLeavesTheTriageQueue(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()
 	raise := func(run, item, body string) string {
@@ -38,15 +38,15 @@ func TestEscalationOnADoneItemLeavesTheFixerQueue(t *testing.T) {
 		t.Fatalf("item = %s", it.Status)
 	}
 
-	fixer := w.runToken("fix-1", "", "fixer")
-	env, code := w.as(fixer, "work", "peek", "--stage", "fixer")
+	triage := w.runToken("fix-1", "", "triage")
+	env, code := w.as(triage, "work", "peek", "--stage", "triage")
 	pending, _ := env["data"].(map[string]any)["escalations"].([]any)
 	if code != 0 || len(pending) == 0 || fmt.Sprint(pending[0].(map[string]any)["escalation"]) != second {
-		t.Fatalf("fixer peek offers %v first, want escalation %s; escalation %s is on a done item: %d %v",
+		t.Fatalf("triage peek offers %v first, want escalation %s; escalation %s is on a done item: %d %v",
 			pending, second, first, code, env)
 	}
-	panelFile(t, fixer, "preference", nil)
-	env, code = w.as(fixer, "escalation", "route", first, "--file", "panel.json")
+	panelFile(t, triage, "preference", nil)
+	env, code = w.as(triage, "escalation", "route", first, "--file", "panel.json")
 	if code != 3 || env["rule"] != "already_routed" {
 		t.Fatalf("route on the done item's escalation = %d %v, want rule already_routed", code, env)
 	}
@@ -54,7 +54,7 @@ func TestEscalationOnADoneItemLeavesTheFixerQueue(t *testing.T) {
 
 // A ticket superseded while its escalation waits for the panel closes that
 // escalation too: no holds row stays, the inbox drops its panel entry, and
-// the fixer's queue holds only the next escalation (F-25).
+// the triage queue holds only the next escalation (F-25).
 func TestEscalationOnASupersededItemIsClosed(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()
@@ -89,17 +89,17 @@ func TestEscalationOnASupersededItemIsClosed(t *testing.T) {
 	if e := entryByID(w.entries(cli.PrincipalCoordinator), "panel/"+first); e != nil {
 		t.Fatalf("the inbox still shows panel/%s: %v", first, e)
 	}
-	fixer := w.runToken("fix-1", "", "fixer")
-	env, code := w.as(fixer, "work", "peek", "--stage", "fixer")
+	triage := w.runToken("fix-1", "", "triage")
+	env, code := w.as(triage, "work", "peek", "--stage", "triage")
 	pending, _ := env["data"].(map[string]any)["escalations"].([]any)
 	if code != 0 || len(pending) != 1 || fmt.Sprint(pending[0].(map[string]any)["escalation"]) != second {
-		t.Fatalf("fixer peek offers %v, want escalation %s only: %d %v", pending, second, code, env)
+		t.Fatalf("triage peek offers %v, want escalation %s only: %d %v", pending, second, code, env)
 	}
 }
 
 // A run that still holds its token after its item went terminal cannot
 // raise an escalation on it: no panel could route one, so the server writes
-// no row and no hold, and the fixer's queue stays empty (F-25).
+// no row and no hold, and the triage queue stays empty (F-25).
 func TestRaiseOnATerminalItemIsRefused(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()
@@ -123,9 +123,9 @@ func TestRaiseOnATerminalItemIsRefused(t *testing.T) {
 	if n := w.count(`SELECT count(*) FROM holds WHERE project = 'alpha' AND item = ?`, gone); n != 0 {
 		t.Fatalf("%d holds rows stand on the canceled item %s", n, gone)
 	}
-	fixer := w.runToken("fix-1", "", "fixer")
-	if env, code := w.as(fixer, "work", "peek", "--stage", "fixer"); code != 1 {
-		t.Fatalf("fixer peek = %d %v, want nothing", code, env)
+	triage := w.runToken("fix-1", "", "triage")
+	if env, code := w.as(triage, "work", "peek", "--stage", "triage"); code != 1 {
+		t.Fatalf("triage peek = %d %v, want nothing", code, env)
 	}
 }
 

@@ -270,7 +270,7 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Reject(cli.CodeUsage, "pause_entry", "a pause entry ends when the stage resumes, not with an answer: "+resumeCommand(project, item))
 	case KindPanel:
 		return cli.Reject(cli.CodeTransitionNotAllowed, "panel_pending",
-			"the fixer's panel routes this escalation; a person answers it only after the panel sends it to a person")
+			"the triage panel routes this escalation; a person answers it only after the panel sends it to a person")
 	}
 	return cli.Reject(cli.CodeTransitionNotAllowed, "room_entry", "a room is settled with `loop room apply` from the room, and `loop room close`")
 }

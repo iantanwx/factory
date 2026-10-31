@@ -73,7 +73,7 @@ func (d *Doctor) Run(ctx context.Context) []DoctorLine {
 	return lines
 }
 
-// judgeBinaries checks that each judge of the fixer's panel is on the
+// judgeBinaries checks that each judge of the triage panel is on the
 // path. It runs no judge, so it calls no model and no Jev (ADR 0004 D12).
 func judgeBinaries() DoctorLine {
 	line := DoctorLine{Check: "judge_binaries"}
@@ -84,9 +84,9 @@ func judgeBinaries() DoctorLine {
 		}
 	}
 	line.OK = len(missing) == 0
-	line.Detail = "each judge of the fixer's panel is on the path: " + strings.Join(escalation.JudgeBins(), ", ")
+	line.Detail = "each judge of the triage panel is on the path: " + strings.Join(escalation.JudgeBins(), ", ")
 	if !line.OK {
-		line.Detail = "put each judge of the fixer's panel on the path: " + strings.Join(missing, ", ")
+		line.Detail = "put each judge of the triage panel on the path: " + strings.Join(missing, ", ")
 	}
 	return line
 }

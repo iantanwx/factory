@@ -80,7 +80,7 @@ func TestC33UnsetOfAnyOtherFieldKeepsEveryStage(t *testing.T) {
     cap: 2
     runs_per_tick: 1
     escalated: {model: claude-opus-5-5, harness: claude, effort: max}
-  fixer: {enabled: false, cap: 1, model: claude-opus-5-5}
+  triage: {enabled: false, cap: 1, model: claude-opus-5-5}
   reproducer:
     cap: 1
   intake: {cap: 1}
@@ -88,7 +88,7 @@ func TestC33UnsetOfAnyOtherFieldKeepsEveryStage(t *testing.T) {
 `
 	before := decodeProject(t, base)
 	names := slices.Concat(RunStages(), ProjectJobs())
-	keys := []string{"stages.fixer.cap", "stages.fixer.model", "stages.reproducer.cap",
+	keys := []string{"stages.triage.cap", "stages.triage.model", "stages.reproducer.cap",
 		"stages.intake.cap", "stages.merge-handoff.schedule"}
 	for _, f := range stageFields[KindItemStage] {
 		if f != "enabled" {
@@ -159,7 +159,7 @@ func TestSetSettingValuesDecode(t *testing.T) {
 // An --unset of a field the file does not hold changes no byte.
 func TestSetSettingUnsetOfAnAbsentFieldKeepsTheFile(t *testing.T) {
 	const raw = "merge:\n  mechanism: direct   # wide\nstages:\n  implementer: {}\n"
-	for _, key := range []string{"stages.implementer.cap", "stages.fixer.cap", "pools.reviewers.cap", "stages.implementer.escalated.model"} {
+	for _, key := range []string{"stages.implementer.cap", "stages.triage.cap", "pools.reviewers.cap", "stages.implementer.escalated.model"} {
 		if got := editFile(t, raw, key, nil); got != raw {
 			t.Fatalf("%s: got\n%s\nwant\n%s", key, got, raw)
 		}
@@ -174,9 +174,9 @@ func TestSetSettingUnsetKeepsTheFieldsComments(t *testing.T) {
 			"stages.implementer.cap",
 			"stages:\n  implementer:\n    # head\n    # line\n    model: m\n"},
 		"the last field": {
-			"stages:\n  reproducer:\n    # head\n    cap: 1 # line\n  fixer: {}\n",
+			"stages:\n  reproducer:\n    # head\n    cap: 1 # line\n  triage: {}\n",
 			"stages.reproducer.cap",
-			"stages:\n  reproducer: {}\n  # head\n  # line\n\n  fixer: {}\n"},
+			"stages:\n  reproducer: {}\n  # head\n  # line\n\n  triage: {}\n"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
