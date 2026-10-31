@@ -17,6 +17,8 @@ const DefaultManifestPath = ".loop/secrets.yaml"
 // and source references only, never values.
 type Manifest struct {
 	Secrets []ManifestEntry `yaml:"secrets"`
+	// Renames lists each old stage name that the parse rewrote.
+	Renames []Rename `yaml:"-"`
 }
 
 // ManifestEntry is one secret the project's runs receive in .env.
@@ -76,6 +78,11 @@ func ParseManifest(data []byte) (*Manifest, error) {
 	var m Manifest
 	if err := decodeStrict(source, data, &m); err != nil {
 		return nil, err
+	}
+	for i := range m.Secrets {
+		var rs []Rename
+		m.Secrets[i].Stages, rs = renameList(DefaultManifestPath, m.Secrets[i].Stages)
+		m.Renames = append(m.Renames, rs...)
 	}
 	ck := &checker{source: source}
 	seen := map[string]bool{}

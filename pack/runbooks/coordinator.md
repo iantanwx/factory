@@ -154,6 +154,10 @@ read with the event you blame. Read the state back after each write you report.
 - **A `run_start_failed` alert repeats.** A repeat of an open one rings no one, even before a
   finding. Its text shows the count and the time of the last raise. Answer it only when the cause
   is gone, never at each repeat. A failure after the answer opens a new alert.
+- **An `old_stage_names` alert is open.** A config file names a stage by its old name. The loop
+  reads it under the new name until the next release, which refuses the old name. The alert names
+  each old name, its new name and its file. Tell the operator, who commits each new name in that
+  file. The next read with no old name clears the alert, so do not answer it.
 - **An item stopped after a blocked run.** Its `run_blocked` alert holds the item at that stage.
   Changed inputs or a move of the item lift the hold. At the code-reviewer stage, a push to the
   pull request lifts it too. When the cause is gone, answer the alert.

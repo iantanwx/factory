@@ -273,6 +273,9 @@ type HostLoader struct {
 	mu     sync.Mutex
 	good   *HostConfig
 	raised bool // an alert this loader raised is open
+	// renamed is the body of the old_stage_names alert of the last good
+	// load, "" when it held no old name, and nil before the first.
+	renamed *string
 }
 
 // Load returns the current host config. Only a refusal of the file
@@ -290,6 +293,9 @@ func (l *HostLoader) Load(ctx context.Context) (*HostConfig, error) {
 			}
 			l.raised = false
 		}
+		if err := l.reportRenames(ctx, cfg.Renames); err != nil {
+			return nil, err
+		}
 		return cfg, nil
 	}
 	if !errors.Is(err, ErrInvalid) || l.good == nil {
@@ -306,6 +312,24 @@ func (l *HostLoader) Load(ctx context.Context) (*HostConfig, error) {
 		l.raised = true
 	}
 	return l.good, nil
+}
+
+// reportRenames raises or clears the host's old_stage_names alert when the
+// renames differ from the last good load's, so a load that changes nothing
+// writes nothing.
+func (l *HostLoader) reportRenames(ctx context.Context, renames []Rename) error {
+	body := ""
+	if len(renames) > 0 {
+		body = renamesBody(renames)
+	}
+	if l.Alerts == nil || l.renamed != nil && *l.renamed == body {
+		return nil
+	}
+	if err := ReportRenames(ctx, l.Alerts, "", renames); err != nil {
+		return err
+	}
+	l.renamed = &body
+	return nil
 }
 
 // DefaultOverdue is the implementer's overdue wait when host config sets

@@ -1,0 +1,1734 @@
+{
+  "bug": {
+    "kind": "bug",
+    "bead_type": "bug",
+    "states": [
+      {
+        "name": "reported",
+        "category": "active"
+      },
+      {
+        "name": "reproducing",
+        "category": "wip"
+      },
+      {
+        "name": "asked",
+        "category": "frozen"
+      },
+      {
+        "name": "awaiting_build",
+        "category": "frozen"
+      },
+      {
+        "name": "escalated",
+        "category": "frozen"
+      },
+      {
+        "name": "shaped",
+        "category": "done",
+        "terminal": true
+      },
+      {
+        "name": "duplicate",
+        "category": "done",
+        "terminal": true
+      },
+      {
+        "name": "canceled",
+        "category": "done",
+        "terminal": true
+      }
+    ],
+    "rows": [
+      {
+        "verb": "file",
+        "from": [
+          "open"
+        ],
+        "to": "reported"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "reported"
+        ],
+        "to": "reproducing",
+        "stage": "reproducer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "shape",
+        "from": [
+          "reported",
+          "reproducing",
+          "awaiting_build"
+        ],
+        "to": "shaped",
+        "command": "work shape",
+        "facts": [
+          "ticket"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "duplicate",
+        "from": [
+          "reported",
+          "reproducing",
+          "awaiting_build"
+        ],
+        "to": "duplicate",
+        "command": "work duplicate",
+        "facts": [
+          "duplicate_of"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "await_build",
+        "from": [
+          "reported",
+          "reproducing"
+        ],
+        "to": "awaiting_build",
+        "command": "work duplicate",
+        "facts": [
+          "built_by"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "build_landed",
+        "from": [
+          "awaiting_build"
+        ],
+        "to": "duplicate",
+        "facts": [
+          "duplicate_of"
+        ]
+      },
+      {
+        "verb": "build_canceled",
+        "from": [
+          "awaiting_build"
+        ],
+        "to": "reported",
+        "facts": [
+          "built_by"
+        ]
+      },
+      {
+        "verb": "escalate",
+        "from": [
+          "reported",
+          "reproducing"
+        ],
+        "to": "escalated",
+        "facts": [
+          "resume",
+          "escalation"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "answer",
+        "from": [
+          "escalated"
+        ],
+        "to": "@resume",
+        "resume_to": [
+          "reported"
+        ],
+        "facts": [
+          "resume",
+          "escalation",
+          "answer",
+          "amendment"
+        ]
+      },
+      {
+        "verb": "ask",
+        "from": [
+          "reproducing"
+        ],
+        "to": "asked",
+        "command": "work ask",
+        "facts": [
+          "asks",
+          "asked_by",
+          "question_1",
+          "question_2"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "answer",
+        "from": [
+          "asked"
+        ],
+        "to": "reported",
+        "facts": [
+          "asked_by",
+          "answer",
+          "answer_1",
+          "answer_2"
+        ]
+      },
+      {
+        "verb": "cancel",
+        "from": [
+          "reproducing",
+          "escalated"
+        ],
+        "to": "canceled",
+        "command": "work cancel",
+        "facts": [
+          "cancel_reason"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "note",
+        "from": [
+          "reported",
+          "reproducing",
+          "asked",
+          "awaiting_build",
+          "escalated"
+        ],
+        "to": "@same",
+        "command": "work note",
+        "facts": [
+          "note"
+        ]
+      },
+      {
+        "verb": "edit",
+        "from": [
+          "reported",
+          "reproducing",
+          "asked",
+          "awaiting_build",
+          "escalated"
+        ],
+        "to": "@same",
+        "command": "work edit",
+        "facts": [
+          "title",
+          "body"
+        ]
+      },
+      {
+        "verb": "release",
+        "from": [
+          "reproducing"
+        ],
+        "to": "reported",
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "reproducing"
+        ],
+        "to": "reported",
+        "bumps_epoch": true,
+        "lease": "drop"
+      }
+    ]
+  },
+  "decision": {
+    "kind": "decision",
+    "bead_type": "decision",
+    "states": [
+      {
+        "name": "pending",
+        "category": "frozen"
+      },
+      {
+        "name": "needs_human",
+        "category": "active"
+      },
+      {
+        "name": "done",
+        "category": "done",
+        "terminal": true
+      },
+      {
+        "name": "canceled",
+        "category": "done",
+        "terminal": true
+      }
+    ],
+    "rows": [
+      {
+        "verb": "file",
+        "from": [
+          "open"
+        ],
+        "to": "pending",
+        "command": "decision file",
+        "says": "Filed."
+      },
+      {
+        "verb": "fire",
+        "from": [
+          "pending"
+        ],
+        "to": "needs_human",
+        "command": "decision fire",
+        "facts": [
+          "why",
+          "defer_reason"
+        ],
+        "says": "The trigger fired."
+      },
+      {
+        "verb": "defer",
+        "from": [
+          "needs_human"
+        ],
+        "to": "pending",
+        "command": "decision defer",
+        "facts": [
+          "why"
+        ],
+        "says": "The trigger did not fire."
+      },
+      {
+        "verb": "answer",
+        "from": [
+          "needs_human"
+        ],
+        "to": "done",
+        "command": "decision settle",
+        "facts": [
+          "answer"
+        ],
+        "says": "Answered."
+      },
+      {
+        "verb": "drop",
+        "from": [
+          "needs_human"
+        ],
+        "to": "canceled",
+        "command": "decision settle",
+        "facts": [
+          "close_note"
+        ],
+        "says": "Dropped."
+      },
+      {
+        "verb": "moot",
+        "from": [
+          "pending",
+          "needs_human"
+        ],
+        "to": "canceled",
+        "command": "decision moot",
+        "facts": [
+          "close_note"
+        ],
+        "says": "It stopped being a question."
+      }
+    ]
+  },
+  "epic": {
+    "kind": "epic",
+    "bead_type": "epic",
+    "states": [
+      {
+        "name": "backlog",
+        "category": "frozen"
+      },
+      {
+        "name": "prd_needed",
+        "category": "active"
+      },
+      {
+        "name": "prd_drafting",
+        "category": "wip"
+      },
+      {
+        "name": "prd_review",
+        "category": "active"
+      },
+      {
+        "name": "prd_amending",
+        "category": "active"
+      },
+      {
+        "name": "prd_signoff",
+        "category": "active"
+      },
+      {
+        "name": "spec_amending",
+        "category": "active"
+      },
+      {
+        "name": "architecture",
+        "category": "active"
+      },
+      {
+        "name": "adr_review",
+        "category": "active"
+      },
+      {
+        "name": "spec_needed",
+        "category": "active"
+      },
+      {
+        "name": "spec_drafting",
+        "category": "wip"
+      },
+      {
+        "name": "spec_review",
+        "category": "active"
+      },
+      {
+        "name": "spec_signoff",
+        "category": "active"
+      },
+      {
+        "name": "spec_approved",
+        "category": "active"
+      },
+      {
+        "name": "decomposing",
+        "category": "wip"
+      },
+      {
+        "name": "execution",
+        "category": "wip"
+      },
+      {
+        "name": "escalated",
+        "category": "frozen"
+      },
+      {
+        "name": "done",
+        "category": "done",
+        "terminal": true
+      },
+      {
+        "name": "canceled",
+        "category": "done",
+        "terminal": true
+      }
+    ],
+    "rows": [
+      {
+        "verb": "prd_submit",
+        "from": [
+          "open"
+        ],
+        "to": "prd_review",
+        "command": "prd submit",
+        "facts": [
+          "doc_pr"
+        ]
+      },
+      {
+        "verb": "prd_submit",
+        "from": [
+          "prd_drafting"
+        ],
+        "to": "prd_review",
+        "command": "prd submit",
+        "facts": [
+          "doc_pr",
+          "prd_path"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "create_prd",
+        "from": [
+          "open"
+        ],
+        "to": "prd_needed",
+        "when": "no_open_dependency"
+      },
+      {
+        "verb": "create_prd",
+        "from": [
+          "open"
+        ],
+        "to": "backlog",
+        "when": "open_dependency",
+        "facts": [
+          "epic_entry"
+        ]
+      },
+      {
+        "verb": "create_architecture",
+        "from": [
+          "open"
+        ],
+        "to": "architecture",
+        "when": "no_open_dependency"
+      },
+      {
+        "verb": "create_architecture",
+        "from": [
+          "open"
+        ],
+        "to": "backlog",
+        "when": "open_dependency",
+        "facts": [
+          "epic_entry"
+        ]
+      },
+      {
+        "verb": "unblock",
+        "from": [
+          "backlog"
+        ],
+        "to": "prd_needed",
+        "when": "prd_entry",
+        "command": "work unblock"
+      },
+      {
+        "verb": "unblock",
+        "from": [
+          "backlog"
+        ],
+        "to": "architecture",
+        "when": "architecture_entry",
+        "command": "work unblock"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "prd_needed"
+        ],
+        "to": "prd_drafting",
+        "stage": "prd-author",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "prd_review"
+        ],
+        "to": "@same",
+        "stage": "doc-reviewer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "prd_amending"
+        ],
+        "to": "@same",
+        "stage": "amender",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "adr_review"
+        ],
+        "to": "@same",
+        "stage": "doc-reviewer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "spec_needed"
+        ],
+        "to": "spec_drafting",
+        "stage": "spec-author",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "spec_review"
+        ],
+        "to": "@same",
+        "stage": "doc-reviewer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "spec_amending"
+        ],
+        "to": "@same",
+        "stage": "amender",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "spec_approved"
+        ],
+        "to": "decomposing",
+        "stage": "decomposer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "review_pass",
+        "from": [
+          "prd_review"
+        ],
+        "to": "prd_signoff",
+        "command": "review submit",
+        "facts": [
+          "reviewed_head",
+          "adr_needed",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_reject",
+        "from": [
+          "prd_review"
+        ],
+        "to": "prd_amending",
+        "when": "first_reject",
+        "command": "review submit",
+        "facts": [
+          "prd_rejects",
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_reject",
+        "from": [
+          "prd_review"
+        ],
+        "to": "escalated",
+        "when": "second_reject",
+        "command": "review submit",
+        "facts": [
+          "prd_rejects",
+          "resume",
+          "escalation",
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop",
+        "says": "The doc-reviewer rejected the PRD a second time, so no unattended stage revises it again. Open an intake room on this epic, and revise the PRD there with the operator. The answer returns it to review."
+      },
+      {
+        "verb": "prd_amended",
+        "from": [
+          "prd_amending"
+        ],
+        "to": "prd_signoff",
+        "when": "unchanged",
+        "facts": [
+          "amend_from",
+          "amend_head"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "prd_amended",
+        "from": [
+          "prd_amending"
+        ],
+        "to": "prd_review",
+        "facts": [
+          "amend_from",
+          "amend_head"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "spec_amended",
+        "from": [
+          "spec_amending"
+        ],
+        "to": "spec_signoff",
+        "when": "unchanged",
+        "facts": [
+          "amend_from",
+          "amend_head"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "spec_amended",
+        "from": [
+          "spec_amending"
+        ],
+        "to": "spec_review",
+        "facts": [
+          "amend_from",
+          "amend_head"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "prd_signoff"
+        ],
+        "to": "architecture",
+        "when": "adr_requested",
+        "facts": [
+          "prd_merged"
+        ]
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "prd_signoff"
+        ],
+        "to": "spec_needed",
+        "facts": [
+          "prd_merged"
+        ]
+      },
+      {
+        "verb": "adr_send",
+        "from": [
+          "prd_needed",
+          "prd_drafting",
+          "prd_review",
+          "prd_amending",
+          "prd_signoff"
+        ],
+        "to": "@same",
+        "command": "epic adr",
+        "facts": [
+          "adr_sent"
+        ]
+      },
+      {
+        "verb": "adr_send",
+        "from": [
+          "spec_needed",
+          "spec_review",
+          "spec_signoff",
+          "spec_amending"
+        ],
+        "to": "architecture",
+        "command": "epic adr",
+        "facts": [
+          "adr_sent"
+        ]
+      },
+      {
+        "verb": "adr_off",
+        "from": [
+          "prd_signoff"
+        ],
+        "to": "@same",
+        "command": "epic adr",
+        "facts": [
+          "adr_needed",
+          "adr_sent"
+        ]
+      },
+      {
+        "verb": "adr_landed",
+        "from": [
+          "architecture"
+        ],
+        "to": "spec_needed",
+        "facts": [
+          "adr",
+          "adr_merged"
+        ]
+      },
+      {
+        "verb": "adr_landed",
+        "from": [
+          "adr_review"
+        ],
+        "to": "spec_needed",
+        "facts": [
+          "adr",
+          "adr_merged"
+        ],
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "adr_opened",
+        "from": [
+          "architecture"
+        ],
+        "to": "adr_review",
+        "facts": [
+          "adr_pr",
+          "adr_head"
+        ]
+      },
+      {
+        "verb": "review_pass",
+        "from": [
+          "adr_review"
+        ],
+        "to": "architecture",
+        "command": "review submit",
+        "facts": [
+          "reviewed_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_reject",
+        "from": [
+          "adr_review"
+        ],
+        "to": "architecture",
+        "command": "review submit",
+        "facts": [
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "adr_withdrawn",
+        "from": [
+          "adr_review"
+        ],
+        "to": "architecture",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "adr_misjoined",
+        "from": [
+          "spec_needed"
+        ],
+        "to": "architecture",
+        "facts": [
+          "adr",
+          "adr_merged"
+        ]
+      },
+      {
+        "verb": "pr_open",
+        "from": [
+          "spec_drafting"
+        ],
+        "to": "spec_review",
+        "facts": [
+          "doc_pr"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_pass",
+        "from": [
+          "spec_review"
+        ],
+        "to": "spec_signoff",
+        "command": "review submit",
+        "facts": [
+          "reviewed_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_reject",
+        "from": [
+          "spec_review"
+        ],
+        "to": "spec_needed",
+        "command": "review submit",
+        "facts": [
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "spec_signoff"
+        ],
+        "to": "spec_approved",
+        "facts": [
+          "spec_path",
+          "spec_merged"
+        ]
+      },
+      {
+        "verb": "decomposed",
+        "from": [
+          "decomposing"
+        ],
+        "to": "execution",
+        "lease": "drop"
+      },
+      {
+        "verb": "complete",
+        "from": [
+          "execution"
+        ],
+        "to": "done"
+      },
+      {
+        "verb": "cancel",
+        "from": [
+          "backlog",
+          "prd_needed",
+          "prd_drafting",
+          "prd_review",
+          "prd_amending",
+          "prd_signoff",
+          "architecture",
+          "adr_review",
+          "spec_needed",
+          "spec_drafting",
+          "spec_review",
+          "spec_signoff",
+          "spec_amending",
+          "spec_approved",
+          "escalated"
+        ],
+        "to": "canceled",
+        "command": "work cancel",
+        "facts": [
+          "cancel_reason"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "answer",
+        "from": [
+          "escalated"
+        ],
+        "to": "@resume",
+        "resume_to": [
+          "backlog",
+          "prd_needed",
+          "prd_review",
+          "prd_amending",
+          "prd_signoff",
+          "architecture",
+          "spec_needed",
+          "spec_signoff",
+          "spec_amending",
+          "spec_approved",
+          "execution"
+        ],
+        "facts": [
+          "resume",
+          "escalation",
+          "answer",
+          "amendment"
+        ]
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "prd_review"
+        ],
+        "to": "prd_signoff",
+        "when": "outran",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "spec_review"
+        ],
+        "to": "spec_signoff",
+        "when": "outran",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "prd_amending"
+        ],
+        "to": "prd_signoff",
+        "when": "outran",
+        "facts": [
+          "amend_from",
+          "amend_head"
+        ],
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "spec_amending"
+        ],
+        "to": "spec_signoff",
+        "when": "outran",
+        "facts": [
+          "amend_from",
+          "amend_head"
+        ],
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "signoff_head",
+        "from": [
+          "prd_signoff",
+          "spec_signoff"
+        ],
+        "to": "@same",
+        "facts": [
+          "reviewed_head"
+        ]
+      },
+      {
+        "verb": "person_comment",
+        "from": [
+          "prd_review",
+          "prd_signoff"
+        ],
+        "to": "prd_amending",
+        "facts": [
+          "amend_from",
+          "amend_head"
+        ]
+      },
+      {
+        "verb": "person_comment",
+        "from": [
+          "spec_review",
+          "spec_signoff"
+        ],
+        "to": "spec_amending",
+        "facts": [
+          "amend_from",
+          "amend_head"
+        ]
+      },
+      {
+        "verb": "pr_closed",
+        "from": [
+          "prd_review",
+          "prd_amending",
+          "prd_signoff",
+          "spec_review",
+          "spec_signoff",
+          "spec_amending"
+        ],
+        "to": "escalated",
+        "facts": [
+          "resume",
+          "escalation"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "escalate",
+        "from": [
+          "backlog",
+          "prd_needed",
+          "prd_drafting",
+          "prd_review",
+          "prd_amending",
+          "prd_signoff",
+          "architecture",
+          "adr_review",
+          "spec_needed",
+          "spec_drafting",
+          "spec_review",
+          "spec_signoff",
+          "spec_amending",
+          "spec_approved",
+          "decomposing",
+          "execution"
+        ],
+        "to": "escalated",
+        "facts": [
+          "resume",
+          "escalation"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "note",
+        "from": [
+          "backlog",
+          "prd_needed",
+          "prd_drafting",
+          "prd_review",
+          "prd_amending",
+          "prd_signoff",
+          "architecture",
+          "adr_review",
+          "spec_needed",
+          "spec_drafting",
+          "spec_review",
+          "spec_signoff",
+          "spec_amending",
+          "spec_approved",
+          "decomposing",
+          "execution",
+          "escalated"
+        ],
+        "to": "@same",
+        "command": "work note",
+        "facts": [
+          "note"
+        ]
+      },
+      {
+        "verb": "edit",
+        "from": [
+          "backlog",
+          "prd_needed",
+          "prd_drafting",
+          "prd_review",
+          "prd_amending",
+          "prd_signoff",
+          "architecture",
+          "adr_review",
+          "spec_needed",
+          "spec_drafting",
+          "spec_review",
+          "spec_signoff",
+          "spec_amending",
+          "spec_approved",
+          "decomposing",
+          "execution",
+          "escalated"
+        ],
+        "to": "@same",
+        "command": "work edit",
+        "facts": [
+          "title",
+          "body"
+        ]
+      },
+      {
+        "verb": "release",
+        "from": [
+          "prd_drafting"
+        ],
+        "to": "prd_needed",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
+          "spec_drafting"
+        ],
+        "to": "spec_needed",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
+          "decomposing"
+        ],
+        "to": "spec_approved",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
+          "prd_review"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
+          "prd_amending"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
+          "adr_review"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
+          "spec_review"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
+          "spec_amending"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "prd_drafting"
+        ],
+        "to": "prd_needed",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "spec_drafting"
+        ],
+        "to": "spec_needed",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "decomposing"
+        ],
+        "to": "spec_approved",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "prd_review"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "prd_amending"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "adr_review"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "spec_review"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "spec_amending"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      }
+    ]
+  },
+  "ticket": {
+    "kind": "ticket",
+    "bead_type": "task",
+    "states": [
+      {
+        "name": "backlog",
+        "category": "frozen"
+      },
+      {
+        "name": "todo",
+        "category": "active"
+      },
+      {
+        "name": "in_progress",
+        "category": "wip"
+      },
+      {
+        "name": "in_review",
+        "category": "active"
+      },
+      {
+        "name": "repair",
+        "category": "active"
+      },
+      {
+        "name": "ready_to_merge",
+        "category": "active"
+      },
+      {
+        "name": "queued",
+        "category": "wip"
+      },
+      {
+        "name": "escalated",
+        "category": "frozen"
+      },
+      {
+        "name": "done",
+        "category": "done",
+        "terminal": true
+      },
+      {
+        "name": "canceled",
+        "category": "done",
+        "terminal": true
+      }
+    ],
+    "rows": [
+      {
+        "verb": "create",
+        "from": [
+          "open"
+        ],
+        "to": "todo",
+        "when": "no_open_dependency",
+        "facts": [
+          "entry"
+        ]
+      },
+      {
+        "verb": "create",
+        "from": [
+          "open"
+        ],
+        "to": "backlog",
+        "when": "open_dependency"
+      },
+      {
+        "verb": "block",
+        "from": [
+          "todo",
+          "backlog"
+        ],
+        "to": "backlog",
+        "command": "work block",
+        "facts": [
+          "pending_block"
+        ]
+      },
+      {
+        "verb": "unblock",
+        "from": [
+          "backlog"
+        ],
+        "to": "todo",
+        "when": "no_open_blocker",
+        "command": "work unblock",
+        "facts": [
+          "entry",
+          "pending_block"
+        ]
+      },
+      {
+        "verb": "unblock",
+        "from": [
+          "backlog"
+        ],
+        "to": "@same",
+        "when": "open_blocker",
+        "command": "work unblock",
+        "facts": [
+          "pending_block"
+        ]
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "todo"
+        ],
+        "to": "in_progress",
+        "stage": "implementer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "repair"
+        ],
+        "to": "@same",
+        "stage": "implementer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
+          "in_review"
+        ],
+        "to": "@same",
+        "stage": "code-reviewer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "pr_open",
+        "from": [
+          "in_progress"
+        ],
+        "to": "in_review",
+        "facts": [
+          "head"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "ci_red",
+        "from": [
+          "in_review"
+        ],
+        "to": "repair"
+      },
+      {
+        "verb": "fix_pushed",
+        "from": [
+          "repair"
+        ],
+        "to": "in_review",
+        "facts": [
+          "head"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_pass",
+        "from": [
+          "in_review"
+        ],
+        "to": "ready_to_merge",
+        "command": "review submit",
+        "facts": [
+          "reviewed_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_reject",
+        "from": [
+          "in_review"
+        ],
+        "to": "todo",
+        "command": "review submit",
+        "facts": [
+          "rejects",
+          "model_tier",
+          "entry",
+          "reviewed_head",
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "head_changed",
+        "from": [
+          "ready_to_merge",
+          "queued"
+        ],
+        "to": "in_review",
+        "facts": [
+          "reviewed_head",
+          "head"
+        ]
+      },
+      {
+        "verb": "enqueue",
+        "from": [
+          "ready_to_merge"
+        ],
+        "to": "queued"
+      },
+      {
+        "verb": "dequeue_conflict",
+        "from": [
+          "queued"
+        ],
+        "to": "todo",
+        "facts": [
+          "entry",
+          "reviewed_head"
+        ]
+      },
+      {
+        "verb": "dequeue_red",
+        "from": [
+          "queued"
+        ],
+        "to": "repair",
+        "facts": [
+          "reviewed_head"
+        ]
+      },
+      {
+        "verb": "merged",
+        "from": [
+          "backlog",
+          "todo",
+          "in_progress",
+          "in_review",
+          "repair",
+          "ready_to_merge",
+          "queued",
+          "escalated"
+        ],
+        "to": "done",
+        "facts": [
+          "merged_sha"
+        ],
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "pr_closed",
+        "from": [
+          "in_review",
+          "repair",
+          "ready_to_merge",
+          "queued"
+        ],
+        "to": "escalated",
+        "facts": [
+          "resume",
+          "resume_entry",
+          "escalation"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "escalate",
+        "from": [
+          "backlog",
+          "todo",
+          "in_progress",
+          "in_review",
+          "repair",
+          "ready_to_merge",
+          "queued"
+        ],
+        "to": "escalated",
+        "facts": [
+          "resume",
+          "resume_entry",
+          "escalation"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "answer",
+        "from": [
+          "escalated"
+        ],
+        "to": "@resume",
+        "resume_to": [
+          "backlog",
+          "todo"
+        ],
+        "facts": [
+          "entry",
+          "resume",
+          "resume_entry",
+          "escalation",
+          "answer",
+          "amendment"
+        ]
+      },
+      {
+        "verb": "cancel",
+        "from": [
+          "escalated"
+        ],
+        "to": "canceled",
+        "command": "work cancel",
+        "facts": [
+          "cancel_reason"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "supersede",
+        "from": [
+          "backlog",
+          "todo",
+          "in_progress"
+        ],
+        "to": "canceled",
+        "command": "work supersede",
+        "facts": [
+          "superseded_by",
+          "supersede_reason"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "note",
+        "from": [
+          "backlog",
+          "todo",
+          "in_progress",
+          "in_review",
+          "repair",
+          "ready_to_merge",
+          "queued",
+          "escalated"
+        ],
+        "to": "@same",
+        "command": "work note",
+        "facts": [
+          "note"
+        ]
+      },
+      {
+        "verb": "edit",
+        "from": [
+          "backlog",
+          "todo",
+          "in_progress",
+          "in_review",
+          "repair",
+          "ready_to_merge",
+          "queued",
+          "escalated"
+        ],
+        "to": "@same",
+        "command": "work edit",
+        "facts": [
+          "title",
+          "body"
+        ]
+      },
+      {
+        "verb": "release",
+        "from": [
+          "in_progress"
+        ],
+        "to": "todo",
+        "facts": [
+          "entry"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
+          "repair"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
+          "in_review"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "in_progress"
+        ],
+        "to": "todo",
+        "facts": [
+          "entry"
+        ],
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "repair"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "in_review"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      }
+    ]
+  }
+}
