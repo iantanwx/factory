@@ -261,12 +261,12 @@ func TestEpicInExecutionWithAnOpenChildRefusesDone(t *testing.T) {
 }
 
 func TestSecondPRDRejectWaitsForAPerson(t *testing.T) {
-	// AE7: the amender revises once, and the second reject escalates.
+	// AE7: the reviser revises once, and the second reject escalates.
 	w := newWorld(t)
 	ep := w.create(KindEpic, "prd_submit", nil)
 	w.must(ep, "review_reject", nil)
 	if w.show(ep).Status != PRDAmending {
-		t.Fatal("the first reject goes to the amender")
+		t.Fatal("the first reject goes to the reviser")
 	}
 	w.must(ep, "prd_amended", nil)
 	w.must(ep, "review_reject", nil)

@@ -297,7 +297,7 @@ spec, in one of two ways:
 
 - Open a review room on the spec pull request. The room writes the answer under the entry at the
   operator's word, and pushes it.
-- The operator comments on the pull request. The epic moves to `spec_amending`, and the amender
+- The operator comments on the pull request. The epic moves to `spec_amending`, and the reviser
   writes the answer.
 
 Either way the head moves, so the entry is raised again at the new head. Record the operator's

@@ -493,7 +493,7 @@ func TestEncodeLessonsIsFlaggedAndStillRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, stage := range []string{"amender", "coordinator"} {
+	for _, stage := range []string{"coordinator", "reviser"} {
 		if !slices.Contains(m.Runbooks[stage].Skills, "loop-encode-lessons") {
 			t.Errorf("the %s runbook does not list loop-encode-lessons", stage)
 		}

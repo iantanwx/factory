@@ -227,7 +227,7 @@ func TestEffectiveScheduleAndRunsPerTick(t *testing.T) {
 	for _, c := range []struct {
 		stage string
 		want  int
-	}{{"implementer", 3}, {"code-reviewer", 5}, {"amender", 2}, {"nightly-qa", 1}} {
+	}{{"implementer", 3}, {"code-reviewer", 5}, {"reviser", 2}, {"nightly-qa", 1}} {
 		if got := e.RunsPerTick(c.stage); got != c.want {
 			t.Fatalf("RunsPerTick(%s) = %d, want %d", c.stage, got, c.want)
 		}

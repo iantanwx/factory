@@ -501,9 +501,9 @@ func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 	}
 
 	readers := map[string][]string{
-		"loop-commit": {"amender", "brainstorm-room", "implementer", "planner", "review-room"},
+		"loop-commit": {"brainstorm-room", "implementer", "planner", "review-room", "reviser"},
 		"loop-bro":    {"decomposer"},
-		"loop-unslop": {"amender", "brainstorm-room", "decomposer", "planner"},
+		"loop-unslop": {"brainstorm-room", "decomposer", "planner", "reviser"},
 
 		"loop-boundaries":                       {"code-reviewer", "implementer"},
 		"loop-least-code":                       {"code-reviewer", "implementer"},
