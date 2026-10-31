@@ -8,7 +8,7 @@ import (
 // A policy file names a userspace skill and the step that reads it, so
 // no kernel runbook has to name one (C8).
 func TestEachPolicyTemplateShowsHowToNameAUserspaceSkill(t *testing.T) {
-	for _, role := range []string{"implementer", "code-reviewer", "coordinator"} {
+	for _, role := range []string{"implementer", "code-reviewer"} {
 		s := section(t, read(t, "skills/loop-init/policy/"+role+".md"), "Userspace skills")
 		for _, want := range []string{"the `<name>` skill", "before `<step>`"} {
 			if !strings.Contains(s, want) {
@@ -18,12 +18,20 @@ func TestEachPolicyTemplateShowsHowToNameAUserspaceSkill(t *testing.T) {
 	}
 }
 
+// The coordinator holds kernel skills only, so its template has no
+// userspace section to fill (C8).
+func TestCoordinatorPolicyTemplateHoldsNoUserspaceSection(t *testing.T) {
+	if strings.Contains(read(t, "skills/loop-init/policy/coordinator.md"), "\n## Userspace skills") {
+		t.Error("the coordinator template holds a userspace skills section")
+	}
+}
+
 // loop-init keeps the section only where the project declares a
 // userspace skill (C8).
 func TestLoopInitKeepsTheUserspaceSectionOnlyForADeclaredSkill(t *testing.T) {
 	s := section(t, read(t, "skills/loop-init/SKILL.md"), "6. Policy")
 	for _, want := range []string{
-		"Keep the `## Userspace skills` section of each policy file when the project declares a userspace skill",
+		"Keep the `## Userspace skills` section of the implementer and code-reviewer policy files when the project declares a userspace skill",
 		"Delete the section otherwise",
 	} {
 		if !strings.Contains(s, want) {

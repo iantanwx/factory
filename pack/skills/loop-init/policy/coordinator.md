@@ -38,15 +38,6 @@ what it never covers.
   `<command>`. Report the attempt and its result.
 - Never start `<job>` again while a run of it is live.
 
-## Userspace skills
-
-Delete this section when the project declares no userspace skill. A userspace skill is a skill
-that the project pins in `.loop/config.yaml` or commits under its skill root. Its name never
-starts with `loop-`, and no loop runbook names it.
-
-- Read the `<name>` skill before `<step>`. For example, read a deploy skill before you start a
-  production job again.
-
 ## Report additions
 
 - `<line>`, for example the open questions that a product owner holds.

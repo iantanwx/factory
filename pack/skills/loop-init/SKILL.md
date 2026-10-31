@@ -184,9 +184,10 @@ skill records each correction in the ledger. Make both now, so the first correct
 2. Fill each placeholder from the interview and the files. Use the stack gate commands of
    `.loop/config.yaml` for the commands. Delete each section that does not apply, and the
    template's first paragraph.
-3. Keep the `## Userspace skills` section of each policy file when the project declares a userspace
-   skill: a pin in the `skills:` list of `.loop/config.yaml`, or a committed directory under its
-   skill root. Name each skill and the step that reads it. Delete the section otherwise.
+3. Keep the `## Userspace skills` section of the implementer and code-reviewer policy files when
+   the project declares a userspace skill: a pin in the `skills:` list of `.loop/config.yaml`, or a
+   committed directory under its skill root. Name each skill and the step that reads it. Delete the
+   section otherwise. The coordinator template holds no such section.
 4. Copy `correction-ledger.md` beside this skill to `docs/solutions/correction-ledger.md`.
 5. Run `loop gates --docs`, and fix each finding.
 
