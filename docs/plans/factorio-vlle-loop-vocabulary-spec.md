@@ -28,7 +28,8 @@ rename one role in both components, because of the line above. Entry 8 turns a f
 into an inbox hold. Entry 9 moves the spec path. Entry 10 writes the new words of the glossary.
 
 **Not in this spec:** the doc review subloop (factorio-4mb8), the simplify run (factorio-1r94),
-the QA stage (factorio-nhb5), the retro stage and `machine.BugClosed` (factorio-1xq0), the kernel
+the QA stage (factorio-nhb5), the retro stage, `machine.BugClosed` and the code that fires
+`bug.closed` (factorio-1xq0), the kernel
 and userspace split (factorio-yzrt), and the rule for when a decision needs an ADR
 (factorio-ku99).
 
@@ -36,10 +37,16 @@ and userspace split (factorio-yzrt), and the rule for when a decision needs an A
 
 ### Answers a person already gave
 
-None. The PRD's pull request, #239, holds only the doc-reviewer's two rounds and the reviser's
-reply. No inbox answer or note on factorio-vlle answers an open question of the PRD. This spec
-answers each one from the repository where a rule picks the answer. One question stays open,
-under Open questions.
+- **Which bug states count as closed (PRD open question, blocks A18).** The operator chose "Ticket
+  done, or canceled" on 2026-10-31, in the inbox (panel/11). The `note` fact of factorio-vlle
+  holds the answer. A shaped bug counts as closed when its shaped ticket reaches `done`. A
+  canceled bug counts as closed at once. A duplicate bug never counts as closed, because the retro
+  of its original covers it. The rule reads the state of the shaped ticket, so it needs no new bug
+  state. The decision on `bug.closed` below, work entry 10 and C21 follow it.
+
+The PRD's pull request, #239, holds only the doc-reviewer's two rounds and the reviser's reply.
+No other answer or note on factorio-vlle answers an open question of the PRD. This spec answers
+each other open question from the repository where a rule picks the answer.
 
 ### The names
 
@@ -91,9 +98,14 @@ under Open questions.
   the fault this epic removes. We rejected edits to ADRs and merged documents, because each one
   records what a person decided at a date.
 - **`epic.done` and `bug.closed` are names in the glossary, and this epic writes no code for
-  them.** We rejected a `machine.BugClosed` in this epic, because work entry 2 of the retro spec
-  owns that function (`docs/plans/factorio-1xq0-retro-spec.md` § Work). This epic names the set
-  that the function returns.
+  them. The glossary states the operator's rule for a closed bug: a shaped bug closes when its
+  shaped ticket reaches `done`, a canceled bug closes at once, and a duplicate bug never closes.**
+  We rejected a `machine.BugClosed` in this epic, because work entry 2 of the retro spec owns that
+  function (`docs/plans/factorio-1xq0-retro-spec.md` § Work), and so owns the code that fires
+  `bug.closed` when a shaped bug's ticket reaches `done`. We rejected a list of closed bug states,
+  because the rule reads the state of the shaped ticket, and `shaped` is a terminal state of the
+  bug (`internal/machine/bug.go:101-103`). The bug takes no move when its ticket merges, so no
+  set of bug states can hold the rule.
 
 ### The grace for an old name
 
@@ -162,7 +174,8 @@ under Open questions.
 - **No gate refuses a new spec under `docs/plans/`.** We rejected that refusal, because the spec
   of factorio-ku99 is in sign-off under `docs/plans/` on its branch, and a gate cannot tell a new
   file from one that a branch started before this epic. The planner runbook, the template and the
-  documents skill name `docs/specs/`, and the doc-reviewer reads the path.
+  documents skill name `docs/specs/`, and the doc-reviewer reads the path. C22 proves that each of
+  those texts sends a new spec to `docs/specs/`.
 
 ### The order of the work
 
@@ -220,8 +233,8 @@ run may change. Entry 7 also renames the room kind, and it adds one SQL migratio
 The third part is three entries that rename no stage. Entry 8 renames the inbox kind and adds
 `loop decision list`. Its SQL migration rewrites each prepared question that names a decision
 entry. Entry 9 adds `docs/specs/` to every reader of a spec, and moves the writers to it. Entry
-10 adds the phases, the units of work, the retro, the two event names and the closed bug states
-to the glossary.
+10 adds the phases, the units of work, the retro, the two event names and the rule for a closed
+bug to the glossary.
 
 A golden file from entry 1 holds `loop schema`'s transition tables at the base. A test maps each
 stage name in it through the table, and compares the result with the tables of the build. So
@@ -235,7 +248,8 @@ internal/config (changed)
 stageRenames        map from an old stage name to its new name
   invariant: no new name is also an old name, so a rename never chains.
   invariant: each new name is a run stage, or the brainstorm cap key.
-  invariant: each old name is no run stage, project job or instance job of this release.
+  invariant: each old name is no run stage, project job, instance job or agent job of this
+  release.
   A test reads all three. A later release empties the map.
 
 Rename              one old name that one config file held at a read
@@ -464,7 +478,7 @@ sequenceDiagram
      `internal/gates/lessons.go`, `pack/runbooks/**`, `pack/skills/**`, `pack/manifest.json`,
      `acceptance/**`, `docs/operating.md`.
    - Needs: entry 2.
-   - Proves: C9, C10.
+   - Proves: C9, C10, C12.
    - Done when: a project config that sets `stages.amender.cap` to 2 loads with the reviser's cap
      at 2, the alert names `amender` and `reviser`, and an epic in `prd_amending` starts a run
      whose brief names the runbook `.claude/skills/loop-reviser/SKILL.md`.
@@ -473,7 +487,7 @@ sequenceDiagram
    - Files: `internal/config/**`, `internal/machine/**`, `internal/admission/**`,
      `internal/sched/**`, `pack/**`, `acceptance/**`, `docs/operating.md`.
    - Needs: entry 2.
-   - Proves: C9, C10.
+   - Proves: C9, C10, C12.
    - Done when: an epic in `spec_needed` starts a planner run, and its brief names
      `.claude/skills/loop-planner/SKILL.md`.
 5. **fixer becomes triage.** The same steps for `StageFixer`, `KindFixer`,
@@ -485,7 +499,7 @@ sequenceDiagram
      `internal/server/**`, `internal/overwatch/stalls.go`, `internal/cli/**`, `internal/sched/**`,
      `pack/**`, `.loop/secrets.yaml`, `acceptance/**`, `README.md`, `docs/operating.md`.
    - Needs: entry 2.
-   - Proves: C5, C9, C10.
+   - Proves: C5, C9, C10, C12.
    - Done when: an escalation that waits for its panel starts a triage run, the run receives
      `TYPESAFE_API_KEY`, and `loop escalation judge` runs from it.
 6. **prd-author becomes unattended-brainstorm.** The same steps for `StagePRDAuthor`, the
@@ -496,7 +510,7 @@ sequenceDiagram
      `internal/admission/**`, `internal/sched/**`, `internal/cli/surface.go`, `pack/**`,
      `acceptance/**`.
    - Needs: entry 2.
-   - Proves: C9, C10.
+   - Proves: C9, C10, C12.
    - Done when: an epic in `prd_needed` starts an unattended-brainstorm run, and a host config
      with no `unattended-brainstorm` entry loads with its default.
 7. **intake becomes brainstorm.** Add the pair `intake` to `brainstorm` for the cap key. Rename
@@ -508,7 +522,7 @@ sequenceDiagram
      `internal/pipeline/prd.go`, `internal/cli/**`, `internal/store/migrations/`, `pack/**`,
      `acceptance/**`, `docs/operating.md`.
    - Needs: entry 6.
-   - Proves: C9, C10, C11, C13.
+   - Proves: C9, C10, C11, C12, C13.
    - Done when: `loop room open --kind brainstorm` with no item meets the brainstorm cap and opens
      a room whose checkout holds `.claude/skills/loop-brainstorm-room/SKILL.md`, and a room that
      was open as `intake` reopens as `brainstorm`.
@@ -527,24 +541,28 @@ sequenceDiagram
    directories in `shape.SpecFile`, the `spec` gate, the `prose` gate, the repair globs of
    `internal/gates/runbooks_claims.go`, the decomposer's fallback and the sign-off hint. Name
    `docs/specs/` in the template line of `shape.TemplateLines`, the name hint, the template
-   `loop-sdlc-documents/spec.md`, the `loop-sdlc-documents` table and the planner runbook.
+   `loop-sdlc-documents/spec.md`, the `loop-sdlc-documents` table and the planner runbook. Name
+   both directories in the coordinator runbook's line on the `no_spec` refusal.
    - Files: `internal/shape/**`, `internal/gates/**`, `internal/inbox/signoff.go`,
      `internal/pipeline/decompose.go`, `internal/github/reactor.go`,
-     `pack/skills/loop-sdlc-documents/**`, `pack/runbooks/planner.md`.
+     `pack/skills/loop-sdlc-documents/**`, `pack/runbooks/planner.md`,
+     `pack/runbooks/coordinator.md`.
    - Needs: entry 4.
-   - Proves: C18, C19, C20.
+   - Proves: C18, C19, C20, C22.
    - Done when: a spec at `docs/specs/<epic>-<slug>-spec.md` passes the `spec` gate, signs off
-     and decomposes, and so does one at `docs/plans/<epic>-<slug>-spec.md`.
+     and decomposes, and so does one at `docs/plans/<epic>-<slug>-spec.md`. The planner runbook,
+     the template and the documents table send a new spec to `docs/specs/`.
 10. **The glossary's new words.** Add the phases in order, with ideate and ADR marked optional.
     Define a unit of work, a ticket as a slice of a unit, the work kinds without the decision, an
     inbox hold and a hold on an item, the triage stage and the triage rubric, the retro, the
-    events `epic.done` and `bug.closed`, and the closed bug states. Add "AAR" to the retired words.
+    events `epic.done` and `bug.closed`, and the operator's rule for a closed bug from Decisions.
+    Add "AAR" to the retired words.
     - Files: `pack/skills/loop-sdlc-glossary/SKILL.md`, `internal/pack/glossary_test.go`,
       `internal/config/renames.go`.
-    - Needs: entries 3, 4, 5, 6, 7 and 8, and the answer to the open question.
+    - Needs: entries 3, 4, 5, 6, 7 and 8.
     - Proves: C9, C21.
-    - Done when: the glossary test reads the nine phases in order, the two events and the closed
-      bug states, and the vocabulary test passes with every retired word.
+    - Done when: the glossary test reads the nine phases in order, the two events and the rule
+      for a closed bug, and the vocabulary test passes with every retired word.
 
 ## Out of scope
 
@@ -556,7 +574,10 @@ sequenceDiagram
 - New names for `prd_amending`, `spec_amending`, `prd_amended` and `spec_amended`. Never in this
   epic, by Decisions. The operator can ask for them at sign-off.
 - An ideate room. It belongs to no epic yet. The operator files one when the phase needs a room.
-- `machine.BugClosed` and the retro stage. They belong to factorio-1xq0.
+- `machine.BugClosed`, the code that fires `bug.closed` when a shaped bug's ticket reaches
+  `done`, and the retro stage. They belong to factorio-1xq0. Its spec assumes a set of bug
+  states today, and factorio-1xq0 repairs its own spec to the operator's rule. No ticket of this
+  epic builds the trigger.
 - The doc review subloop. It belongs to factorio-4mb8.
 - The simplify run. It belongs to factorio-1r94.
 - The QA stage. It belongs to factorio-nhb5.
@@ -692,10 +713,24 @@ directories, and nothing merges.
 glossary's phase list holds ideate, brainstorm, doc review, ADR, plan, doc review, decompose,
 build and retro, in that order, with ideate and ADR marked optional. It defines a unit of work as
 an epic or a bug, and a ticket as one slice of a unit. Its work kinds hold no decision. It defines
-"retro", `epic.done` and `bug.closed`, and it lists the closed bug states. It defines each renamed
-role once.
+"retro", `epic.done` and `bug.closed`. It states the rule for a closed bug: a shaped bug closes
+when its shaped ticket reaches `done`, a canceled bug closes at once, and a duplicate bug never
+closes. A glossary that counts a duplicate bug as closed, or a shaped bug as closed before its
+ticket reaches `done`, fails. It defines
+each renamed role once.
 *An example test that parses the glossary's phase list and its definitions, and compares them
-with the names above.*
+with the names above. A fixture glossary that lists the three terminal bug states as closed
+fails it.*
+
+**C22. Behaviour: each writer of a spec names `docs/specs/`.** Proves A13. Requirements: "The
+planner writes each new spec at `docs/specs/<epic id>-<slug>-spec.md`" and "`loop-sdlc-documents`
+names `docs/specs/` as the place of a spec." In the embedded pack, the planner runbook, the
+template `loop-sdlc-documents/spec.md` and the path table of `loop-sdlc-documents` each name
+`docs/specs/<epic id>-<slug>-spec.md` as the place of a new spec, and none of them names
+`docs/plans/` as that place. The template line of `shape.TemplateLines` and the name hint of the
+`spec` shape do the same.
+*An example test over the embedded pack and `internal/shape`. It fails before entry 9, because
+each of these texts names `docs/plans/` today.*
 
 ## Observable behaviour
 
@@ -705,11 +740,11 @@ hold entry through the coordinator. C2 and C16 prove both.
 ## Open questions
 
 - Which bug states count as closed? The retro epic runs a retro on each bug that closes, and
-  waits on this list (`docs/prd/retro.md` § Boundaries with other epics). A bug's terminal states
-  are `shaped`, `duplicate` and `canceled` (`internal/machine/bug.go:101-103`). At `shaped` the
-  bug's ticket is not built yet, so its retro reads the reproduction and not the build. A retro
-  after the build needs a new bug state, which this epic cannot add. I recommend all three
-  terminal states, because a canceled or duplicate bug can still hold a failed attempt or an
-  escalation, and a retro that finds nothing ends with no learning. The other answer is `shaped`
-  only, which skips a model run for each bug that the reproducer routed away. This blocks work
-  entry 10.
+  waits on this answer (`docs/prd/retro.md` § Boundaries with other epics). A bug's terminal
+  states are `shaped`, `duplicate` and `canceled` (`internal/machine/bug.go:101-103`). At
+  `shaped` the bug's ticket is not built yet, so its retro reads the reproduction and not the
+  build.
+  **Answered (operator, 2026-10-31):** "Ticket done, or canceled". A shaped bug counts as closed
+  when its shaped ticket reaches `done`. A canceled bug counts as closed at once. A duplicate bug
+  never counts as closed, because the retro of its original covers it. Decisions record the
+  answer, entry 10 writes it, and C21 proves it.
