@@ -21,7 +21,8 @@ comes from it says so, and Assumptions holds the dependency.
 1. **The capture path in the server and the pack.** The `**Screens:**` line of a ticket and its
    check at decompose, the capture branch and its push, the local capture verb, the acceptance of a
    difference, the brief's `screens` object, and the runbook text of the spec-author, the
-   doc-reviewer, the decomposer, the implementer, the code-reviewer and the coordinator.
+   doc-reviewer, the decomposer, the implementer, the code-reviewer, the coordinator and the review
+   room.
 2. **The pixel gate**, `internal/gates/pixel.go`, and the comparison of two pictures in
    `internal/pixel`. Why not its own epic: the gate reads only what component 1 writes, the
    manifest and the captures on the capture branch. With no capture branch the gate has no input,
@@ -30,10 +31,9 @@ comes from it says so, and Assumptions holds the dependency.
 The pack text is the agents' half of component 1, and it is no third component. Each work entry
 changes the runbooks that describe the code it changes.
 
-Work entries 1 to 6 change component 1. Entry 7 changes component 2. Entry 8 crosses the
-boundary on purpose: the share of an acceptance, the manifest field that carries it to CI, and the
-gate's read of it change together under the answer to Open questions 1. Each entry proves its own
-contracts.
+Work entries 1 to 6 and 8 change component 1. Entries 7 and 9 change component 2. Entry 9 also
+holds the implementer's rerun step for a red pixel gate on an accepted state, because that step
+describes the gate's read that entry 9 adds. Each entry proves its own contracts.
 
 **Not in this spec:** the design stage, the record's format, its parser, the pixel mark, the
 default threshold and its range, the `design` block and its capture command. factorio-a4yq owns
@@ -179,8 +179,8 @@ each of them. The `ui` block, which factorio-791i owns. A QA stage, which factor
   capture push. After an acceptance, the implementer pushes the captures of the same head again,
   then runs `loop pr rerun`. We rejected a rerun that the acceptance verb starts on GitHub, because
   the verb would then write to every open pull request of the epic, and only the ticket's own run
-  knows that its red build is the accepted difference. Work entry 8 builds this, and it waits for
-  the answer to Open questions 1.
+  knows that its red build is the accepted difference. Work entry 8 writes the share into the
+  manifest, and work entry 9 reads it in the gate. Both wait for the answer to Open questions 1.
 - **Under answer B of Open questions 1, the share is a flag of the verb that work entry 8 adds.**
   Entry 8 adds `--share`, the `share` of an acceptance, and the refusals `share_unmarked` and
   `bad_share`. Entry 5 records words and a state only, so it waits for no answer. We chose this
@@ -208,10 +208,11 @@ each of them. The `ui` block, which factorio-791i owns. A QA stage, which factor
 - **The gate passes and reads nothing in a CI run whose event holds no `pull_request`.** CI also
   runs on a push to the base (`.github/workflows/ci.yml` lines 3 to 6). A GitHub merge queue, in a
   project whose workflow names one, runs on a `merge_group` event. There `GITHUB_EVENT_PATH` is
-  set, `actions/checkout` leaves a detached `HEAD`, and no capture names the commit. Outside CI, a detached `HEAD` has no branch, and the gate
-  also passes and reads nothing. We chose a pass over a read of `HEAD` and the current branch,
-  because the branch is empty there, and the fetch of `-captures` would fail the base's build with
-  `pixel_fetch`. The pull request's own run already read the captures of its head.
+  set, `actions/checkout` leaves a detached `HEAD`, and no capture names the commit. Outside CI, a
+  detached `HEAD` has no branch, and the gate also passes and reads nothing. We chose a pass over a
+  read of `HEAD` and the current branch, because the branch is empty there, and the fetch of
+  `-captures` would fail the base's build with `pixel_fetch`. The pull request's own run already
+  read the captures of its head.
 - **The gate fetches the capture branch itself.** It runs
   `git fetch origin +refs/heads/<branch>-captures:refs/remotes/origin/<branch>-captures`. A remote
   that holds no such branch means that the ticket cites nothing, and the gate passes. Any other
@@ -222,7 +223,7 @@ each of them. The `ui` block, which factorio-791i owns. A QA stage, which factor
   percent from 0% to 5% with no bound on its decimals, and its `Pixel.Percent` is a float, so
   `pixel 0.125%` passes its gate. The pixel gate turns the mark back into its decimal with
   `strconv.FormatFloat(p, 'f', -1, 64)`, reads that decimal as a `big.Rat`, and fails a state when
-  `differing / total > bound / 100`. The bound is the threshold, or under work entry 8 the larger
+  `differing / total > bound / 100`. The bound is the threshold, or under work entry 9 the larger
   of the threshold and the accepted share. We chose an exact rational over hundredths of a percent,
   because a mark of `0.125%` would then need a rounding rule that moves the edge of A15 and A16. We
   rejected a refusal of a mark with a third decimal, because the a4yq gate passed that record on
@@ -319,7 +320,7 @@ Manifest            screens.json, at the root of the capture branch
   Record            docs/design/<epic>/record.md
   States            the ticket's cited ids, from its screens fact
   Accepted          state id to the largest accepted share of that state, in hundredths of a
-                    percent (work entry 8)
+                    percent (written by work entry 8, read by work entry 9)
   invariant: States is never empty. A ticket that cites no state has no capture branch.
 
 internal/machine (changed)
@@ -401,7 +402,8 @@ type Manifest struct {
 	Epic     string         `json:"epic"`
 	Record   string         `json:"record"`
 	States   []string       `json:"states"`
-	Accepted map[string]int `json:"accepted,omitempty"` // state id to hundredths of a percent, work entry 8
+	// Accepted maps a state id to hundredths of a percent. Work entry 8 writes it, entry 9 reads it.
+	Accepted map[string]int `json:"accepted,omitempty"`
 }
 
 // internal/machine (changed)
@@ -445,7 +447,7 @@ type Acceptance struct {
 	State string `json:"state"`
 	Words string `json:"words"`
 	At    string `json:"at"`
-	Share string `json:"share,omitempty"`
+	Share string `json:"share,omitempty"` // work entry 8
 }
 
 // internal/pixel (new)
@@ -660,17 +662,29 @@ sequenceDiagram
    - Done when: a test repository with a capture branch fails at 101 differing pixels of 20000
      and passes at 100, a `push` event fixture passes with no fetch, and this repository passes
      `loop gates` unchanged.
-8. **The acceptance in the pixel gate.** Add `--share` to `loop epic accept-difference`, the
-   `share` of an acceptance, and the refusals `share_unmarked` and `bad_share`. Add `Accepted` to
-   the manifest that the push writes, with the largest share of each state, and its read in the
-   gate. Add the push of the same head and `loop pr rerun` to `implementer.md` for a red pixel gate
-   on an accepted state.
+8. **The share of an acceptance, and its write into the manifest.** Add `--share` to
+   `loop epic accept-difference`, the `share` of an acceptance, and the refusals `share_unmarked`
+   and `bad_share`. Add `Accepted` to the manifest that the push writes, with the largest share of
+   each state.
    - Files: `internal/machine/epic.go`, `internal/server/` (the verb handler),
-     `internal/cli/surface.go`, `internal/captures/manifest.go`, `internal/github/push.go`,
-     `internal/gates/pixel.go`, `pack/runbooks/implementer.md`, and their tests
-   - Needs: entries 5 and 7, and the answer to Open questions 1
+     `internal/cli/surface.go`, `internal/captures/manifest.go`, `internal/github/push.go`, and
+     their tests
+   - Needs: entry 4 for the manifest and the push, entry 5 for the verb, and the answer to Open
+     questions 1
    - Proves: C27
-   - Done when: a marked state with an accepted share of 1.20% passes at 1.20% and fails at 1.21%.
+   - Done when: after the shares of 1.20% and 0.80% on one state, the next capture push writes
+     `"accepted": {"S1.1": 120}`, and each refusal of C27 leaves the epic's facts as they were.
+9. **The accepted share in the pixel gate.** Add the gate's read of `Accepted` from the manifest,
+   and the bound of a state as the larger of its threshold and its accepted share. Add the push of
+   the same head and `loop pr rerun` to `implementer.md` for a red pixel gate on an accepted state.
+   - Files: `internal/gates/pixel.go`, `internal/gates/pixel_test.go`,
+     `pack/runbooks/implementer.md`, `internal/pack/screens_test.go`
+   - Needs: entry 7 for the gate, and the answer to Open questions 1. It reads a fixture manifest,
+     and the Interfaces section fixes the shape of `Manifest.Accepted`, so it needs entry 8 for no
+     part of its proof.
+   - Proves: C29
+   - Done when: a state marked `pixel 0.5%` with an accepted share of 120 passes at 240 differing
+     pixels of 20000 and fails at 241, and the pack test reads the rerun step.
 
 ## Out of scope
 
@@ -868,19 +882,16 @@ gives rule `pixel_fetch`, which names the branch.
 *Example tests with an event fixture and a merge commit, with a `push` event fixture and a detached
 `HEAD` against a remote that records each fetch, and with a remote that refuses the fetch.*
 
-**C27. Behaviour: an accepted share raises the bound of its state.** Proves A17, under the proposed
-answer to Open questions 1. After an acceptance of the marked `S1.1` with `--share 1.20%`, the next
-capture push writes `"accepted": {"S1.1": 120}` into `screens.json`. The gate then passes `S1.1` at
-240 differing pixels of 20000 and fails it at 241, with a message that names the accepted share. A
-second acceptance of `S1.1` with `--share 0.80%` leaves the manifest at 120. An acceptance with no
-share, and an acceptance of `S1.1` marked `pixel 1%` with `--share 0.40%`, leave the gate's bound
-at the state's threshold. The verb refuses with `SHAPE_REFUSED` rule `share_unmarked` for `--share`
-on a state with no pixel mark, and rule `bad_share` for `1.205%`, `1.2`, `-1%` and `101%`. After
-each refusal, the epic's facts are as before. `implementer.md` tells a run whose red build is a
-`pixel_over` on an accepted state to push the captures of the same head again and run
-`loop pr rerun`.
-*A verb test for each refusal, a push test that reads the manifest, gate example tests at each
-edge, and a pack test.*
+**C27. Behaviour: an accepted share reaches the manifest as the largest share of its state.**
+Proves A17 in the server, under the proposed answer to Open questions 1. After an acceptance of the
+marked `S1.1` with `--share 1.20%`, the next capture push writes `"accepted": {"S1.1": 120}` into
+`screens.json`. A second acceptance of `S1.1` with `--share 0.80%` leaves the manifest at 120. An
+acceptance with no share writes no entry for its state. The verb records an acceptance with
+`--share 0.40%` of a state marked `pixel 1%`, and the manifest holds 40 for it. The verb refuses
+with `SHAPE_REFUSED` rule `share_unmarked` for `--share` on a state with no pixel mark, and rule
+`bad_share` for `1.205%`, `1.2`, `-1%` and `101%`. After each refusal, the epic's facts are as
+before.
+*A verb test for each refusal, and a push test that reads the manifest after each acceptance.*
 
 **C28. Behaviour: a review room captures and pushes a citing ticket.** Proves A5 for a push from a
 room. Section 2 of `review-room.md` tells a room whose ticket's item facts hold `screens` to commit,
@@ -892,6 +903,16 @@ branch. The same push with no `--captures` gets `captures_missing` naming `S1.1`
 branch moves.
 *A pack test reads the section and the order of the commit, the capture and the push. A captures
 test with a room brief fixture. A push test with a room caller against a fixture remote.*
+
+**C29. Behaviour: an accepted share raises the bound of its state in the gate.** Proves A17 in CI,
+under the proposed answer to Open questions 1. With `S1.1` marked `pixel 0.5%` and a manifest that
+holds `"accepted": {"S1.1": 120}`, the gate passes `S1.1` at 240 differing pixels of 20000 and fails
+it at 241, with a `pixel_over` message that names the accepted share. With `S1.1` marked `pixel 1%`
+and an accepted share of 40, the bound stays at 1%: the gate passes at 200 and fails at 201. With
+no `accepted` entry for a state, the bound is its threshold. `implementer.md` tells a run whose red
+build is a `pixel_over` on an accepted state to push the captures of the same head again and run
+`loop pr rerun`.
+*Gate example tests with a fixture manifest at each edge, and a pack test.*
 
 ## Observable behaviour
 
@@ -912,9 +933,10 @@ This epic draws no product screen. A person watches these flows of the loop:
   an acceptance turns the gate off for that state, on each later ticket of the epic. Answer B: the
   acceptance records the measured share, and the gate passes the state up to that share. The
   proposed answer is B. A later change that differs more than the accepted share still fails, and
-  the structural review reads each change below it. Under A, C27 asserts that an accepted state is
-  never compared, and entry 8 adds no `--share`, no `share_unmarked` and no `bad_share`. Entry 5
-  holds no part of the share, so it does not wait. This blocks work entry 8 and C27.
+  the structural review reads each change below it. Under A, entry 8 adds no `--share`, no
+  `share_unmarked` and no `bad_share`, and C29 asserts that the gate never compares an accepted
+  state. Entry 5 holds no part of the share, so it does not wait. This blocks work entries 8 and 9,
+  and C27 and C29.
 - How do this epic's tickets wait for factorio-a4yq's tickets? Work entries 1, 3, 5 and 7 need
   factorio-a4yq entries 1, 2, 4 and 8. The loop records no edge between two epics, and the
   decomposer blocks a ticket only on a ticket of its own batch. factorio-a4yq has no tickets yet:
