@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/brief"
@@ -19,6 +20,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/release"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 // fakeGH answers gh calls from a table keyed by the joined arguments and
@@ -245,7 +247,7 @@ func TestARegisteredCloneHoldsWhatARunHolds(t *testing.T) {
 	// Register builds its pack from the instance's fetched set. The
 	// builder pins the fixture skill, as pack.Brief pins the real ones.
 	build := func(fetched fs.FS) (brief.Pack, []pack.ThirdParty, error) { return pack.BriefOf(src, fetched) }
-	if _, err := registerSkills(context.Background(), instance, clone, build); err != nil {
+	if err := registerSkills(context.Background(), instance, &RegisterReport{Path: clone}, pinSource{}, build); err != nil {
 		t.Fatal(err)
 	}
 	p, left, err := pack.BriefOf(src, os.DirFS(skills))
@@ -323,4 +325,190 @@ func TestRegisterRecordsTheDefaultBranch(t *testing.T) {
 			}
 		})
 	}
+}
+
+// c17Tree is a skill tree whose SKILL.md names name, with one executable
+// file.
+func c17Tree(name string) fstest.MapFS {
+	return fstest.MapFS{
+		"SKILL.md":         {Data: []byte("---\nname: " + name + "\n---\n\nUse " + name + ".\n"), Mode: 0o644},
+		"scripts/check.sh": {Data: []byte("#!/bin/sh\necho " + name + "\n"), Mode: 0o755},
+	}
+}
+
+// c17Pin is the pin named name whose sha256 is tree's hash.
+func c17Pin(t *testing.T, name string, tree fs.FS) config.SkillPin {
+	t.Helper()
+	sum, err := pack.TreeHash(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config.SkillPin{Name: name, Repo: "neondatabase/agent-skills",
+		Commit: "ccca3334a7542d3133134cc6926f2fafc6edeb1f", Path: "skills/" + name, SHA256: sum}
+}
+
+// skillsConfig is a project config that pins each of pins.
+func skillsConfig(pins ...config.SkillPin) string {
+	out := "merge:\n  mechanism: direct\nskills:\n"
+	for _, p := range pins {
+		out += fmt.Sprintf("  - name: %s\n    repo: %s\n    commit: %s\n    path: %s\n    sha256: %s\n",
+			p.Name, p.Repo, p.Commit, p.Path, p.SHA256)
+	}
+	return out
+}
+
+// originClone is a clone with one commit that holds each file of files
+// with its body, and origin/main at that commit.
+func originClone(t *testing.T, files map[string]string) string {
+	t.Helper()
+	clone := t.TempDir()
+	for f, body := range files {
+		writeClone(t, clone, f, body)
+	}
+	gitIn(t, clone, "init", "-q")
+	gitIn(t, clone, "add", "-A")
+	gitIn(t, clone, "commit", "-q", "-m", "init")
+	gitIn(t, clone, "update-ref", "refs/remotes/origin/main", "HEAD")
+	return clone
+}
+
+func gitIn(t *testing.T, clone string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", clone, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v %s", args, err, out)
+	}
+}
+
+// fakeFetch serves each pin from trees, and records each name it fetched.
+type fakeFetch struct {
+	trees   map[string]fs.FS
+	fetched []string
+}
+
+func (f *fakeFetch) fetch(_ context.Context, pin config.SkillPin) (fs.FS, error) {
+	f.fetched = append(f.fetched, pin.Name)
+	if tree, ok := f.trees[pin.Name]; ok {
+		return tree, nil
+	}
+	return nil, errors.New("fetch " + pin.Name + ": the network is down")
+}
+
+// C17: register writes the pins of its project's config at origin/<branch>
+// into the clone, from the store or a fetch, and no other project's pins.
+// A failed pin does not fail the register. A config that does not load
+// writes the kernel skills only, and a skills: list that only the
+// worktree holds writes no pin.
+func TestC17RegisterWritesItsProjectsPinsAndNoOther(t *testing.T) {
+	ctx := context.Background()
+	neonTree, pgTree, otherTree := c17Tree("neon"), c17Tree("neon-postgres"), c17Tree("house-style")
+	neon, pg, other := c17Pin(t, "neon", neonTree), c17Pin(t, "neon-postgres", pgTree), c17Pin(t, "house-style", otherTree)
+	wantNeon := map[string]string{
+		"SKILL.md":         `644 "---\nname: neon\n---\n\nUse neon.\n"`,
+		"scripts/check.sh": `755 "#!/bin/sh\necho neon\n"`,
+	}
+	noDir := func(t *testing.T, clone string, names ...string) {
+		t.Helper()
+		for _, root := range []string{".claude/skills", ".agents/skills"} {
+			for _, n := range names {
+				if _, err := os.Stat(filepath.Join(clone, root, n)); !errors.Is(err, os.ErrNotExist) {
+					t.Errorf("the clone holds %s/%s (%v)", root, n, err)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(clone, root, "loop-init", "SKILL.md")); err != nil {
+				t.Errorf("the clone holds no kernel skill: %v", err)
+			}
+		}
+	}
+
+	t.Run("its own pins", func(t *testing.T) {
+		store := userspace.Store{Dir: t.TempDir()}
+		if err := store.Put("p1", pg, pgTree); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Put("p2", other, otherTree); err != nil {
+			t.Fatal(err)
+		}
+		clone := originClone(t, map[string]string{".loop/config.yaml": skillsConfig(neon, pg)})
+		f := &fakeFetch{trees: map[string]fs.FS{"neon": neonTree}}
+		rep := RegisterReport{Project: "p1", Branch: "main", Path: clone}
+		if err := registerSkills(ctx, t.TempDir(), &rep, pinSource{store: store, fetch: f.fetch}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(rep.UserSkills, []string{"neon", "neon-postgres"}) || rep.UserSkillsFailed != nil || rep.UserSkillsConfig != "" {
+			t.Fatalf("user_skills = %v, failed %v, config %q", rep.UserSkills, rep.UserSkillsFailed, rep.UserSkillsConfig)
+		}
+		if !slices.Equal(f.fetched, []string{"neon"}) {
+			t.Fatalf("fetched %v; want neon only, as the store holds neon-postgres", f.fetched)
+		}
+		for _, root := range []string{".claude/skills", ".agents/skills"} {
+			if got := tree(t, filepath.Join(clone, root, "neon")); !maps.Equal(got, wantNeon) {
+				t.Errorf("%s/neon = %v", root, got)
+			}
+			if got := tree(t, filepath.Join(clone, root, "neon-postgres")); got["SKILL.md"] != `644 "---\nname: neon-postgres\n---\n\nUse neon-postgres.\n"` {
+				t.Errorf("%s/neon-postgres = %v", root, got)
+			}
+		}
+		noDir(t, clone, "house-style")
+		if _, ok := store.Held("p1", neon); !ok {
+			t.Error("the fetched neon is not in the store")
+		}
+		out, err := exec.Command("git", "-C", clone, "status", "--porcelain", "--untracked-files=all").Output()
+		if err != nil || len(out) != 0 {
+			t.Fatalf("git sees the skills: %q %v", out, err)
+		}
+	})
+
+	t.Run("a failed pin", func(t *testing.T) {
+		bad := c17Pin(t, "broken", c17Tree("broken"))
+		clone := originClone(t, map[string]string{".loop/config.yaml": skillsConfig(neon, bad)})
+		f := &fakeFetch{trees: map[string]fs.FS{"neon": neonTree}}
+		rep := RegisterReport{Project: "p1", Branch: "main", Path: clone}
+		if err := registerSkills(ctx, t.TempDir(), &rep, pinSource{store: userspace.Store{Dir: t.TempDir()}, fetch: f.fetch}, nil); err != nil {
+			t.Fatalf("a failed pin failed the register: %v", err)
+		}
+		want := []PinFailure{{Name: "broken", Reason: "fetch broken: the network is down"}}
+		if !slices.Equal(rep.UserSkills, []string{"neon"}) || !slices.Equal(rep.UserSkillsFailed, want) {
+			t.Fatalf("user_skills = %v, failed %v; want neon, and %v", rep.UserSkills, rep.UserSkillsFailed, want)
+		}
+		noDir(t, clone, "broken")
+	})
+
+	t.Run("a config that does not load", func(t *testing.T) {
+		clone := originClone(t, map[string]string{
+			".loop/config.yaml":            skillsConfig(neon),
+			".claude/skills/neon/SKILL.md": "# committed\n",
+		})
+		f := &fakeFetch{trees: map[string]fs.FS{"neon": neonTree}}
+		rep := RegisterReport{Project: "p1", Branch: "main", Path: clone}
+		if err := registerSkills(ctx, t.TempDir(), &rep, pinSource{store: userspace.Store{Dir: t.TempDir()}, fetch: f.fetch}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if rep.UserSkills != nil || f.fetched != nil || !strings.Contains(rep.UserSkillsConfig, "origin/main tracks .claude/skills/neon") {
+			t.Fatalf("user_skills = %v, fetched %v, config %q", rep.UserSkills, f.fetched, rep.UserSkillsConfig)
+		}
+		if got, err := os.ReadFile(filepath.Join(clone, ".claude/skills/neon/SKILL.md")); err != nil || string(got) != "# committed\n" {
+			t.Fatalf(".claude/skills/neon/SKILL.md = %q, %v", got, err)
+		}
+		noDir(t, clone)
+		if _, err := os.Stat(filepath.Join(clone, ".agents/skills/neon")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the clone holds .agents/skills/neon (%v)", err)
+		}
+	})
+
+	t.Run("a skills list only the worktree holds", func(t *testing.T) {
+		clone := originClone(t, map[string]string{".loop/config.yaml": "merge:\n  mechanism: direct\n"})
+		writeClone(t, clone, ".loop/config.yaml", skillsConfig(neon))
+		gitIn(t, clone, "commit", "-q", "-am", "pin neon on a local branch")
+		f := &fakeFetch{trees: map[string]fs.FS{"neon": neonTree}}
+		rep := RegisterReport{Project: "p1", Branch: "main", Path: clone}
+		if err := registerSkills(ctx, t.TempDir(), &rep, pinSource{store: userspace.Store{Dir: t.TempDir()}, fetch: f.fetch}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if rep.UserSkills != nil || f.fetched != nil || rep.UserSkillsConfig != "" {
+			t.Fatalf("user_skills = %v, fetched %v, config %q", rep.UserSkills, f.fetched, rep.UserSkillsConfig)
+		}
+		noDir(t, clone, "neon")
+	})
 }
