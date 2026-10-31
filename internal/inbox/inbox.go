@@ -162,7 +162,7 @@ func (in *Inbox) Register(srv *rpc.Server) error {
 			return err
 		}
 	}
-	return nil
+	return srv.GuardReplay("inbox answer", in.answerAtOtherHead)
 }
 
 // Changed wakes every `inbox wait` call, so a write the server made shows

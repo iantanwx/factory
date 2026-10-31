@@ -24,7 +24,8 @@ import (
 // Decisions).
 var mutexStages = []string{config.StageIntake, config.StageSpecAuthor, config.StageReproducer, config.StagePRDAuthor}
 
-func isMutexStage(stage string) bool { return slices.Contains(mutexStages, stage) }
+// MutexStage reports whether stage is a mutex stage.
+func MutexStage(stage string) bool { return slices.Contains(mutexStages, stage) }
 
 // mutexHolder returns the run that holds the project's stage mutex, or "".
 func mutexHolder(q querier, project, stage string) (string, error) {
