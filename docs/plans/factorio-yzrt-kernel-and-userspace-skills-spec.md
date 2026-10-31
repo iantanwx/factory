@@ -87,17 +87,31 @@ kernel skill (factorio-vlle).
   `versions/<v>/skills`. ADR 0013 decision 2 puts the pins outside `versions/<v>/`, so an upgrade
   keeps them. The writer reads an `fs.FS`, as it reads the kernel pins. The hash in the path makes
   a changed pin a new directory, so an old tree never serves under the new pin. We chose no
-  cleanup of old directories in this epic, over a sweep, because each tree is at most 32 MiB and a
-  pin changes only through a reviewed pull request.
+  cleanup of old directories, over a sweep, because each tree is at most 32 MiB and a pin changes
+  only through a reviewed pull request. The operator can delete any directory of the store by
+  hand, because the next config read fetches each pin that the store then lacks (C12).
 - **The config read starts the fetch, in the background.** We chose a call from the server's
   project loader to `userspace.Syncer.Observe` after each load, over a native job on a timer and
   over a fetch inside `config.Loader.Load`. ADR 0013 decision 2 ties the fetch to the config read.
-  A timer adds a second cadence. `Load` runs on the path of each run start, and ADR 0013 rejects a
-  fetch there. `Observe` returns at once. At most one fetch runs for one pin of one project.
+  A timer adds a second cadence. A fetch inside `Load` would make the caller wait for it, and a
+  run start calls `Load`. `Observe` returns at once. At most one fetch runs for one pin of one
+  project. A run start that reads the config through the loader can make `Observe` start a fetch
+  in its own goroutine, and ADR 0013 decision 2 allows that fetch, because the config read starts
+  it. The start makes no fetch call of its own, and never waits for a fetch.
+- **The store decides what to fetch, not the syncer's memory.** We chose `Store.Held` as the one
+  answer to "does the host hold this pin", over a state of each pin that the syncer keeps in
+  memory. A run reads the store, so a memory state can disagree with what a run gets. A tree that
+  goes missing or changes on disk would read as held in memory, and no fetch and no alert would
+  follow until the server restarts. After a restart, a memory state would also fetch each pin
+  again, even a pin that the store holds. ADR 0013 decision 2 defines a changed list by what the
+  host holds. The syncer's memory keeps two facts for each pin only: whether a fetch runs, and how
+  the last fetch that ended came out.
 - **A project's failed pins raise one alert of a new kind.** We chose `project_skills_missing`,
   keyed by project, over `third_party_skills_missing`, which names no project (ADR 0013,
-  Consequences). A pin whose first fetch still runs raises nothing. Only a failed fetch or hash
-  does.
+  Consequences). The alert names each pin of the list that the store does not hold and whose last
+  ended fetch failed. A pin whose first fetch still runs raises nothing. We rejected an alert from
+  the first read of a pin that the store lacks. Each new pin and each restart would then open an
+  alert that closes a few seconds later, when the fetch passes.
 - **The brief lists the userspace skills, and the pack hash covers the kernel only.** We chose a
   new `user_skills` list in the brief, with name, repo, commit and sha256, over adding the
   userspace trees to `pack_hash`. The hash names the release's pack, and two projects' runs of one
@@ -120,6 +134,12 @@ kernel skill (factorio-vlle).
 - **The Neon pins leave the kernel last.** We chose entry 10 after entries 6 and 8, over removing
   the pins with entry 1. A project that uses Neon must pin both skills before they leave the kernel
   (PRD scope check). Until entry 6 lands, a pin reaches no run.
+- **The operator's upgrade holds the Neon step.** We chose a line in
+  `docs/operator-checklist.md`, which entry 10 adds, over a decision item for the operator. A merge
+  of entry 10 changes no host. A host loses the two kernel pins only when the operator runs the
+  upgrade to a release that holds entry 10. So the line tells the operator to pin both skills in
+  each project that uses Neon before that upgrade. The decomposer files no decision item, and no
+  ticket can check another project's config.
 
 ## Assumptions
 
@@ -134,6 +154,10 @@ kernel skill (factorio-vlle).
 - One fetch for each config read of a failing pin is cheap. The loader caches a read for 30
   seconds, so a failing pin costs about two fetches a minute. This is wrong if `codeload` limits
   the host's rate. The alert then stays open, and runs still start.
+- To hash each pin's stored tree at each config read is cheap. The two Neon trees hold a few
+  hundred KiB. This is wrong if a project pins a tree near the 32 MiB limit. Then `Observe` and
+  each run start spend that hash, and the store needs a cheaper check, such as a size and time
+  stamp beside the hash.
 - No skill text in `pack/` names a path `../<name>/SKILL.md` with a name outside `loop-`. A grep
   of the base at `1c3ab21` finds none. This is wrong if the gate of entry 4 fails on the base.
   Entry 4 then rewrites that line.
@@ -170,11 +194,21 @@ the line `name: <name>`. A pin passes only when both hold, so a changed byte on 
 held. `Store.Put` writes a verified tree into a temporary directory beside the target and renames
 it into place. The server and `loop register` can then write one pin at the same time, and neither
 reads a half-written tree. The syncer takes a fetch function, which `cmd/loop/serve.go` builds from
-`release.SkillFetcher`. Each pin of a project is in one of four states: absent, fetching, held and
-failed. `Observe` moves each absent or failed pin to fetching, and starts one goroutine for it.
-The goroutine moves the pin to held or failed. After each change, the syncer raises the project's
-alert with each failed pin of the list that `Observe` last saw, or clears it when the store holds each
-pin of that list. A pin that leaves the list leaves the alert.
+`release.SkillFetcher`. `Observe` records the list, and calls `Store.Held` for each pin. For each
+pin that the store does not hold and that no fetch runs for, it starts one goroutine that fetches,
+puts and records the outcome. In memory, the syncer keeps only a running flag and the last ended
+outcome of each pin: none, passed or failed. After each `Observe` and after each ended fetch, the
+syncer settles the project's alert from the list that `Observe` last saw:
+
+- When the store holds each pin of the list, it clears the alert.
+- Otherwise, when some pin that the store does not hold has a last outcome of failed, it raises
+  the alert with each such pin.
+- Otherwise it leaves the alert as it is. A first fetch still runs, so its outcome decides.
+
+A pin that leaves the list leaves the alert. A tree that goes missing or changes on disk reads as
+not held at the next `Observe`, so the syncer fetches it again. When that fetch fails, the alert
+names the pin. After a restart, each outcome is none. A pin that the store holds is not fetched,
+and an alert from before the restart stays open until a fetch ends.
 
 **A run's pack.** `brief.Pack` gains `User []UserSkill`, each one a pin and its verified tree.
 `Pack.WithUser` returns a copy that holds them. `Write` writes each one under its own name, and
@@ -228,13 +262,18 @@ Held                a pin and its tree, read from the store
   invariant: TreeHash(Tree) == Pin.SHA256, and Tree's SKILL.md holds the line name: <Pin.Name>.
              Store.Held is the only constructor.
 
-pinState            absent -> fetching -> held | failed, and failed -> fetching
-  One state for each (project, name, sha256), kept in the syncer's memory. A state machine, not
-  an in-flight flag beside a last-error field: the two would have to agree.
+fetchRecord         running bool, last outcome none | passed | failed
+  One record for each (project, name, sha256), kept in the syncer's memory. It holds no "held"
+  value: Store.Held is the one answer to whether the host holds a pin, so a run and the syncer
+  never disagree. running guards one fetch for each pin. last decides only the alert, and only
+  for a pin that the store does not hold.
 
 internal/brief
 
 UserSkill           a Held as the writer takes it: Pin and Tree
+  Not merged with userspace.Held. internal/pack imports internal/brief, and internal/userspace
+  imports internal/pack for TreeHash. So internal/brief cannot import internal/userspace, and the
+  caller copies each Held into a UserSkill.
 Pack.User []UserSkill   (new field)
   invariant: no name starts with loop-, and no name is a kernel directory. Write refuses the
              pack otherwise.
@@ -296,8 +335,9 @@ type Fetch func(ctx context.Context, pin config.SkillPin) (fs.FS, error)
 
 type Syncer struct { /* Store, Fetch, config.Alerter, logger */ }
 func NewSyncer(st Store, fetch Fetch, alerts config.Alerter, log *slog.Logger) *Syncer
-// Observe records pins as project's list, and starts a fetch of each absent or failed pin. It
-// returns before any fetch ends.
+// Observe records pins as project's list, and starts a fetch of each pin that Store.Held does
+// not hold and that no fetch runs for. It settles the project's alert, and returns before any
+// fetch ends.
 func (s *Syncer) Observe(ctx context.Context, project string, pins []config.SkillPin)
 // HeldSet returns the held pins of pins, in their order, and never fetches.
 func (s Store) HeldSet(project string, pins []config.SkillPin) []Held
@@ -410,14 +450,15 @@ sequenceDiagram
     end
     PL->>Sy: Observe(project, Config.Skills)
     PL-->>Tick: snapshot (no wait)
-    Sy->>F: fetch each absent or failed pin (goroutine)
+    Sy->>St: Held, for each pin of the list
+    Sy->>F: fetch each pin not held and not running (goroutine)
     alt hash and name match
         F-->>Sy: tree
         Sy->>St: Put
-        Sy->>A: clear project_skills_missing when each pin is held
+        Sy->>A: clear project_skills_missing when the store holds each pin
     else fetch or hash fails
         F-->>Sy: error
-        Sy->>A: raise project_skills_missing (names each failed pin)
+        Sy->>A: raise project_skills_missing (names each pin not held whose last fetch failed)
     end
 ```
 
@@ -538,7 +579,8 @@ sequenceDiagram
    - Needs: 1
    - Proves: C10, C11, C12
    - Done when: a config read that names a pin the host lacks stores the pin's tree under
-     `<state_dir>/userspace-skills/`, and a pin with a wrong hash opens one alert for its project.
+     `<state_dir>/userspace-skills/`, a pin with a wrong hash opens one alert for its project, and
+     a stored tree that is deleted is fetched again at the next config read.
 6. **Userspace skills in runs and rooms.** Add `Pack.User`, `WithUser`, `UserSkills` and the
    brief's `user_skills`. Write each user skill under its own name, add its directory to the
    injected paths, and keep `Hash` on the kernel. Build each stage run's and each room's pack with
@@ -574,28 +616,36 @@ sequenceDiagram
    - Done when: `loop project show` of a project that pins `neon` and commits
      `.claude/skills/house-style/` lists the pin with its four fields and `held`, and the directory.
 10. **The Neon pins leave the kernel.** Delete the `neon` and `neon-postgres` entries of
-    `pack/third-party.json`.
-    - Files: `pack/third-party.json`, any test that counts the embedded pins
-    - Needs: 6, 8. The operator merges a `skills:` pin of both Neon skills into each project on the
-      host that uses Neon before this entry merges.
+    `pack/third-party.json`. Add a line to `docs/operator-checklist.md` that tells the operator to
+    merge a `skills:` pin of both Neon skills into each project that uses Neon, before the upgrade
+    to the release that holds this entry.
+    - Files: `pack/third-party.json`, `docs/operator-checklist.md`, any test that counts the
+      embedded pins
+    - Needs: 6, 8. The operator's step comes before the upgrade, not before this merge, because a
+      merge changes no host.
     - Proves: C19
-    - Done when: `pack.ThirdPartyPins()` returns `asd-ste100` and `impeccable` only, and a run of a
-      project with no `skills:` holds no `loop-neon` and no `loop-neon-postgres`.
+    - Done when: `pack.ThirdPartyPins()` returns `asd-ste100` and `impeccable` only, a run of a
+      project with no `skills:` holds no `loop-neon` and no `loop-neon-postgres`, and the checklist
+      holds the line.
 
 ## Out of scope
 
 - The conditional load of a kernel skill, `loop-impeccable` among them. It belongs to epic
   factorio-791i, which this epic blocks.
 - A rename of any kernel skill. It belongs to the vocabulary epic, factorio-vlle.
-- A registry or catalogue of userspace skills that projects share. It belongs to no epic, by the
-  epic body.
+- A registry or catalogue of userspace skills that projects share. Never, by the epic body.
 - A rewrite of the text of any pinned skill. Never, by ADR 0007 and ADR 0013.
 - A licence review of a userspace pin's source. It belongs to the project that pins it.
 - The `skills:` pins in another project's repository, such as a project that uses Neon. They
-  belong to that project, through its own pull request, before work entry 10 merges.
-- Cleanup of old pin directories in `<state_dir>/userspace-skills/`. It belongs to no epic yet. A
-  later epic takes it if the directory grows.
-- A pin from a private repository. It belongs to no epic yet. The fetch has no token for it.
+  belong to that project, through its own pull request, before the operator upgrades the host to
+  the release that holds work entry 10.
+- A sweep of old pin directories in `<state_dir>/userspace-skills/`. Never in the loop. It belongs
+  to the operator, by hand. Each directory grows by one tree of at most 32 MiB for each reviewed
+  pin change. A delete is safe, because the next config read fetches each pin that the store then
+  lacks (C12).
+- A pin from a private repository. Never, while each pin source is public, by the first
+  assumption. The operator asks the coordinator for an epic when a project needs one. Until then,
+  such a pin fails its fetch, and `project_skills_missing` names it (C11).
 - The retro's scope rubric text. It belongs to factorio-vlle.
 - A new stage. The QA epic, factorio-nhb5, and the simplify epic, factorio-1r94, own theirs.
 
@@ -619,7 +669,8 @@ order.
 
 **C3. Equivalence: a kernel pin and a userspace pin pass one check.** Proves A6. For each row of
 C2's table, and for each valid pin, `ReadThirdParty` over a one-pin `third-party.json` and
-`ParseProjectConfig` over a one-pin `skills:` list both accept it, or both refuse it. The four pins
+`ParseProjectConfig` over a one-pin `skills:` list both accept it, or both refuse it. The row "two
+pins with one name" runs over a two-pin file in both readers, and both refuse it. The four pins
 of the base's `pack/third-party.json` pass the repo rule.
 *Run both readers over the same table, and assert equal outcomes. Read the embedded pins.*
 
@@ -680,17 +731,22 @@ of pin `neon` of project `p1` fails, or returns a tree with another hash, one op
 `project_skills_missing` with key `project_skills_missing:p1` names `neon`. A second failed pin
 adds its name to the same alert. Project `p2`, which pins nothing, has no such alert. After a
 fetch passes for each pin of the list, the alert closes. After `Observe` with a list that drops
-the failed pin and holds every other pin, the alert closes. A pin whose first fetch still runs
-raises no alert.
+the failed pin, while the store holds each other pin of the list, the alert closes. A pin whose first
+fetch still runs raises no alert. After the stored tree of a held pin `neon` is deleted, or one
+byte of it changes, and the next fetch of `neon` fails, the alert names `neon`. A retry of a failed
+pin does not close the alert while it runs.
 *Syncer tests with a fake fetch and a store alerter over a test store.*
 
-**C12. Behaviour: a changed list fetches, and nothing else does.** Proves A12. `Observe` with a
-pin that the store lacks calls the fetch once. A second `Observe` while that fetch runs calls none.
-An `Observe` after a failed fetch calls it again. An `Observe` whose pins are all held calls none.
-`Observe` returns before a fetch that blocks ends. The server's project loader calls
-`Observe` with the `Skills` of the config in force after each load.
-*Syncer tests with a counting fetch that blocks on a channel. A `projectLoader` test with a fake
-syncer.*
+**C12. Behaviour: a pin that the store does not hold is fetched, and no other pin is.** Proves A8,
+A12. "Held" here means that `Store.Held` returns true. `Observe` with a pin that the store does not
+hold calls the fetch once. A second `Observe` while that fetch runs calls none. An `Observe` after
+a failed fetch calls it again. An `Observe` whose pins the store holds calls none. After the
+stored tree of a held pin is deleted, or one byte of it changes, the next `Observe` calls the
+fetch again. A new `Syncer` over a store that holds each pin, as after a restart, calls no fetch
+at its first `Observe`. `Observe` returns before a fetch that blocks ends. The server's project
+loader calls `Observe` with the `Skills` of the config in force after each load.
+*Syncer tests with a counting fetch that blocks on a channel, over a test store whose files the
+test deletes or changes. A `projectLoader` test with a fake syncer.*
 
 **C13. Behaviour: a run holds its project's pin, byte for byte.** Proves A6, U-4. A stage run of a
 project that pins `neon`, with `neon` held, holds `<root>/neon/` for its harness. Each file has
@@ -708,9 +764,12 @@ comes from.
 
 **C15. Behaviour: a run start never fetches, and never waits.** Proves A8, A12, U-5, U-6. A stage
 run of a project that pins `neon`, while the store does not hold `neon`, starts. It holds no
-`neon`, and its brief lists none. The fetch function is not called on the start path. A start
-that runs while a fetch of `neon` blocks completes before the fetch ends.
-*A scheduler test whose fetch counts calls from the start and blocks on a channel.*
+`neon`, and its brief lists none. The start makes no fetch call of its own: it reads the store
+through `HeldSet` only. A fetch that `Observe` starts from the start's config read runs in its own
+goroutine, which ADR 0013 decision 2 allows. A start that runs while a fetch of `neon` blocks
+completes before the fetch ends.
+*A scheduler test whose fetch blocks on a channel until the test ends, and whose syncer is the
+only holder of that fetch. The test asserts that the start returns while the fetch still blocks.*
 
 **C16. Behaviour: the push scan covers each pin directory, exactly.** Proves U-3. With project
 pins `neon` in its last good config, `Scan` refuses a commit that adds
@@ -742,8 +801,10 @@ project that declares nothing returns two empty lists.
 `pack/third-party.json` pins exactly `asd-ste100` and `impeccable`. A stage run of a project with
 no `skills:` holds `loop-asd-ste100` and `loop-impeccable`, and holds no `loop-neon`, no
 `loop-neon-postgres`, no `neon` and no `neon-postgres` under either root.
-*A pack test over `ThirdPartyPins()`, and a scheduler test over a fetched kernel set that holds
-the two pins.*
+`docs/operator-checklist.md` holds a line that names `neon`, `neon-postgres` and `skills:`, and
+says to pin both before the upgrade.
+*A pack test over `ThirdPartyPins()`, a scheduler test over a fetched kernel set that holds the
+two pins, and a test that reads the checklist.*
 
 ## Observable behaviour
 
