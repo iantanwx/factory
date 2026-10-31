@@ -21,6 +21,11 @@ const AlertProjectConfigInvalid = "project_config_invalid"
 // 0007).
 const AlertThirdPartySkills = "third_party_skills_missing"
 
+// AlertProjectSkills is the alert kind for a project's userspace skill
+// pins that the host does not hold and whose last fetch failed. Its dedupe
+// key is AlertProjectSkills + ":" + project (ADR 0013 decision 2).
+const AlertProjectSkills = "project_skills_missing"
+
 // Alert is one alert a config load raises.
 type Alert struct {
 	Project   string
