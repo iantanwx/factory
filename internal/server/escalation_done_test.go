@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/machine"
@@ -125,5 +126,54 @@ func TestRaiseOnATerminalItemIsRefused(t *testing.T) {
 	fixer := w.runToken("fix-1", "", "fixer")
 	if env, code := w.as(fixer, "work", "peek", "--stage", "fixer"); code != 1 {
 		t.Fatalf("fixer peek = %d %v, want nothing", code, env)
+	}
+}
+
+// The Terminal hook closes the escalations of the finished item first,
+// then queues its retro: the last child's merge closes the child's
+// escalation, lands the epic in done, and leaves one pending retro for
+// the epic and none for the ticket.
+func TestTerminalClosesEscalationsThenQueuesTheRetro(t *testing.T) {
+	w := newHumanWorld(t, "")
+	ctx := context.Background()
+	epic, res := w.srv.Machine.Create(ctx, machine.CreateRequest{Project: "alpha", Kind: machine.KindEpic, Title: "e",
+		Verb: "create_architecture", Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		t.Fatalf("create epic = %+v", res.Refusal)
+	}
+	is, err := w.bx.Get(ctx, epic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.bx.Update(ctx, epic, beadsx.UpdateSpec{IfStatus: is.Status, Status: machine.Execution}); err != nil {
+		t.Fatal(err)
+	}
+	child, res := w.srv.Machine.Create(ctx, machine.CreateRequest{Project: "alpha", Kind: machine.KindTicket, Title: "c",
+		Verb: "create", Actor: machine.Server("test"), Facts: map[string]string{machine.FactEpic: epic}})
+	if res.Refusal != nil {
+		t.Fatalf("create child = %+v", res.Refusal)
+	}
+	co := w.runToken("run-1", child, machine.StageImplementer)
+	env, code := w.as(co, "escalation", "raise", "--score", "4", "--body", "which of two layouts the owner prefers")
+	if code != 0 {
+		t.Fatalf("raise = %d %v", code, env)
+	}
+
+	res = w.srv.Machine.Apply(ctx, machine.Request{Project: "alpha", Item: child, Verb: "merged",
+		Params: map[string]string{"sha": "6f04f00"}, Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		t.Fatalf("merged = %+v", res.Refusal)
+	}
+	if it := w.show(epic); it.Status != machine.Done {
+		t.Fatalf("epic = %s", it.Status)
+	}
+	if n := w.count(`SELECT count(*) FROM escalations WHERE item = ? AND state = ?`, child, escalation.StateClosed); n != 1 {
+		t.Fatalf("%d closed escalations on %s, want 1", n, child)
+	}
+	if n := w.count(`SELECT count(*) FROM retros WHERE project = 'alpha' AND item = ? AND kind = 'epic' AND state = 'pending'`, epic); n != 1 {
+		t.Fatalf("%d pending retros on epic %s, want 1", n, epic)
+	}
+	if n := w.count(`SELECT count(*) FROM retros WHERE item = ?`, child); n != 0 {
+		t.Fatalf("%d retros on ticket %s, want none", n, child)
 	}
 }
