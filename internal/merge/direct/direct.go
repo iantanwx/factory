@@ -2,10 +2,12 @@
 // repository with no merge queue. The loop is the queue: a hand-off
 // records the PR, and each poll merges it through GitHub's merge API with
 // a merge commit. The call carries the reviewed head sha, so GitHub
-// refuses the merge when the head moved. A PR that GitHub refuses because
-// it conflicts or is behind the base goes to rework. On a busy base this
-// costs another review and another CI run for each merge, and that cost
-// is accepted for a repository with no queue.
+// refuses the merge when the head moved. A PR whose head lacks the tip of
+// the base goes to rework before the call, because its CI ran on an older
+// base. A PR that GitHub refuses because it conflicts or is behind the
+// base goes to rework too. On a busy base this costs another review and
+// another CI run for each merge, and that cost is accepted for a
+// repository with no queue.
 package direct
 
 import (
@@ -69,15 +71,16 @@ func (d *Direct) lock(project string) func() {
 }
 
 // Poll merges the PR at its reviewed head, one merge at a time for each
-// project, once every required check passed there. A draft, or a PR whose base is not the project's default
-// branch, is dequeued under a reason that names it, with no merge call. A
-// PR that conflicts with its base goes to rework with no merge call. A
-// head that moved is refused by GitHub, and the PR stays pending
-// until the hand-off job or the reactor returns the ticket to review. Any
-// other refusal is read from what GitHub reports about the PR: a
-// conflict, a branch behind the base, or red CI. A refusal while GitHub
-// still computes the mergeable state stays pending, and the next poll
-// tries again.
+// project, once every required check passed there and the head holds the
+// tip of the base. A draft, or a PR whose base is not the project's
+// default branch, is dequeued under a reason that names it, with no merge
+// call. A PR that conflicts with its base, or whose head lacks the tip of
+// the base, goes to rework with no merge call. A head that moved is
+// refused by GitHub, and the PR stays pending until the hand-off job or
+// the reactor returns the ticket to review. Any other refusal is read
+// from what GitHub reports about the PR: a conflict, a branch behind the
+// base, or red CI. A refusal while GitHub still computes the mergeable
+// state stays pending, and the next poll tries again.
 func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	unlock := d.lock(pr.Project.ID)
 	defer unlock()
@@ -93,6 +96,17 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	}
 	if res, ok := merge.Conflicting(cur); ok {
 		return res, nil
+	}
+	// No queue tests the PR on the current base here. A head that lacks
+	// the tip of the base has CI from an older base, so it goes to rework
+	// with no merge call, and the implementer merges the base.
+	behind, err := d.gh.Behind(ctx, pr.Project, cur.Base.Ref, pr.Head)
+	if err != nil {
+		return merge.Result{}, err
+	}
+	if behind {
+		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Conflict,
+			Detail: "the reviewed head lacks the tip of " + cur.Base.Ref + ", so its CI ran on an older base"}, nil
 	}
 	// A repository with no rulesets lets any merge through, so the loop
 	// reads CI on the reviewed head itself before it merges. Each

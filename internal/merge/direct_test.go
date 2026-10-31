@@ -121,7 +121,9 @@ func (s *slowMerges) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // Two eligible tickets on one project merge one at a time, even when two
-// ticks overlap.
+// polls overlap. The second poll reads the base after the first merge,
+// so it finds its head behind and sends it to rework with no merge call.
+// Two polls that overlapped would both read the old base and both merge.
 func TestDirectMergesOneAtATimeForEachProject(t *testing.T) {
 	rt := &slowMerges{}
 	e := newDirect(t, func(c *github.Config) { c.HTTP = &http.Client{Transport: rt} })
@@ -147,12 +149,18 @@ func TestDirectMergesOneAtATimeForEachProject(t *testing.T) {
 	if rt.max != 1 {
 		t.Fatalf("%d merges were in flight at once; want 1", rt.max)
 	}
-	if n := len(e.world.Merges()); n != 2 {
-		t.Fatalf("%d merge calls; want 2", n)
+	if got := e.world.Merges(); len(got) != 1 || got[0].Status != http.StatusOK {
+		t.Fatalf("merge calls = %+v; want one merge", got)
 	}
 	e.tick()
-	e.wantStatus(a, machine.Done)
-	e.wantStatus(b, machine.Done)
+	merged, behind := a, b
+	if got := e.world.Merges()[0].PR; got == prB.Number {
+		merged, behind = b, a
+	}
+	e.wantStatus(merged, machine.Done)
+	if it := e.wantStatus(behind, machine.Todo); it.Fact(machine.FactEntry) != machine.EntryRework {
+		t.Fatalf("entry = %q; want rework", it.Fact(machine.FactEntry))
+	}
 }
 
 // With no ruleset to stop it, the direct merge reads CI on the reviewed
