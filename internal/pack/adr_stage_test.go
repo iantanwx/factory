@@ -33,6 +33,16 @@ func adrTestSection(t *testing.T) string {
 	return flat(s)
 }
 
+// unquoted drops the quote marker that starts each line, so a sentence that
+// wraps across two quoted lines reads as one sentence.
+func unquoted(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimPrefix(strings.TrimLeft(l, " "), ">")
+	}
+	return strings.Join(lines, "\n")
+}
+
 // C1: the test has four parts, and an ADR needs all four.
 func TestC1TheADRTestHasFourPartsAndNeedsAll(t *testing.T) {
 	s := adrTestSection(t)
@@ -79,7 +89,7 @@ func TestC3NoPackFileStatesASecondADRRule(t *testing.T) {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".md") {
 			return err
 		}
-		text := flat(read(t, path))
+		text := flat(unquoted(read(t, path)))
 		for _, rule := range second {
 			if strings.Contains(text, rule) {
 				t.Errorf("%s states a second rule: %q", path, rule)
