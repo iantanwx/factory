@@ -18,7 +18,7 @@
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-encode-lessons", "loop-sdlc-documents", "loop-unslop", "loop-commit"]
     },
-    "prd-author": {
+    "unattended-brainstorm": {
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-sdlc-split", "loop-sdlc-documents", "loop-brainstorm"]
     },

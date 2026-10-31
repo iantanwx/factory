@@ -63,6 +63,19 @@ func TestC9HelpAndInboxKindsHoldNoRetiredWord(t *testing.T) {
 	}
 }
 
+// C9: the prd-author rename retires its words, and no help text holds one.
+func TestC9HelpHoldsNoPRDAuthorWord(t *testing.T) {
+	words := []string{"prd-author", "PRD author"}
+	for _, w := range words {
+		if !slices.Contains(config.RetiredWords(), w) {
+			t.Errorf("RetiredWords() lacks %q", w)
+		}
+	}
+	if hits := retiredIn(helpTexts(cli.Surface()), words); len(hits) > 0 {
+		t.Fatalf("a help text holds a retired word:\n%s", strings.Join(hits, "\n"))
+	}
+}
+
 // The check reads each flag description, and names the text that holds a
 // retired word.
 func TestRetiredInNamesTheHelpText(t *testing.T) {

@@ -46,17 +46,17 @@ var DefaultEscalatedModels = map[agenthost.Harness]string{
 // each author and the code-reviewer at high. A stage with no row, such as
 // an agent job, runs at the harness's own default.
 var DefaultEfforts = map[string]string{
-	config.StageImplementer:  "high",
-	config.StageCodeReviewer: "high",
-	config.StageDocReviewer:  "medium",
-	config.StagePRDAuthor:    "high",
-	config.StageSpecAuthor:   "high",
-	config.StageDecomposer:   "high",
-	config.StageAmender:      "medium",
-	config.StageTriage:       "medium",
-	config.StageReproducer:   "medium",
-	config.StageRetro:        "medium",
-	config.StageIntake:       "medium",
+	config.StageImplementer:          "high",
+	config.StageCodeReviewer:         "high",
+	config.StageDocReviewer:          "medium",
+	config.StageUnattendedBrainstorm: "high",
+	config.StageSpecAuthor:           "high",
+	config.StageDecomposer:           "high",
+	config.StageAmender:              "medium",
+	config.StageTriage:               "medium",
+	config.StageReproducer:           "medium",
+	config.StageRetro:                "medium",
+	config.StageIntake:               "medium",
 }
 
 // QuotaLimit is the used percent at which the chooser skips a harness,

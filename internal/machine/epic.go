@@ -339,7 +339,7 @@ func epicTable() *Table {
 	rows := []Row{
 		{Verb: VerbPRDSubmit, From: []string{Initial}, To: PRDReview, Command: "prd submit",
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
-		// A prd-author run's epic exists before its PRD, so this row records
+		// An unattended-brainstorm run's epic exists before its PRD, so this row records
 		// the path that a room's create records.
 		{Verb: VerbPRDSubmit, From: []string{PRDDrafting}, To: PRDReview, Command: "prd submit", Lease: LeaseDrop,
 			set: all(needCopy("pr", FactDocPR), needCopy("path", FactPRDPath)), Facts: []string{FactDocPR, FactPRDPath}},
@@ -356,7 +356,7 @@ func epicTable() *Table {
 		{Verb: VerbUnblock, From: []string{Backlog}, To: Architecture, Command: "work unblock",
 			When: "architecture_entry", when: factIs(FactEpicEntry, Architecture)},
 
-		claim(PRDNeeded, PRDDrafting, StagePRDAuthor),
+		claim(PRDNeeded, PRDDrafting, StageUnattendedBrainstorm),
 		claim(PRDReview, ToSame, StageDocReviewer),
 		claim(PRDAmending, ToSame, StageAmender),
 		claim(ADRReview, ToSame, StageDocReviewer),

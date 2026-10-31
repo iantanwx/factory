@@ -243,13 +243,13 @@ type EpicResult struct {
 // epic. With --architecture the epic follows an ADR, not a PRD: it waits
 // in architecture until the GitHub reactor sees an ADR whose Ticket line
 // names it on the base branch, and that ADR is the operator's sign-off
-// (R46). With none, it is a PRD epic that waits in prd_needed for a
-// prd-author run, and it carries the operator's words in its request fact.
-// With --blocked-by either waits in backlog on each blocker, and records
-// in epic_entry where unblock sends it. Every refusal comes before any
-// write. A PRD epic with no blocker asks the intake cap, after a replay
-// found no epic under its create key, so a cap that filled after the
-// first call does not refuse its replay.
+// (R46). With none, it is a PRD epic that waits in prd_needed for an
+// unattended-brainstorm run, and it carries the operator's words in its
+// request fact. With --blocked-by either waits in backlog on each blocker,
+// and records in epic_entry where unblock sends it. Every refusal comes
+// before any write. A PRD epic with no blocker asks the intake cap, after
+// a replay found no epic under its create key, so a cap that filled after
+// the first call does not refuse its replay.
 func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	pr, inv := call.Principal, call.Inv
 	if pr.Kind != cli.PrincipalCoordinator {
@@ -271,13 +271,13 @@ func (p *Pipeline) epicCreate(ctx context.Context, call *rpc.Call) cli.Result {
 			return cli.Reject(cli.CodePRDRequired, "no_operator_request",
 				"a PRD epic needs the operator's request: quote the operator's own words with --request, or pass --architecture for an epic that follows an ADR")
 		}
-		on, err := p.cfg.StageEnabled(ctx, prj, prdAuthorStage)
+		on, err := p.cfg.StageEnabled(ctx, prj, brainstormStage)
 		if err != nil {
 			return cli.Internal(err)
 		}
 		if !on {
 			return cli.Reject(cli.CodeUsage, "prd_author_disabled",
-				fmt.Sprintf("no stage writes the PRD in %s: add `%s: {}` under stages in its .loop/config.yaml, then create the epic again", prj, prdAuthorStage))
+				fmt.Sprintf("no stage writes the PRD in %s: add `%s: {}` under stages in its .loop/config.yaml, then create the epic again", prj, brainstormStage))
 		}
 	}
 	blockers := machine.ParseBlockers(inv.Flags["blocked-by"])
@@ -348,10 +348,10 @@ func (p *Pipeline) epicADR(ctx context.Context, call *rpc.Call) cli.Result {
 		RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
 }
 
-// prdAuthorStage is the run stage that writes a PRD epic's PRD. A project
+// brainstormStage is the run stage that writes a PRD epic's PRD. A project
 // whose config does not list it gets no PRD epic, because no run would
 // ever claim one there.
-const prdAuthorStage = "prd-author"
+const brainstormStage = machine.StageUnattendedBrainstorm
 
 // intakeCap asks the intake cap for the PRD epic of cr, unless a replay
 // finds the epic its create key already made.

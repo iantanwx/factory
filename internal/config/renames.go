@@ -15,11 +15,12 @@ import (
 // new name is a stage of this loop, and no old name is one. The release
 // after the renames empties it, and an old name then refuses the config.
 var stageRenames = map[string]string{
-	"fixer": StageTriage,
+	"prd-author": StageUnattendedBrainstorm,
+	"fixer":      StageTriage,
 }
 
 // retiredWords are the old role words that name no stage key.
-var retiredWords = []string{}
+var retiredWords = []string{"PRD author"}
 
 // NewStageName returns the new name of an old stage name, and false for
 // any other name.
