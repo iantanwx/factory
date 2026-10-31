@@ -70,6 +70,7 @@ waits on that record and not on you.
 | `timer-health` | 9 | Report the timer that did not fire as a loop fault |
 | `inbox` | 9 | Report the missing session or the refused ring as a loop fault |
 | `server` | 9 | Make the failed check pass, or report it as a loop fault |
+| `rules` | 9 | Compare the landed rule with the rules of each other project, and record the comparison |
 
 Each finding has a key, such as `overwatch:main:factorio:ci-yml@1a2b3c4d5e6f`. When you file a bug,
 report a fault, prepare a question or file a decision for a finding, quote the finding's key in its
@@ -531,6 +532,30 @@ and `project show`, from its own checkout. It refuses a run and a room. The CLI 
 upgrade outside your session and outside every checkout, and answers once it started. The
 upgrade drains the loop and restarts the server. After the restart, run `loop version`, and
 report the release it names. Never list a release or an upgrade under "Blocked on you".
+
+### The `rules` part and `learning` entries
+
+A retro lands a rule in one project as a ticket. The `rules` part names each rule whose ticket is
+`done` and that no comparison read yet. Its key is `overwatch:rules:<project>:L-<n>`. Two projects
+that hold one rule hold a rule of the loop, and the pack owns that rule. Whether two rules are one
+rule is your judgement. For each finding of the part, do these steps in this order:
+
+1. Read the merged change of the learning's ticket.
+2. Read the project policy files and the userspace skills of each other registered project, at its
+   default branch.
+3. Run `loop fault list --status open`. When an open fault already names the rule, run
+   `loop retro compared <learning> --fault F-<n>`, and file nothing.
+4. When another project holds the same rule, file one fault with `loop fault report`. It names
+   both projects, both rules and the finding key of each learning. Then run
+   `loop retro compared <learning> --fault F-<n>` for each learning it names.
+5. When no other project holds the rule, run `loop retro compared <learning>`, and file nothing.
+
+A retro also sends a learning to the operator as a `learning` entry of the inbox. Bring it to the
+operator by section 5, and record the answer with `loop inbox answer <entry>`. Then apply the
+answer with the operator's words. When the answer asks for a change in the learning's project, run
+`loop work create --project <project> --title "<title>" --body "<body>" --request "<the operator's words>"`.
+When the answer names a fault in the loop, file it with `loop fault report`, and quote the
+operator's words in the report. When the answer drops the learning, do nothing more.
 
 ## 10. Report
 

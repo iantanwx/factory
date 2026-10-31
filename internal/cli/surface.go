@@ -208,6 +208,9 @@ var surface = []Verb{
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the learnings file, read in the run's process"},
 		Flag{Name: "out", Type: FlagString, Description: "the panel file to write; a new temporary file when absent"}),
 	write(server("retro", "route", "send the panel file that `loop retro judge` wrote: the server checks each case against the bound retro's record, decides each learning's route with its own thresholds, stores each learning, puts one notice and marks the retro done", []string{"retro"}, nil, fileFlag)),
+	write(server("retro", "compared", "record that the coordinator compared a landed learning with the rules of every other project: set its compared_at, and link the loop fault that names the rule", coordinator,
+		[]Arg{arg("learning", "the learning id, L-<n>")},
+		Flag{Name: "fault", Type: FlagString, Description: "the loop fault that names the rule, F-<n>; absent when no other project holds it"})),
 
 	write(server("decision", "file", "file a decision that waits for its trigger", runOrCoordinator, nil, projectFlag,
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the question"},

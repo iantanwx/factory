@@ -2,10 +2,17 @@ package retro
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 // Stage is the run stage that learns from a finished item.
@@ -21,7 +28,7 @@ type Service struct {
 // Handlers returns the server handlers of the retro verbs, keyed by verb
 // path.
 func (s *Service) Handlers() map[string]rpc.Handler {
-	return map[string]rpc.Handler{"retro record": s.record, "retro held": s.held, "retro route": s.route}
+	return map[string]rpc.Handler{"retro record": s.record, "retro held": s.held, "retro route": s.route, "retro compared": s.compared}
 }
 
 // Register sets the handlers of the retro verbs.
@@ -108,4 +115,66 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 		return ref.Result()
 	}
 	return cli.Found(res)
+}
+
+// Compared is the answer of `loop retro compared`: the learning, when the
+// comparison read it, and the loop fault it links, or none.
+type Compared struct {
+	Stored
+	ComparedAt    time.Time `json:"compared_at"`
+	ComparedFault string    `json:"compared_fault,omitempty"`
+}
+
+// compared is `loop retro compared <learning> [--fault F-<n>]`: the
+// coordinator compared a landed learning with the rules of every other
+// project. It sets compared_at, so the overwatch part `rules` reads the
+// learning no more, and links the fault that names a shared rule. Whether
+// two rules are one rule is judgement, so the coordinator decides it.
+func (s *Service) compared(ctx context.Context, call *rpc.Call) cli.Result {
+	id, linked := call.Inv.Arg("learning"), strings.TrimSpace(call.Inv.Flags["fault"])
+	n, ok := parseLearningID(id)
+	if !ok {
+		return cli.Reject(cli.CodeUsage, "bad_learning", fmt.Sprintf("%q is no learning id; a learning id is L-<n>", id))
+	}
+	var (
+		out Compared
+		ref *cli.Refusal
+	)
+	err := s.Store.Write(ctx, func(tx *store.Tx) error {
+		l, err := scanStored(tx.QueryRow(`SELECT `+storedColumns+` FROM learnings WHERE id = ?`, n).Scan)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			ref = &cli.Refusal{Code: cli.CodeNotFound, Rule: "not_landed", Hint: id + " is no learning"}
+			return nil
+		case err != nil:
+			return err
+		case l.Status != StatusLanded:
+			ref = &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "not_landed",
+				Hint: fmt.Sprintf("%s is %s, and only a landed learning holds a rule to compare", id, l.Status)}
+			return nil
+		}
+		if linked != "" {
+			known, err := fault.Exists(tx, linked)
+			if err != nil {
+				return err
+			}
+			if !known {
+				ref = &cli.Refusal{Code: cli.CodeNotFound, Rule: "fault_unknown", Hint: fmt.Sprintf("the server gave out no fault %s", linked)}
+				return nil
+			}
+		}
+		at := tx.Now()
+		if _, err := tx.Exec(`UPDATE learnings SET compared_at = ?, compared_fault = ? WHERE id = ?`, at.UnixMilli(), linked, n); err != nil {
+			return err
+		}
+		out = Compared{Stored: l, ComparedAt: at.UTC(), ComparedFault: linked}
+		return nil
+	})
+	switch {
+	case err != nil:
+		return cli.Internal(err)
+	case ref != nil:
+		return ref.Result()
+	}
+	return cli.Found(out)
 }
