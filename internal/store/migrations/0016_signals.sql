@@ -1,10 +1,10 @@
 -- min_reader_schema: 1
 --
--- 0015 adds the signals of the retro (factorio-1xq0). The server writes a
+-- 0016 adds the signals of the retro (factorio-1xq0). The server writes a
 -- row when an item shows a fault for the second time: a red build, a
 -- failed attempt at the same inputs, or a document reject. A later case
 -- joins the row of its (project, item, kind, scope). It only adds a table,
--- so a schema-14 reader still reads and writes every table it knows.
+-- so a schema-15 reader still reads and writes every table it knows.
 CREATE TABLE signals (
     id      INTEGER PRIMARY KEY,
     project TEXT    NOT NULL,
