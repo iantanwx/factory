@@ -134,12 +134,22 @@ kernel skill (factorio-vlle).
 - **The Neon pins leave the kernel last.** We chose entry 10 after entries 6 and 8, over removing
   the pins with entry 1. A project that uses Neon must pin both skills before they leave the kernel
   (PRD scope check). Until entry 6 lands, a pin reaches no run.
-- **The operator's upgrade holds the Neon step.** We chose a line in
-  `docs/operator-checklist.md`, which entry 10 adds, over a decision item for the operator. A merge
-  of entry 10 changes no host. A host loses the two kernel pins only when the operator runs the
-  upgrade to a release that holds entry 10. So the line tells the operator to pin both skills in
-  each project that uses Neon before that upgrade. The decomposer files no decision item, and no
-  ticket can check another project's config.
+- **A stop condition on entry 10 holds the Neon step, before its pull request opens.** We chose a
+  `## Stop conditions` line in the ticket of entry 10 that guards `loop pr open`, over a line in
+  `docs/operator-checklist.md` that the operator reads before the upgrade. The merge of entry 10
+  is the gate in practice. Each push to `main` that passes CI becomes a release, and the
+  coordinator runs `loop upgrade` itself when a newer release ends an open loop fault
+  (`pack/runbooks/coordinator.md` § 9, `docs/operating.md` "Upgrade by hand"). A host can also
+  upgrade each night by cron (`docs/operating.md` "Upgrade by cron"). No person reads the checklist
+  before either upgrade. A project that uses Neon then loses both skills and raises no
+  alert, because its config names no pin that the store lacks. We also rejected a decision item,
+  because the decomposer creates tickets only, and `blocked_by` names keys of its own batch. A stop
+  condition is a ticket section that exists today (`pack/runbooks/decomposer.md` § 3). The
+  implementer stops before the act it guards and escalates (`pack/runbooks/implementer.md` § 5).
+  The code-reviewer fails a fired stop condition unless a recorded answer of a person waives it.
+  Which projects use Neon is a fact about other projects, level 5 by the triage rubric, so only
+  the operator answers it. The run cannot read it either: the server admits `loop project show`
+  from the coordinator's checkout only.
 
 ## Assumptions
 
@@ -240,7 +250,8 @@ policy template gains a section that names a userspace skill and the step that r
 gate refuses a runbook that names a skill outside `loop-`.
 
 **The Neon pins.** Entry 10 deletes the `neon` and `neon-postgres` lines of
-`pack/third-party.json`. `asd-ste100` and `impeccable` stay.
+`pack/third-party.json`. `asd-ste100` and `impeccable` stay. A stop condition holds its pull
+request until the operator says that each project that uses Neon pins both skills.
 
 ## Domain model
 
@@ -616,17 +627,20 @@ sequenceDiagram
    - Done when: `loop project show` of a project that pins `neon` and commits
      `.claude/skills/house-style/` lists the pin with its four fields and `held`, and the directory.
 10. **The Neon pins leave the kernel.** Delete the `neon` and `neon-postgres` entries of
-    `pack/third-party.json`. Add a line to `docs/operator-checklist.md` that tells the operator to
-    merge a `skills:` pin of both Neon skills into each project that uses Neon, before the upgrade
-    to the release that holds this entry.
-    - Files: `pack/third-party.json`, `docs/operator-checklist.md`, any test that counts the
-      embedded pins
-    - Needs: 6, 8. The operator's step comes before the upgrade, not before this merge, because a
-      merge changes no host.
+    `pack/third-party.json`.
+    - Files: `pack/third-party.json`, any test that counts the embedded pins
+    - Needs: 6, 8, 9. Entry 9 gives the operator `loop project show`, which the stop condition
+      asks for.
     - Proves: C19
+    - Stop condition, which the decomposer copies into the ticket's `## Stop conditions`: stop
+      before `loop pr open`, unless a recorded answer of a person on this ticket says that each
+      project that uses Neon holds both pins. Escalate at score 5. Ask the operator to run
+      `loop project show <project>` for each project that uses Neon, and to confirm that
+      `user_skills.pins` holds `neon` and `neon-postgres` with `held` true. The merge of this
+      entry releases it, and the coordinator can upgrade the host with no person present.
     - Done when: `pack.ThirdPartyPins()` returns `asd-ste100` and `impeccable` only, a run of a
-      project with no `skills:` holds no `loop-neon` and no `loop-neon-postgres`, and the checklist
-      holds the line.
+      project with no `skills:` holds no `loop-neon` and no `loop-neon-postgres`, and the pull
+      request body quotes the operator's answer.
 
 ## Out of scope
 
@@ -637,8 +651,8 @@ sequenceDiagram
 - A rewrite of the text of any pinned skill. Never, by ADR 0007 and ADR 0013.
 - A licence review of a userspace pin's source. It belongs to the project that pins it.
 - The `skills:` pins in another project's repository, such as a project that uses Neon. They
-  belong to that project, through its own pull request, before the operator upgrades the host to
-  the release that holds work entry 10.
+  belong to that project, through its own pull request, before the operator answers the stop
+  condition of work entry 10.
 - A sweep of old pin directories in `<state_dir>/userspace-skills/`. Never in the loop. It belongs
   to the operator, by hand. Each directory grows by one tree of at most 32 MiB for each reviewed
   pin change. A delete is safe, because the next config read fetches each pin that the store then
@@ -800,11 +814,11 @@ project that declares nothing returns two empty lists.
 **C19. Behaviour: the kernel keeps `asd-ste100` and `impeccable` only.** Proves A5. The embedded
 `pack/third-party.json` pins exactly `asd-ste100` and `impeccable`. A stage run of a project with
 no `skills:` holds `loop-asd-ste100` and `loop-impeccable`, and holds no `loop-neon`, no
-`loop-neon-postgres`, no `neon` and no `neon-postgres` under either root.
-`docs/operator-checklist.md` holds a line that names `neon`, `neon-postgres` and `skills:`, and
-says to pin both before the upgrade.
-*A pack test over `ThirdPartyPins()`, a scheduler test over a fetched kernel set that holds the
-two pins, and a test that reads the checklist.*
+`loop-neon-postgres`, no `neon` and no `neon-postgres` under either root. The stop condition of
+entry 10 is no contract, because no test reads another project's config. The code-reviewer checks
+it against the recorded answer.
+*A pack test over `ThirdPartyPins()`, and a scheduler test over a fetched kernel set that holds
+the two pins.*
 
 ## Observable behaviour
 
