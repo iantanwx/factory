@@ -18,10 +18,11 @@ func fakeBin(t *testing.T, dir, name string) {
 	}
 }
 
-// C21: judge_binaries passes when each binary of the live panel is on the
-// path, and fails naming each one that is not. A host with no project
+// C2: judge_binaries passes when each binary of the live panel is on the
+// path, and fails naming each one that is not. The panel needs claude
+// only, so a host with no codex on the path passes. A host with no project
 // gets no line. The check runs no binary.
-func TestC21JudgeBinariesLineFollowsThePanel(t *testing.T) {
+func TestC2JudgeBinariesLinePassesWithNoCodex(t *testing.T) {
 	ctx := context.Background()
 	layout := Layout{Dir: t.TempDir()}
 	path := t.TempDir()
@@ -40,14 +41,13 @@ func TestC21JudgeBinariesLineFollowsThePanel(t *testing.T) {
 		Projects: []config.Project{{ID: "alpha", Repo: "o/alpha", Path: "/src/alpha"}}}); err != nil {
 		t.Fatal(err)
 	}
-	fakeBin(t, path, "claude")
 	l := byCheck(d.Run(ctx))["judge_binaries"]
-	if l.Check == "" || l.OK || !strings.Contains(l.Detail, "codex") || strings.Contains(l.Detail, "claude") {
-		t.Fatalf("judge_binaries with codex missing = %+v", l)
+	if l.Check == "" || l.OK || !strings.HasSuffix(l.Detail, ": claude") {
+		t.Fatalf("judge_binaries with claude missing = %+v", l)
 	}
 
-	fakeBin(t, path, "codex")
-	if l := byCheck(d.Run(ctx))["judge_binaries"]; !l.OK {
-		t.Fatalf("judge_binaries with both on the path = %+v", l)
+	fakeBin(t, path, "claude")
+	if l := byCheck(d.Run(ctx))["judge_binaries"]; !l.OK || strings.Contains(l.Detail, "codex") {
+		t.Fatalf("judge_binaries with claude and no codex on the path = %+v", l)
 	}
 }
