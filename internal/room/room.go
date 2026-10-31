@@ -558,7 +558,7 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 	if err != nil {
 		return fail(cli.CodeInternal, err)
 	}
-	run := fmt.Sprintf("%s-s%d", r.ID, r.Sessions+1)
+	run := fmt.Sprintf("%s%d", sessionPrefix(r.ID), r.Sessions+1)
 	b := brief.Brief{RunID: run, Project: r.Project, Stage: Stage(r.Kind), Role: "room", Harness: string(s.cfg.Harness),
 		Model: s.cfg.Model, BaseBranch: snap.BaseBranch(),
 		Secrets: brief.Secrets{Present: manifest.Names(), Missing: []string{}}}

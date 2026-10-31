@@ -336,7 +336,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		Logger:          logger,
 		HoldsItem:       holdsItem(st, opts.HoldsItem),
 		ReadsItem: func(ctx context.Context, p rpc.Principal, item string) (bool, error) {
-			return readsEpic(ctx, s.Machine, p, item)
+			return readsItem(ctx, st, s.Machine, p, item)
 		},
 		Checkouts: opts.Checkouts,
 		Proc:      opts.Proc,
@@ -423,6 +423,15 @@ func readPreviousVersion(dir string) string {
 // server calls it after secret set, secret import and project remove.
 func (s *Server) RefreshRedactor(ctx context.Context) error {
 	return s.Redactor.Refresh(ctx, s.Secrets)
+}
+
+// readsItem opens a read of an item p does not hold: the epic of the held
+// item, and for a room each item its reason names or it created.
+func readsItem(ctx context.Context, st *store.Store, m *machine.Machine, p rpc.Principal, item string) (bool, error) {
+	if ok, err := readsEpic(ctx, m, p, item); ok || err != nil || p.Kind != cli.PrincipalRoom {
+		return ok, err
+	}
+	return room.Reads(ctx, st, p.RunID, p.Project, item)
 }
 
 // readsEpic opens a read of the held item's epic (KTD12 binds moves, not

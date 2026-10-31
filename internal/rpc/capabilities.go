@@ -15,7 +15,8 @@ type HoldsItem func(ctx context.Context, p Principal, item string) (bool, error)
 
 // ReadsItem reports whether p may read an item it does not hold. A write
 // verb never asks it (KTD12: a run moves only the item it holds). The
-// server opens the epic of the held ticket.
+// server opens the epic of the held ticket, and a room's read of each item
+// its reason names or it created.
 type ReadsItem func(ctx context.Context, p Principal, item string) (bool, error)
 
 // TokenItem is the default HoldsItem.
