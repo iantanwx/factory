@@ -93,8 +93,8 @@ func TestC19APRDEpicsDecompositionStillNeedsStoryLabels(t *testing.T) {
 	epic := w.adrBound()
 	w.mustApply(machine.Request{Item: epic, Verb: machine.VerbADRLanded, ExpectedStatus: machine.Architecture,
 		Params: map[string]string{"path": "docs/adr/0013-widget-store.md", "added": "a1"}, Actor: machine.Server("test")})
-	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StageSpecAuthor, RunID: "run-spec"}); res.Refusal != nil {
-		t.Fatalf("spec author claim: %+v", *res.Refusal)
+	if _, res := w.m.Claim(w.ctx, machine.ClaimRequest{Project: testProject, Item: epic, Stage: machine.StagePlanner, RunID: "run-spec"}); res.Refusal != nil {
+		t.Fatalf("planner claim: %+v", *res.Refusal)
 	}
 	w.mustApply(machine.Request{Item: epic, Verb: "pr_open", Params: map[string]string{"pr": "99"}, Actor: machine.Server("test")})
 	w.mustApply(machine.Request{Item: epic, Verb: "review_pass", Command: "review submit", Params: map[string]string{"head": "h1"}, Actor: machine.Server("test")})

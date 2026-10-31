@@ -346,7 +346,7 @@ func checkSequences(t *testing.T, seed uint64, n int) (epics, bugs int64) {
 		}
 		return names[rng.IntN(len(names))]
 	}
-	stages := []string{machine.StageImplementer, machine.StageReproducer, "code-reviewer", "prd-author", "spec-author", "decomposer"}
+	stages := []string{machine.StageImplementer, machine.StageReproducer, "code-reviewer", "prd-author", "planner", "decomposer"}
 	for range n {
 		epic := w.create(machine.KindEpic, "create_architecture", nil)
 		w.force(epic, open(machine.KindEpic))

@@ -186,7 +186,7 @@ func TestC6EachRecordPassesOnlyByItsRule(t *testing.T) {
 		ep := e.epicInReview(7)
 		e.apply(ep, "review_pass", map[string]string{"head": shaA})
 		e.docMerged(ep, shaM)
-		_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: ep, Stage: machine.StageSpecAuthor, RunID: "run-spec"})
+		_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: ep, Stage: machine.StagePlanner, RunID: "run-spec"})
 		mustOK(e.t, res)
 		e.apply(ep, "pr_open", map[string]string{"pr": "8"})
 		return ep

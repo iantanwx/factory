@@ -31,7 +31,7 @@ func TestDocumentPRIsNeverHandedOff(t *testing.T) {
 				want := machine.PRDSignoff
 				if spec {
 					e.apply(id, "doc_merged", map[string]string{"sha": sha('m')})
-					_, res := e.m.Claim(e.ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageSpecAuthor, RunID: "run-" + id})
+					_, res := e.m.Claim(e.ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StagePlanner, RunID: "run-" + id})
 					e.mustOK(res)
 					spr := e.world.Add(&gt.PR{Head: github.BranchFor(id), HeadSHA: sha('s'), Title: "spec"})
 					e.apply(id, "pr_open", map[string]string{"head": sha('s'), "pr": strconv.Itoa(spr.Number)})

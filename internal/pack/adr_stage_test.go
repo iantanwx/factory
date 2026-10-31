@@ -15,7 +15,7 @@ const (
 	adrTestTitle   = "When a decision needs an ADR"
 	adrTemplate    = "skills/loop-sdlc-documents/adr.md"
 	brainstormFile = "skills/loop-brainstorm/SKILL.md"
-	specAuthorRB   = "runbooks/spec-author.md"
+	plannerRB      = "runbooks/planner.md"
 	architectRB    = "runbooks/architect-room.md"
 	docReviewerRB  = "runbooks/doc-reviewer.md"
 )
@@ -102,7 +102,7 @@ func TestC3NoPackFileStatesASecondADRRule(t *testing.T) {
 		t.Fatal(err)
 	}
 	cite := "`../loop-sdlc-documents/SKILL.md` § 6, " + adrTestTitle
-	for _, name := range []string{adrTemplate, coordinatorRunbook, specAuthorRB, architectRB} {
+	for _, name := range []string{adrTemplate, coordinatorRunbook, plannerRB, architectRB} {
 		if !strings.Contains(flat(read(t, name)), cite) {
 			t.Errorf("%s does not cite %q", name, cite)
 		}
@@ -142,13 +142,13 @@ func TestC5ANewADRSupersedesAndTheEarlierStays(t *testing.T) {
 	}
 }
 
-// C20: the spec-author's source is the PRD and each ADR whose Ticket line
+// C20: the planner's source is the PRD and each ADR whose Ticket line
 // names the epic, and the spec's Source line names both.
-func TestC20TheSpecAuthorsSourceIsThePRDAndEachADR(t *testing.T) {
-	s := flat(pack.Section(read(t, specAuthorRB), 2, func(title string) bool {
+func TestC20ThePlannersSourceIsThePRDAndEachADR(t *testing.T) {
+	s := flat(pack.Section(read(t, plannerRB), 2, func(title string) bool {
 		return strings.HasPrefix(title, "1. ")
 	}))
-	holdsAll(t, "section 1 of the spec-author runbook", s, []string{
+	holdsAll(t, "section 1 of the planner runbook", s, []string{
 		"A PRD epic that went through the ADR stage",
 		"the PRD and each ADR in `docs/adr/` whose `**Ticket:**` line names the epic",
 	})
@@ -158,10 +158,10 @@ func TestC20TheSpecAuthorsSourceIsThePRDAndEachADR(t *testing.T) {
 	})
 }
 
-// C24: the spec-author runs the test on each Decisions entry, and names
+// C24: the planner runs the test on each Decisions entry, and names
 // each entry that passes in a Needs an ADR open question.
-func TestC24TheSpecAuthorNamesEachPassingDecision(t *testing.T) {
-	holdsAll(t, "the spec-author runbook", flat(read(t, specAuthorRB)), []string{
+func TestC24ThePlannerNamesEachPassingDecision(t *testing.T) {
+	holdsAll(t, "the planner runbook", flat(read(t, plannerRB)), []string{
 		"Run the test of `../loop-sdlc-documents/SKILL.md` § 6, " + adrTestTitle + ", on each Decisions entry.",
 		"write an open question that starts `**Needs an ADR:**` and names the entry",
 	})
