@@ -29,9 +29,9 @@ func TestDecisionFileNeedsAnOperatorStatement(t *testing.T) {
 }
 
 func TestRoomPromptNamesItsRunbookAndReason(t *testing.T) {
-	r := &Room{ID: "room-1", Project: "alpha", Item: "tk-1", Kind: "intake", Reason: "the operator has a new idea"}
-	p := Prompt(r, ".claude/skills/loop-intake-room/SKILL.md")
-	for _, want := range []string{"loop intake room about work item tk-1", ".claude/skills/loop-intake-room/SKILL.md",
+	r := &Room{ID: "room-1", Project: "alpha", Item: "tk-1", Kind: "brainstorm", Reason: "the operator has a new idea"}
+	p := Prompt(r, ".claude/skills/loop-brainstorm-room/SKILL.md")
+	for _, want := range []string{"loop brainstorm room about work item tk-1", ".claude/skills/loop-brainstorm-room/SKILL.md",
 		"the operator has a new idea", "never makes the decision", "loop room apply room-1"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, p)

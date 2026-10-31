@@ -47,7 +47,7 @@ func genConfig(rng *rand.Rand, k config.Known) string {
 		fmt.Fprintf(&b, "  # the %s\n  %s:", name, name)
 		var lines []string
 		switch kind {
-		case config.KindIntake:
+		case config.KindBrainstorm:
 			if rng.IntN(2) == 0 {
 				lines = append(lines, fmt.Sprintf("cap: %d", 1+rng.IntN(9)))
 			}
@@ -89,7 +89,7 @@ func genConfig(rng *rand.Rand, k config.Known) string {
 // except the named key's. The enabled rows are among them, so no --unset
 // and no other change turns a stage on or off outside its own key. The
 // names under stages never lose a name, and gain one only for enabled of
-// an unlisted stage or a field of intake or a project job. Every comment
+// an unlisted stage or a field of brainstorm or a project job. Every comment
 // of the base file is in the new one.
 func TestC23ProposedFileDiffersInExactlyTheNamedSetting(t *testing.T) {
 	rng := rand.New(rand.NewPCG(23, 23))
@@ -163,7 +163,7 @@ func TestC23ProposedFileDiffersInExactlyTheNamedSetting(t *testing.T) {
 		if len(now) > len(was) {
 			name := strings.Split(key, ".")[1]
 			kind, _ := config.KindOf(name, k)
-			gains := strings.HasSuffix(key, ".enabled") || kind == config.KindIntake || kind == config.KindProjectJob
+			gains := strings.HasSuffix(key, ".enabled") || kind == config.KindBrainstorm || kind == config.KindProjectJob
 			if len(now) != len(was)+1 || !gains {
 				t.Fatalf("case %d: set %s added stages %v to %v", i, key, was, now)
 			}

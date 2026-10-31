@@ -122,6 +122,16 @@ func TestC10PlannerRunbookShipsUnderItsNewName(t *testing.T) {
 	}
 }
 
+// C9: the intake rename retires its word, and no file of the pack holds it.
+func TestC9PackHoldsNoIntakeWord(t *testing.T) {
+	if !slices.Contains(config.RetiredWords(), "intake") {
+		t.Errorf("RetiredWords() lacks %q", "intake")
+	}
+	if hits := retiredHits(t, packsrc.Files, []string{"intake"}); len(hits) > 0 {
+		t.Fatalf("the pack holds a retired word:\n%s", strings.Join(hits, "\n"))
+	}
+}
+
 // C9, factorio-2mwq: "fixer" is a retired word, and no pack file holds it.
 func TestC9PackHoldsNoFixer(t *testing.T) {
 	if !slices.Contains(config.RetiredWords(), "fixer") {

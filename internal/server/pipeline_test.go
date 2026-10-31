@@ -109,14 +109,14 @@ func (w *humanWorld) docReview(epic, verdict string) {
 	}
 }
 
-// An intake room submits its PRD through the CLI: one epic in prd_review
+// A brainstorm room submits its PRD through the CLI: one epic in prd_review
 // with one PR, also on a repeat. A pass puts a sign-off entry in the inbox
 // that links the PR. AE7 over the scheduler: the first reject starts one
-// amender run, and the second waits in the inbox for an intake room.
-func TestIntakeRoomSubmitsAPRDThroughTheServer(t *testing.T) {
+// amender run, and the second waits in the inbox for a brainstorm room.
+func TestBrainstormRoomSubmitsAPRDThroughTheServer(t *testing.T) {
 	w, _, api := newDocWorld(t)
 	ctx := context.Background()
-	r := w.openRoom("intake", "", "the operator wants widgets")
+	r := w.openRoom("brainstorm", "", "the operator wants widgets")
 	co := r["checkout"].(string)
 	gt.Commit(t, co, "prd", map[string]string{"docs/prd/widgets.md": "# Widgets\n\n## US-01 See widgets\n"})
 
@@ -168,7 +168,7 @@ func TestIntakeRoomSubmitsAPRDThroughTheServer(t *testing.T) {
 		t.Fatalf("an amender run started after the second reject: %+v", st)
 	}
 	e := entryByID(w.entries("person"), "escalation/alpha/"+epic)
-	if e == nil || !strings.Contains(e["text"].(string), "intake room") {
+	if e == nil || !strings.Contains(e["text"].(string), "brainstorm room") {
 		t.Fatalf("the inbox entry = %v", e)
 	}
 	wantLink := "https://github.com/" + gt.Repo + "/pull/1"

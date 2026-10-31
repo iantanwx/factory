@@ -51,7 +51,7 @@ func checkPRD(file, text string) []Finding {
 		case v == "" || strings.Contains(v, "<"):
 			add("placeholder", "**"+field+"** still holds the template placeholder")
 		case field == "Verdict" && !proceed.MatchString(v):
-			add("verdict", "the verdict reads \""+v+"\", so this epic is not ready for a spec; the doc-reviewer decides the seam and an intake room splits it")
+			add("verdict", "the verdict reads \""+v+"\", so this epic is not ready for a spec; the doc-reviewer decides the seam and a brainstorm room splits it")
 		}
 	}
 	return out

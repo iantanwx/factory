@@ -51,7 +51,7 @@ func TestParseProjectConfig(t *testing.T) {
 	if cfg.Merge.Mechanism != MergeMergify {
 		t.Fatalf("mechanism = %q", cfg.Merge.Mechanism)
 	}
-	if !cfg.StageEnabled("implementer") || cfg.StageEnabled("code-reviewer") || cfg.StageEnabled("intake") {
+	if !cfg.StageEnabled("implementer") || cfg.StageEnabled("code-reviewer") || cfg.StageEnabled("brainstorm") {
 		t.Fatalf("stage enablement is wrong: %+v", cfg.Stages)
 	}
 	if got := cfg.Signoff.Readers; len(got) != 2 || got[0] != "octocat" || got[1] != "mona-lisa" {

@@ -52,7 +52,7 @@ func (w *world) setStatus(id, from, to string) {
 
 // C8: a blocked epic leaves backlog only when every blocker landed. Each
 // kind of blocker is tried in each of its landed and open states. The
-// epics enter on architecture, which the intake cap never holds.
+// epics enter on architecture, which the brainstorm cap never holds.
 func TestC8DependencyAdvanceReleasesAnEpicOnlyWhenEveryBlockerLanded(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -132,13 +132,13 @@ func TestC8DependencyAdvanceReleasesAnEpicOnADoneEpicAndAMootDecision(t *testing
 	}
 }
 
-// C9: a full intake cap holds a ready PRD epic in backlog, and the tick
+// C9: a full brainstorm cap holds a ready PRD epic in backlog, and the tick
 // reports no error. The first tick after a slot frees moves it. An
 // architecture epic moves whatever the count.
-func TestC9TheIntakeCapHoldsAReadyPRDEpic(t *testing.T) {
+func TestC9TheBrainstormCapHoldsAReadyPRDEpic(t *testing.T) {
 	ctx := context.Background()
 	w := newWorld(t)
-	w.writeHost(map[string]int{"intake": 1}, nil)
+	w.writeHost(map[string]int{"brainstorm": 1}, nil)
 	slot := w.epic(machine.PRDReview, "")
 	prd := w.epic(machine.Backlog, machine.PRDNeeded)
 	w.dependsOn(prd, w.ticket(machine.Done), beadsx.DepBlocks)

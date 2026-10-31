@@ -17,6 +17,7 @@ import (
 var stageRenames = map[string]string{
 	"prd-author":  StageUnattendedBrainstorm,
 	"spec-author": StagePlanner,
+	"intake":      StageBrainstorm,
 	"fixer":       StageTriage,
 }
 

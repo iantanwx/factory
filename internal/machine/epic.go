@@ -34,7 +34,7 @@ const (
 // epicResume is where answer returns an epic. A state a stage polls
 // returns to itself. A state a run holds returns to the queue it was
 // claimed from. A review state returns to its author, except PRD review:
-// after the second reject an intake room revises the PRD, and the answer
+// after the second reject a brainstorm room revises the PRD, and the answer
 // sends it back to review (AE7). Ported from escalationTargetFor in
 // scripts/sdlc/handoff.ts (alpha).
 var epicResume = map[string]string{
@@ -136,9 +136,9 @@ func bumpPRDRejects(c *change) *cli.Refusal {
 }
 
 // secondRejectSays is what the history, and so the inbox, records for the
-// second PRD reject: a person revises the PRD in an intake room (AE7).
+// second PRD reject: a person revises the PRD in a brainstorm room (AE7).
 const secondRejectSays = "The doc-reviewer rejected the PRD a second time, so no unattended stage revises it again. " +
-	"Open an intake room on this epic, and revise the PRD there with the operator. The answer returns it to review."
+	"Open a brainstorm room on this epic, and revise the PRD there with the operator. The answer returns it to review."
 
 // mark stores a parameter as a fact, or "true" when the caller sent none:
 // the fact records that the event happened.

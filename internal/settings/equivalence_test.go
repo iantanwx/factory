@@ -39,10 +39,10 @@ func TestC16SettingsReadShowsWhatIsEnforced(t *testing.T) {
 			}
 			kind, _ := config.KindOf(name, k)
 			var sc config.StageConfig
-			if kind != config.KindIntake && rng.IntN(2) == 0 {
+			if kind != config.KindBrainstorm && rng.IntN(2) == 0 {
 				sc.Schedule = crons[rng.IntN(len(crons))]
 			}
-			if kind == config.KindItemStage || kind == config.KindTriage || kind == config.KindIntake {
+			if kind == config.KindItemStage || kind == config.KindTriage || kind == config.KindBrainstorm {
 				if rng.IntN(2) == 0 {
 					sc.Cap = ptr(1 + rng.IntN(9))
 				}
@@ -50,7 +50,7 @@ func TestC16SettingsReadShowsWhatIsEnforced(t *testing.T) {
 			if kind == config.KindItemStage && rng.IntN(2) == 0 {
 				sc.RunsPerTick = ptr(1 + rng.IntN(9))
 			}
-			if kind != config.KindIntake && kind != config.KindProjectJob && rng.IntN(4) == 0 {
+			if kind != config.KindBrainstorm && kind != config.KindProjectJob && rng.IntN(4) == 0 {
 				off := false
 				sc.Enabled = &off
 			}

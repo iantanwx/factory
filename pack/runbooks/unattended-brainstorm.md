@@ -50,7 +50,7 @@ open. Then finish `blocked`.
 ## 5. When the work reaches more than one subsystem
 
 Name the seam under Open questions, by the split skill. Never split. Only the operator agrees to a
-split, in an intake room.
+split, in a brainstorm room.
 
 ## 6. Submit the PRD
 

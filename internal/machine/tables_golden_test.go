@@ -144,3 +144,28 @@ func TestC12PRDAuthorRowNowNamesUnattendedBrainstorm(t *testing.T) {
 		t.Fatalf("the epic table names prd-author, or unattended-brainstorm other than once: %s", epic)
 	}
 }
+
+// C12: the pair intake to brainstorm is in the table. The golden tables
+// name intake as no stage, so the mapped golden tables still equal the
+// build, and the build names neither intake nor brainstorm as a stage.
+func TestC12IntakePairChangesNoTable(t *testing.T) {
+	if n, ok := config.NewStageName("intake"); !ok || n != "brainstorm" {
+		t.Fatalf("NewStageName(intake) = %q, %v, want brainstorm", n, ok)
+	}
+	raw, err := os.ReadFile(goldenTables)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"intake"`) {
+		t.Fatal("the golden tables name intake as a value")
+	}
+	s, err := cli.Surface().Schema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for kind, table := range s.TransitionTables {
+		if strings.Contains(string(table), `"intake"`) || strings.Contains(string(table), `"brainstorm"`) {
+			t.Errorf("the %s table names intake or brainstorm as a value: %s", kind, table)
+		}
+	}
+}

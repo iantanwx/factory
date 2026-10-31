@@ -186,7 +186,7 @@ func TestSpecAfterASquashMergedPRDHasItsOwnBranch(t *testing.T) {
 	w := e.withWorld()
 	ctx := context.Background()
 
-	// The intake room's PRD: two commits on loop/<epic>.
+	// The brainstorm room's PRD: two commits on loop/<epic>.
 	gitT(t, e.checkout, "checkout", "-q", "-b", "prd", e.base)
 	commit(t, e.checkout, "prd draft", map[string]string{"docs/prd.md": "# PRD\n\nUS-01 draft\n"})
 	prdHead := commit(t, e.checkout, "prd amend", map[string]string{"docs/prd.md": "# PRD\n\nUS-01 final\n"})

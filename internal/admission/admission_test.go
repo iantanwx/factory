@@ -47,9 +47,9 @@ func TestReviewerCaps(t *testing.T) {
 	wantRefusal(t, ref, cli.CodeCapFull)
 }
 
-// Intake counts epics in counted document states, not runs. An epic that
+// Brainstorm counts epics in counted document states, not runs. An epic that
 // waits on a person holds no slot.
-func TestIntakeCapCountsEpicsInCountedStates(t *testing.T) {
+func TestBrainstormCapCountsEpicsInCountedStates(t *testing.T) {
 	w := newWorld(t)
 	counted := []string{machine.PRDReview, machine.PRDAmending, machine.SpecNeeded, machine.SpecDrafting, machine.SpecReview}
 	for i := range 8 {
@@ -57,24 +57,24 @@ func TestIntakeCapCountsEpicsInCountedStates(t *testing.T) {
 	}
 	w.put(machine.KindEpic, machine.PRDSignoff, "waits on a person")
 	w.put(machine.KindEpic, machine.Escalated, "waits on a person")
-	_, ref := w.admit(config.StageIntake, "")
+	_, ref := w.admit(config.StageBrainstorm, "")
 	wantRefusal(t, ref, cli.CodeCapFull)
-	if c, r := w.a.Peek(context.Background(), prj, config.StageIntake); c != nil || r != nil {
-		t.Fatalf("peek at the intake cap = %+v %+v, want nothing", c, r)
+	if c, r := w.a.Peek(context.Background(), prj, config.StageBrainstorm); c != nil || r != nil {
+		t.Fatalf("peek at the brainstorm cap = %+v %+v, want nothing", c, r)
 	}
-	w.setCaps(map[string]int{config.StageIntake: 9})
-	w.mustAdmit(config.StageIntake, "")
+	w.setCaps(map[string]int{config.StageBrainstorm: 9})
+	w.mustAdmit(config.StageBrainstorm, "")
 }
 
-// The intake mutex has one holder at a time, also under a race. Settling
+// The brainstorm mutex has one holder at a time, also under a race. Settling
 // the holder frees it.
-func TestIntakeMutexHasOneHolder(t *testing.T) {
+func TestBrainstormMutexHasOneHolder(t *testing.T) {
 	w := newWorld(t)
 	results := make([]*cli.Refusal, 6)
 	admitted := make([]Admitted, 6)
 	var wg sync.WaitGroup
 	for i := range results {
-		wg.Go(func() { admitted[i], results[i] = w.admit(config.StageIntake, "") })
+		wg.Go(func() { admitted[i], results[i] = w.admit(config.StageBrainstorm, "") })
 	}
 	wg.Wait()
 	var holder Admitted
@@ -88,10 +88,10 @@ func TestIntakeMutexHasOneHolder(t *testing.T) {
 		wantRefusal(t, r, cli.CodeMutexHeld)
 	}
 	if ok != 1 {
-		t.Fatalf("%d intake runs admitted at once, want 1", ok)
+		t.Fatalf("%d brainstorm runs admitted at once, want 1", ok)
 	}
 	w.settle(holder, Settlement{Finish: "done"})
-	w.mustAdmit(config.StageIntake, "")
+	w.mustAdmit(config.StageBrainstorm, "")
 }
 
 // Parity 8.6 (stage-claims.ts and timer-reproducer-row.ts, alpha): one

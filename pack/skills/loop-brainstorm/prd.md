@@ -113,7 +113,7 @@ worse than eight stories at 400 lines each. Treat the numbers as a prompt, never
 >   finding. Stop, and say so.
 
 Write the verdict and stop. Never divide the epic on your own judgement. A verdict other than
-proceed fails the `prd` gate. The operator agrees to a split in the intake room, and the room
+proceed fails the `prd` gate. The operator agrees to a split in the brainstorm room, and the room
 writes each PRD.
 
 **Stories:** <n>

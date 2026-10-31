@@ -17,7 +17,7 @@ word differently make two agents that act differently, and no gate compares them
 - **The coordinator**: the one resident agent of an instance. It is the operator's interface. It
   reads the inbox, brings each question to the operator, records each answer and opens rooms.
 - **A run**: one agent session that the server starts for one stage and one item.
-- **A room**: an agent session where the operator talks to an agent. Its kinds are intake,
+- **A room**: an agent session where the operator talks to an agent. Its kinds are brainstorm,
   decision, review and architect. A room prepares a decision and applies it. A room never makes it.
 - **The author**: in a review, the run or the person who wrote the work.
 
@@ -64,8 +64,8 @@ names a verb, and the transition table picks the state.
 ## Documents
 
 - **PRD**: states what a user can do, as user stories with stable labels such as US-01. It names
-  no implementation. Either an unattended brainstorm or an intake room writes it. The unattended
-  brainstorm writes it from the operator's request. An intake room writes it with the operator.
+  no implementation. Either an unattended brainstorm or a brainstorm room writes it. The unattended
+  brainstorm writes it from the operator's request. A brainstorm room writes it with the operator.
 - **Spec**: states how one epic is built. It is the last document a person reads before the
   decomposer cuts tickets.
 - **Ticket**: the unit that the implementer and the code-reviewer read.
