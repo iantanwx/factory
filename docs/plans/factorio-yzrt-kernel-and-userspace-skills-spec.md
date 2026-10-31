@@ -719,11 +719,12 @@ fault in a userspace skill is a fault of the project, and names the project's ow
 edit, the pin or the committed directory, or a project ticket.
 *A pack test that reads the section and asserts the bullet.*
 
-**C8. Behaviour: each policy template shows how to name a userspace skill.** Proves A4. Each of
-`implementer.md`, `code-reviewer.md` and `coordinator.md` under `pack/skills/loop-init/policy/`
-holds a `## Userspace skills` section with a line that names a skill by `<name>` and the step that
-reads it. `loop-init` § 6 says to keep the section when the project declares a userspace skill,
-and to delete it otherwise.
+**C8. Behaviour: each stage policy template shows how to name a userspace skill.** Proves A4.
+Each of `implementer.md` and `code-reviewer.md` under `pack/skills/loop-init/policy/` holds a
+`## Userspace skills` section with a line that names a skill by `<name>` and the step that reads
+it. `coordinator.md` holds no such section, because the coordinator holds kernel skills only.
+`loop-init` § 6 says to keep the section when the project declares a userspace skill, and to delete
+it otherwise.
 *A pack test over the three templates and § 6.*
 
 **C9. Refusal: a kernel runbook never names a userspace skill.** Proves A4. The pack gate reports
