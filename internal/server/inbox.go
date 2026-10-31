@@ -110,7 +110,7 @@ func (s *Server) composeHuman() error {
 		Secrets: s.Secrets, Tokens: s.Tokens, Redactor: s.Redactor, ProjectConfig: s.projectSource(), Pack: s.opts.Sched.Pack, SkillStore: s.opts.Sched.SkillStore,
 		Harness: harness, Model: model, Release: cli.Version, Changed: changed, NewID: o.NewRoomID, Logger: s.log}
 	if s.Admission != nil {
-		rc.IntakeCap = s.Admission.IntakeCap
+		rc.BrainstormCap = s.Admission.BrainstormCap
 	}
 	rooms, err := room.New(rc)
 	if err != nil {

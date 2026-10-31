@@ -27,7 +27,7 @@ type Pipeline struct {
 }
 
 // Setup composes the pipeline over the server's store, machine, beads,
-// projects, GitHub service, admission's intake cap and the project config
+// projects, GitHub service, admission's brainstorm cap and the project config
 // source, and registers its verbs.
 func (p *Pipeline) Setup(s *Server) error {
 	if p.GitHub == nil || p.GitHub.Service == nil {
@@ -37,7 +37,7 @@ func (p *Pipeline) Setup(s *Server) error {
 		return nil
 	}
 	if s.Admission == nil {
-		return errors.New("server: the pipeline asks admission's intake cap, so it needs admission")
+		return errors.New("server: the pipeline asks admission's brainstorm cap, so it needs admission")
 	}
 	source := s.projectSource()
 	enabled := func(ctx context.Context, project, stage string) (bool, error) {
@@ -48,7 +48,7 @@ func (p *Pipeline) Setup(s *Server) error {
 		return snap.Config.StageEnabled(stage), nil
 	}
 	pl, err := pipeline.New(pipeline.Config{Store: s.Store, Machine: s.Machine, Beads: s.opts.Beads, GitHub: p.GitHub.Service,
-		Projects: s.Projects, Redactor: s.Redactor, Logger: s.RPC.Logger(), IntakeCap: s.Admission.IntakeCap, StageEnabled: enabled})
+		Projects: s.Projects, Redactor: s.Redactor, Logger: s.RPC.Logger(), BrainstormCap: s.Admission.BrainstormCap, StageEnabled: enabled})
 	if err != nil {
 		return err
 	}

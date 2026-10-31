@@ -14,9 +14,9 @@ import (
 	"github.com/iantanwx/loop/internal/shape"
 )
 
-// intakeStage is the token stage of an intake room's session
-// (room.Stage("intake")).
-const intakeStage = "intake-room"
+// brainstormRoomStage is the token stage of a brainstorm room's session
+// (room.Stage("brainstorm")).
+const brainstormRoomStage = "brainstorm-room"
 
 // PRDResult is what prd submit answers.
 type PRDResult struct {
@@ -30,7 +30,7 @@ type PRDResult struct {
 	Signoff *github.SignoffRequest `json:"signoff,omitempty"`
 }
 
-// prdSubmit is `loop prd submit` (R44, R46): from an intake room, it
+// prdSubmit is `loop prd submit` (R44, R46): from a brainstorm room, it
 // pushes the checkout's HEAD to the epic's branch, opens the PRD's PR and
 // creates the epic in prd_review, in one call. The epic's create key is
 // the room, so a replay, or a retry after a crash at any step, finds the
@@ -41,8 +41,8 @@ func (p *Pipeline) prdSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	if pr.Kind == cli.PrincipalRun {
 		return p.runPRDSubmit(ctx, call)
 	}
-	if pr.Kind != cli.PrincipalRoom || pr.Stage != intakeStage {
-		return cli.Reject(cli.CodeCapabilityDenied, "intake_room_only", "only an intake room submits a PRD")
+	if pr.Kind != cli.PrincipalRoom || pr.Stage != brainstormRoomStage {
+		return cli.Reject(cli.CodeCapabilityDenied, "brainstorm_room_only", "only a brainstorm room submits a PRD")
 	}
 	if pr.Item != "" {
 		return cli.Reject(cli.CodeUsage, "room_holds_item", fmt.Sprintf(
@@ -78,7 +78,7 @@ func (p *Pipeline) prdSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	if err := mirror.Init(ctx); err != nil {
 		return cli.Internal(err)
 	}
-	if err := mirror.FetchCheckout(ctx, pr.Checkout, head, "refs/loop/intake/"+room); err != nil {
+	if err := mirror.FetchCheckout(ctx, pr.Checkout, head, "refs/loop/brainstorm/"+room); err != nil {
 		return cli.Reject(cli.CodeUsage, "head_unreadable", "the server could not read the checkout's HEAD commit; commit the PRD and submit again")
 	}
 	text, err := mirror.Show(ctx, head, file)
@@ -91,6 +91,8 @@ func (p *Pipeline) prdSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 			"the PRD defines no story heading; head each user story US-01, US-02 and on, such as `## US-01 ...` (R45), then submit again")
 	}
 
+	// The create key keeps its intake/ prefix: a room that submitted before
+	// the rename finds its epic again, and creates no second one.
 	epic, ref := p.findOrCreate(ctx, machine.CreateRequest{Project: prj.ID, Kind: machine.KindEpic, Title: title,
 		Facts: map[string]string{machine.FactCreateKey: "intake/" + room, machine.FactPRDPath: file}})
 	if ref != nil {

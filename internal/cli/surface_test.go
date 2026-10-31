@@ -92,15 +92,15 @@ func TestC12EpicCreateListsRequestAndBlockedByForTheCoordinatorOnly(t *testing.T
 }
 
 // C12: `loop prd submit --help` lists run among its callers, beside the
-// intake room, and the capability matrix admits a run and a room.
+// brainstorm room, and the capability matrix admits a run and a room.
 func TestC12PRDSubmitListsRunAmongItsCallers(t *testing.T) {
 	help, code := runJSON(t, New(), "prd", "submit", "--help")
 	if code != 0 {
 		t.Fatalf("prd submit --help exited %d: %v", code, help)
 	}
 	callers := help["data"].(map[string]any)["callers"].([]any)
-	if len(callers) != 2 || callers[0] != "intake room" || callers[1] != "run" {
-		t.Errorf("prd submit --help lists the callers %v, want [intake room run]", callers)
+	if len(callers) != 2 || callers[0] != "brainstorm room" || callers[1] != "run" {
+		t.Errorf("prd submit --help lists the callers %v, want [brainstorm room run]", callers)
 	}
 	m, err := DeriveMatrix(Surface())
 	if err != nil {

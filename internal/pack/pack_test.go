@@ -99,8 +99,8 @@ func TestTurnSkillChecksEachStepBeforeAPublish(t *testing.T) {
 }
 
 // TestEveryStageHasARunbook holds the manifest to the stages the server
-// starts: each run stage, the coordinator and each room kind. The intake
-// stage only counts epics against its cap (KTD30). An intake room serves
+// starts: each run stage, the coordinator and each room kind. The brainstorm
+// stage only counts epics against its cap (KTD30). A brainstorm room serves
 // it.
 func TestEveryStageHasARunbook(t *testing.T) {
 	m, err := pack.ReadManifest(pack.Source())
@@ -109,7 +109,7 @@ func TestEveryStageHasARunbook(t *testing.T) {
 	}
 	var want []string
 	for _, s := range config.RunStages() {
-		if s != "intake" {
+		if s != "brainstorm" {
 			want = append(want, s)
 		}
 	}
@@ -501,9 +501,9 @@ func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 	}
 
 	readers := map[string][]string{
-		"loop-commit": {"amender", "implementer", "intake-room", "review-room", "spec-author"},
+		"loop-commit": {"amender", "brainstorm-room", "implementer", "review-room", "spec-author"},
 		"loop-bro":    {"decomposer"},
-		"loop-unslop": {"amender", "decomposer", "intake-room", "spec-author"},
+		"loop-unslop": {"amender", "brainstorm-room", "decomposer", "spec-author"},
 
 		"loop-boundaries":                       {"code-reviewer", "implementer"},
 		"loop-least-code":                       {"code-reviewer", "implementer"},
