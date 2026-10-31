@@ -36,9 +36,9 @@ Check in this order. The first check finds the worst fault.
 1. A requirement whose source does not say what the PRD claims. A requirement traces to a user
    story label, or to the operator's own words, quoted. The `citations` gate proves that each
    citation resolves. Only you read whether the source says what the requirement says. When the
-   epic holds a `request` fact, the PRD author wrote the PRD from it. The brief lists the epic's
-   facts. Check that each story quotes the `request` fact or the `amendment` fact. A story that
-   quotes neither has no source.
+   epic holds a `request` fact, the unattended brainstorm wrote the PRD from it. The brief lists
+   the epic's facts. Check that each story quotes the `request` fact or the `amendment` fact. A
+   story that quotes neither has no source.
 2. An epic that is too large. Answer the two questions in `../loop-sdlc-split/SKILL.md` yourself.
    Read the requirements, not the verdict of the scope check. When the epic fails one question,
    name the seam in the comment. The author does not split it.

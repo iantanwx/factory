@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -43,6 +44,20 @@ func retiredHits(t *testing.T, fsys fs.FS, words []string) []string {
 // C9: no file of the embedded pack holds a retired word.
 func TestC9PackHoldsNoRetiredWord(t *testing.T) {
 	if hits := retiredHits(t, packsrc.Files, config.RetiredWords()); len(hits) > 0 {
+		t.Fatalf("the pack holds a retired word:\n%s", strings.Join(hits, "\n"))
+	}
+}
+
+// C9: the prd-author rename retires its words, and no file of the pack
+// holds one.
+func TestC9PackHoldsNoPRDAuthorWord(t *testing.T) {
+	words := []string{"prd-author", "PRD author"}
+	for _, w := range words {
+		if !slices.Contains(config.RetiredWords(), w) {
+			t.Errorf("RetiredWords() lacks %q", w)
+		}
+	}
+	if hits := retiredHits(t, packsrc.Files, words); len(hits) > 0 {
 		t.Fatalf("the pack holds a retired word:\n%s", strings.Join(hits, "\n"))
 	}
 }

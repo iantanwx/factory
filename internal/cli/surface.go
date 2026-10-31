@@ -281,11 +281,11 @@ var surface = []Verb{
 	server("room", "list", "list rooms", coordinator, nil,
 		Flag{Name: "all", Type: FlagBool, Description: "list closed rooms too"}),
 
-	write(server("prd", "submit", "push the PRD commit, open its pull request and move its epic to review: an intake room's new epic, or the epic a prd-author run holds", []string{"intake room", "run"}, nil,
+	write(server("prd", "submit", "push the PRD commit, open its pull request and move its epic to review: an intake room's new epic, or the epic an unattended-brainstorm run holds", []string{"intake room", "run"}, nil,
 		Flag{Name: "path", Type: FlagString, Required: true, Description: "the PRD's path in the repository, committed at the checkout's HEAD"},
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the epic and pull request title"},
 		Flag{Name: "body", Type: FlagString, Description: "the pull request body"})),
-	write(server("epic", "create", "create a PRD epic that waits for its PRD author, or an architecture epic that waits until an ADR whose Ticket line names it lands on the base branch; with blockers either waits in backlog", coordinator, nil,
+	write(server("epic", "create", "create a PRD epic that waits for its unattended-brainstorm run, or an architecture epic that waits until an ADR whose Ticket line names it lands on the base branch; with blockers either waits in backlog", coordinator, nil,
 		Flag{Name: "architecture", Type: FlagBool, Description: "the epic follows an ADR, not a PRD; with none, the epic is a PRD epic"},
 		Flag{Name: "request", Type: FlagString, Description: "the operator's own words that ask for the work, kept verbatim; required with no --architecture"},
 		Flag{Name: "blocked-by", Type: FlagString, Description: "item ids the epic waits on, comma-separated: tickets, epics or decisions of the project"},
