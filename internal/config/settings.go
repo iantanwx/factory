@@ -341,10 +341,11 @@ func (t ProjectThroughput) stageField(stage, field string, d Defaults) (string, 
 	s, listed := t.pc.Stages[stage]
 	switch field {
 	case "enabled":
+		src := SourceProject
 		if !listed {
-			return "false", SourceDefault
+			src = SourceDefault
 		}
-		return strconv.FormatBool(t.pc.StageEnabled(stage)), SourceProject
+		return strconv.FormatBool(t.pc.StageEnabled(stage)), src
 	case "schedule":
 		return t.schedule(stage)
 	case "cap":
