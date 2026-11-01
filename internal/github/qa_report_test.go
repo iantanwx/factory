@@ -93,6 +93,12 @@ func (e *env) qaTicket(body string, files map[string]string, designSkill string)
 // the run's claim gave it. key is the call's idempotency key, or "".
 func (e *env) qaReport(item string, epoch int64, key string, r qa.Report) cli.Result {
 	e.t.Helper()
+	return e.qaReportWith(item, epoch, key, r, nil)
+}
+
+// qaReportWith is qaReport with the evidence files that --evidence sends.
+func (e *env) qaReportWith(item string, epoch int64, key string, r qa.Report, files map[string][]byte) cli.Result {
+	e.t.Helper()
 	v, ok := cli.Surface().Verb("qa report")
 	if !ok {
 		e.t.Fatal("the surface has no qa report verb")
@@ -108,6 +114,10 @@ func (e *env) qaReport(item string, epoch int64, key string, r qa.Report) cli.Re
 		Principal: rpc.Principal{Kind: cli.PrincipalRun, RunID: qaRun, Project: testProject, Item: item,
 			Stage: machine.StageQA, Epoch: epoch},
 		Request: &loopv1.VerbRequest{IdempotencyKey: key},
+	}
+	if files != nil {
+		call.Inv.Flags["evidence"] = "evidence"
+		call.Inv.Extra[cli.ExtraEvidence] = cli.EncodeEvidence(files)
 	}
 	return e.m.Handlers()["qa report"](context.Background(), call)
 }
@@ -377,9 +387,8 @@ func TestC22TheReportNamesEachBugTheRunFiledAndOnlyThose(t *testing.T) {
 	mustOK(t, e.qaReport(id, epoch, "k2", present(head, []string{filed}, fuzzy("web", "pass"))))
 }
 
-// The verb sends no evidence yet, so a fail finding cites a file the call
-// does not hold, and the report refuses. A report whose head is not the
-// one --head names refuses as a bad report.
+// A fail finding that cites a file the call does not hold refuses. A
+// report whose head is not the one --head names refuses as a bad report.
 func TestTheVerbRefusesAFailFindingWithNoEvidenceAndAHeadItDoesNotName(t *testing.T) {
 	e := qaEnv(t)
 	id, head := e.qaTicket(mayChange("apps/web/src/a.ts"), verifyWeb, "")

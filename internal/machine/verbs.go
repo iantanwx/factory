@@ -1017,6 +1017,10 @@ func (m *Machine) qaReport(ctx context.Context, call *rpc.Call) cli.Result {
 	if err := dec.Decode(&rep); err != nil {
 		return cli.Reject(cli.CodeQAReportRefused, "bad_report", "the report is not the JSON of a QA report: "+err.Error())
 	}
+	files, err := cli.EvidenceFiles(call.Inv)
+	if err != nil {
+		return cli.Reject(cli.CodeUsage, "bad_evidence", err.Error()+"; send the evidence with --evidence <dir>")
+	}
 	if rep.Head != head {
 		return cli.Reject(cli.CodeQAReportRefused, "bad_report",
 			fmt.Sprintf("the report names the head %q, and --head names %s; send the report of the head you drove", rep.Head, head))
@@ -1030,7 +1034,7 @@ func (m *Machine) qaReport(ctx context.Context, call *rpc.Call) cli.Result {
 		if m.qaGate == nil {
 			return "", refusedAt(cli.InternalRefusal(errors.New("machine: this server has no QA gate")), item, it)
 		}
-		text, r := m.qaGate(ctx, prj, item, call.Principal.RunID, head, rep, nil)
+		text, r := m.qaGate(ctx, prj, item, call.Principal.RunID, head, rep, files)
 		if r != nil {
 			return "", refusedAt(r, item, it)
 		}

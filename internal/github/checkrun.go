@@ -206,8 +206,11 @@ func (s *Service) runCheckRun(ctx context.Context, e checkRunEffect) error {
 
 // QAGate is the machine's QA gate. It computes the plan of the QA run at
 // head as loop qa plan does in the run's checkout, checks r against it,
-// and stores r in qa_reports. A report stored again before its verdict
-// applied replaces the row. The review text is the rendered report.
+// and scans each evidence file for a secret. It then pushes the evidence
+// commit, and stores r in qa_reports with that commit. So a push that
+// fails stores nothing, and the verdict does not apply. A report stored
+// again before its verdict applied replaces the row. The review text is
+// the rendered report, with the link of each evidence file.
 func (s *Service) QAGate(ctx context.Context, project, item, run, head string, r qa.Report, files map[string][]byte) (string, *cli.Refusal) {
 	p, err := s.project(project)
 	if err != nil {
@@ -225,21 +228,30 @@ func (s *Service) QAGate(ctx context.Context, project, item, run, head string, r
 	if ref := qa.Validate(r, plan, run, files, filed, bug); ref != nil {
 		return "", ref
 	}
+	if ref := s.secretInEvidence(files); ref != nil {
+		return "", ref
+	}
 	raw, err := json.Marshal(r)
 	if err != nil {
 		return "", cli.InternalRefusal(err)
 	}
+	commit, err := s.PushEvidence(ctx, p, item, run, files)
+	if err != nil {
+		ref := Refusal(err)
+		return "", &ref
+	}
 	err = s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-		_, err := tx.Exec(`INSERT INTO qa_reports (run_id, project, item, head, conclusion, report, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (run_id) DO UPDATE SET item = excluded.item, head = excluded.head,
-			conclusion = excluded.conclusion, report = excluded.report, created_at = excluded.created_at`,
-			run, project, item, head, r.Conclusion(), string(raw), tx.Now().UnixMilli())
+		_, err := tx.Exec(`INSERT INTO qa_reports (run_id, project, item, head, conclusion, report, evidence_commit, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (run_id) DO UPDATE SET item = excluded.item, head = excluded.head,
+			conclusion = excluded.conclusion, report = excluded.report, evidence_commit = excluded.evidence_commit,
+			created_at = excluded.created_at`,
+			run, project, item, head, r.Conclusion(), string(raw), commit, tx.Now().UnixMilli())
 		return err
 	})
 	if err != nil {
 		return "", cli.InternalRefusal(err)
 	}
-	title, summary, text := qa.Render(r, nil)
+	title, summary, text := qa.Render(r, evidenceLinks(p, commit, r))
 	return "## " + title + "\n\n" + summary + "\n" + text, nil
 }
 
@@ -340,12 +352,12 @@ func (s *Service) QAReported(ctx context.Context, project string) error {
 // before its effect posts the check run at the next tick.
 func (s *Service) EnqueueQAChecks(ctx context.Context, p config.Project) (int, error) {
 	type stored struct {
-		intent                           int64
-		run, item, head, conclusion, raw string
+		intent                                   int64
+		run, item, head, conclusion, raw, commit string
 	}
 	var due []stored
 	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT t.intent_id, r.run_id, r.item, r.head, r.conclusion, r.report
+		rows, err := tx.QueryContext(ctx, `SELECT t.intent_id, r.run_id, r.item, r.head, r.conclusion, r.report, r.evidence_commit
 			FROM qa_reports r JOIN transitions t ON t.project = r.project AND t.item = r.item AND t.run_id = r.run_id
 				AND t.verb IN (?, ?)
 			WHERE r.project = ? AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.effect_kind = ?
@@ -357,7 +369,7 @@ func (s *Service) EnqueueQAChecks(ctx context.Context, p config.Project) (int, e
 		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var r stored
-			if err := rows.Scan(&r.intent, &r.run, &r.item, &r.head, &r.conclusion, &r.raw); err != nil {
+			if err := rows.Scan(&r.intent, &r.run, &r.item, &r.head, &r.conclusion, &r.raw, &r.commit); err != nil {
 				return err
 			}
 			due = append(due, r)
@@ -373,7 +385,7 @@ func (s *Service) EnqueueQAChecks(ctx context.Context, p config.Project) (int, e
 		if err := json.Unmarshal([]byte(r.raw), &rep); err != nil {
 			return added, fmt.Errorf("github: the QA report of %s: %w", r.run, err)
 		}
-		title, summary, text := qa.Render(rep, nil)
+		title, summary, text := qa.Render(rep, evidenceLinks(p, r.commit, rep))
 		payload, err := json.Marshal(CheckRunPayload{Project: p.ID, Item: r.item, SHA: r.head, Name: QAContext,
 			Conclusion: r.conclusion, Title: title, Summary: summary, Text: text})
 		if err != nil {
