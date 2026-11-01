@@ -106,6 +106,9 @@ type Machine struct {
 	// prHead reads the live head of an item's pull request, which
 	// `review submit --head` must name. Nil reads nothing.
 	prHead PRHeadReader
+	// docReaders reads the readers a doc review must name. Nil reads none:
+	// the readers are off.
+	docReaders DocReadersSource
 	// passGate reads CI at the head a code review passes. Nil reads
 	// nothing: a server with no GitHub has no CI and posts no status.
 	passGate PassGate

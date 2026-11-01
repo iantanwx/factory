@@ -418,6 +418,16 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		s.Machine.SetRetroReader(func(ctx context.Context, project, item string) (machine.RetroOnItem, error) {
 			return retro.OnItem(ctx, st, project, item)
 		})
+		// review submit checks a doc review's --readers against the
+		// readers the doc-reviewer's brief names, from the same config.
+		projects := s.projectSource()
+		s.Machine.SetDocReadersSource(func(ctx context.Context, project string) ([]string, error) {
+			snap, err := projects(ctx, project)
+			if err != nil {
+				return nil, err
+			}
+			return snap.Config.DocReaders().Readers, nil
+		})
 		s.Retro = &retro.Service{World: retro.World{Store: st, Machine: s.Machine, Faults: s.Faults}, Redactor: red}
 		if err := s.Retro.Register(srv); err != nil {
 			return nil, err
