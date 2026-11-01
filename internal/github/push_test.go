@@ -691,7 +691,7 @@ func (e *env) reviserHolds() string {
 	_, res = e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageReviser,
 		RunID: "run-" + machine.StageReviser})
 	mustOK(e.t, res)
-	prd := commit(e.t, e.checkout, "prd", map[string]string{prdPath: prdText})
+	prd := commit(e.t, e.checkout, "prd", map[string]string{prdPath: prdBody})
 	if _, err := e.svc.Push(ctx, PushRequest{Project: testProject, Item: id, Branch: BranchFor(id), Checkout: e.checkout,
 		Head: prd, RunID: "run-brainstorm", Caller: cli.PrincipalRun}); err != nil {
 		e.t.Fatal(err)

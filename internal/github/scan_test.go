@@ -8,7 +8,7 @@ import (
 
 const (
 	prdPath = "docs/prd/e.md"
-	prdText = "a\nb\nc\nd\ne\n"
+	prdBody = "a\nb\nc\nd\ne\n"
 )
 
 // editCommits reads the commits of the checkout's work branch since
@@ -59,7 +59,7 @@ func TestC15ScanCountsTheCommitsThatEditTheDocument(t *testing.T) {
 			return []string{c}
 		}},
 		{"an edit and a merge of the base that changes the document", func(e *env) []string {
-			e.baseMoves(e.t, map[string]string{prdPath: prdText})
+			e.baseMoves(e.t, map[string]string{prdPath: prdBody})
 			gitT(e.t, e.checkout, "merge", "-q", "--no-ff", "-m", "Merge main", "main")
 			c := commit(e.t, e.checkout, "revise", map[string]string{prdPath: "A\nb\nc\nd\ne\n"})
 			e.baseMoves(e.t, map[string]string{prdPath: "a\nb\nc\nd\nE\n"})
@@ -75,7 +75,7 @@ func TestC15ScanCountsTheCommitsThatEditTheDocument(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t)
-			from := commit(t, e.checkout, "prd", map[string]string{prdPath: prdText})
+			from := commit(t, e.checkout, "prd", map[string]string{prdPath: prdBody})
 			want := tc.build(e)
 			got := e.editCommits(from, e.base)
 			slices.Sort(got)
