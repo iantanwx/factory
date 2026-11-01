@@ -15,6 +15,7 @@ const (
 	Backlog      = "backlog"
 	Todo         = "todo"
 	InProgress   = "in_progress"
+	InSimplify   = "in_simplify"
 	InReview     = "in_review"
 	InQA         = "in_qa"
 	Repair       = "repair"
@@ -27,7 +28,7 @@ const (
 
 // prOpenStates hold an open pull request, so an escalation from one
 // resumes as rework.
-var prOpenStates = []string{InReview, Repair, InQA, ReadyToMerge, Queued}
+var prOpenStates = []string{InSimplify, InReview, Repair, InQA, ReadyToMerge, Queued}
 
 // ticketResume is where answer returns a ticket. A ticket escalated from
 // backlog returns to backlog, where it waits on its blockers again, and
@@ -50,7 +51,15 @@ func reviewReject(c *change) *cli.Refusal {
 		c.setFact(FactModelTier, ModelTierEscalated)
 	}
 	c.setFact(FactEntry, EntryRework)
-	c.unsetFact(FactReviewedHead)
+	c.setFact(FactSimplifyDue, "true")
+	c.unsetFact(FactReviewedHead, FactSimplifyFrom)
+	return nil
+}
+
+// simplifyDue makes the ticket's next pr_open enter in_simplify: a new
+// ticket and a rejected one bring new code (spec factorio-1r94).
+func simplifyDue(c *change) *cli.Refusal {
+	c.setFact(FactSimplifyDue, "true")
 	return nil
 }
 
@@ -191,6 +200,7 @@ func ticketTable() *Table {
 		{Name: Backlog, Category: beadsx.CategoryFrozen},
 		{Name: Todo, Category: beadsx.CategoryActive},
 		{Name: InProgress, Category: beadsx.CategoryWIP},
+		{Name: InSimplify, Category: beadsx.CategoryActive},
 		{Name: InReview, Category: beadsx.CategoryActive},
 		{Name: InQA, Category: beadsx.CategoryActive},
 		{Name: Repair, Category: beadsx.CategoryActive},
@@ -200,12 +210,12 @@ func ticketTable() *Table {
 		{Name: Done, Category: beadsx.CategoryDone, Terminal: true},
 		{Name: Canceled, Category: beadsx.CategoryDone, Terminal: true},
 	}
-	live := []string{Backlog, Todo, InProgress, InReview, Repair, InQA, ReadyToMerge, Queued, Escalated}
+	live := []string{Backlog, Todo, InProgress, InSimplify, InReview, Repair, InQA, ReadyToMerge, Queued, Escalated}
 	rows := []Row{
 		{Verb: VerbCreate, From: []string{Initial}, To: Todo, When: "no_open_dependency",
-			when: paramIs("blocked", ""), set: setEntry(EntryNew), Facts: []string{FactEntry}},
+			when: paramIs("blocked", ""), set: all(setEntry(EntryNew), simplifyDue), Facts: []string{FactEntry, FactSimplifyDue}},
 		{Verb: VerbCreate, From: []string{Initial}, To: Backlog, When: "open_dependency",
-			when: paramIs("blocked", "true")},
+			when: paramIs("blocked", "true"), set: simplifyDue, Facts: []string{FactSimplifyDue}},
 		// work block writes pending_block in its move, before its edge, so a
 		// crash between the two leaves the ticket held (spec factorio-9wh
 		// Decision 4).
@@ -221,16 +231,25 @@ func ticketTable() *Table {
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
 		{Verb: "claim", From: []string{Repair}, To: ToSame, Stage: StageImplementer, when: stageIs(StageImplementer),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
+		{Verb: "claim", From: []string{InSimplify}, To: ToSame, Stage: StageSimplify, when: stageIs(StageSimplify),
+			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
 		{Verb: "claim", From: []string{InReview}, To: ToSame, Stage: StageCodeReviewer, when: stageIs(StageCodeReviewer),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
 		{Verb: "claim", From: []string{InQA}, To: ToSame, Stage: StageQA, when: stageIs(StageQA),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
 
-		{Verb: "pr_open", From: []string{InProgress}, To: InReview, Lease: LeaseDrop,
+		{Verb: "pr_open", From: []string{InProgress}, To: InSimplify, When: "simplify_due", Lease: LeaseDrop,
+			when:  factIs(FactSimplifyDue, "true"),
+			set:   all(copyParam("head", FactHead), copyParam("head", FactSimplifyFrom), clearFacts(FactSimplifyDue)),
+			Facts: []string{FactHead, FactSimplifyFrom, FactSimplifyDue}},
+		{Verb: "pr_open", From: []string{InProgress}, To: InReview, When: "no_simplify_due", Lease: LeaseDrop,
 			set: copyParam("head", FactHead), Facts: []string{FactHead}},
+		{Verb: VerbSimplified, From: []string{InSimplify}, To: InReview, Command: "pr open", Lease: LeaseDrop,
+			set: copyParam("head", FactHead), Facts: []string{FactHead}},
+		{Verb: VerbSimplifyOff, From: []string{InSimplify}, To: InReview, guard: unheldGuard},
 		{Verb: VerbCIRed, From: []string{InReview}, To: Repair},
 		{Verb: "fix_pushed", From: []string{Repair}, To: InReview, Lease: LeaseDrop,
-			set: copyParam("head", FactHead), Facts: []string{FactHead}},
+			set: all(copyParam("head", FactHead), clearFacts(FactSimplifyFrom)), Facts: []string{FactHead, FactSimplifyFrom}},
 		// review submit passes qa=on when the project runs the QA stage
 		// (ADR 0014 decision 1). A pass with no qa parameter skips QA.
 		{Verb: "review_pass", From: []string{InReview}, To: InQA, When: "qa_on", Command: "review submit", Lease: LeaseDrop,
@@ -238,7 +257,7 @@ func ticketTable() *Table {
 		{Verb: "review_pass", From: []string{InReview}, To: ReadyToMerge, When: "qa_off", Command: "review submit", Lease: LeaseDrop,
 			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_reject", From: []string{InReview}, To: Todo, Command: "review submit", Lease: LeaseDrop,
-			set: reviewReject, Facts: []string{FactRejects, FactModelTier, FactEntry, FactReviewedHead}},
+			set: reviewReject, Facts: []string{FactRejects, FactModelTier, FactEntry, FactSimplifyDue, FactReviewedHead, FactSimplifyFrom}},
 		{Verb: VerbQAPass, From: []string{InQA}, To: ReadyToMerge, Command: "qa report", Lease: LeaseDrop, guard: reviewedHeadGuard,
 			set: all(needCopy("head", FactQAHead), clearFacts(FactQACarriedFrom)), Facts: []string{FactQAHead, FactQACarriedFrom}},
 		// A QA fail is a reject (ADR 0014 decision 2): the next head goes
@@ -250,8 +269,8 @@ func ticketTable() *Table {
 		{Verb: VerbQADue, From: []string{ReadyToMerge, Queued}, To: InQA, guard: qaDueGuard},
 		// A new head in in_qa fences the QA run that reads the old one.
 		{Verb: "head_changed", From: []string{InQA, ReadyToMerge, Queued}, To: InReview, BumpsEpoch: true, Lease: LeaseDrop,
-			set:   all(clearFacts(FactReviewedHead, FactQAHead), copyParam("head", FactHead)),
-			Facts: []string{FactReviewedHead, FactQAHead, FactHead}},
+			set:   all(clearFacts(FactReviewedHead, FactSimplifyFrom, FactQAHead), copyParam("head", FactHead)),
+			Facts: []string{FactReviewedHead, FactSimplifyFrom, FactQAHead, FactHead}},
 		{Verb: VerbEnqueue, From: []string{ReadyToMerge}, To: Queued, guard: reviewedHeadGuard},
 		// The server merged a moved base into the reviewed head with no
 		// conflict and no shared file (F-66). The merge commit takes the
@@ -261,14 +280,17 @@ func ticketTable() *Table {
 			set:   all(carryQAPass, needCopy("head", FactReviewedHead), copyParam("head", FactHead)),
 			Facts: []string{FactReviewedHead, FactQAHead, FactQACarriedFrom, FactHead}},
 		{Verb: "dequeue_conflict", From: []string{Queued}, To: Todo,
-			set: all(setEntry(EntryRework), clearFacts(FactReviewedHead)), Facts: []string{FactEntry, FactReviewedHead}},
+			set:   all(setEntry(EntryRework), clearFacts(FactReviewedHead, FactSimplifyFrom)),
+			Facts: []string{FactEntry, FactReviewedHead, FactSimplifyFrom}},
 		{Verb: "dequeue_red", From: []string{Queued}, To: Repair,
-			set: clearFacts(FactReviewedHead), Facts: []string{FactReviewedHead}},
+			set: clearFacts(FactReviewedHead, FactSimplifyFrom), Facts: []string{FactReviewedHead, FactSimplifyFrom}},
 		{Verb: "merged", From: live, To: Done, BumpsEpoch: true, Lease: LeaseDrop,
 			set: copyParam("sha", FactMergedSHA), Facts: []string{FactMergedSHA}},
 		{Verb: VerbPRClosed, From: prOpenStates, To: Escalated, Lease: LeaseDrop,
 			set: escalateTo(ticketResume), Facts: []string{FactResume, FactResumeEntry, FactEscalation}},
-		{Verb: VerbEscalate, From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
+		// A simplify run never blocks its ticket, so it cannot escalate it
+		// (spec factorio-1r94).
+		{Verb: VerbEscalate, From: except(live, Escalated, InSimplify), To: Escalated, Lease: LeaseDrop,
 			set: escalateTo(ticketResume), Facts: []string{FactResume, FactResumeEntry, FactEscalation}},
 		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: []string{Backlog, Todo},
 			set: answerResume, Facts: []string{FactEntry, FactResume, FactResumeEntry, FactEscalation, FactAnswer, FactAmendment}},
@@ -283,7 +305,7 @@ func ticketTable() *Table {
 	}
 	rows = withReviews(rows)
 	resume := map[string]setter{InProgress: setEntry(EntryResume)}
-	pairs := [][2]string{{InProgress, Todo}, {Repair, Repair}, {InReview, InReview}, {InQA, InQA}}
+	pairs := [][2]string{{InProgress, Todo}, {Repair, Repair}, {InSimplify, InReview}, {InReview, InReview}, {InQA, InQA}}
 	rows = append(rows, releaseRows("release", false, pairs, resume)...)
 	rows = append(rows, releaseRows("reclaim", true, pairs, resume)...)
 	return &Table{Kind: KindTicket, BeadType: "task", States: states, Rows: rows}

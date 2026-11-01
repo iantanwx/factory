@@ -574,6 +574,20 @@
       {
         "verb": "claim",
         "from": [
+          "design_review"
+        ],
+        "to": "@same",
+        "stage": "doc-reviewer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
           "spec_needed"
         ],
         "to": "spec_drafting",
@@ -968,6 +982,53 @@
         ]
       },
       {
+        "verb": "pr_open",
+        "from": [
+          "design"
+        ],
+        "to": "design_review",
+        "facts": [
+          "doc_pr"
+        ]
+      },
+      {
+        "verb": "review_pass",
+        "from": [
+          "design_review"
+        ],
+        "to": "design_signoff",
+        "command": "review submit",
+        "facts": [
+          "reviewed_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_reject",
+        "from": [
+          "design_review"
+        ],
+        "to": "design",
+        "command": "review submit",
+        "facts": [
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "design_signoff"
+        ],
+        "to": "spec_needed",
+        "facts": [
+          "design_path",
+          "design_merged"
+        ]
+      },
+      {
         "verb": "decomposed",
         "from": [
           "decomposing"
@@ -1062,6 +1123,16 @@
       {
         "verb": "doc_merged",
         "from": [
+          "design_review"
+        ],
+        "to": "design_signoff",
+        "when": "outran",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
           "prd_amending"
         ],
         "to": "prd_signoff",
@@ -1091,7 +1162,8 @@
         "verb": "signoff_head",
         "from": [
           "prd_signoff",
-          "spec_signoff"
+          "spec_signoff",
+          "design_signoff"
         ],
         "to": "@same",
         "facts": [
@@ -1131,6 +1203,19 @@
           "spec_review",
           "spec_signoff",
           "spec_amending"
+        ],
+        "to": "escalated",
+        "facts": [
+          "resume",
+          "escalation"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "pr_closed",
+        "from": [
+          "design_review",
+          "design_signoff"
         ],
         "to": "escalated",
         "facts": [
@@ -1281,6 +1366,14 @@
       {
         "verb": "release",
         "from": [
+          "design_review"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
           "spec_review"
         ],
         "to": "@same",
@@ -1351,6 +1444,15 @@
       {
         "verb": "reclaim",
         "from": [
+          "design_review"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
           "spec_review"
         ],
         "to": "@same",
@@ -1383,6 +1485,10 @@
       {
         "name": "in_progress",
         "category": "wip"
+      },
+      {
+        "name": "in_simplify",
+        "category": "active"
       },
       {
         "name": "in_review",
@@ -1428,7 +1534,8 @@
         "to": "todo",
         "when": "no_open_dependency",
         "facts": [
-          "entry"
+          "entry",
+          "simplify_due"
         ]
       },
       {
@@ -1437,7 +1544,10 @@
           "open"
         ],
         "to": "backlog",
-        "when": "open_dependency"
+        "when": "open_dependency",
+        "facts": [
+          "simplify_due"
+        ]
       },
       {
         "verb": "block",
@@ -1507,6 +1617,20 @@
       {
         "verb": "claim",
         "from": [
+          "in_simplify"
+        ],
+        "to": "@same",
+        "stage": "simplify",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
           "in_review"
         ],
         "to": "@same",
@@ -1537,11 +1661,45 @@
         "from": [
           "in_progress"
         ],
+        "to": "in_simplify",
+        "when": "simplify_due",
+        "facts": [
+          "head",
+          "simplify_from",
+          "simplify_due"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "pr_open",
+        "from": [
+          "in_progress"
+        ],
         "to": "in_review",
+        "when": "no_simplify_due",
         "facts": [
           "head"
         ],
         "lease": "drop"
+      },
+      {
+        "verb": "simplified",
+        "from": [
+          "in_simplify"
+        ],
+        "to": "in_review",
+        "command": "pr open",
+        "facts": [
+          "head"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "simplify_off",
+        "from": [
+          "in_simplify"
+        ],
+        "to": "in_review"
       },
       {
         "verb": "ci_red",
@@ -1557,7 +1715,8 @@
         ],
         "to": "in_review",
         "facts": [
-          "head"
+          "head",
+          "simplify_from"
         ],
         "lease": "drop"
       },
@@ -1600,7 +1759,9 @@
           "rejects",
           "model_tier",
           "entry",
+          "simplify_due",
           "reviewed_head",
+          "simplify_from",
           "rejected_head",
           "review"
         ],
@@ -1667,6 +1828,7 @@
         "lease": "drop",
         "facts": [
           "reviewed_head",
+          "simplify_from",
           "qa_head",
           "head"
         ]
@@ -1699,7 +1861,8 @@
         "to": "todo",
         "facts": [
           "entry",
-          "reviewed_head"
+          "reviewed_head",
+          "simplify_from"
         ]
       },
       {
@@ -1709,7 +1872,8 @@
         ],
         "to": "repair",
         "facts": [
-          "reviewed_head"
+          "reviewed_head",
+          "simplify_from"
         ]
       },
       {
@@ -1718,6 +1882,7 @@
           "backlog",
           "todo",
           "in_progress",
+          "in_simplify",
           "in_review",
           "repair",
           "in_qa",
@@ -1735,6 +1900,7 @@
       {
         "verb": "pr_closed",
         "from": [
+          "in_simplify",
           "in_review",
           "repair",
           "in_qa",
@@ -1821,6 +1987,7 @@
           "backlog",
           "todo",
           "in_progress",
+          "in_simplify",
           "in_review",
           "repair",
           "in_qa",
@@ -1840,6 +2007,7 @@
           "backlog",
           "todo",
           "in_progress",
+          "in_simplify",
           "in_review",
           "repair",
           "in_qa",
@@ -1876,6 +2044,14 @@
       {
         "verb": "release",
         "from": [
+          "in_simplify"
+        ],
+        "to": "in_review",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
           "in_review"
         ],
         "to": "@same",
@@ -1907,6 +2083,15 @@
           "repair"
         ],
         "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "in_simplify"
+        ],
+        "to": "in_review",
         "bumps_epoch": true,
         "lease": "drop"
       },

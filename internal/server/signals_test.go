@@ -14,7 +14,7 @@ func TestWorkShowListsARedBuildSignal(t *testing.T) {
 	id := w.claim()
 	ctx := context.Background()
 	for _, mv := range []struct{ verb, head string }{
-		{"pr_open", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {machine.VerbCIRed, ""},
+		{"pr_open", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {machine.VerbSimplifyOff, ""}, {machine.VerbCIRed, ""},
 		{"fix_pushed", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, {machine.VerbCIRed, ""},
 	} {
 		params := map[string]string{}

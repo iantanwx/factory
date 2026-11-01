@@ -71,7 +71,8 @@ func (e *env) qaTicket(body string, files map[string]string, designSkill string)
 	if _, err := e.push(id, head); err != nil {
 		e.t.Fatal(err)
 	}
-	for _, verb := range []string{"pr_open", "review_pass"} {
+	// simplify_off is the pass of a project that runs no simplify stage.
+	for _, verb := range []string{"pr_open", machine.VerbSimplifyOff, "review_pass"} {
 		mustOK(e.t, e.m.Apply(ctx, machine.Request{Project: testProject, Item: id, Verb: verb,
 			Params: map[string]string{"head": head, "qa": "on"}, Actor: machine.Server("test")}))
 	}

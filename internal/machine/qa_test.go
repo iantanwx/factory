@@ -127,7 +127,7 @@ func TestC8ABugsShapedTicketReachesInQA(t *testing.T) {
 	mustOK(t, res)
 	ticket := res.Data.(ShapeResult).Ticket
 	w.claim(ticket, StageImplementer, "impl")
-	w.must(ticket, "pr_open", map[string]string{"head": shaA})
+	w.opened(ticket, shaA)
 	rev := w.claimAs(ticket, StageCodeReviewer, "rev")
 	mustOK(t, w.call("review submit", rev, []string{ticket}, map[string]string{"verdict": "pass", "head": shaA, "body": "C-bug-1 pass."}))
 	if it := w.show(ticket); it.Status != InQA || it.Fact(FactBug) != bug {
@@ -200,7 +200,7 @@ func TestC10AQAFailIsAReject(t *testing.T) {
 	// The next round's review rejects: the second reject of either kind
 	// raises the model tier.
 	w.claim(id, StageImplementer, "impl-2")
-	w.must(id, "pr_open", map[string]string{"head": shaB})
+	w.opened(id, shaB)
 	rev := w.claimAs(id, StageCodeReviewer, "rev-2")
 	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "reject", "head": shaB, "body": "C1 fail."}))
 	if it := w.show(id); it.Fact(FactRejects) != "2" || it.Fact(FactModelTier) != ModelTierEscalated {

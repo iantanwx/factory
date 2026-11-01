@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -37,6 +38,12 @@ const (
 // the item again with the same inputs, forever (tickertown admission.ts
 // RELEASED, parity 2.12).
 func (c Class) Counted() bool { return c == ClassFailed || c == ClassCrashed || c == ClassStalled }
+
+// PassesThrough reports whether a run of stage never counts and never
+// holds its item. A simplify run that ends with no hand-off passes its
+// ticket on to review (spec factorio-1r94), and the next round after a
+// reject can carry the same inputs.
+func PassesThrough(stage string) bool { return stage == config.StageSimplify }
 
 // Outage is one span the server was down: from the last liveness tick to
 // the next start (KTD8).
@@ -149,12 +156,13 @@ func (a *Admission) RecordOutcome(ctx context.Context, s Settlement) (Outcome, e
 	var out Outcome
 	err := a.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		var (
-			started int64
-			ended   sql.NullInt64
-			class   sql.NullString
+			started  int64
+			ended    sql.NullInt64
+			class    sql.NullString
+			runStage string
 		)
-		err := tx.QueryRow(`SELECT started_at, ended_at, outcome_class FROM runs WHERE run_id = ?`, s.RunID).
-			Scan(&started, &ended, &class)
+		err := tx.QueryRow(`SELECT started_at, ended_at, outcome_class, stage FROM runs WHERE run_id = ?`, s.RunID).
+			Scan(&started, &ended, &class, &runStage)
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("%w: %s", ErrUnknownRun, s.RunID)
 		}
@@ -163,14 +171,14 @@ func (a *Admission) RecordOutcome(ctx context.Context, s Settlement) (Outcome, e
 		}
 		if ended.Valid {
 			c := Class(class.String)
-			out = Outcome{Class: c, Counted: c.Counted(), Replayed: true}
+			out = Outcome{Class: c, Counted: c.Counted() && !PassesThrough(runStage), Replayed: true}
 			return nil
 		}
 		if s.Started.IsZero() {
 			s.Started = time.UnixMilli(started)
 		}
 		c := Classify(s)
-		out = Outcome{Class: c, Counted: c.Counted()}
+		out = Outcome{Class: c, Counted: c.Counted() && !PassesThrough(runStage)}
 		if c == ClassUnknown {
 			return nil
 		}
@@ -185,7 +193,7 @@ func (a *Admission) RecordOutcome(ctx context.Context, s Settlement) (Outcome, e
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if c.Counted() {
+		if out.Counted {
 			if _, err := tx.Exec(`UPDATE failures SET class = ?, note = ?, recorded_at = ? WHERE run_id = ?`,
 				string(c), s.Note, now, s.RunID); err != nil {
 				return err

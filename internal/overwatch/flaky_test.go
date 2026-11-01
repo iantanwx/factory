@@ -151,3 +151,41 @@ func TestAnOpenBugFilesAFlakeThatADuplicateBoundsOut(t *testing.T) {
 	}
 	expect(t, pr, Quiet)
 }
+
+// C-bug-1: when two duplicates of two merged fixes name one flaky key, the
+// key keeps the latest bound and its record, in either read order. The
+// flake's run started after the first fix merged and before the second.
+func TestAFlakeOlderThanTheLatestFixIsFiledInEitherReadOrder(t *testing.T) {
+	key := "overwatch:flaky:alpha:ci-yml/go-tests-race"
+	type dup struct {
+		fix, bug string
+		merged   time.Duration
+	}
+	first := dup{"alpha-t1", "alpha-b1", 8 * time.Hour}
+	latest := dup{"alpha-t2", "alpha-b2", time.Hour}
+	for _, c := range []struct {
+		name  string
+		order []dup
+	}{
+		{"the earlier fix read first", []dup{first, latest}},
+		{"the latest fix read first", []dup{latest, first}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newGHWorld(t, alpha)
+			w.prs().AddRun(rerun(headOld, "failure", "success", w.now.Add(-3*time.Hour)))
+			for _, d := range c.order {
+				w.add("alpha", machine.Item{ID: d.fix, Kind: machine.KindTicket, Status: machine.Done, Updated: w.now.Add(-d.merged)}, "fix the race")
+				w.add("alpha", machine.Item{ID: d.bug, Kind: machine.KindBug, Status: machine.Duplicate,
+					Facts: map[string]string{machine.FactDuplicateOf: d.fix}}, "flaky race tests ("+key+")")
+			}
+			pr := sweepOne(t, w, partNamed(t, "flaky"))
+			if got := unfiled(pr, key); got != 0 {
+				t.Fatalf("%d unfiled lines quote %s, want 0: %v", got, key, pr.Lines)
+			}
+			if len(pr.Lines) == 0 || !strings.Contains(pr.Lines[0], "(filed in alpha-b2)") {
+				t.Fatalf("lines = %v, want the flake filed in alpha-b2", pr.Lines)
+			}
+			expect(t, pr, Quiet)
+		})
+	}
+}
