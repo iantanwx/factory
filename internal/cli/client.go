@@ -267,6 +267,13 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 		}
 		req.Flags[ExtraFile] = base64.StdEncoding.EncodeToString(data)
 	}
+	if dir := inv.Flags["evidence"]; dir != "" {
+		files, err := ReadEvidence(dir, cc.cwd)
+		if err != nil {
+			return *usage("evidence_unreadable", err.Error(), inv.Verb.Path)
+		}
+		req.Flags[ExtraEvidence] = EncodeEvidence(files)
+	}
 	if inv.Verb.Path == "inbox wait" {
 		// The server holds the call until shortly before this deadline,
 		// then answers exit 4.

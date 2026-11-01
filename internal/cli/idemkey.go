@@ -112,7 +112,8 @@ func headDir(inv Invocation, checkout, cwd string) string {
 
 // ContentHash is the hash of the content a write carries: the local HEAD
 // sha for a verb that pushes it, the --body text, or the bytes of the
-// --file file. It is "" for a write that carries no content.
+// --file file and of each --evidence file. It is "" for a write that
+// carries no content.
 func ContentHash(ctx context.Context, inv Invocation, checkout, cwd string) (string, error) {
 	switch {
 	case pushesHead(inv.Verb.Path):
@@ -132,7 +133,15 @@ func ContentHash(ctx context.Context, inv Invocation, checkout, cwd string) (str
 		if err != nil {
 			return "", fmt.Errorf("read --file: %w", err)
 		}
-		return hashText("file", string(data)), nil
+		h := hashText("file", string(data))
+		if dir := inv.Flags["evidence"]; dir != "" {
+			files, err := ReadEvidence(dir, cwd)
+			if err != nil {
+				return "", err
+			}
+			h = hashText("evidence", h+"\x00"+evidenceDigest(files))
+		}
+		return h, nil
 	}
 	return "", nil
 }

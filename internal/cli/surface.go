@@ -373,7 +373,8 @@ var surface = []Verb{
 		Flag{Name: "state", Type: FlagString, Description: "the one state to capture, S<n>.<m>; every state of the record when absent"}),
 	write(server("qa", "report", "hand in the report of a QA run at the reviewed head; the server checks it against the plan at that head, records qa_pass or qa_fail by its conclusion, and posts the loop/qa check run of the head", []string{"qa run"}, []Arg{itemArg},
 		Flag{Name: "head", Type: FlagString, Required: true, Description: "the reviewed head sha that the run drove; the report's head must be the same sha"},
-		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report JSON, read from the caller's working directory"})),
+		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report JSON, read from the caller's working directory"},
+		Flag{Name: "evidence", Type: FlagString, Description: "the directory of the evidence files the findings cite, by their paths from it; the CLI sends the bytes of each file under it, and the server pushes them to refs/loop/qa/<ticket>/<run id>"})),
 	client("qa", "plan", "print the plan of the QA run whose checkout holds the current directory: the apps to drive, whether visual QA runs, the design skill and the bounds", anyone, nil),
 
 	topLevel(server("meta", "schema", "print the CLI schema", anyone, nil)),

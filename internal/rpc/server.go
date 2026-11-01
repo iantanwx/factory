@@ -158,6 +158,8 @@ func New(opts Options) (*Server, error) {
 	s.grpc = grpc.NewServer(
 		grpc.Creds(newPeerCreds()),
 		grpc.UnknownServiceHandler(s.stream),
+		// A QA report's evidence passes gRPC's default bound of 4 MiB.
+		grpc.MaxRecvMsgSize(cli.MaxRequestBytes),
 	)
 	return s, nil
 }

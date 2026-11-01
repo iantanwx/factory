@@ -288,6 +288,10 @@ const (
 	// CLI reads it from the caller's working directory, so the server reads
 	// no path an agent chose.
 	ExtraFile = ReservedPrefix + "file"
+	// ExtraEvidence holds the files under the directory that qa report's
+	// --evidence names, from EncodeEvidence. The CLI reads them, so the
+	// server reads no path an agent chose.
+	ExtraEvidence = ReservedPrefix + "evidence"
 )
 
 // MaxFileBytes bounds the file a --file flag sends.
