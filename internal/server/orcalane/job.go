@@ -282,7 +282,9 @@ func initFixture(ctx context.Context, dir string) error {
 
 // sweep closes the terminals of and removes each worktree of the fixture
 // repository. The fixture belongs to the lane alone, so each of its
-// worktrees is the lane's. It never removes the fixture's own checkout.
+// worktrees is the lane's. It never removes the fixture's own checkout. A
+// worktree that orca refuses stays for the next sweep, with one log line
+// that names it and orca's reason. Only a failed list stops the sweep.
 func (j *Job) sweep(ctx context.Context, t *tick, fixture string) error {
 	trees, err := j.Orca.Worktrees(ctx, fixture)
 	if err != nil {
@@ -292,15 +294,27 @@ func (j *Job) sweep(ctx context.Context, t *tick, fixture string) error {
 		if filepath.Clean(wt) == fixture {
 			continue
 		}
-		if err := j.Orca.CloseTerminals(ctx, wt); err != nil {
-			return err
+		err := j.Orca.CloseTerminals(ctx, wt)
+		if err == nil {
+			err = j.Orca.RemoveWorktree(ctx, wt)
 		}
-		if err := j.Orca.RemoveWorktree(ctx, wt); err != nil {
-			return err
+		if err != nil {
+			t.logf("keep the worktree %s: %s", wt, reason(err))
+			continue
 		}
 		t.logf("swept the worktree %s", wt)
 	}
 	return nil
+}
+
+// reason is err, with orca's message when orca gave one. The message goes
+// to the log only, never to a fault.
+func reason(err error) string {
+	var oe *orca.Error
+	if errors.As(err, &oe) && oe.Message != "" {
+		return fmt.Sprintf("%v: %q", err, oe.Message)
+	}
+	return err.Error()
 }
 
 // laneEnv is the server's environment with every LOOP_ value removed, and
