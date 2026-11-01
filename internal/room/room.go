@@ -566,13 +566,16 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 	b := brief.Brief{RunID: run, Project: r.Project, Stage: Stage(r.Kind), Role: "room", Harness: string(s.cfg.Harness),
 		Model: s.cfg.Model, BaseBranch: snap.BaseBranch(),
 		Secrets: brief.Secrets{Present: manifest.Names(), Missing: []string{}}}
+	var kind machine.Kind
+	var body string
 	if r.Item != "" {
 		if it, ref := s.cfg.Machine.Show(ctx, r.Project, r.Item); ref == nil {
 			b.Item = &brief.Item{ID: it.ID, Kind: string(it.Kind), Title: it.Title, Status: it.Status, Facts: it.Facts}
 			b.AllowedNext = it.AllowedNext
+			kind, body = it.Kind, it.Body
 		}
 	}
-	p := s.cfg.Pack.WithUser(sched.UserSkills(s.cfg.SkillStore, r.Project, snap.Config.Skills))
+	p := sched.Select(s.cfg.Pack.WithUser(sched.UserSkills(s.cfg.SkillStore, r.Project, snap.Config.Skills)), snap.Config, sched.RoomScope(r.Kind, kind, body))
 	res, err := brief.Inject(ctx, brief.Injection{Checkout: r.Checkout, Harness: s.cfg.Harness, Pack: p, Brief: b, Env: brief.GroupEnv(manifest, env)})
 	var reserved *brief.ReservedError
 	if errors.As(err, &reserved) {
