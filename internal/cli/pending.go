@@ -135,7 +135,7 @@ func (p *Pending) Reserve(e PendingEntry, derive func() (string, error)) (key st
 }
 
 // Clear removes the entry with key. The CLI calls it on a definitive
-// answer: exit 0 or exit 3.
+// answer, exit 0 or exit 3, and on a NOTHING answer, exit 1.
 func (p *Pending) Clear(key string) error {
 	return p.lock(func() error {
 		entries, err := p.read()
