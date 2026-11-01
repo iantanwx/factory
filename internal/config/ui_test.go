@@ -122,6 +122,9 @@ func TestC3AUIBlockThatBreaksItsShapeDoesNotLoad(t *testing.T) {
 		{"unknown key", "  kind: web\n  paths: [web/**]\n  colour: red\n", "colour"},
 		{"not a mapping", "  - web/**\n", "ui"},
 		{"paths not a list", "  kind: web\n  paths: web/**\n", "ui.paths"},
+		{"duplicate kind", "  kind: desktop\n  kind: web\n  paths: [web/**]\n", "ui.kind"},
+		{"duplicate paths", "  kind: web\n  paths: [a/**]\n  paths: [b/**]\n", "ui.paths"},
+		{"key not a scalar", "  kind: web\n  paths: [web/**]\n  ? [x]\n  : y\n", "scalar"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -24,17 +24,28 @@ type UIConfig struct {
 	Paths []Glob `yaml:"paths"` // at least one
 }
 
-// UnmarshalYAML refuses an unknown field of the block and each glob that
-// breaks the glob rule, and names the field. A node's own Decode does not
-// refuse an unknown field, so each key is read here.
+// UnmarshalYAML refuses an unknown field of the block, a key that is not a
+// scalar, a second key of one name and each glob that breaks the glob rule,
+// and names the field. A node's own Decode does not refuse an unknown field,
+// so each key is read here, and this loop keeps the strict decoder's
+// duplicate key rule.
 func (u *UIConfig) UnmarshalYAML(n *yaml.Node) error {
 	n = resolve(n)
 	if n.Kind != yaml.MappingNode {
 		return errors.New("ui: must be a mapping of kind and paths")
 	}
 	var out UIConfig
+	seen := map[string]bool{}
 	for j := 0; j+1 < len(n.Content); j += 2 {
-		switch k, v := n.Content[j].Value, n.Content[j+1]; k {
+		kn := resolve(n.Content[j])
+		if kn.Kind != yaml.ScalarNode {
+			return fmt.Errorf("ui: line %d: each key must be a scalar", kn.Line)
+		}
+		if seen[kn.Value] {
+			return fmt.Errorf("ui.%s: line %d: key already defined", kn.Value, kn.Line)
+		}
+		seen[kn.Value] = true
+		switch k, v := kn.Value, n.Content[j+1]; k {
 		case "kind":
 			if err := v.Decode(&out.Kind); err != nil {
 				return errors.New("ui.kind: must be web or native")
