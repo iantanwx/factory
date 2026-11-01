@@ -62,6 +62,23 @@ func TestNewHeadAfterAPassReturnsTheTicketToReview(t *testing.T) {
 	}
 }
 
+// C11 of spec factorio-nhb5: a ticket in in_qa at A gets a new commit B.
+// The ticket returns to review with no reviewed head.
+func TestNewHeadInQAReturnsTheTicketToReview(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	id := e.ticket(machine.InReview, shaA)
+	mustOK(t, e.m.Apply(context.Background(), machine.Request{Project: testProject, Item: id, Verb: "review_pass",
+		Params: map[string]string{"head": shaA, "qa": "on"}, Actor: machine.Server("test")}))
+	pr := w.Add(&gt.PR{Head: BranchFor(id), HeadSHA: shaA})
+	r := e.reactor()
+	w.Update(pr, func(p *gt.PR) { p.HeadSHA = shaB })
+	e.tick(r)
+	if it := e.status(id); it.Status != machine.InReview || it.Fact(machine.FactReviewedHead) != "" || it.Fact(machine.FactHead) != shaB {
+		t.Fatalf("after the push: %s %v", it.Status, it.Facts)
+	}
+}
+
 // A head the server pushed raises no alert.
 func TestOwnPushRaisesNoAlert(t *testing.T) {
 	e := newEnv(t)
