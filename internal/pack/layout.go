@@ -19,6 +19,7 @@ import (
 	"testing/fstest"
 
 	"github.com/iantanwx/loop/internal/brief"
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // ManifestFile is the manifest's path in the pack source.
@@ -34,6 +35,15 @@ type Manifest struct {
 	Skills []string `json:"skills"`
 	// Agents lists the subagents, each a file agents/loop-*.md.
 	Agents []string `json:"agents,omitempty"`
+	// Conditional maps a skill directory the layout holds to the
+	// condition a checkout holds it on.
+	Conditional map[string]Condition `json:"conditional,omitempty"`
+}
+
+// Condition is one conditional mark: a checkout holds the skill only when
+// its project config sets Key, a top-level key of config.ProjectConfig.
+type Condition struct {
+	Key string `json:"key"`
 }
 
 // Runbook is one runbook's manifest entry.
@@ -103,7 +113,33 @@ func ReadManifest(src fs.FS) (*Manifest, error) {
 			}
 		}
 	}
+	if err := checkConditional(src, &m); err != nil {
+		return nil, err
+	}
 	return &m, nil
+}
+
+// checkConditional refuses a mark no checkout can honour: one on a
+// directory that is neither a skill nor a pin's, or on a key no project
+// config can set.
+func checkConditional(src fs.FS, m *Manifest) error {
+	if len(m.Conditional) == 0 {
+		return nil
+	}
+	pins, err := ReadThirdParty(src)
+	if err != nil {
+		return err
+	}
+	for _, skill := range slices.Sorted(maps.Keys(m.Conditional)) {
+		pinned := slices.ContainsFunc(pins, func(p ThirdParty) bool { return brief.SkillPrefix+p.Name == skill })
+		if !slices.Contains(m.Skills, skill) && !pinned {
+			return fmt.Errorf("pack: %s: conditional %q is neither a skill nor the directory of a pin", ManifestFile, skill)
+		}
+		if key := m.Conditional[skill].Key; !slices.Contains(config.ProjectKeys(), key) {
+			return fmt.Errorf("pack: %s: conditional %q reads key %q, which the project config does not hold", ManifestFile, skill, key)
+		}
+	}
+	return nil
 }
 
 func validName(s string) bool {
