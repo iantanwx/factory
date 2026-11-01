@@ -67,9 +67,9 @@ func Design(ctx context.Context, r *Repo) ([]Finding, error) {
 						}
 					}
 				}
-				for _, st := range stories {
-					if st.UI == docshape.UIYes && !slices.Contains(cited, st.Label) {
-						add(0, "ui_story_no_screen", "%s of %s reads UI: yes, and no screen cites it", st.Label, rec.PRD)
+				for _, l := range docshape.UIStories(prd) {
+					if !slices.Contains(cited, l) {
+						add(0, "ui_story_no_screen", "%s of %s reads UI: yes, and no screen cites it", l, rec.PRD)
 					}
 				}
 			}
