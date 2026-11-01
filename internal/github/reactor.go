@@ -259,10 +259,11 @@ func (r *Reactor) tickProject(ctx context.Context, p config.Project) error {
 	return errors.Join(errs...)
 }
 
-// eligibility posts each due loop/qa check run, then enqueues and posts
-// loop/eligible for every passed review.
+// eligibility enqueues and posts each due loop/qa check run, then
+// enqueues and posts loop/eligible for every passed review.
 func (r *Reactor) eligibility(ctx context.Context, p config.Project) error {
-	cerr := r.s.RunCheckRunEffects(ctx)
+	_, qerr := r.s.EnqueueQAChecks(ctx, p)
+	cerr := errors.Join(qerr, r.s.RunCheckRunEffects(ctx))
 	if _, err := r.s.EnqueueEligibility(ctx, p); err != nil {
 		return errors.Join(cerr, err)
 	}

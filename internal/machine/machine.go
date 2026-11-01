@@ -115,6 +115,12 @@ type Machine struct {
 	// qaEnabled reads whether the project runs the QA stage. Nil reads it
 	// as off.
 	qaEnabled QAEnabled
+	// qaGate checks and stores the report of qa report. Nil refuses every
+	// report.
+	qaGate QAGate
+	// qaReported enqueues the loop/qa check run of each stored report.
+	// Nil enqueues nothing, and the GitHub reactor's tick enqueues it.
+	qaReported QAReported
 	// supersedeCheck reads the evidence of `work supersede` back from
 	// GitHub. Nil refuses every supersede.
 	supersedeCheck SupersedeChecker
@@ -233,6 +239,11 @@ type Request struct {
 	// here, so a pass at red CI, or a comment GitHub refuses, records no
 	// verdict.
 	Before func(ctx context.Context, it Item) *cli.Refusal
+	// Review runs after Before, under the same lock, and returns the text
+	// of the review fact, which replaces the text the row wrote. A refusal
+	// stops the write, and a replay never runs it. qa report checks and
+	// stores the report here, and renders the review from it.
+	Review func(ctx context.Context, it Item) (string, *cli.Refusal)
 }
 
 // Item is one work item as the machine reads it: beads holds the status

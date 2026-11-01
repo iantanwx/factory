@@ -109,6 +109,10 @@ func (g *GitHub) Setup(s *Server) error {
 		s.Machine.SetPRHeadReader(svc.PRHead)
 		// A code pass needs green CI at the head it names.
 		s.Machine.SetPassGate(svc.PassCI)
+		// qa report checks the report against the plan of its head over
+		// the mirror, stores it, and enqueues its loop/qa check run.
+		s.Machine.SetQAGate(svc.QAGate)
+		s.Machine.SetQAReported(svc.QAReported)
 		// work supersede reads its evidence and the ticket's pull
 		// request back before the close is recorded.
 		s.Machine.SetSupersedeChecker(svc.SupersedeEvidence)
