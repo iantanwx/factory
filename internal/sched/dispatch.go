@@ -227,8 +227,11 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		Project: ad.Project, Item: ad.Item, Stage: ad.Stage, Checkout: co.Path, Epoch: ad.Lease.Epoch, Release: s.cfg.Release}); err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
+	// The row keeps the brief's design skill, so the QA report reads which
+	// run owes visual QA.
 	if err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-		_, err := tx.Exec(`UPDATE runs SET state = ?, pack_hash = ? WHERE run_id = ? AND ended_at IS NULL`, RunStarting, res.PackHash, ad.RunID)
+		_, err := tx.Exec(`UPDATE runs SET state = ?, pack_hash = ?, design_skill = ? WHERE run_id = ? AND ended_at IS NULL`,
+			RunStarting, res.PackHash, p.Design, ad.RunID)
 		return err
 	}); err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
