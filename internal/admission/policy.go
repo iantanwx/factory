@@ -226,16 +226,16 @@ func (a *Admission) task(ctx context.Context, project, item string) (Task, error
 	return Task{Title: title, Body: body}, nil
 }
 
-// inputsOf returns the item's retry identity at stage. A code review reads
-// the live head of the item's pull request, so it makes an outside read,
-// and no caller holds a lock. A head that does not read refuses, as a base
-// that does not read does.
+// inputsOf returns the item's retry identity at stage. A code review and a
+// QA run read the live head of the item's pull request, so a new head is
+// new input. That is an outside read, and no caller holds a lock. A head
+// that does not read refuses, as a base that does not read does.
 func (a *Admission) inputsOf(ctx context.Context, project, item, stage string) (string, error) {
 	t, err := a.task(ctx, project, item)
 	if err != nil {
 		return "", fmt.Errorf("admission: read %s: %w", item, err)
 	}
-	if stage == config.StageCodeReviewer && a.heads != nil {
+	if (stage == config.StageCodeReviewer || stage == config.StageQA) && a.heads != nil {
 		head, ref := a.heads(ctx, project, item)
 		switch {
 		case ref == nil:
@@ -405,7 +405,7 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 
 func retryLimit(item, status string, n int) *cli.Refusal {
 	return &cli.Refusal{Code: cli.CodeRetryLimit, Rule: "retry_limit", Item: item, CurrentStatus: status,
-		Hint: fmt.Sprintf("%s: %d failed attempts for current inputs; edit the item, change a declared file or cited document on the base, push to the pull request of a code review, or install a new release", item, n)}
+		Hint: fmt.Sprintf("%s: %d failed attempts for current inputs; edit the item, change a declared file or cited document on the base, push to the pull request of a code review or a QA run, or install a new release", item, n)}
 }
 
 // unreserve drops a reservation whose claim the machine refused. A claim

@@ -679,6 +679,117 @@ func TestC14RoomPushThatChangesASettingLands(t *testing.T) {
 	}
 }
 
+// reviserHolds makes an epic in prd_amending that a reviser run holds.
+// An earlier run pushed its PRD at prdPath to the epic's branch.
+func (e *env) reviserHolds() string {
+	e.t.Helper()
+	e.withWorld()
+	ctx := context.Background()
+	id, res := e.m.Create(ctx, machine.CreateRequest{Project: testProject, Kind: machine.KindEpic, Title: "e",
+		Verb: "prd_submit", Params: map[string]string{"pr": "1"}, Facts: map[string]string{machine.FactPRDPath: prdPath},
+		Actor: machine.Server("test")})
+	mustOK(e.t, res)
+	e.apply(id, "review_reject", nil)
+	_, res = e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageReviser,
+		RunID: "run-" + machine.StageReviser})
+	mustOK(e.t, res)
+	prd := commit(e.t, e.checkout, "prd", map[string]string{prdPath: prdBody})
+	if _, err := e.svc.Push(ctx, PushRequest{Project: testProject, Item: id, Branch: BranchFor(id), Checkout: e.checkout,
+		Head: prd, RunID: "run-brainstorm", Caller: cli.PrincipalRun}); err != nil {
+		e.t.Fatal(err)
+	}
+	return id
+}
+
+// reviserPush runs `branch push` of the checkout's HEAD as the reviser run.
+func (e *env) reviserPush(id string) cli.Result {
+	e.t.Helper()
+	head := gitT(e.t, e.checkout, "rev-parse", "HEAD")
+	return e.runCall("branch push", id, machine.StageReviser, nil, map[string]string{cli.ExtraHead: head})
+}
+
+func wantEditSetSplit(t *testing.T, res cli.Result) {
+	t.Helper()
+	if res.Refusal == nil || res.Refusal.Code != "EDIT_SET_SPLIT" || res.Refusal.Rule != "one_edit_set" {
+		t.Fatalf("push: refusal %+v; want EDIT_SET_SPLIT, one_edit_set", res.Refusal)
+	}
+}
+
+// C15: a reviser run lands one commit that edits its PRD, with a commit
+// outside the document, and a merge of the base in a second push.
+func TestC15ReviserPushOfOneEditSetLands(t *testing.T) {
+	e := newEnv(t)
+	id := e.reviserHolds()
+	commit(t, e.checkout, "revise", map[string]string{prdPath: "A\nb\nc\nd\ne\n"})
+	commit(t, e.checkout, "notes", map[string]string{"notes.txt": "n\n"})
+	mustOK(t, e.reviserPush(id))
+	e.baseMoves(t, map[string]string{"other.txt": "o\n"})
+	gitT(t, e.checkout, "merge", "-q", "--no-ff", "-m", "Merge main", "main")
+	mustOK(t, e.reviserPush(id))
+	if got, want := e.remoteSHA(BranchFor(id)), gitT(t, e.checkout, "rev-parse", "HEAD"); got != want {
+		t.Fatalf("remote %s = %q, want %s", BranchFor(id), got, want)
+	}
+}
+
+// C15: two commits that edit the PRD in one push split the edit set, and
+// the refusal pushes nothing.
+func TestC15ReviserPushOfTwoEditsIsRefused(t *testing.T) {
+	e := newEnv(t)
+	id := e.reviserHolds()
+	before := e.remoteSHA(BranchFor(id))
+	commit(t, e.checkout, "revise", map[string]string{prdPath: "two\n"})
+	commit(t, e.checkout, "revise again", map[string]string{prdPath: "three\n"})
+	wantEditSetSplit(t, e.reviserPush(id))
+	if got := e.remoteSHA(BranchFor(id)); got != before {
+		t.Fatalf("remote %s = %q after the refusal, want %s", BranchFor(id), got, before)
+	}
+}
+
+// C15: one commit that edits the PRD in each of two pushes of one run
+// splits the edit set too.
+func TestC15ReviserSecondPushOfAnEditIsRefused(t *testing.T) {
+	e := newEnv(t)
+	id := e.reviserHolds()
+	first := commit(t, e.checkout, "revise", map[string]string{prdPath: "two\n"})
+	mustOK(t, e.reviserPush(id))
+	commit(t, e.checkout, "revise again", map[string]string{prdPath: "three\n"})
+	wantEditSetSplit(t, e.reviserPush(id))
+	if got := e.remoteSHA(BranchFor(id)); got != first {
+		t.Fatalf("remote %s = %q after the refusal, want %s", BranchFor(id), got, first)
+	}
+}
+
+// C15: the epic's state names the document that the count reads.
+func TestC15TheEpicStateNamesTheRevisedDocument(t *testing.T) {
+	epic := func(status string, facts map[string]string) machine.Item {
+		return machine.Item{ID: "ep-1", Kind: machine.KindEpic, Status: status, Facts: facts}
+	}
+	cases := []struct {
+		it    machine.Item
+		path  string
+		edits bool
+	}{
+		{epic(machine.PRDAmending, map[string]string{machine.FactPRDPath: prdPath}), prdPath, true},
+		{epic(machine.PRDAmending, map[string]string{machine.FactPRDPath: prdPath}), "docs/prd/other.md", false},
+		{epic(machine.PRDAmending, nil), "docs/prd/other.md", true},
+		{epic(machine.SpecAmending, nil), "docs/specs/ep-1-cap-spec.md", true},
+		{epic(machine.SpecAmending, nil), "docs/plans/ep-1-cap-spec.md", true},
+		{epic(machine.SpecAmending, nil), "docs/specs/ep-2-cap-spec.md", false},
+		{epic(machine.SpecAmending, nil), prdPath, false},
+	}
+	for _, tc := range cases {
+		doc := revisedDocument(tc.it)
+		if doc == nil || doc(tc.path) != tc.edits {
+			t.Errorf("%s: %s edits the document = %v, want %v", tc.it.Status, tc.path, doc != nil && doc(tc.path), tc.edits)
+		}
+	}
+	for _, it := range []machine.Item{epic(machine.PRDReview, nil), {ID: "tk-1", Kind: machine.KindTicket, Status: machine.InProgress}} {
+		if revisedDocument(it) != nil {
+			t.Errorf("%s %s names a revised document", it.Kind, it.Status)
+		}
+	}
+}
+
 // TestC16DocReviewerPushesNothing proves C16: `branch push` from a
 // doc-reviewer run is refused with CAPABILITY_DENIED and rule
 // reviewer_reads_only, the server records no push intent, and the remote
