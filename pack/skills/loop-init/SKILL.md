@@ -228,5 +228,9 @@ Keep each file that exists already.
 3. Watch the CI run with `gh run watch` until it passes. Fix a failure before you go on.
 4. Run `loop register` again. It now finds the `gates` check, and the ruleset requires it.
 5. Run `loop doctor`, and fix each line that fails.
+6. Last, for a project with an app that a user drives, write the app's `verify-<app>` skill by
+   `../loop-verify-create/SKILL.md`. An app is a web page, a command line, a terminal screen, a
+   desktop or mobile app, or a service. The QA stage drives each app by its skill. Land the skill
+   by steps 1 to 3. A project with no app gets no skill.
 
 Tell the operator that the project is ready, and that the coordinator chat takes new work.

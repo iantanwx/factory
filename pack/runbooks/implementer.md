@@ -119,7 +119,9 @@ test by `../loop-test-behavior-not-implementation/SKILL.md`.
   the edit, and record both results in the pull request body.
 
 **Then write the code.** Put each guard and each piece of wiring by `../loop-boundaries/SKILL.md`.
-Model the domain by `../loop-domain-modeling/SKILL.md`.
+Model the domain by `../loop-domain-modeling/SKILL.md`. When the ticket asks for the
+`verify-<app>` skill of an app, write it by `../loop-verify-create/SKILL.md`. Keep an existing one
+true by `../loop-verify-maintain/SKILL.md`.
 
 ## 4. Finish the work
 
