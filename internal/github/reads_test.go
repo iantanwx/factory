@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -74,5 +75,34 @@ func TestChecksReadEveryPageUnderTheCap(t *testing.T) {
 	}
 	if n := checkPagesRead(e); n != 3 {
 		t.Fatalf("read %d pages, want 3", n)
+	}
+}
+
+// C-bug-1: a failure in the newest attempt of a rerun is red as before.
+// Only the check the rerun has not reached yet waits as pending.
+func TestARerunsOwnFailureIsRedAndItsEarlierAttemptPending(t *testing.T) {
+	const head = "c8bca9c13f95573d8fad8cab34a06be57f127a1b"
+	at := func(m int) *time.Time { t := time.Date(2026, 11, 1, 9, m, 0, 0, time.UTC); return &t }
+	job := func(id string) string {
+		return "https://github.com/" + testRepo + "/actions/runs/41292919362/job/" + id
+	}
+	runs := []CheckRun{
+		{ID: 1, Name: "acceptance", HeadSHA: head, Status: "completed", Conclusion: "failure", StartedAt: at(10), HTMLURL: job("1")},
+		{ID: 2, Name: "gates", HeadSHA: head, Status: "completed", Conclusion: "failure", StartedAt: at(10), HTMLURL: job("2")},
+		{ID: 3, Name: "verify", HeadSHA: head, Status: "completed", Conclusion: "failure", StartedAt: at(11), HTMLURL: job("3")},
+		// Attempt 2: gates failed again, and acceptance still runs.
+		{ID: 4, Name: "gates", HeadSHA: head, Status: "completed", Conclusion: "failure", StartedAt: at(37), HTMLURL: job("4")},
+		{ID: 5, Name: "acceptance", HeadSHA: head, Status: "in_progress", StartedAt: at(37), HTMLURL: job("5")},
+	}
+
+	rep := Classify(head, runs, nil)
+
+	got := map[string]string{}
+	for _, c := range rep.Checks {
+		got[c.Name] = c.State
+	}
+	want := map[string]string{"acceptance": CIPending, "gates": CIRed, "verify": CIPending}
+	if rep.State != CIRed || !maps.Equal(got, want) {
+		t.Fatalf("head %s with checks %v; want red with %v", rep.State, got, want)
 	}
 }

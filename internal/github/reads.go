@@ -106,7 +106,9 @@ var redConclusions = []string{"failure", "timed_out", "action_required", "startu
 // run waits for a rerun: it is pending, never red, and never green, so an
 // unknown result is never read as success. A failed run whose job GitHub
 // never started is pending too: it has no result, so it is neither green
-// nor red. loop/eligible is the loop's own status and never counts as CI.
+// nor red. A failed run from an earlier attempt of a rerun workflow run
+// waits for the rerun to report its job: it is pending, never red (F-69).
+// loop/eligible is the loop's own status and never counts as CI.
 func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 	rep := CIReport{Head: head, Checks: []CheckView{}, Superseded: []CheckView{}}
 	latest := map[string]CheckRun{}
@@ -125,6 +127,7 @@ func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 			latest[r.Name] = r
 		}
 	}
+	earlier := earlierAttempt(head, runs, latest)
 	red, pending := false, false
 	for _, name := range slices.Sorted(maps.Keys(latest)) {
 		r := latest[name]
@@ -138,6 +141,9 @@ func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 			if rep.Unstarted == nil {
 				rep.Unstarted = r.Unstarted
 			}
+		case earlier[name] && slices.Contains(redConclusions, r.Conclusion):
+			v.State, pending = CIPending, true
+			v.Detail = r.Conclusion + " in an earlier attempt; the rerun has not reported it"
 		case slices.Contains(redConclusions, r.Conclusion):
 			v.State, red = CIRed, true
 			v.Detail = r.Conclusion
@@ -217,6 +223,34 @@ func (r CIReport) Against(required []string) CIVerdict {
 		v.State = CIGreen
 	}
 	return v
+}
+
+// actionsJob matches the workflow run id in an Actions job's URL.
+var actionsJob = regexp.MustCompile(`/actions/runs/(\d+)/job/`)
+
+// earlierAttempt names each check whose latest run on head belongs to an
+// earlier attempt of its Actions workflow run. A rerun runs each of its
+// jobs once more, so in one workflow run a job of the newest attempt has
+// run the most times, and a job the rerun has not reached has run fewer.
+func earlierAttempt(head string, runs []CheckRun, latest map[string]CheckRun) map[string]bool {
+	type key struct{ run, name string }
+	times, most := map[key]int{}, map[string]int{}
+	for _, r := range runs {
+		m := actionsJob.FindStringSubmatch(r.HTMLURL)
+		if m == nil || r.HeadSHA != "" && r.HeadSHA != head {
+			continue
+		}
+		k := key{m[1], r.Name}
+		times[k]++
+		most[k.run] = max(most[k.run], times[k])
+	}
+	out := map[string]bool{}
+	for name, r := range latest {
+		if m := actionsJob.FindStringSubmatch(r.HTMLURL); m != nil && times[key{m[1], name}] < most[m[1]] {
+			out[name] = true
+		}
+	}
+	return out
 }
 
 func newer(a, b CheckRun) bool {
