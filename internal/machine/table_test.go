@@ -139,8 +139,9 @@ func ticketEdges() []edge {
 	return e
 }
 
-var epicLive = []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, "adr_review", SpecNeeded, SpecDrafting,
-	SpecReview, SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
+var epicLive = []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, "adr_review", "design",
+	"design_review", "design_signoff", SpecNeeded, SpecDrafting, SpecReview, SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution,
+	Escalated}
 
 func epicEdges() []edge {
 	e := []edge{
@@ -206,6 +207,14 @@ func epicEdges() []edge {
 		{"adr_review", "review_reject", Architecture},
 		{"adr_review", "adr_withdrawn", Architecture},
 		{"adr_review", "adr_landed", SpecNeeded},
+		// factorio-a4yq: the PRD merge of an epic with a UI story, and the
+		// ADR merge of one with no design outcome, land on design. An epic
+		// in design that an ADR named only in prose returns to
+		// architecture.
+		{PRDSignoff, "doc_merged", "design"},
+		{Architecture, "adr_landed", "design"},
+		{"adr_review", "adr_landed", "design"},
+		{"design", "adr_misjoined", Architecture},
 	}
 	e = append(e, each([]string{PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff}, "adr_send", ToSame)...)
 	e = append(e, each([]string{SpecNeeded, SpecReview, SpecSignoff, SpecAmending}, "adr_send", Architecture)...)
@@ -302,6 +311,12 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.When == "adr_requested" {
 		facts[FactADRSent] = "the operator's words"
+	}
+	if r.When == "ui_stories" {
+		params["ui_stories"] = "US-01" // the PRD holds a UI story
+	}
+	if r.When == "design_due" {
+		facts[FactUIStories] = "US-01" // the PRD merge recorded a UI story
 	}
 	if r.Verb == VerbADRSend || r.Verb == VerbADROff {
 		params["request"] = "the operator's words"
