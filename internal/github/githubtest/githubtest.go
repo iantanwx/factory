@@ -118,7 +118,7 @@ func NewAPI(t testing.TB) *API {
 	a := &API{routes: map[string]http.HandlerFunc{},
 		install: map[string]any{"id": InstallID, "repository_selection": "selected", "suspended_at": nil,
 			"permissions": map[string]string{"contents": "write", "pull_requests": "write", "statuses": "write",
-				"workflows": "write", "checks": "read", "actions": "read", "metadata": "read"}},
+				"workflows": "write", "checks": "write", "actions": "read", "metadata": "read"}},
 		rules: GoodRules(), noRulesStatus: 404, others: map[string]*API{},
 		World: NewWorld()}
 	a.srv = httptest.NewServer(http.HandlerFunc(a.serve))
@@ -404,6 +404,10 @@ type World struct {
 	// wruns and workflows are the Actions side (runs.go).
 	wruns     []*Run
 	workflows []string
+	// checkCalls records each create and update of a check run, and
+	// nextCheck numbers the runs the fake creates (checkruns.go).
+	checkCalls []string
+	nextCheck  int64
 	// HeadOf answers the head sha of a new PR's branch. A fixed sha when
 	// nil.
 	HeadOf func(branch string) string
@@ -753,12 +757,7 @@ func (w *World) serve(rw http.ResponseWriter, r *http.Request) bool {
 			w.reviews[n] = append(w.reviews[n], c)
 		}
 		WriteJSON(rw, 201, c)
-	case r.Method == http.MethodGet && reChecks.MatchString(path):
-		runs := w.runs[reChecks.FindStringSubmatch(path)[1]]
-		if runs == nil {
-			runs = []map[string]any{}
-		}
-		WriteJSON(rw, 200, map[string]any{"total_count": len(runs), "check_runs": runs})
+	case w.serveCheckRuns(rw, r):
 	case r.Method == http.MethodGet && reCombined.MatchString(path):
 		WriteJSON(rw, 200, map[string]any{"statuses": []any{}})
 	case r.Method == http.MethodPost && reStatus.MatchString(path):

@@ -258,12 +258,14 @@ func (r *Reactor) tickProject(ctx context.Context, p config.Project) error {
 	return errors.Join(errs...)
 }
 
-// eligibility enqueues and posts loop/eligible for every passed review.
+// eligibility posts each due loop/qa check run, then enqueues and posts
+// loop/eligible for every passed review.
 func (r *Reactor) eligibility(ctx context.Context, p config.Project) error {
+	cerr := r.s.RunCheckRunEffects(ctx)
 	if _, err := r.s.EnqueueEligibility(ctx, p); err != nil {
-		return err
+		return errors.Join(cerr, err)
 	}
-	return r.s.RunStatusEffects(ctx)
+	return errors.Join(cerr, r.s.RunStatusEffects(ctx))
 }
 
 // cursor reads the PR stream's cursor, or the zero time.
