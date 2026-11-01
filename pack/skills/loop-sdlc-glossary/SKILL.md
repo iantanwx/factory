@@ -38,7 +38,8 @@ takes the retro phase.
 6. **Doc review**: the doc-reviewer reviews the spec, and the reviser answers a person's comment
    on it. The operator signs it off.
 7. **Decompose**: the decomposer cuts the approved spec into tickets.
-8. **Build**: the implementer builds each ticket, and the code-reviewer reviews it.
+8. **Build**: the implementer builds each ticket, and the code-reviewer reviews it. In a project
+   that lists the `qa` stage, the QA run then drives the app of each reviewed ticket.
 9. **Retro**: the retro stage learns from the finished unit of work.
 
 ## Stages
@@ -49,6 +50,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | --- | --- | --- |
 | `implementer` | Builds one ticket in one pull request, and repairs a red build | ticket `todo`, `repair` |
 | `code-reviewer` | Reviews the pull request of one ticket | ticket `in_review` |
+| `qa` | Drives the app of one reviewed ticket at its head as a user does, and reports one verdict with its evidence | ticket `in_qa` |
 | `unattended-brainstorm` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
 | `doc-reviewer` | Reviews one PRD, one spec or one ADR pull request | epic `prd_review`, `spec_review`, `adr_review` |
 | `reviser` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
@@ -65,8 +67,8 @@ eligible pull request to the project's merge mechanism. No agent merges.
 
 ## Loop states
 
-- **Ticket**: `backlog`, `todo`, `in_progress`, `in_review`, `repair`, `ready_to_merge`, `queued`,
-  `escalated`, `done`, `canceled`.
+- **Ticket**: `backlog`, `todo`, `in_progress`, `in_review`, `repair`, `in_qa`, `ready_to_merge`,
+  `queued`, `escalated`, `done`, `canceled`.
 - **Epic**: `backlog`, `prd_needed`, `prd_drafting`, `prd_review`, `prd_amending`, `prd_signoff`,
   `architecture`, `adr_review`, `spec_needed`, `spec_drafting`, `spec_review`, `spec_signoff`,
   `spec_amending`, `spec_approved`, `decomposing`, `execution`, `escalated`, `done`. An epic in
