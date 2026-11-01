@@ -41,6 +41,8 @@ type ProjectConfig struct {
 	Health      HealthConfig           `yaml:"health,omitempty"`
 	// Skills are the project's userspace skill pins (ADR 0013).
 	Skills SkillPins `yaml:"skills,omitempty"`
+	// UI declares the project's user interface. Nil when it declares none.
+	UI *UIConfig `yaml:"ui,omitempty"`
 	// Renames lists each old stage key that the parse moved to its new key.
 	Renames []Rename `yaml:"-"`
 }
@@ -211,6 +213,7 @@ func (c *ProjectConfig) validate() error {
 	checkCommands(ck, "policy_hooks", c.PolicyHooks)
 	checkBaselines(ck, c.Gates, c.PolicyHooks)
 	checkSkills(ck, c.Skills)
+	checkUI(ck, c.UI)
 	seen := map[string]bool{}
 	for i, r := range c.Signoff.Readers {
 		f := fmt.Sprintf("signoff.readers[%d]", i)

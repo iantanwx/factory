@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 )
 
 func refusalCode(t *testing.T, err error) string {
@@ -593,6 +594,46 @@ func TestC13RunPushThatChangesNoSettingLands(t *testing.T) {
 				t.Fatalf("remote loop/tk-1 = %q, want %s", got, head)
 			}
 		})
+	}
+}
+
+// uiBase is a project config that loads, as the base holds it in the ui
+// test.
+const uiBase = `merge:
+  mechanism: mergify
+stages:
+  implementer:
+    model: claude-opus-5-5
+`
+
+// TestC6RunPushThatAddsUIIsNoSettingsChange proves C6: a stage run's push
+// whose only change adds a ui block that loads lands, and the same push
+// that also changes stages is refused with SETTINGS_CHANGE.
+func TestC6RunPushThatAddsUIIsNoSettingsChange(t *testing.T) {
+	withUI := uiBase + "ui:\n  kind: web\n  paths: [web/**]\n"
+	cfg, err := config.ParseProjectConfig([]byte(withUI))
+	if err != nil || cfg.UI == nil || cfg.UI.Kind != config.UIWeb {
+		t.Fatalf("pushed config: ui = %+v, %v; want a ui block of kind web", cfg, err)
+	}
+	e := newEnv(t)
+	e.onBase(t, map[string]string{".loop/config.yaml": uiBase})
+	head := commit(t, e.checkout, "declare the ui", map[string]string{".loop/config.yaml": withUI})
+	if _, err := e.pushAs(cli.PrincipalRun, "tk-1", head); err != nil {
+		t.Fatalf("push of the ui block: %+v", Refusal(err))
+	}
+	if got := e.remoteSHA("loop/tk-1"); got != head {
+		t.Fatalf("remote loop/tk-1 = %q, want %s", got, head)
+	}
+
+	e = newEnv(t)
+	e.onBase(t, map[string]string{".loop/config.yaml": uiBase})
+	both := strings.Replace(withUI, "    model: claude-opus-5-5\n", "    model: claude-opus-5-5\n    cap: 3\n", 1)
+	head = commit(t, e.checkout, "declare the ui and set a cap", map[string]string{".loop/config.yaml": both})
+	if got := refusalCode(t, firstErr(e.pushAs(cli.PrincipalRun, "tk-1", head))); got != cli.CodeSettingsChange {
+		t.Fatalf("push of the ui block and a cap: code %s, want %s", got, cli.CodeSettingsChange)
+	}
+	if got := e.remoteSHA("loop/tk-1"); got != "" {
+		t.Fatalf("remote loop/tk-1 = %q; want no branch", got)
 	}
 }
 
