@@ -363,6 +363,9 @@ var surface = []Verb{
 		Flag{Name: "list", Type: FlagBool, Description: "name the selected gates and run none"},
 		Flag{Name: "base", Type: FlagString, Description: "the ref the change is compared with; the pull request's base in CI, else the remote's default branch"})),
 	client("ui", "detect", "find the frontend signals in the tracked paths of the checkout in the current directory at HEAD, and propose the ui block of .loop/config.yaml that covers them", anyone, nil),
+	client("design", "capture", "capture each state of the design record in the room's checkout from the prototype worktree at the record's pinned commit, with the capture command of the brief's design block, and write each state's picture; local, with no server call", []string{"room"}, nil,
+		Flag{Name: "prototype", Type: FlagString, Required: true, Description: "the path of the prototype worktree; its HEAD must be the pinned commit, with no uncommitted change"},
+		Flag{Name: "state", Type: FlagString, Description: "the one state to capture, S<n>.<m>; every state of the record when absent"}),
 	client("qa", "plan", "print the plan of the QA run whose checkout holds the current directory: the apps to drive, whether visual QA runs, the design skill and the bounds", anyone, nil),
 
 	topLevel(server("meta", "schema", "print the CLI schema", anyone, nil)),
