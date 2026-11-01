@@ -27,11 +27,11 @@ import (
 //   - vocabulary that belongs to one project (R37): owner names, tracker
 //     state names, absolute host paths and one project's tooling
 //   - the manifest against the files, each runbook's front matter, each
-//     relative pack path, each skill a runbook reads named by its path,
-//     each policy file, no step in an unattended runbook that asks a
-//     person, and no runbook that names a userspace skill, a skill
-//     outside loop-, in its manifest entry or by its ../<name>/SKILL.md
-//     path
+//     relative pack path, which may name the SKILL.md of a pin, each skill
+//     a runbook reads named by its path, each policy file, no step in an
+//     unattended runbook that asks a person, and no runbook that names a
+//     userspace skill, a skill outside loop-, in its manifest entry or by
+//     its ../<name>/SKILL.md path
 //   - each policy file a runbook names: the pack holds its template, the
 //     template names that file as the place a project keeps it, and each
 //     template is the policy of a runbook. make pack-check runs both
@@ -463,6 +463,11 @@ func Check(src fs.FS, reg *cli.Registry) ([]Finding, error) {
 	if _, err := Agents(src); err != nil {
 		return append(out, Finding{File: ManifestFile, Kind: "manifest", Detail: err.Error()}), nil
 	}
+	pins, _ := ReadThirdParty(src) // Layout read them without an error
+	pinned := map[string]bool{}
+	for _, p := range pins {
+		pinned[brief.SkillPrefix+p.Name+"/SKILL.md"] = true
+	}
 	files, err := markdown(src)
 	if err != nil {
 		return nil, err
@@ -483,7 +488,7 @@ func Check(src fs.FS, reg *cli.Registry) ([]Finding, error) {
 			out = append(out, ix.agentFindings(f.source, f.agent, text)...)
 			continue
 		}
-		out = append(out, packPaths(tree, f, text)...)
+		out = append(out, packPaths(tree, pinned, f, text)...)
 		if path.Base(f.injected) == "SKILL.md" {
 			out = append(out, frontmatter(f.source, path.Dir(f.injected), text)...)
 		}
@@ -662,13 +667,14 @@ var (
 
 // packPaths checks each ../loop-* path against the laid-out tree. A path
 // is relative to the directory that receives the file, so every injected
-// loop-* directory is a sibling.
-func packPaths(tree fs.FS, f packFile, text string) []Finding {
+// loop-* directory is a sibling. The tree holds no file of a pinned skill,
+// because the host fetches it, so pinned holds the SKILL.md of each pin.
+func packPaths(tree fs.FS, pinned map[string]bool, f packFile, text string) []Finding {
 	var out []Finding
 	for i, line := range strings.Split(text, "\n") {
 		for _, m := range packPath.FindAllString(line, -1) {
 			target := path.Join(path.Dir(f.injected), strings.TrimSuffix(m, "/"))
-			if _, err := fs.Stat(tree, target); err != nil {
+			if _, err := fs.Stat(tree, target); err != nil && !pinned[target] {
 				out = append(out, Finding{File: f.source, Line: i + 1, Kind: "path",
 					Detail: fmt.Sprintf("%s names nothing in the pack", m)})
 			}
