@@ -27,7 +27,8 @@ source.
    to `config.RunStages()`. So the stage name and its runbook land in one change.
 
 Entry 1 adds the stage name and the runbook together, and no ticket reaches the stage yet. Entries
-2 to 4 change the server. Entry 5 changes the glossary.
+2 to 4 change the server. The stage is on by default only from entry 4, after entry 3 holds a
+simplify commit to its bounds. Entry 5 changes the glossary.
 
 **Not in this spec:** the QA stage (factorio-nhb5). The selection of conditional kernel skills
 (factorio-791i), which gives a simplify run on a ticket the ticket rule by the item's kind. The
@@ -48,7 +49,8 @@ entries answer the two questions the operator left to the planner.
   (Recommended)". A simplify run that fails, crashes, or finds no simpler head where the gates
   pass counts as no commit. The ticket reaches code review at the implementer's head. The run
   never blocks the ticket and never counts toward a failure limit. The rejected answer counted the
-  run as a failed attempt of the ticket.
+  run as a failed attempt of the ticket. A run that pushes its commit and then fails also counts
+  as no commit, because the server holds that commit until the hand-off (see below).
 - **Every project gets the stage, and a project can turn it off.** The operator chose "On by
   default (Recommended)". A project with no `stages.simplify` entry runs the stage. A project
   turns it off with `stages.simplify.enabled: false`. The rejected answer made the stage opt-in, as
@@ -89,10 +91,31 @@ entries answer the two questions the operator left to the planner.
   run would then learn a second way to end. The hand-off records the server's own newest push to
   the branch as `head`, as the amending path in `prOpen` already does, because GitHub moves a pull
   request's head some time after a push.
+- **The server holds a simplify commit in the mirror until the hand-off.** `loop branch push`
+  from a simplify run scans the commit and runs the scope check. It then stores the commit at
+  `refs/loop/held/<run id>` in the mirror, and pushes nothing to GitHub. The run's `loop pr open`
+  pushes the held commit with a lease on `simplify_from`, then applies `simplified`. So a run that
+  pushes and then fails, crashes, or meets a refusal at `loop pr open` leaves the GitHub branch at
+  `simplify_from`. The ticket reaches code review at the implementer's head, as the operator's
+  second answer says. We rejected a review at the simplify head in that case, because it departs
+  from that answer. We rejected a revert commit by the server, because it puts a second commit on
+  the branch, which A6 names as the observation that makes it false. We rejected a reset of the
+  branch to `simplify_from`, because the loop never forces a push (`loop-sdlc-turn` § 4), and a
+  protected branch refuses one.
+- **One case still reaches review at the simplify head, and it keeps the operator's answer.** The
+  hand-off's push lands on GitHub, the server stops before it applies `simplified`, and the run
+  ends before its repeat of `loop pr open` replays. The reclaim then moves the ticket to
+  `in_review` with the simplify commit on the branch. That commit passed the scope check and the
+  run's gates, and the CI wait below holds the review until CI is green. We judge this no
+  departure from the operator's answer, because the run reached its hand-off and only the server's
+  own write was in doubt. We rejected a server write that undoes the push, for the reasons of the
+  entry above.
 - **Every other end of a simplify run passes the ticket to `in_review`.** The release and reclaim
   rows of `in_simplify` land on `in_review`. A failed, blocked or stalled finish, a crash, and a
-  person's `loop work release` all reach those rows. We rejected a separate verb for a failed run,
-  because the scheduler already applies `release` or `reclaim` at every settlement.
+  person's `loop work release` all reach those rows. The GitHub branch stays at `simplify_from`,
+  because the commit of the run stays held, and settlement deletes the held ref. We rejected a
+  separate verb for a failed run, because the scheduler already applies `release` or `reclaim` at
+  every settlement.
 - **A simplify run never counts as a failure and never raises a hold.** Settlement deletes the
   pending attempt row of a simplify run, whatever its class. We chose this over the counted classes
   of KTD8, because the next simplify round on the same ticket after a reject can carry the same
@@ -117,9 +140,25 @@ entries answer the two questions the operator left to the planner.
   implementer's own heads as they are today.
 - **The server refuses a simplify push that breaks the run's bounds.** `loop branch push` from a
   simplify run refuses with `SIMPLIFY_SCOPE` when the push adds more than one commit over
-  `simplify_from`, adds a merge commit, or changes a path outside the pull request's paths. We
-  chose a server check over the runbook alone, because A6 names a second commit on the branch as
-  the observation that makes it false, and only the server sees every push.
+  `simplify_from`, adds a merge commit, changes a path outside the pull request's paths, or
+  changes a test path. We chose a server check over the runbook alone, because A6 names a second
+  commit on the branch as the observation that makes it false, and only the server sees every
+  push.
+- **A test path is a fixed rule of the server, and a simplify commit may not change one.** A path
+  is a test path when one of these holds:
+  - its base name matches `*_test.*`, `*.test.*`, `*.spec.*`, `test_*.py` or `conftest.py`.
+  - one of its directory names is `test`, `tests`, `__tests__`, `testdata`, `spec` or `e2e`.
+  - its base name matches `vitest.config.*`, `jest.config.*`, `playwright.config.*`,
+    `pytest.ini` or `tox.ini`.
+  - it starts with `.loop/` or `.github/workflows/`, which hold the gate and CI commands.
+
+  A simplify commit that adds, changes, deletes or renames such a path refuses with rule
+  `test_path`. So each test that ran at `simplify_from` is still there, unchanged, at the simplify
+  head, and C13 proves it passes there. This is A8. We rejected a check of the test set at both
+  heads, because the loop holds no stack-neutral way to list tests. `.loop/config.yaml` names gate
+  commands only, and `loop review proof` takes its test paths from the reviewer by flag. We
+  rejected a project key for the list, because no project asked for one, and a key is one more
+  setting that only the coordinator changes.
 - **A later round simplifies only what changed since the last reviewed head.** After a reject, the
   run reads the diff from the last reviewed head that `loop review rounds` names to the new head.
   We rejected the whole pull request diff, because the code-reviewer judges the named findings and
@@ -129,7 +168,8 @@ entries answer the two questions the operator left to the planner.
   sources. We rejected the reviewer personas of ce-simplify-code and the comment-sicko agent as
   pack files. The sources start subagents to get a fresh context, and the simplify run already
   starts with one. `loop-sdlc-turn` § 8 counts each subagent as one more model run.
-- **The run changes no test file, and runs every gate before it pushes.** We rejected the
+- **The run changes no test file, and runs every gate before it pushes.** The server enforces the
+  first half with the test-path rule (C17). We rejected the
   test-value reviewer of ce-simplify-code, which prunes tests. Each test of a ticket proves a
   contract, the pull request body records its red and green runs, and the code-reviewer proves it
   red at the merge base. ce-simplify-code already keeps "the proof tests" of the current work. We
@@ -163,6 +203,12 @@ what the product does, and the PRD holds them.
   `pstack/agents/comment-sicko.md` in a clone of `cursor/plugins` at the head of its main branch on
   2026-10-29. This is wrong when GitHub's text differs from those clones. The implementer records
   the commit it forks from, and C1 checks only that a commit is there.
+- Each project keeps its tests and its test commands at paths that the test-path rule names. This
+  is wrong when a project keeps a test at another path, such as `src/a.check.ts`, or turns a test
+  off in a build file such as `Makefile` or `package.json`. The rule then misses that change, and
+  the code-reviewer's check of the project policy is the only guard left for A8. A miss of this
+  kind shows as a test that the pull request body lists and that CI at the simplify head no
+  longer runs.
 - A ticket that is in flight when entry 2 merges carries no `simplify_due` fact. This is wrong
   when a migration writes the fact. Such a ticket reaches code review with no simplify run until
   its next reject. This spec accepts that loss.
@@ -172,18 +218,22 @@ what the product does, and the PRD holds them.
 **The ticket's path.** The implementer's `loop pr open` applies `pr_open`. When `simplify_due`
 is set, the row lands on `in_simplify`, records the head as `simplify_from`, and clears
 `simplify_due`. When it is not set, the row lands on `in_review` as today. The simplify stage
-claims from `in_simplify`. The run's own `loop pr open` applies `simplified`, which lands on
-`in_review` with the head the run pushed. The code-reviewer claims from `in_review` as today.
+claims from `in_simplify`. The run's own `loop pr open` pushes the commit the server holds for the
+run, if any, then applies `simplified`, which lands on `in_review` with that head. The
+code-reviewer claims from `in_review` as today.
 
 **The two server passes around the run.** The scheduler settles every simplify run without a count
 and without a hold, and its `release` or `reclaim` moves a ticket that is still in `in_simplify` to
 `in_review`. The `dependency-advance` job applies `simplify_off` to each `in_simplify` ticket that
 no run holds, in a project whose config disables the stage.
 
-**The two server checks on the run's output.** `branchPush` passes the principal's stage into
-`PushRequest`. For the simplify stage, `Push` runs one more check after `Scan`, which refuses with
-`SIMPLIFY_SCOPE`. Admission for the code-reviewer reads CI at the live head when `simplify_from` is
-set and differs from it, and skips the ticket until that CI is green.
+**The server's hold and checks on the run's output.** `branchPush` passes the principal's stage
+into `PushRequest`. For the simplify stage, `Push` runs `scopeCheck` after `Scan`, which refuses
+with `SIMPLIFY_SCOPE`. A commit that passes goes to `refs/loop/held/<run id>` in the mirror, and
+not to GitHub. The run's `loop pr open` pushes the held commit with a lease on `simplify_from`,
+deletes the ref, and applies `simplified`. Settlement of a simplify run deletes the ref it left.
+Admission for the code-reviewer reads CI at the live head when `simplify_from` is set and differs
+from it, and skips the ticket until that CI is green.
 
 **The runbook.** `pack/runbooks/simplify.md` reaches a run as `loop-simplify`. It is a fork of
 ce-simplify-code, no-comments and comment-sicko, fitted to the loop. Its steps:
@@ -197,12 +247,14 @@ ce-simplify-code, no-comments and comment-sicko, fitted to the loop. Its steps:
 4. Read the scope with four lenses from the sources: reuse, quality, efficiency and comments. Keep
    every output, error, side effect and order. Keep every safety check. Leave every test file
    unchanged, because each test proves a contract and the code-reviewer proves it red at the merge
-   base. Delete a comment by comment-sicko's rules, except when a project rule keeps it.
+   base. The server refuses a change to a test path. Delete a comment by comment-sicko's rules,
+   except when a project rule keeps it.
 5. Run `loop gates`, every gate. When a gate fails, revert the change that broke it and run the
    gates again. When the implementer's head itself fails a gate, push nothing.
 6. When the tree differs from `simplify_from`, write one commit by `loop-commit`, and run
-   `loop branch push`. Run `loop pr open` with no title and no body, so the body keeps the
-   implementer's red and green runs. Finish `done`.
+   `loop branch push`. Its answer says that the server holds the commit. Run `loop pr open` with
+   no title and no body. The server pushes the commit then, and the body keeps the implementer's
+   red and green runs. Finish `done`.
 7. When anything stops the run, finish `failed`. The server passes the ticket on.
 
 The runbook's header comment records each source's upstream URL and commit, and what changed on
@@ -227,6 +279,15 @@ simplify_from       fact, the full sha of the implementer's head that the latest
                     started from
   invariant: pr_open sets it when it enters in_simplify. review_reject, fix_pushed,
              head_changed, dequeue_conflict and dequeue_red clear it.
+
+internal/github, the mirror (changed)
+
+held commit         refs/loop/held/<run id>, the one simplify commit of a run that passed Scan
+                    and scopeCheck
+  invariant: only the hand-off of the run that made it pushes it to GitHub.
+  invariant: the hand-off and the settlement of that run delete it.
+  invariant: while a ticket is in in_simplify, no simplify commit reaches GitHub before the
+             hand-off of its run.
 
 internal/config (changed)
 
@@ -262,12 +323,27 @@ const (
 // internal/github
 type PushRequest struct {
 	// ... the fields of today
-	Stage string // the principal's stage; "simplify" adds the scope check
+	Stage string // the principal's stage; "simplify" adds the scope check and the hold
 }
+type PushResult struct {
+	// ... the fields of today
+	Held bool `json:"held"` // the server holds the commit in the mirror until the run's hand-off
+}
+// heldRef is the mirror ref of a simplify run's commit: refs/loop/held/<run id>.
+func heldRef(run string) string
 // openVerbs[machine.KindTicket][machine.InSimplify] = machine.VerbSimplified
 // scopeCheck refuses with a *ScanError of code cli.CodeSimplifyScope and one of the rules
-// "two_commits", "merge_commit" or "path_outside_pr". The hint names the commit or the path.
+// "two_commits", "merge_commit", "path_outside_pr" or "test_path". The hint names the commit or
+// the path.
 func (m *Mirror) scopeCheck(ctx context.Context, from, base, head string) error
+// isTestPath is the test-path rule of Decisions.
+func isTestPath(path string) bool
+// pushHeld pushes the run's held commit with a lease on from, records the push intent, and
+// deletes the ref. It answers "" when the run holds no commit. prOpen calls it before
+// it applies simplified.
+func (s *Service) pushHeld(ctx context.Context, project, branch, run, from string) (string, error)
+// DropHeld deletes the held ref of a run. Settlement of a simplify run calls it.
+func (s *Service) DropHeld(ctx context.Context, project, run string) error
 
 // internal/cli
 const CodeSimplifyScope = "SIMPLIFY_SCOPE" // ExitRefused, codes.FailedPrecondition, not retryable
@@ -285,7 +361,7 @@ create         open -> todo | backlog         + sets simplify_due
 pr_open        in_progress -> in_simplify      when simplify_due; sets head, simplify_from; clears simplify_due
 pr_open        in_progress -> in_review        otherwise, as today
 claim          in_simplify -> @same            stage simplify, lease take, bumps epoch
-simplified     in_simplify -> in_review        command "pr open", lease drop; sets head
+simplified     in_simplify -> in_review        command "pr open", lease drop; sets head to the hand-off's push, or simplify_from
 simplify_off   in_simplify -> in_review        server only; refused while a run holds the lease
 release        in_simplify -> in_review        lease drop
 reclaim        in_simplify -> in_review        lease drop, bumps epoch
@@ -318,6 +394,9 @@ No SQL table changes. The ticket table gains one state and two facts.
 - **Facts.** `simplify_due` and `simplify_from` live on the ticket bead as every other fact does.
 - **Failures.** Settlement deletes the pending attempt row of a simplify run, so the `failures`
   table holds no row with stage `simplify`.
+- **Held commits.** A held commit lives at `refs/loop/held/<run id>` in the project's mirror, and
+  in no table. A lost ref costs the run its commit, and the ticket passes through as C18 states.
+  The hand-off's push writes a row to `push_intents` as every push does.
 
 **Existing records:** no ticket is in `in_simplify` before entry 2 merges. A ticket that exists then
 carries no `simplify_due`, so its next `pr_open` lands on `in_review`. Its first simplify run comes
@@ -339,14 +418,15 @@ sequenceDiagram
     S->>R: admit, claim in_simplify
     R->>R: simplify the PR paths, run every gate
     R->>S: loop branch push, one commit
-    S->>S: scope check: one commit, PR paths only
+    S->>S: scope check: one commit, PR paths, no test path
     alt the check refuses
         S-->>R: SIMPLIFY_SCOPE, branch unchanged
         R->>S: loop run finish --outcome failed
         S->>S: release: in_review at simplify_from, no count
     else the check passes
-        S->>G: push
+        S->>S: hold the commit in the mirror, GitHub unchanged
         R->>S: loop pr open, no body
+        S->>G: push the held commit, lease on simplify_from
         S->>S: simplified: in_review, head = the pushed head
     end
     S->>G: read CI at the live head
@@ -367,12 +447,13 @@ sequenceDiagram
     participant Sch as Scheduler
     participant D as dependency-advance
     participant M as Machine
+    Note over R,M: a commit the run held stays in the mirror, so the GitHub branch stays at simplify_from
     alt the run finishes failed, blocked, or done while it holds the lease
         R->>Sch: loop run finish
-        Sch->>Sch: settle: delete the attempt row, raise no hold
+        Sch->>Sch: settle: delete the attempt row and the held ref, raise no hold
         Sch->>M: release: in_simplify to in_review
     else the session ends with no finish
-        Sch->>Sch: settle as crashed: delete the attempt row
+        Sch->>Sch: settle as crashed: delete the attempt row and the held ref
         Sch->>M: reclaim: in_simplify to in_review
     end
     D->>D: tick, the project disables simplify
@@ -408,35 +489,46 @@ sequenceDiagram
    - Done when: `make pack-check` passes, `TestEveryStageHasARunbook` passes with the new stage,
      and the fork-record test fails on a copy of the runbook that drops one commit.
 2. **Tickets pass through the simplify state.** Add `in_simplify`, the two facts and the rows of
-   Interfaces to the ticket table. Map `in_simplify` to `simplified` in `openVerbs`, with the
-   server's newest push as the head. Make `StageEnabled` read `defaultOn`, and report the source of
-   `stages.simplify.enabled`. Delete a simplify run's pending attempt row at settlement, and raise
-   no hold for it. Add the `simplify_off` pass to `advanceDependencies`.
+   Interfaces to the ticket table. Map `in_simplify` to `simplified` in `openVerbs`, with
+   `simplify_from` as the head when the run pushed nothing. Delete a simplify run's pending attempt
+   row at settlement, and raise no hold for it. Add the `simplify_off` pass to
+   `advanceDependencies`. Leave `StageEnabled` as it is. Until entry 4, a project that does not
+   list the stage passes each ticket on through the `simplify_off` pass.
    - Files: `internal/machine/ticket.go`, `internal/machine/kinds.go`, `internal/machine/rows.go`,
-     `internal/machine/testdata/**`, `internal/github/verbs.go`, `internal/config/project.go`,
-     `internal/config/settings.go`, `internal/admission/outcomes.go`, `internal/sched/finish.go`,
-     `internal/sched/deps.go`, and the tests of each package
+     `internal/machine/testdata/**`, `internal/github/verbs.go`, `internal/admission/outcomes.go`,
+     `internal/sched/finish.go`, `internal/sched/deps.go`, and the tests of each package
    - Needs: 1
-   - Proves: C3, C4, C5, C6, C7, C8, C9, C10, C11
+   - Proves: C3, C4, C5, C7, C8, C10, C11
    - Done when: a ticket fixture moves from `in_progress` through `in_simplify` to `in_review`
      with one simplify run, and a failed run leaves it in `in_review` with no row in `failures`.
-3. **The server holds a simplify push to its bounds.** Pass the principal's stage into
-   `PushRequest`. Add `scopeCheck` after `Scan` for the simplify stage, and the refusal code.
+3. **The server holds a simplify commit to its bounds until the hand-off.** Pass the principal's
+   stage into `PushRequest`. Add `scopeCheck` after `Scan` for the simplify stage, with the four
+   rules, `isTestPath` and the refusal code. Store a commit that passes at `heldRef`, and answer
+   `held: true`. Make `prOpen` call `pushHeld` before it applies `simplified`. Make settlement of
+   a simplify run call `DropHeld`.
    - Files: `internal/github/push.go`, `internal/github/scan.go`, `internal/github/errors.go`,
-     `internal/cli/codes.go`, and the tests of each package
-   - Needs: 2, for `simplify_from`
-   - Proves: C12
+     `internal/github/verbs.go`, `internal/cli/codes.go`, `internal/sched/finish.go`, and the tests
+     of each package
+   - Needs: 2, for `simplify_from` and the `simplified` row
+   - Proves: C6, C12, C17, C18
    - Done when: a push of two commits from a simplify run refuses with `SIMPLIFY_SCOPE`, and the
-     same push from an implementer run passes.
-4. **The code-reviewer waits for green CI at a simplify head.** Add the `CI` reader to admission's
-   config, and wire it to `github.Service.Checks`. Skip a code-reviewer candidate whose live head
-   differs from a set `simplify_from` until CI there is green.
-   - Files: `internal/admission/policy.go`, `internal/server/*.go` for the wiring,
-     `acceptance/scenarios/simplify_test.go`, and the tests of `internal/admission`
-   - Needs: 2
-   - Proves: C13, C14
+     same push from an implementer run passes. A commit that adds `t.Skip` to a `_test.go` file
+     refuses with rule `test_path`. A run that pushes one commit and then crashes leaves the
+     GitHub branch at `simplify_from`.
+4. **The stage is on by default, and the code-reviewer waits for green CI at a simplify head.**
+   Make `StageEnabled` read `defaultOn`, and report the source of `stages.simplify.enabled`. Add
+   the `CI` reader to admission's config, and wire it to `github.Service.Checks`. Skip a
+   code-reviewer candidate whose live head differs from a set `simplify_from` until CI there is
+   green.
+   - Files: `internal/config/project.go`, `internal/config/settings.go`,
+     `internal/admission/policy.go`, `internal/server/*.go` for the wiring,
+     `acceptance/scenarios/simplify_test.go`, and the tests of `internal/config` and
+     `internal/admission`
+   - Needs: 2 and 3, so no project runs the stage by default before the hold and the push checks
+   - Proves: C9, C13, C14
    - Done when: admission skips a ticket at a simplify head with pending CI, and admits it once CI
-     is green. The acceptance scenario runs one ticket through all three runs with one review.
+     is green. The acceptance scenario runs one ticket through all three runs with one review, and
+     a second ticket through a simplify run that holds a commit and crashes.
 5. **Name the stage in the glossary.** Add the `simplify` row to the stage table, `in_simplify` to
    the ticket states, and the simplify run to the build phase. Extend `glossaryFaults` to check
    both.
@@ -498,18 +590,22 @@ operator's first answer. After `review_reject`, the next `pr_open` lands on `in_
 `in_review`. After `dequeue_conflict`, the next `pr_open` lands on `in_review`.
 *One example test for each of the four paths.*
 
-**C6. Behaviour: the hand-off records the head the run left.** Proves A5 and A9. A simplify run
-that pushed one commit, then runs `loop pr open`, moves the ticket to `in_review` with `head`
-equal to the server's newest push, also when GitHub still reports the older head. A run that
-pushed nothing moves it to `in_review` with `head` equal to `simplify_from`, and the pull request
-body is unchanged.
-*A test of `prOpen` over a fake GitHub that lags one push, and one with no push.*
+**C6. Behaviour: the hand-off pushes the held commit and records its head.** Proves A5 and A9. A
+simplify run that holds one commit, then runs `loop pr open`, pushes that commit to GitHub with a
+lease on `simplify_from`. It moves the ticket to `in_review` with `head` equal to that push, also
+when GitHub still reports the older head. The held ref is gone. A run that holds nothing moves the
+ticket to `in_review` with `head` equal to `simplify_from`, pushes nothing, and leaves the pull
+request body unchanged. A hand-off whose lease fails, because the branch moved on GitHub, refuses
+with `REMOTE_AHEAD` and applies no row.
+*A test of `prOpen` over a fake GitHub that lags one push, one with no held commit, and one whose
+branch moved.*
 
 **C7. Behaviour: every other end passes the ticket through, with no count and no hold.** Proves
-A5, by the operator's second answer. For a simplify run that finishes `failed`, finishes
-`blocked`, finishes `done` while it holds the lease, or ends with no finish, the ticket lands on
-`in_review` at `simplify_from`. The `failures` table holds no row for the run, and no hold alert
-names it. After a reject with unchanged inputs, admission admits a second simplify run.
+A5, by the operator's second answer. For a simplify run that pushed nothing and finishes `failed`,
+finishes `blocked`, finishes `done` while it holds the lease, or ends with no finish, the ticket
+lands on `in_review` at `simplify_from`. The `failures` table holds no row for the run, and no hold
+alert names it. After a reject with unchanged inputs, admission admits a second simplify run. C18
+holds the same ends for a run that pushed a commit.
 *A scheduler test for each of the four ends, then a second round on the same ticket.*
 
 **C8. Refusal: a simplify run cannot escalate its ticket.** Proves A5, by the operator's second
@@ -540,21 +636,25 @@ brief holds no line of the implementer run's session output.
 Proves A6, and the planner's answer to the fifth open question. From a simplify run, each of these
 pushes refuses with `SIMPLIFY_SCOPE`, names the rule, and leaves the branch unchanged: two commits
 over `simplify_from`, one merge commit, and one commit that changes a path that the diff from the
-merge base to `simplify_from` does not list. One commit on those paths passes. The same three
-pushes from an implementer run pass this check.
+merge base to `simplify_from` does not list. One commit on those paths that changes no test path
+passes, and the server holds it. The same three pushes from an implementer run pass this check.
 *Example tests over a fixture mirror, one for each case.*
 
-**C13. Behaviour: the code-reviewer waits for green CI at a simplify head.** Proves A7 and A8. A
-ticket in `in_review` whose live head differs from a set `simplify_from` waits outside the
-code-reviewer while CI there is pending or red. Admission admits it once CI is green. A ticket whose
-live head equals `simplify_from`, or whose `simplify_from` is unset, enters as today.
+**C13. Behaviour: the code-reviewer waits for green CI at a simplify head.** Proves A7, and A8
+together with C17. A ticket in `in_review` whose live head differs from a set `simplify_from` waits
+outside the code-reviewer while CI there is pending or red. Admission admits it once CI is green.
+A ticket whose live head equals `simplify_from`, or whose `simplify_from` is unset, enters as
+today, with no CI wait.
 *An admission test over a fake CI reader with each state.*
 
-**C14. Equivalence: one ticket meets one code review at the head the simplify run left.** Proves
-A1, A9 and A10. In the acceptance world, with scripted runs, one ticket goes through the
+**C14. Equivalence: one ticket meets one code review at the head the simplify stage left.** Proves
+A1, A5, A9 and A10. In the acceptance world, with scripted runs, one ticket goes through the
 implementer, a simplify run that pushes one commit, and a code-reviewer that passes. The history
-holds one `simplified` move, one code-reviewer claim, and one review at the simplify head.
-*`acceptance/scenarios/simplify_test.go`.*
+holds one `simplified` move, one code-reviewer claim, and one review at the simplify head. A
+second ticket goes through a simplify run that pushes one commit and then ends with no finish. Its
+pull request holds no simplify commit, the code-reviewer claims it with no CI wait, and its one
+review is at `simplify_from`.
+*`acceptance/scenarios/simplify_test.go`, one scenario for each ticket.*
 
 **C15. Behaviour: the glossary names the stage and its state.** Proves the boundary with
 factorio-vlle in the PRD. The glossary's stage table defines `simplify` once, with `in_simplify`
@@ -567,6 +667,27 @@ case with no `simplify` row.*
 `git diff 4fc167e <the last merge of this epic> -- pack/runbooks/code-reviewer.md` prints nothing.
 *The command, run when entry 5 lands. Each entry lists the file under "Must not change".*
 
+**C17. Refusal: the server refuses a simplify commit that changes a test path.** Proves A8
+together with C13. From a simplify run, a commit on the pull request's paths refuses with
+`SIMPLIFY_SCOPE` and rule `test_path`, names the path, and holds nothing, when it deletes a test
+file, deletes a test function from a test file, adds a skip to a test file, renames a test file,
+or changes `.loop/config.yaml`. `isTestPath` is true for one example of each pattern of the rule,
+and false for `internal/x/x.go`, `src/a.ts` and `docs/plans/x-spec.md`. The same commits from an
+implementer run pass this check.
+*A table test of `isTestPath`, and example tests over a fixture mirror, one for each commit.*
+
+**C18. Behaviour: a held commit never reaches GitHub without the hand-off.** Proves A5, by the
+operator's second answer, for a run that pushed a commit. A simplify run runs `loop branch push`
+with one commit, and the answer says `held: true`. The run then finishes `failed`, finishes
+`done` with no `loop pr open`, meets a refusal at `loop pr open`, or ends with no finish. In each
+case the GitHub branch head stays `simplify_from`, the ticket lands on `in_review` with `head`
+equal to `simplify_from`, and the held ref is gone after settlement. The code-reviewer then enters
+with no CI wait, by the last case of C13. One case reaches review at the simplify head: a kill
+point after the hand-off's push lands on GitHub and before `simplified`, with a run that ends with
+no finish. There the branch holds the simplify commit, and C13 holds the review until CI is green.
+*A scheduler test over a fake GitHub that records every push, one case for each end, and one with
+the kill point.*
+
 ## Observable behaviour
 
 None, because this epic draws no screen. A person reads the new state in `loop work list` and
@@ -576,4 +697,6 @@ C3, C9 and C12 assert each one.
 ## Open questions
 
 None. The operator answered four of the PRD's open questions at sign-off. The repository answers
-the other two, and Decisions records each answer with its source.
+the other two, and Decisions records each answer with its source. A run that pushes a commit and
+then fails needs no question either: the held commit keeps the operator's second answer for it,
+and Decisions states the one server-crash case and why it keeps that answer.
