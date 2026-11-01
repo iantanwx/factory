@@ -16,9 +16,17 @@ Give each story a heading that starts with its label: US-01, US-02 and on. A lab
 after you write it, and no two stories share one, because specs, tickets and the server cite it.
 Under the heading, write the story, then quote the operator's own words that ask for it.
 
+In a project whose `.loop/config.yaml` holds a `ui` key, put one UI line on its own line under
+each story heading: `**UI:** yes` when the story changes what a user sees, `**UI:** no` when it
+does not. The `prd` gate refuses a story with no UI line, with two, or with another value. An epic
+with a `UI: yes` story goes to the design stage after its sign-off. In a project with no `ui` key,
+delete the line.
+
 > **Good**
 >
 > ### US-01 Run a backtest
+>
+> **UI:** yes
 >
 > As a trader, I can run a strategy against ten years of market history, so that I see what it
 > would have earned.
@@ -26,6 +34,8 @@ Under the heading, write the story, then quote the operator's own words that ask
 > > "I want to see what the strategy would have done since 2015, before I put money in."
 
 ### US-01 <story title>
+
+**UI:** <yes / no>
 
 As a <user>, I can <act>, so that <outcome>.
 
