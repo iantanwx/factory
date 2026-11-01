@@ -290,9 +290,10 @@ sends it as a new write at that head.
 A spec sign-off also reads the spec at that head. It refuses with `SHAPE_REFUSED` and rule
 `open_questions` when an entry under `## Open questions` holds no bold `**Answered` or `**Deferred`
 run. The hint names the line of each such entry. It refuses with rule `no_spec` when the pull
-request changes no single file at `docs/plans/<epic>-*-spec.md`. Both refusals merge nothing, and
-the entry stays in the inbox. An answer in the inbox or in a note answers no open question. The
-answer must reach the spec, in one of two ways:
+request changes no single file at `docs/specs/<epic>-*-spec.md` or `docs/plans/<epic>-*-spec.md`.
+One file in each directory is no single file. Both refusals merge nothing, and the entry stays in
+the inbox. An answer in the inbox or in a note answers no open question. The answer must reach the
+spec, in one of two ways:
 
 - Open a review room on the spec pull request. The room writes the answer under the entry at the
   operator's word, and pushes it.

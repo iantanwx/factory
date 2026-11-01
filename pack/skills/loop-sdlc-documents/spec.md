@@ -1,6 +1,6 @@
 # <Title of the epic>: technical spec
 
-> Copy this file to `docs/plans/<epic id>-<slug>-spec.md`. You write it from the epic's source: a
+> Copy this file to `docs/specs/<epic id>-<slug>-spec.md`. You write it from the epic's source: a
 > PRD for a feature epic, and a set of ADRs for an architecture epic. Three readers follow: the
 > doc-reviewer, then the operator, then the decomposer.
 >

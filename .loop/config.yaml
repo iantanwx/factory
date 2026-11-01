@@ -21,8 +21,8 @@ stages:
   implementer: {}
   code-reviewer: {}
   doc-reviewer: {}
-  amender: {}
-  spec-author: {}
+  reviser: {}
+  planner: {}
   decomposer: {}
   triage: {}
   reproducer: {}

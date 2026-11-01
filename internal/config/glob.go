@@ -1,0 +1,111 @@
+package config
+
+import (
+	"errors"
+	"path"
+	"slices"
+	"strings"
+)
+
+// globStar is the segment that matches zero or more whole segments.
+const globStar = "**"
+
+// Glob is one checked path glob of a ui block. Each segment is exactly **,
+// or a path.Match pattern that holds no **. Only ParseGlob makes one, so
+// no matcher checks a glob again.
+type Glob struct{ segs []string }
+
+// ParseGlob checks s against the glob rule. The error names the rule and
+// never the glob.
+func ParseGlob(s string) (Glob, error) {
+	switch {
+	case strings.HasPrefix(s, "/"):
+		return Glob{}, errors.New("a glob must not start with /")
+	case strings.Contains(s, "{"):
+		return Glob{}, errors.New("a glob must not hold {, since no brace expands")
+	case HasControl(s):
+		return Glob{}, errors.New("a glob must not hold a control character")
+	}
+	segs := strings.Split(s, "/")
+	for _, seg := range segs {
+		switch {
+		case seg == "":
+			return Glob{}, errors.New("a glob must hold no empty segment")
+		case seg == "." || seg == "..":
+			return Glob{}, errors.New("a glob must hold no . or .. segment")
+		case seg == globStar:
+		case strings.Contains(seg, globStar):
+			return Glob{}, errors.New("** must be a whole segment")
+		default:
+			if _, err := path.Match(seg, ""); err != nil {
+				return Glob{}, errors.New("a segment is not a valid path.Match pattern")
+			}
+		}
+	}
+	return Glob{segs: segs}, nil
+}
+
+func (g Glob) String() string { return strings.Join(g.segs, "/") }
+
+// Match reports whether g matches the literal slash path p.
+func (g Glob) Match(p string) bool {
+	return slices.Contains(g.walk(strings.Split(p, "/")), len(g.segs))
+}
+
+// Reaches reports whether g can match some path under dir. The empty dir,
+// the repository root, is reached by every glob.
+func (g Glob) Reaches(dir string) bool {
+	var segs []string
+	if dir = strings.TrimSuffix(dir, "/"); dir != "" {
+		segs = strings.Split(dir, "/")
+	}
+	// A position short of the end can still match at least one more
+	// segment: a ** segment, or a pattern that path.Match checked.
+	for _, i := range g.walk(segs) {
+		if i < len(g.segs) {
+			return true
+		}
+	}
+	return false
+}
+
+// walk returns each position in g that the segments can reach. A ** at
+// position i stays at i as it takes a segment, and reaches i+1 with none.
+func (g Glob) walk(segs []string) []int {
+	at := g.close([]int{0})
+	for _, s := range segs {
+		var next []int
+		for _, i := range at {
+			switch {
+			case i == len(g.segs):
+			case g.segs[i] == globStar:
+				next = append(next, i)
+			default:
+				if ok, _ := path.Match(g.segs[i], s); ok {
+					next = append(next, i+1)
+				}
+			}
+		}
+		if at = g.close(next); len(at) == 0 {
+			break
+		}
+	}
+	return at
+}
+
+// close adds each position that a ** at a held position reaches with no
+// segment, and drops duplicates.
+func (g Glob) close(at []int) []int {
+	var out []int
+	for _, i := range at {
+		for ; ; i++ {
+			if !slices.Contains(out, i) {
+				out = append(out, i)
+			}
+			if i == len(g.segs) || g.segs[i] != globStar {
+				break
+			}
+		}
+	}
+	return out
+}

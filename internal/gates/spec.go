@@ -8,8 +8,15 @@ import (
 	docshape "github.com/iantanwx/loop/internal/shape"
 )
 
-// specGlob is every spec a project keeps, <epic id>-<slug>-spec.md.
-const specGlob = "docs/plans/*-spec.md"
+// specGlobs are every spec a project keeps, <epic id>-<slug>-spec.md in
+// each directory of docshape.SpecDirs.
+func specGlobs() []string {
+	globs := make([]string, len(docshape.SpecDirs))
+	for i, dir := range docshape.SpecDirs {
+		globs[i] = dir + "*-spec.md"
+	}
+	return globs
+}
 
 // Spec checks the shape of each spec, as docshape.CheckSpec reads it: the
 // template's headings once each and in order, no empty section, no line of
@@ -17,7 +24,7 @@ const specGlob = "docs/plans/*-spec.md"
 // every spec, as the adr gate reads every ADR. It cannot check what a
 // section says; the doc-reviewer reads that.
 func Spec(_ context.Context, r *Repo) ([]Finding, error) {
-	files, err := r.glob([]string{specGlob})
+	files, err := r.glob(specGlobs())
 	if err != nil {
 		return nil, err
 	}

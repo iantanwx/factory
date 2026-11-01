@@ -206,7 +206,8 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 // specDecided refuses a batch whose epic has no one spec on the base
 // branch, or whose spec holds an undecided open question. The spec is at
 // the epic's spec_path. An epic whose spec merged before that fact existed
-// has none, and its spec is the one base file docs/plans/<epic>-*-spec.md.
+// has none, and its spec is the one base file <dir><epic>-*-spec.md for a
+// dir of shape.SpecDirs.
 func (p *Pipeline) specDecided(ctx context.Context, epic machine.Item) *cli.Refusal {
 	noSpec := func(hint string) *cli.Refusal {
 		return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "no_spec", Item: epic.ID,
@@ -214,8 +215,12 @@ func (p *Pipeline) specDecided(ctx context.Context, epic machine.Item) *cli.Refu
 	}
 	path := epic.Fact(machine.FactSpecPath)
 	if path == "" {
-		pattern := "docs/plans/" + epic.ID + "-*-spec.md"
-		base, err := p.cfg.GitHub.Files(ctx, epic.Project, []string{"docs/plans/" + epic.ID + "-"})
+		pattern := shape.SpecPattern(epic.ID)
+		prefixes := make([]string, len(shape.SpecDirs))
+		for i, dir := range shape.SpecDirs {
+			prefixes[i] = dir + epic.ID + "-"
+		}
+		base, err := p.cfg.GitHub.Files(ctx, epic.Project, prefixes)
 		if err != nil {
 			return noSpec(fmt.Sprintf("the base branch could not be read for %s: %v", pattern, err))
 		}
