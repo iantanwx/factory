@@ -12,7 +12,7 @@
     },
     "doc-reviewer": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents", "loop-domain-modeling"]
+      "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-split", "loop-sdlc-triage", "loop-sdlc-documents", "loop-domain-modeling", "loop-content-lens"]
     },
     "reviser": {
       "attended": false,
@@ -70,6 +70,7 @@
     "loop-brainstorm",
     "loop-bro",
     "loop-commit",
+    "loop-content-lens",
     "loop-domain-modeling",
     "loop-encode-lessons",
     "loop-fault",
