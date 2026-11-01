@@ -51,7 +51,8 @@ func (r Records) Files(f Finding) (record string, ok bool) {
 
 // add files each token of text under record. A zero before files it with
 // no bound. The first record to hold a token keeps it, except that a
-// record with no bound takes a token from a bounded one.
+// record with no bound takes a token from a bounded one, and a bounded
+// record takes it from one with an earlier bound (C-bug-1).
 func (r *Records) add(record, text string, keep func(string) bool, before time.Time) {
 	if r.names == nil {
 		r.names, r.before = map[string]string{}, map[string]time.Time{}
@@ -61,11 +62,12 @@ func (r *Records) add(record, text string, keep func(string) bool, before time.T
 			continue
 		}
 		_, held := r.names[t]
-		_, bounded := r.before[t]
+		until, bounded := r.before[t]
 		switch {
 		case !held:
 		case bounded && before.IsZero():
 			delete(r.before, t)
+		case bounded && before.After(until):
 		default:
 			continue
 		}
