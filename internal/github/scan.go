@@ -469,3 +469,85 @@ func (m *Mirror) lines(ctx context.Context, args ...string) ([]string, error) {
 	}
 	return strings.Split(out, "\n"), nil
 }
+
+// testDirs are the directory names that hold tests, and testFiles the
+// base name patterns of a test or of a test runner's config.
+var (
+	testDirs  = []string{"test", "tests", "__tests__", "testdata", "spec", "e2e"}
+	testFiles = []string{"*_test.*", "*.test.*", "*.spec.*", "test_*.py", "conftest.py",
+		"vitest.config.*", "jest.config.*", "playwright.config.*", "pytest.ini", "tox.ini"}
+)
+
+// isTestPath reports whether p holds a test, a test runner's config, or
+// the gate and CI commands under .loop/ and .github/workflows/. A
+// simplify commit may not change one, so each test that ran at
+// simplify_from still runs, unchanged, at the simplify head.
+func isTestPath(p string) bool {
+	if strings.HasPrefix(p, ".loop/") || strings.HasPrefix(p, ".github/workflows/") {
+		return true
+	}
+	dirs := strings.Split(p, "/")
+	name := dirs[len(dirs)-1]
+	for _, d := range dirs[:len(dirs)-1] {
+		if slices.Contains(testDirs, d) {
+			return true
+		}
+	}
+	return slices.ContainsFunc(testFiles, func(pat string) bool {
+		ok, _ := path.Match(pat, name)
+		return ok
+	})
+}
+
+// scopeCheck refuses a simplify run's push of head that breaks the run's
+// bounds, with SIMPLIFY_SCOPE and the rule that names which: more than
+// one commit over from and base (two_commits), a merge commit
+// (merge_commit), or a commit that changes a test path (test_path) or a
+// path that the diff from the merge base of from and base to from does
+// not list (path_outside_pr).
+func (m *Mirror) scopeCheck(ctx context.Context, from, base, head string) error {
+	commits, err := m.newCommits(ctx, head, base, from)
+	if err != nil {
+		return err
+	}
+	refuse := func(rule, commit, p, reason string) error {
+		return &ScanError{Code: cli.CodeSimplifyScope, Rule: rule, Commit: commit, Path: p, Reason: reason}
+	}
+	switch {
+	case len(commits) == 0:
+		return nil
+	case len(commits) > 1:
+		return refuse("two_commits", commits[1], "", fmt.Sprintf("the push adds %d commits over %s, and a simplify run lands one; "+
+			"run `git reset --soft %s`, and commit once", len(commits), short(from), from))
+	}
+	c := commits[0]
+	out, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"rev-list", "--parents", "-n", "1", c}})
+	if err != nil {
+		return err
+	}
+	if len(strings.Fields(out)) > 2 {
+		return refuse("merge_commit", c, "", "the commit is a merge, and a simplify run merges nothing")
+	}
+	fork, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"merge-base", from, base}})
+	if err != nil {
+		return err
+	}
+	ours, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"diff", "--name-only", "--no-renames", "-z", fork, from}})
+	if err != nil {
+		return err
+	}
+	pr := strings.Split(string(ours), "\x00")
+	changes, err := m.changes(ctx, c)
+	if err != nil {
+		return err
+	}
+	for _, ch := range changes {
+		switch {
+		case isTestPath(ch.path):
+			return refuse("test_path", c, ch.path, fmt.Sprintf("%s is a test path, and a simplify commit changes no test path", ch.path))
+		case !slices.Contains(pr, ch.path):
+			return refuse("path_outside_pr", c, ch.path, fmt.Sprintf("the pull request does not change %s, and a simplify commit changes only its paths", ch.path))
+		}
+	}
+	return nil
+}

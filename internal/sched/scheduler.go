@@ -168,6 +168,9 @@ type Scheduler struct {
 	// redBuild reads the failed CI of a repair's pull request for its
 	// brief. Nil reads none.
 	redBuild RedBuildReader
+	// heldDropper deletes a simplify run's held commit at its settlement.
+	// Nil deletes none.
+	heldDropper HeldDropper
 
 	wg     sync.WaitGroup // dispatches and jobs in flight
 	loops  sync.WaitGroup
