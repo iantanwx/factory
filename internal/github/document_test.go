@@ -82,10 +82,12 @@ func TestOnlyTheCurrentDocumentPRMovesTheEpic(t *testing.T) {
 	}
 }
 
-// C2: the reactor records the path of a spec that merges on GitHub. The
-// path is the one file of the spec PR at docs/plans/<epic>-*-spec.md. A
-// PRD merge records none, even with such a file. A spec PR with two such
-// files records none, and the epic still moves to spec_approved.
+// C2, C18, C19, C20: the reactor records the path of a spec that merges on
+// GitHub. The path is the one file of the spec PR at
+// docs/specs/<epic>-*-spec.md or docs/plans/<epic>-*-spec.md. A PRD merge
+// records none, even with such a file. A spec PR with two such files, in
+// one directory or one in each, records none, and the epic still moves to
+// spec_approved.
 func TestSpecMergeOnGitHubRecordsTheSpecPath(t *testing.T) {
 	for _, c := range []struct {
 		name  string
@@ -96,6 +98,18 @@ func TestSpecMergeOnGitHubRecordsTheSpecPath(t *testing.T) {
 			"one spec file",
 			func(epic string) []string { return []string{"README.md", "docs/plans/" + epic + "-cache-spec.md"} },
 			func(epic string) string { return "docs/plans/" + epic + "-cache-spec.md" },
+		},
+		{
+			"one spec file under docs/specs",
+			func(epic string) []string { return []string{"README.md", "docs/specs/" + epic + "-cache-spec.md"} },
+			func(epic string) string { return "docs/specs/" + epic + "-cache-spec.md" },
+		},
+		{
+			"one spec file in each directory",
+			func(epic string) []string {
+				return []string{"docs/specs/" + epic + "-cache-spec.md", "docs/plans/" + epic + "-cache-spec.md"}
+			},
+			func(string) string { return "" },
 		},
 		{
 			"two spec files",

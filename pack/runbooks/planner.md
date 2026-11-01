@@ -34,8 +34,10 @@ Read these first, in this order:
 
 ## 2. Write the spec
 
-Write the spec at `docs/plans/<epic id>-<slug>-spec.md`. Start from the template,
-`../loop-sdlc-documents/spec.md`. It holds a good and a bad example of each section.
+Write the spec at `docs/specs/<epic id>-<slug>-spec.md`. Start from the template,
+`../loop-sdlc-documents/spec.md`. It holds a good and a bad example of each section. A spec that
+merged earlier can be under `docs/plans/`. Leave it there, and write each new spec under
+`docs/specs/`.
 
 The spec holds these sections, in this order:
 

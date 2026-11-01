@@ -101,7 +101,8 @@ func TestC10SpecGateRefusesACopyOfTheTemplate(t *testing.T) {
 	}
 }
 
-// C10: the gate reads every docs/plans/*-spec.md, and no other file.
+// C10: the gate reads every docs/plans/*-spec.md, and no other file. C18
+// adds docs/specs/.
 func TestC10SpecGateReadsEachSpec(t *testing.T) {
 	good := goodSpec(t)
 	r := testRepo(t, map[string]string{
