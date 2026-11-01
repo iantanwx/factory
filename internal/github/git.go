@@ -42,6 +42,9 @@ type Git struct {
 	Binary    string
 	Home      string   // an empty directory the server owns
 	Protocols []string // allowed transport protocols besides file
+	// Config holds config entries that each command takes before the
+	// hardening entries of env, so an entry here never weakens them.
+	Config [][2]string
 	// Timeout bounds a local command when ctx has no earlier deadline.
 	// Zero means GitTimeout.
 	Timeout time.Duration
@@ -97,7 +100,8 @@ func (g *Git) env(r gitRun) []string {
 		"GIT_PROTOCOL_FROM_USER=0",
 		"LC_ALL=C",
 	}
-	cfg := [][2]string{
+	cfg := append([][2]string(nil), g.Config...)
+	cfg = append(cfg, [][2]string{
 		{"core.hooksPath", "/dev/null"},
 		{"core.fsmonitor", "false"},
 		{"credential.helper", ""},
@@ -108,7 +112,7 @@ func (g *Git) env(r gitRun) []string {
 		{"push.followTags", "false"},
 		{"protocol.allow", "never"},
 		{"protocol.file.allow", "always"},
-	}
+	}...)
 	for _, p := range g.Protocols {
 		cfg = append(cfg, [2]string{"protocol." + p + ".allow", "always"})
 	}

@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/iantanwx/loop/internal/cli"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 )
@@ -64,10 +64,9 @@ func decodeSync(t *testing.T, res cli.Result) syncData {
 // no user config.
 func agentGit(t *testing.T, dir string, args ...string) (string, error) {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := gittest.Command(args...)
 	cmd.Dir = dir
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
-		"GIT_TERMINAL_PROMPT=0"}
+	cmd.Env = gittest.Env([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "GIT_TERMINAL_PROMPT=0"})
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }

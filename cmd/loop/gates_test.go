@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // gatesCheckout makes a git checkout whose config names lint, test and
@@ -44,7 +44,7 @@ func gatesCheckout(t *testing.T, lintRun, lint string) string {
 		{"-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "chore: start"},
 		{"update-ref", "refs/remotes/origin/main", "HEAD"},
 	} {
-		c := exec.Command("git", args...)
+		c := gittest.Command(args...)
 		c.Dir = root
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)

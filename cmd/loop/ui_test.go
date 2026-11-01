@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // uiRepo makes a git repository that commits tracked, writes untracked
@@ -34,7 +35,7 @@ func uiRepo(t *testing.T, tracked, untracked map[string]string) {
 		{"add", "-A"},
 		{"-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "chore: start"},
 	} {
-		c := exec.Command("git", args...)
+		c := gittest.Command(args...)
 		c.Dir = root
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
