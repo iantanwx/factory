@@ -300,6 +300,10 @@ var surface = []Verb{
 		Flag{Name: "request", Type: FlagString, Description: "required: the operator's own words that send the epic to the ADR stage, kept verbatim"},
 		Flag{Name: "off", Type: FlagBool, Description: "from prd_signoff only: clear adr_needed and adr_sent, so the PRD merge lands the epic on spec_needed"},
 		projectFlag)),
+	write(server("epic", "skip-design", "move an epic in design to spec_needed at the operator's word, with no design record; an open pull request of its design branch holds the skip", coordinator,
+		[]Arg{arg("item", "the epic id")},
+		Flag{Name: "request", Type: FlagString, Description: "required: the operator's own words that skip the design stage, kept verbatim"},
+		projectFlag)),
 	write(server("epic", "decompose", "create an epic's tickets in one batch", []string{"decomposer"}, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the decomposition file: a JSON object whose tickets each hold key, title, body, stories and blocked_by"})),
 

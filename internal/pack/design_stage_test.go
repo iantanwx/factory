@@ -31,3 +31,19 @@ func TestC11PRDWritersSetTheUILine(t *testing.T) {
 		}
 	}
 }
+
+// TestC16CoordinatorSkipsTheDesignStageWithTheOperatorsWords proves C16 of
+// spec factorio-a4yq on the pack side. The coordinator runbook runs the
+// skip only on the operator's word, with those words, on an epic in
+// design. It says that an open design pull request holds the skip.
+func TestC16CoordinatorSkipsTheDesignStageWithTheOperatorsWords(t *testing.T) {
+	s := flat(coordinatorSection(t, "8"))
+	if !strings.Contains(s, `loop epic skip-design <epic> --request "<the operator's words>"`) {
+		t.Errorf("section 8 of %s runs no skip with the operator's words", coordinatorRunbook)
+	}
+	for _, w := range []string{"`design`", "`spec_needed`", "`design_skipped`", "`design_pr_open`"} {
+		if !strings.Contains(s, w) {
+			t.Errorf("section 8 of %s does not name %s", coordinatorRunbook, w)
+		}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/shape"
@@ -413,6 +414,55 @@ func (p *Pipeline) epicADR(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	return p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: inv.Arg("item"), Verb: verb,
 		Params: map[string]string{"request": request}, Command: inv.Verb.Path, ExpectedStatus: inv.Extra[cli.ExtraExpectedStatus],
+		RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
+}
+
+// epicSkipDesign is `loop epic skip-design`, the coordinator's skip of an
+// epic's design stage with the operator's words. The epic table moves only
+// an epic in design. An open pull request of the design branch holds the
+// skip, because its merge would land a record on an epic past the stage.
+func (p *Pipeline) epicSkipDesign(ctx context.Context, call *rpc.Call) cli.Result {
+	pr, inv := call.Principal, call.Inv
+	if pr.Kind != cli.PrincipalCoordinator {
+		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator skips the design stage, at the operator's word")
+	}
+	prj, ref := call.Project(ownProject)
+	if ref != nil {
+		return ref.Result()
+	}
+	request := strings.TrimSpace(inv.Flags["request"])
+	if request == "" {
+		return cli.Reject(cli.CodeUsage, "no_operator_request",
+			"the skip needs the operator's request: quote the operator's own words with --request")
+	}
+	epic, ref := p.cfg.Machine.Read(ctx, prj, inv.Arg("item"))
+	if ref != nil {
+		return ref.Result()
+	}
+	// The pull request read and the move are not one write, so the move
+	// expects the status the read saw.
+	expected := inv.Extra[cli.ExtraExpectedStatus]
+	if epic.Status == machine.Design {
+		reg, ref := p.registration(prj)
+		if ref != nil {
+			return ref.Result()
+		}
+		branch := github.DesignBranchFor(epic.ID)
+		open, err := p.cfg.GitHub.FindPR(ctx, reg, branch)
+		if err != nil {
+			return github.Refuse(err)
+		}
+		if open != nil && open.State == "open" {
+			return cli.Reject(cli.CodeShapeRefused, "design_pr_open", fmt.Sprintf(
+				"%s heads the open pull request #%d; the operator closes it first, so its merge cannot land a record on an epic past the design stage",
+				branch, open.Number))
+		}
+		if expected == "" {
+			expected = machine.Design
+		}
+	}
+	return p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: epic.ID, Verb: machine.VerbSkipDesign,
+		Params: map[string]string{"request": request}, Command: inv.Verb.Path, ExpectedStatus: expected,
 		RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
 }
 
