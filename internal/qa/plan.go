@@ -14,7 +14,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/iantanwx/loop/internal/config"
-	"github.com/iantanwx/loop/internal/sched"
 )
 
 // skillsDir holds each verify skill, as .claude/skills/verify-<app>/SKILL.md.
@@ -163,7 +162,7 @@ func reaches(a App, mayChange []string) bool {
 	}
 	for _, g := range a.Paths {
 		for _, e := range mayChange {
-			if sched.Meets(g, e) {
+			if config.Meets(g, e) {
 				return true
 			}
 		}

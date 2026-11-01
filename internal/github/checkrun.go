@@ -1,16 +1,24 @@
 package github
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"testing/fstest"
 
+	"github.com/iantanwx/loop/internal/admission"
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/qa"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -194,4 +202,197 @@ func (s *Service) runCheckRun(ctx context.Context, e checkRunEffect) error {
 		return s.cfg.Store.Write(ctx, func(tx *store.Tx) error { return tx.MarkEffectFailed(e.id, err.Error()) })
 	}
 	return s.settleEffect(ctx, e.id, e.attempts, pl.Project, pl.Item, pl.SHA, QAContext, s.PostCheckRun(ctx, p, pl))
+}
+
+// QAGate is the machine's QA gate. It computes the plan of the QA run at
+// head as loop qa plan does in the run's checkout, checks r against it,
+// and stores r in qa_reports. A report stored again before its verdict
+// applied replaces the row. The review text is the rendered report.
+func (s *Service) QAGate(ctx context.Context, project, item, run, head string, r qa.Report, files map[string][]byte) (string, *cli.Refusal) {
+	p, err := s.project(project)
+	if err != nil {
+		ref := Refusal(err)
+		return "", &ref
+	}
+	plan, ref := s.qaPlan(ctx, p, item, run, head)
+	if ref != nil {
+		return "", ref
+	}
+	filed, bug, ref := s.qaBugs(ctx, project, run)
+	if ref != nil {
+		return "", ref
+	}
+	if ref := qa.Validate(r, plan, run, files, filed, bug); ref != nil {
+		return "", ref
+	}
+	raw, err := json.Marshal(r)
+	if err != nil {
+		return "", cli.InternalRefusal(err)
+	}
+	err = s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`INSERT INTO qa_reports (run_id, project, item, head, conclusion, report, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (run_id) DO UPDATE SET item = excluded.item, head = excluded.head,
+			conclusion = excluded.conclusion, report = excluded.report, created_at = excluded.created_at`,
+			run, project, item, head, r.Conclusion(), string(raw), tx.Now().UnixMilli())
+		return err
+	})
+	if err != nil {
+		return "", cli.InternalRefusal(err)
+	}
+	title, summary, text := qa.Render(r, nil)
+	return "## " + title + "\n\n" + summary + "\n" + text, nil
+}
+
+// qaPlan is the plan of QA run run on item at head: the verify skills of
+// the mirror's tree at head, the "May change" entries of the ticket, and
+// the design skill of the run's row.
+func (s *Service) qaPlan(ctx context.Context, p config.Project, item, run, head string) (qa.Plan, *cli.Refusal) {
+	var design string
+	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT design_skill FROM runs WHERE run_id = ?`, run).Scan(&design)
+	})
+	if err != nil {
+		return qa.Plan{}, cli.InternalRefusal(fmt.Errorf("github: the row of run %s: %w", run, err))
+	}
+	it, ref := s.cfg.Machine.Read(ctx, p.ID, item)
+	if ref != nil {
+		return qa.Plan{}, ref
+	}
+	tree, err := s.verifySkills(ctx, p, head)
+	if err != nil {
+		return qa.Plan{}, cli.InternalRefusal(err)
+	}
+	apps, err := qa.Apps(tree)
+	if err != nil {
+		return qa.Plan{}, &cli.Refusal{Code: cli.CodeUsage, Rule: "bad_verify_skill", Hint: err.Error()}
+	}
+	return qa.MakePlan(apps, admission.MayChangeEntries(it.Body), design), nil
+}
+
+// verifySkills holds each .claude/skills/verify-<app>/SKILL.md of the
+// mirror's tree at head, at its path, which is all qa.Apps reads.
+func (s *Service) verifySkills(ctx context.Context, p config.Project, head string) (fs.FS, error) {
+	m := s.Mirror(p)
+	if m.Resolve(ctx, head) == "" {
+		return nil, fmt.Errorf("github: the mirror of %s holds no %s; run loop branch sync", p.ID, short(head))
+	}
+	const dir = ".claude/skills"
+	entries, err := m.Tree(ctx, head, dir)
+	if err != nil {
+		return nil, err
+	}
+	tree := fstest.MapFS{}
+	for _, e := range entries {
+		if !e.Dir || !strings.HasPrefix(e.Name, "verify-") {
+			continue
+		}
+		path := dir + "/" + e.Name + "/SKILL.md"
+		data, err := m.Show(ctx, head, path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		tree[path] = &fstest.MapFile{Data: data}
+	}
+	return tree, nil
+}
+
+// qaBugs lists the bugs QA run run filed, and answers for any bug id. A
+// bug with no source fact reads as filed by the operator.
+func (s *Service) qaBugs(ctx context.Context, project, run string) ([]string, func(string) (qa.QABug, bool), *cli.Refusal) {
+	m := s.cfg.Machine
+	items, ref := m.List(ctx, project, machine.ListFilter{Kind: machine.KindBug, Facts: map[string]string{machine.FactQARun: run}})
+	if ref != nil {
+		return nil, nil, ref
+	}
+	var filed []string
+	for _, it := range items {
+		filed = append(filed, it.ID)
+	}
+	bug := func(id string) (qa.QABug, bool) {
+		it, ref := m.Read(ctx, project, id)
+		if ref != nil || it.Kind != machine.KindBug {
+			return qa.QABug{}, false
+		}
+		return qa.QABug{Source: cmp.Or(it.Fact(machine.FactSource), machine.SourceOperator), Run: it.Fact(machine.FactQARun)}, true
+	}
+	return filed, bug, nil
+}
+
+// QAReported is the machine's QAReported: it enqueues the loop/qa check
+// run of each stored report of project that holds none.
+func (s *Service) QAReported(ctx context.Context, project string) error {
+	p, err := s.project(project)
+	if err != nil {
+		return err
+	}
+	_, err = s.EnqueueQAChecks(ctx, p)
+	return err
+}
+
+// EnqueueQAChecks enqueues the checkrun effect of each stored report of p
+// whose verdict applied and that holds none, and returns how many it
+// enqueued. The effect joins the intent of the verdict, and is runnable
+// from its insert. Its natural key is checkRunKey(project, head, run), so
+// a repeat enqueues nothing. So a server that dies after a report and
+// before its effect posts the check run at the next tick.
+func (s *Service) EnqueueQAChecks(ctx context.Context, p config.Project) (int, error) {
+	type stored struct {
+		intent                           int64
+		run, item, head, conclusion, raw string
+	}
+	var due []stored
+	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT t.intent_id, r.run_id, r.item, r.head, r.conclusion, r.report
+			FROM qa_reports r JOIN transitions t ON t.project = r.project AND t.item = r.item AND t.run_id = r.run_id
+				AND t.verb IN (?, ?)
+			WHERE r.project = ? AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.effect_kind = ?
+				AND o.natural_key = r.project || ':' || r.head || ':' || ? || ':' || r.run_id)
+			ORDER BY r.created_at, r.run_id`, machine.VerbQAPass, machine.VerbQAFail, p.ID, EffectCheckRun, QAContext)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var r stored
+			if err := rows.Scan(&r.intent, &r.run, &r.item, &r.head, &r.conclusion, &r.raw); err != nil {
+				return err
+			}
+			due = append(due, r)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return 0, err
+	}
+	added := 0
+	for _, r := range due {
+		var rep qa.Report
+		if err := json.Unmarshal([]byte(r.raw), &rep); err != nil {
+			return added, fmt.Errorf("github: the QA report of %s: %w", r.run, err)
+		}
+		title, summary, text := qa.Render(rep, nil)
+		payload, err := json.Marshal(CheckRunPayload{Project: p.ID, Item: r.item, SHA: r.head, Name: QAContext,
+			Conclusion: r.conclusion, Title: title, Summary: summary, Text: text})
+		if err != nil {
+			return added, err
+		}
+		err = s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+			now := tx.Now().UnixMilli()
+			res, err := tx.Exec(`INSERT OR IGNORE INTO outbox (intent_id, effect_kind, natural_key, payload, state, created_at, updated_at)
+				VALUES (?, ?, ?, ?, 'runnable', ?, ?)`, r.intent, EffectCheckRun, checkRunKey(p.ID, r.head, r.run), string(payload), now, now)
+			if err != nil {
+				return err
+			}
+			n, _ := res.RowsAffected()
+			added += int(n)
+			return nil
+		})
+		if err != nil {
+			return added, err
+		}
+	}
+	return added, nil
 }
