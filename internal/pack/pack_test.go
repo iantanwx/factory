@@ -241,15 +241,17 @@ func TestLayoutRefusesTwoSourcesForOneDirectory(t *testing.T) {
 
 // TestCoordinatorShipsItsReadOnlySubagents holds the pack to the four
 // named helpers of the coordinator (runbook section 11): each one ships,
-// the coordinator's runbook lists it, and the release injects it.
+// the coordinator's runbook lists it, and the release injects it. The
+// pack's one other agent is the doc-reviewer's reader.
 func TestCoordinatorShipsItsReadOnlySubagents(t *testing.T) {
 	want := []string{"loop-alert-root-cause", "loop-checkout-forensics", "loop-doctor", "loop-escalation-prep"}
 	m, err := pack.ReadManifest(pack.Source())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := slices.Sorted(slices.Values(m.Agents)); !slices.Equal(got, want) {
-		t.Fatalf("manifest agents = %v, want %v", got, want)
+	all := []string{"loop-alert-root-cause", "loop-checkout-forensics", "loop-doc-reader", "loop-doctor", "loop-escalation-prep"}
+	if got := slices.Sorted(slices.Values(m.Agents)); !slices.Equal(got, all) {
+		t.Fatalf("manifest agents = %v, want %v", got, all)
 	}
 	if got := slices.Sorted(slices.Values(m.Runbooks[sched.CoordinatorStage].Agents)); !slices.Equal(got, want) {
 		t.Fatalf("coordinator agents = %v, want %v", got, want)
@@ -262,8 +264,8 @@ func TestCoordinatorShipsItsReadOnlySubagents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(got, want) {
-		t.Fatalf("injected agents = %v, want %v", got, want)
+	if !slices.Equal(got, all) {
+		t.Fatalf("injected agents = %v, want %v", got, all)
 	}
 }
 
@@ -483,8 +485,8 @@ const tickertownCommit = "64e293f9ae2db7831d12462e76ffe1aa3deacd8c"
 // the runbooks that list it are its row of the spec's reader table.
 func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 	want := []string{
-		"loop-boundaries", "loop-brainstorm", "loop-bro", "loop-commit", "loop-content-lens", "loop-domain-modeling",
-		"loop-encode-lessons", "loop-fault", "loop-init", "loop-least-code", "loop-reader-load", "loop-reflect", "loop-retro-rubric",
+		"loop-boundaries", "loop-brainstorm", "loop-bro", "loop-commit", "loop-content-lens", "loop-doc-readers",
+		"loop-domain-modeling", "loop-encode-lessons", "loop-fault", "loop-init", "loop-least-code", "loop-reader-load", "loop-reflect", "loop-retro-rubric",
 		"loop-sdlc-documents", "loop-sdlc-glossary", "loop-sdlc-review", "loop-sdlc-split", "loop-sdlc-triage",
 		"loop-sdlc-turn", "loop-test-behavior-not-implementation", "loop-unslop", "loop-verifiable-units",
 		"loop-verify-create", "loop-verify-maintain",
@@ -504,7 +506,7 @@ func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 	readers := map[string][]string{
 		"loop-commit": {"brainstorm-room", "implementer", "planner", "review-room", "reviser", "simplify"},
 		"loop-bro":    {"decomposer"},
-		"loop-unslop": {"brainstorm-room", "decomposer", "planner", "reviser"},
+		"loop-unslop": {"brainstorm-room", "decomposer", "doc-reviewer", "planner", "reviser"},
 
 		"loop-boundaries":                       {"code-reviewer", "implementer"},
 		"loop-least-code":                       {"code-reviewer", "implementer", "simplify"},
