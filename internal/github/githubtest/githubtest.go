@@ -107,6 +107,8 @@ type API struct {
 	rules   []any
 	// noRulesStatus is what the rules endpoint answers with nil rules.
 	noRulesStatus int
+	// reset is the one core and graphql reset time /rate_limit reports.
+	reset int64
 	// others answer for the other repositories of Owner (Serve).
 	others map[string]*API
 	World  *World
@@ -119,8 +121,8 @@ func NewAPI(t testing.TB) *API {
 		install: map[string]any{"id": InstallID, "repository_selection": "selected", "suspended_at": nil,
 			"permissions": map[string]string{"contents": "write", "pull_requests": "write", "statuses": "write",
 				"workflows": "write", "checks": "write", "actions": "read", "metadata": "read"}},
-		rules: GoodRules(), noRulesStatus: 404, others: map[string]*API{},
-		World: NewWorld()}
+		rules: GoodRules(), noRulesStatus: 404, reset: time.Now().Add(time.Hour).Unix(),
+		others: map[string]*API{}, World: NewWorld()}
 	a.srv = httptest.NewServer(http.HandlerFunc(a.serve))
 	t.Cleanup(a.srv.Close)
 	return a
@@ -318,7 +320,7 @@ func (a *API) serve(w http.ResponseWriter, r *http.Request) {
 	case key == "GET /repos/"+Repo:
 		WriteJSON(w, 200, map[string]any{"full_name": Repo, "default_branch": "main"})
 	case key == "GET /rate_limit":
-		full := map[string]any{"limit": 5000, "remaining": 5000, "reset": time.Now().Add(time.Hour).Unix()}
+		full := map[string]any{"limit": 5000, "remaining": 5000, "reset": a.reset}
 		WriteJSON(w, 200, map[string]any{"resources": map[string]any{"core": full, "graphql": full}})
 	case key == "GET /repos/"+Repo+"/rules/branches/main":
 		a.mu.Lock()
