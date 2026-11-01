@@ -23,6 +23,19 @@ const (
 	Duplicate     = "duplicate"
 )
 
+// The facts of a bug's filer. The coordinator files the operator's
+// report, and its bug holds source operator. A QA run files what it found
+// at the merge base, and its bug holds source qa, the run and the ticket
+// head it read. A bug with no source fact reads as operator: every bug
+// before the QA stage came from the coordinator.
+const (
+	FactSource     = "source"
+	FactQARun      = "qa_run"
+	FactQAHead     = "qa_head"
+	SourceOperator = "operator"
+	SourceQA       = "qa"
+)
+
 // BugClosed reports whether a bug in status has closed. ticket is the
 // status of the ticket the bug was shaped into, or empty. The operator
 // named the set on 2026-10-31: a canceled bug closes at once, and a shaped
