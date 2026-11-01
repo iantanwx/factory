@@ -49,7 +49,8 @@ type envelope struct {
 	OK     bool            `json:"ok"`
 	Result json.RawMessage `json:"result"`
 	Error  *struct {
-		Code string `json:"code"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
 	} `json:"error"`
 }
 
@@ -66,16 +67,16 @@ func (o OrcaCLI) call(ctx context.Context, ok []string, args ...string) (json.Ra
 		return nil, fmt.Errorf("orca %s printed no valid JSON (exit %d)", verb, out.Code)
 	}
 	if !env.OK {
-		code := ""
+		var code, msg string
 		if env.Error != nil {
-			code = env.Error.Code
+			code, msg = env.Error.Code, env.Error.Message
 		}
 		for _, c := range ok {
 			if code == c {
 				return nil, nil
 			}
 		}
-		return nil, &orca.Error{Verb: verb, Code: code, Exit: out.Code}
+		return nil, &orca.Error{Verb: verb, Code: code, Message: msg, Exit: out.Code}
 	}
 	return env.Result, nil
 }

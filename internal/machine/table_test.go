@@ -227,6 +227,8 @@ func epicEdges() []edge {
 		{"design_review", "doc_merged", "design_signoff"},
 		{"design_signoff", "doc_merged", SpecNeeded},
 		{"design_signoff", "signoff_head", "design_signoff"},
+		// The operator's skip of the design stage.
+		{"design", "skip_design", SpecNeeded},
 	}
 	e = append(e, each([]string{PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff}, "adr_send", ToSame)...)
 	e = append(e, each([]string{SpecNeeded, SpecReview, SpecSignoff, SpecAmending}, "adr_send", Architecture)...)
@@ -331,7 +333,7 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	if r.When == "design_due" {
 		facts[FactUIStories] = "US-01" // the PRD merge recorded a UI story
 	}
-	if r.Verb == VerbADRSend || r.Verb == VerbADROff {
+	if r.Verb == VerbADRSend || r.Verb == VerbADROff || r.Verb == VerbSkipDesign {
 		params["request"] = "the operator's words"
 	}
 	if r.When == "second_reject" {

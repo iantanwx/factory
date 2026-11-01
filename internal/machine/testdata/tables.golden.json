@@ -815,6 +815,17 @@
         ]
       },
       {
+        "verb": "skip_design",
+        "from": [
+          "design"
+        ],
+        "to": "spec_needed",
+        "command": "epic skip-design",
+        "facts": [
+          "design_skipped"
+        ]
+      },
+      {
         "verb": "adr_landed",
         "from": [
           "architecture"

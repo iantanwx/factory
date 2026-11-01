@@ -234,11 +234,13 @@ const (
 	CodeNotFound = "selector_not_found"
 )
 
-// Error is a refusal orca reported in its envelope.
+// Error is a refusal orca reported in its envelope. Message is orca's
+// error.message. It is orca's own text, so Error leaves it out.
 type Error struct {
-	Verb string
-	Code string
-	Exit int
+	Verb    string
+	Code    string
+	Message string
+	Exit    int
 }
 
 var safeCode = regexp.MustCompile(`^[a-z][a-z0-9_]{0,95}$`)
@@ -273,11 +275,11 @@ func (h *Host) call(ctx context.Context, args ...string) (envelope, error) {
 			agenthost.ErrHostUnavailable, verb(args), out.Code)
 	}
 	if !env.OK {
-		code := ""
+		var code, msg string
 		if env.Error != nil {
-			code = env.Error.Code
+			code, msg = env.Error.Code, env.Error.Message
 		}
-		return env, &Error{Verb: verb(args), Code: code, Exit: out.Code}
+		return env, &Error{Verb: verb(args), Code: code, Message: msg, Exit: out.Code}
 	}
 	if out.Code != 0 {
 		return env, fmt.Errorf("%w: orca %s answered ok with exit %d",

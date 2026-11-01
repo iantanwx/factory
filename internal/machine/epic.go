@@ -444,6 +444,11 @@ func epicTable() *Table {
 		// the PRD merge lands the epic on spec_needed.
 		{Verb: VerbADROff, From: []string{PRDSignoff}, To: ToSame, Command: "epic adr",
 			set: adrOff, Facts: []string{FactADRNeeded, FactADRSent}},
+		// The operator skips the design stage of an epic in design with no
+		// open design pull request: the server reads the pull request, and
+		// the epic goes to its spec with no record.
+		{Verb: VerbSkipDesign, From: []string{Design}, To: SpecNeeded, Command: "epic skip-design",
+			set: needCopy("request", FactDesignSkipped), Facts: []string{FactDesignSkipped}},
 		// adr_merged is the first-parent commit that added the ADR, which the
 		// base audit passes (ADR 0012). The tick's head is not always it. An
 		// epic with a UI story and no design outcome designs next. One that
