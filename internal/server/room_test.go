@@ -674,8 +674,7 @@ func TestC13ARoomOpenAsIntakeReopensAsBrainstorm(t *testing.T) {
 		if _, err := tx.Exec(`UPDATE rooms SET kind = 'intake' WHERE id = ?`, id); err != nil {
 			return err
 		}
-		_, err := tx.Exec(`PRAGMA user_version = 19`)
-		return err
+		return rewindSchema(tx, 19)
 	}); err != nil {
 		t.Fatal(err)
 	}

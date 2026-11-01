@@ -79,6 +79,8 @@ codes cannot.
      dropped that merge. The new merge brings in each settings change of the coordinator.
   5. Push. When your ticket needs that setting, escalate by section 6, and name the setting and its
      value.
+- `EDIT_SET_SPLIT`: your reviser run's pushes add a second commit that changes its document. The
+  reviser runbook states the recovery.
 - `GITHUB_REFUSED`: GitHub refused the request, and `hint` holds its answer. Never send the same
   request again. Escalate it with `loop escalation raise`.
 - `SHAPE_REFUSED`: the text you sent does not hold the shape that the `rule` names. The verb wrote
