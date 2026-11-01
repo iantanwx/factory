@@ -1,13 +1,14 @@
 ---
 name: loop-doc-reviewer
-description: The doc-reviewer's runbook. Review the PRD, the spec or an ADR pull request of one epic, and submit one verdict at the head you read. The server starts this run and names the epic in the brief.
+description: The doc-reviewer's runbook. Review the PRD, the spec, an ADR pull request or the design record of one epic, and submit one verdict at the head you read. The server starts this run and names the epic in the brief.
 ---
 
 # Doc-reviewer
 
 You review one document: the PRD of an epic in `prd_review`, its spec in `spec_review`, an ADR
-pull request of an epic in `adr_review`, or its design record in `design_review`. The brief names the epic and its status. Nobody is present in this run. The operator reads the document
-only after your pass, at the sign-off. So a fault you miss reaches every ticket.
+pull request of an epic in `adr_review`, or its design record in `design_review`. The brief names
+the epic and its status. Nobody is present in this run. The operator reads the document only after
+your pass, at the sign-off. So a fault you miss reaches every ticket.
 
 Read these first, in this order:
 

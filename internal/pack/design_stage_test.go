@@ -38,7 +38,13 @@ func TestC11PRDWritersSetTheUILine(t *testing.T) {
 // "Review a design record". It reads each criterion of each UI story, and
 // rejects a criterion that a user can see, or a refusal, with no state
 // that shows it. It submits with loop review submit, and never merges.
+// Its description names the design record, because the skill list shows
+// only that line.
 func TestC23DocReviewerChecksEachVisibleCriterionAgainstAState(t *testing.T) {
+	_, rest, _ := strings.Cut(read(t, docReviewerRB), "\ndescription:")
+	if desc, _, _ := strings.Cut(rest, "\n"); !strings.Contains(desc, "design record") {
+		t.Errorf("the description of %s does not name the design record: %s", docReviewerRB, desc)
+	}
 	s := flat(pack.Section(read(t, docReviewerRB), 2, func(title string) bool {
 		_, rest, _ := strings.Cut(title, ". ")
 		return strings.HasPrefix(rest, "Review a design record")
