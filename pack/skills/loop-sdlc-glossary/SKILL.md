@@ -18,7 +18,7 @@ word differently make two agents that act differently, and no gate compares them
   reads the inbox, brings each question to the operator, records each answer and opens rooms.
 - **A run**: one agent session that the server starts for one stage and one item.
 - **A room**: an agent session where the operator talks to an agent. Its kinds are brainstorm,
-  decision, review and architect. A room prepares a decision and applies it. A room never makes it.
+  decision, review, architect and design. A room prepares a decision and applies it. A room never makes it.
 - **The author**: in a review, the run or the person who wrote the work.
 - **A reader**: a subagent of the doc-reviewer that reads one document by one lens, from a clean
   context. A reader finds, and it never judges. It returns its findings and its questions to the
@@ -38,13 +38,17 @@ takes the retro phase.
    answers its findings. The operator signs it off.
 4. **ADR** (optional): an architect room writes the ADRs of an epic that needs them, and the
    doc-reviewer starts its readers and reviews each ADR pull request.
-5. **Plan**: the planner writes the spec.
-6. **Doc review**: the doc-reviewer starts its readers and reviews the spec, and the reviser
+5. **Design** (optional): a design room builds the prototype of an epic with a `UI: yes` story,
+   and writes its design record with the operator. The operator can skip the phase.
+6. **Doc review** (optional): the doc-reviewer starts its readers and reviews the design record.
+   The operator signs it off.
+7. **Plan**: the planner writes the spec.
+8. **Doc review**: the doc-reviewer starts its readers and reviews the spec, and the reviser
    answers a person's comment on it. The operator signs it off.
-7. **Decompose**: the decomposer cuts the approved spec into tickets.
-8. **Build**: the implementer builds each ticket, and the code-reviewer reviews it. In a project
+9. **Decompose**: the decomposer cuts the approved spec into tickets.
+10. **Build**: the implementer builds each ticket, and the code-reviewer reviews it. In a project
    that lists the `qa` stage, the QA run then drives the app of each reviewed ticket.
-9. **Retro**: the retro stage learns from the finished unit of work.
+11. **Retro**: the retro stage learns from the finished unit of work.
 
 ## Stages
 
@@ -56,7 +60,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | `code-reviewer` | Reviews the pull request of one ticket | ticket `in_review` |
 | `qa` | Drives the app of one reviewed ticket at its head as a user does, and reports one verdict with its evidence | ticket `in_qa` |
 | `unattended-brainstorm` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
-| `doc-reviewer` | Reviews one PRD, one spec or one ADR pull request | epic `prd_review`, `spec_review`, `adr_review` |
+| `doc-reviewer` | Reviews one PRD, one spec, one ADR or one design record pull request | epic `prd_review`, `spec_review`, `adr_review`, `design_review` |
 | `reviser` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
 | `planner` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
 | `decomposer` | Cuts one approved spec into tickets in one batch | epic `spec_approved` |
@@ -74,11 +78,13 @@ eligible pull request to the project's merge mechanism. No agent merges.
 - **Ticket**: `backlog`, `todo`, `in_progress`, `in_review`, `repair`, `in_qa`, `ready_to_merge`,
   `queued`, `escalated`, `done`, `canceled`.
 - **Epic**: `backlog`, `prd_needed`, `prd_drafting`, `prd_review`, `prd_amending`, `prd_signoff`,
-  `architecture`, `adr_review`, `spec_needed`, `spec_drafting`, `spec_review`, `spec_signoff`,
-  `spec_amending`, `spec_approved`, `decomposing`, `execution`, `escalated`, `done`. An epic in
+  `architecture`, `adr_review`, `design`, `design_review`, `design_signoff`, `spec_needed`,
+  `spec_drafting`, `spec_review`, `spec_signoff`, `spec_amending`, `spec_approved`, `decomposing`,
+  `execution`, `escalated`, `done`. An epic in
   `backlog` waits on a blocker. No stage claims it. An epic in `adr_review` waits in the ADR stage
   while the doc-reviewer reviews an open pull request that adds an ADR for it. The verdict returns
-  it to `architecture`.
+  it to `architecture`. An epic in `design` waits for its design room, and one in
+  `design_signoff` waits for the operator's sign-off of its design record.
 - **Bug**: `reported`, `reproducing`, `asked`, `awaiting_build`, `escalated`, `shaped`, `duplicate`,
   `canceled`. A bug in `awaiting_build` waits for the ticket or the epic that builds what it asks
   for. No stage claims it.
@@ -94,7 +100,7 @@ names a verb, and the transition table picks the state.
   brainstorm writes it from the operator's request. A brainstorm room writes it with the operator.
 - **Spec**: states how one epic is built. It is the last document a person reads before the
   decomposer cuts tickets.
-- **Sign-off**: the operator's approval of a PRD or a spec pull request at one head. The
+- **Sign-off**: the operator's approval of a PRD, a design record or a spec pull request at one head. The
   coordinator records it, and the server merges the document. No stage merges a document.
 - **Project policy**: the rules of one project for one role, in `.loop/policy/<role>.md` in the
   project's repository. The loop's runbooks name roles. The policy names the project's tools.

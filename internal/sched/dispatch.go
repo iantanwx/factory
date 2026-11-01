@@ -531,9 +531,10 @@ func (s *Scheduler) abandon(ctx context.Context, r runRow, refused bool, cause e
 	s.afterSettle(ctx, r, "release", CheckoutSettled)
 }
 
-// afterSettle frees what a settled run held: the lease with verb, .env,
-// the token. The checkout takes state.
+// afterSettle frees what a settled run held: a simplify run's held
+// commit, the lease with verb, .env, the token. The checkout takes state.
 func (s *Scheduler) afterSettle(ctx context.Context, r runRow, verb, state string) bool {
+	s.dropHeld(ctx, r)
 	released := false
 	if r.Item != "" {
 		var err error

@@ -51,7 +51,7 @@ func parseEntry(id string) (kind, project, item string, row int64, ok bool) {
 	parts := strings.Split(id, "/")
 	switch {
 	case len(parts) == 3 && (parts[0] == KindEscalation || parts[0] == KindHold || parts[0] == KindSignoff || parts[0] == KindAsk ||
-		parts[0] == KindArchitecture || parts[0] == KindPause):
+		parts[0] == KindArchitecture || parts[0] == KindDesign || parts[0] == KindPause):
 		return parts[0], parts[1], parts[2], 0, parts[1] != "" && parts[2] != ""
 	case len(parts) == 2 && (parts[0] == KindQuestion || parts[0] == KindAlert || parts[0] == KindPanel || parts[0] == KindNotice ||
 		parts[0] == KindLearning):
@@ -79,6 +79,8 @@ var itemSources = []itemSource{
 	// An epic here makes an entry only with no open child, and, read in
 	// the store, no open room on it.
 	{KindArchitecture, machine.ListFilter{Kind: machine.KindEpic, Status: machine.Architecture}},
+	// An epic here makes an entry only with no open room on it.
+	{KindDesign, machine.ListFilter{Kind: machine.KindEpic, Status: machine.Design}},
 }
 
 // sourced is one item an entry kind read, with its link.
@@ -149,7 +151,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			return err
 		}
 		for _, it := range items {
-			if it.kind == KindArchitecture {
+			if it.kind == KindArchitecture || it.kind == KindDesign {
 				roomed, err := openRoom(ctx, tx, it.item)
 				if err != nil {
 					return err
@@ -307,6 +309,10 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 	case KindArchitecture:
 		e.Awaits, e.Next = AwaitsCoordinator, archActs(it)
 		text = append(text, "The epic is in architecture, and no open ticket under it writes its ADR, and no room serves it.")
+	case KindDesign:
+		e.Awaits, e.Next = AwaitsCoordinator, designAct(it.Project, it.ID)
+		text = append(text, "The epic is in design, and no room serves it. Ask the operator whether to open its design room, "+
+			"or to skip the design stage with loop epic skip-design.")
 	}
 	if n := it.Fact(machine.FactNote); n != "" && kind != KindSignoff {
 		text = append(text, "The item's last note:", AgentText(it.Fact(machine.FactOwner), n))
@@ -326,6 +332,12 @@ func archActs(epic machine.Item) string {
 	}
 	return fmt.Sprintf("loop work create --project %s --epic %s%s --request <the operator's words> --title <the ADR ticket>, "+
 		"or loop room open --kind architect --project %s --item %s --reason <why> --score <level>", epic.Project, epic.ID, story, epic.Project, epic.ID)
+}
+
+// designAct names the act that ends a design entry: a design room opened
+// on the epic.
+func designAct(project, epic string) string {
+	return fmt.Sprintf("loop room open --kind design --item %s --project %s --reason <why> --score <level>", epic, project)
 }
 
 // askCount is the number of the ask an asked report holds.
