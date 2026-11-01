@@ -68,7 +68,9 @@ so that the findings reach the final document and only one run edits it.
 
 The epic body states that on a reject the reviser applies one edit set in one commit, and that only
 the reviser edits. The body calls the reviser "the amender" today. The glossary already names the
-stage `reviser` (`pack/skills/loop-sdlc-glossary/SKILL.md` § Stages).
+stage `reviser` (`pack/skills/loop-sdlc-glossary/SKILL.md` § Stages). The reviser starts on the
+first PRD reject only. A second reject sends the epic to the operator, and no reviser edit follows
+it (`pack/runbooks/reviser.md`). The epic body asks for no change to that.
 
 ### US-06 The subloop runs on PRDs, specs and ADRs
 
@@ -139,7 +141,7 @@ edits that the review asks for then land in the document in one commit by one ru
 - A later round judges the named findings and the diff since the last reviewed head. A reader's
   finding outside the diff stays out of that round's verdict.
   → pack/skills/loop-sdlc-review/SKILL.md § 4. Report every fault in one round
-- On a reject, the reviser applies the review's edit set to the document in one commit.
+- On the first PRD reject, the reviser applies the review's edit set to the PRD in one commit.
   → § US-05
 - Only the reviser edits the document. The reviewer and the readers edit nothing.
   → § US-05
@@ -158,17 +160,18 @@ edits that the review asks for then land in the document in one commit by one ru
 - **A6.** No reader writes a file in the checkout.
 - **A7.** No reader submits a verdict or raises an escalation.
 - **A8.** Each doc review records one verdict at the head the reviewer read.
-- **A9.** A reader's finding that the reviewer does not judge as a fault never appears in the
-  verdict as a reason to reject.
+- **A9.** A doc review of a fixture PRD with no fault, with stub readers that each return one
+  false finding, records a pass. A reject on that fixture makes this false.
 - **A10.** The pin of `asd-ste100` names upstream commit 255631a.
 - **A11.** The content-lens skill names the upstream and the commit of the ce-doc-review personas
   and of pstack `design-red-flags.md`.
-- **A12.** After a reject, the reviser lands the review's edit set in one commit on the document's
-  pull request. A second commit of that run on the branch makes this false.
+- **A12.** After the first PRD reject, one commit of the reviser run changes the PRD on its pull
+  request. A second commit of that run that changes the PRD makes this false. A merge of the base
+  is no such commit.
 - **A13.** No commit from the doc-reviewer run or from a reader lands on the document's pull
   request.
-- **A14.** `loop-sdlc-review` no longer forbids a subagent that finds, and it still forbids a
-  verdict from anyone but the reviewer.
+- **A14.** `loop-sdlc-review` no longer forbids a subagent that finds.
+- **A15.** `loop-sdlc-review` still forbids a verdict from anyone but the reviewer.
 
 ## Boundaries with other epics
 
@@ -220,13 +223,10 @@ edits that the review asks for then land in the document in one commit by one ru
   and an ADR review is advisory and returns the epic to `architecture`
   (`pack/runbooks/doc-reviewer.md` § 3 and § 4). The epic body says that on a reject the reviser
   applies the edit set. Does a spec reject and an ADR reject go to the reviser too? That change
-  reaches the server's transition table as well as the runbooks, which is a second seam by
-  `loop-sdlc-split`. Blocks: A2, A3, A12.
+  reaches the server's transition table as well as the runbooks. Blocks: A2, A3.
 - The reviser today answers each finding once. It agrees and changes the document, or it disagrees
   and changes nothing (`pack/runbooks/reviser.md` § 2). Does "one edit set in one commit" keep the
   reviser's right to disagree with a finding of the edit set? Blocks: A12.
-- A second PRD reject escalates the epic to the operator. Does the reviser apply the second
-  round's edit set before that escalation, or does no edit follow a second reject? Blocks: A12.
 - ce-doc-review holds eight personas. Does the content-lens reader take all eight, or the two that
   ce-doc-review always starts, coherence and feasibility, with the rest by a signal? Blocks: A11.
 - A reader adds one model run each, so a review costs three more runs. Does every project get the
