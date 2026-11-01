@@ -74,7 +74,7 @@ func sameEdges(t *testing.T, kind Kind, want []edge) {
 	}
 }
 
-var ticketLive = []string{Backlog, Todo, InProgress, InReview, Repair, ReadyToMerge, Queued, Escalated}
+var ticketLive = []string{Backlog, Todo, InProgress, InReview, Repair, InQA, ReadyToMerge, Queued, Escalated}
 
 // The ticket diagram of the plan, edge by edge, then the edges its text
 // adds, then the edges this unit adds with the reason for each.
@@ -128,6 +128,14 @@ func ticketEdges() []edge {
 	// one, and work unblock --by keeps backlog while an open blocker
 	// remains (spec factorio-9wh Decisions 5 and 23).
 	e = append(e, edge{Todo, "block", Backlog}, edge{Backlog, "block", Backlog}, edge{Backlog, "unblock", Backlog})
+	// Added: the QA stage takes a ticket between its review pass and the
+	// merge (ADR 0014 decisions 1 and 2). It holds the lease on in_qa as
+	// the code reviewer does on in_review, and the server moves a ticket in
+	// or out of in_qa when the stage setting changes.
+	e = append(e, edge{InReview, "review_pass", InQA},
+		edge{InQA, "claim", InQA}, edge{InQA, "release", InQA}, edge{InQA, "reclaim", InQA},
+		edge{InQA, "qa_pass", ReadyToMerge}, edge{InQA, "qa_fail", Todo}, edge{InQA, "qa_off", ReadyToMerge},
+		edge{ReadyToMerge, "qa_due", InQA}, edge{Queued, "qa_due", InQA}, edge{InQA, "pr_closed", Escalated})
 	return e
 }
 
@@ -293,6 +301,9 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.When == "open_blocker" {
 		params["open"] = "true"
+	}
+	if r.When == "qa_on" {
+		params["qa"] = "on"
 	}
 	if r.Verb == VerbUnblock && r.To != Todo {
 		facts[FactEpicEntry] = r.To // the epic's blocked create recorded it
