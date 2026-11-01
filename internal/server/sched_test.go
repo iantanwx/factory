@@ -31,10 +31,21 @@ import (
 	"github.com/iantanwx/loop/internal/userspace"
 )
 
+// gitTConfig is the global git config of gitT. A local push drops -c flags
+// before receive-pack runs, so only a config file turns auto maintenance off
+// in the bare origin. The path is resolved before any test calls t.Chdir.
+var gitTConfig = func() string {
+	p, err := filepath.Abs(filepath.Join("testdata", "gitconfig"))
+	if err != nil {
+		panic(err)
+	}
+	return p
+}()
+
 func gitT(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+gitTConfig, "GIT_CONFIG_NOSYSTEM=1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
