@@ -35,6 +35,7 @@ type GitHub interface {
 	RequiredChecks(ctx context.Context, p config.Project) ([]string, error)
 	Checks(ctx context.Context, p config.Project, head string) (github.CIReport, error)
 	PostStatus(ctx context.Context, p config.Project, sha, context, state, description string) error
+	PostCheckRun(ctx context.Context, p config.Project, c github.CheckRunPayload) error
 	ClosePR(ctx context.Context, p config.Project, number int) error
 }
 
@@ -152,8 +153,9 @@ func (s *Service) propose(ctx context.Context, p config.Project, c *landing) err
 }
 
 // await hands an open change to m once every required check is green at
-// the head the server wrote, and loop/eligible is posted on that head
-// first. A pull request that a person merged makes the change merged.
+// the head the server wrote, and a neutral loop/qa, then loop/eligible,
+// is posted on that head first: no QA run reads a settings change. A pull
+// request that a person merged makes the change merged.
 func (s *Service) await(ctx context.Context, p config.Project, m merge.Mechanism, c *landing) error {
 	pr, err := s.GitHub.GetPR(ctx, p, c.PR)
 	if err != nil {
@@ -181,6 +183,11 @@ func (s *Service) await(ctx context.Context, p config.Project, m merge.Mechanism
 		return s.fail(ctx, p, c, true, "it did not reach the mechanism before settings.LiveLimit; waiting for "+strings.Join(v.Waiting, ", "))
 	case v.State != github.CIGreen || pr.MergeableState == merge.MergeableUnknown:
 		return nil
+	}
+	if err := s.GitHub.PostCheckRun(ctx, p, github.CheckRunPayload{Project: p.ID, SHA: c.Head, Name: github.QAContext,
+		Conclusion: "neutral", Title: "No QA run reads a settings change",
+		Summary: "The server wrote this head to change one setting, so no QA run reads it."}); err != nil {
+		return fmt.Errorf("settings: post %s on change %d: %w", github.QAContext, c.ID, err)
 	}
 	if err := s.GitHub.PostStatus(ctx, p, c.Head, github.EligibleContext, "success",
 		"every required check passed at the head the server wrote"); err != nil {

@@ -341,7 +341,7 @@ func installSkills(ctx context.Context, clone string, p brief.Pack) ([]string, e
 }
 
 // ciChecks names the checks that ran on the head of the default branch:
-// check runs and commit statuses, except loop/eligible.
+// check runs and commit statuses, except loop/eligible and loop/qa.
 func (h *hostVerbs) ciChecks(ctx context.Context, rep RegisterReport) ([]string, error) {
 	ref := "repos/" + rep.Repo + "/commits/" + rep.Branch
 	var runs struct {
@@ -367,14 +367,14 @@ func (h *hostVerbs) ciChecks(ctx context.Context, rep RegisterReport) ([]string,
 	for _, s := range status.Statuses {
 		out = append(out, s.Context)
 	}
-	out = slices.DeleteFunc(out, func(n string) bool { return n == "" || n == github.EligibleContext })
+	out = slices.DeleteFunc(out, func(n string) bool { return n == "" || n == github.EligibleContext || n == github.QAContext })
 	slices.Sort(out)
 	return slices.Compact(out), nil
 }
 
 // ensureRuleset creates or updates the loop ruleset on the default
 // branch: a pull request with no approvals, the CI checks, and
-// loop/eligible from the loop App. Repository admins bypass it, so the
+// loop/qa and loop/eligible from the loop App. Repository admins bypass it, so the
 // operator signs off a PRD or spec by merging it. A plan with no rulesets
 // answers "unavailable", and the loop checks CI itself before a direct
 // merge.
@@ -383,7 +383,8 @@ func (h *hostVerbs) ensureRuleset(ctx context.Context, rep RegisterReport, appID
 	for _, c := range rep.CI {
 		checks = append(checks, map[string]any{"context": c})
 	}
-	checks = append(checks, map[string]any{"context": github.EligibleContext, "integration_id": appID})
+	checks = append(checks, map[string]any{"context": github.QAContext, "integration_id": appID},
+		map[string]any{"context": github.EligibleContext, "integration_id": appID})
 	body, err := json.Marshal(map[string]any{
 		"name": RulesetName, "target": "branch", "enforcement": "active",
 		"conditions": map[string]any{"ref_name": map[string]any{"include": []string{"~DEFAULT_BRANCH"}, "exclude": []string{}}},

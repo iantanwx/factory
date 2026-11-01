@@ -267,6 +267,8 @@ func TestEligibleSurvivesACrashAndAFailedPost(t *testing.T) {
 	e.restart()
 	w.FailNext("POST /repos/"+testRepo+"/statuses/"+shaA, 502)
 	r := NewReactor(e.svc)
+	// The first pass posts loop/qa, and the second tries loop/eligible.
+	_ = r.Reconcile(context.Background())
 	_ = r.Reconcile(context.Background())
 	if len(w.Posted()) != 0 {
 		t.Fatal("the failed post was recorded")

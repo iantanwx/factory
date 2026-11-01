@@ -62,7 +62,7 @@ func (s *Service) CheckRequiredJobs(ctx context.Context, p config.Project) (Chec
 			return line, fmt.Errorf("github: read the required checks of %s: %w", base, err)
 		}
 		for _, c := range params.Checks {
-			if c.Context != "" && c.Context != EligibleContext && (c.IntegrationID == nil || *c.IntegrationID == actionsAppID) {
+			if c.Context != "" && !loopContext(c.Context) && (c.IntegrationID == nil || *c.IntegrationID == actionsAppID) {
 				required = append(required, c.Context)
 			}
 		}

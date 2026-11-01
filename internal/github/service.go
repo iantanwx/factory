@@ -438,7 +438,7 @@ func (s *Service) AddHook(ctx context.Context, p config.Project) error {
 	if err != nil {
 		return err
 	}
-	return failing(slices.DeleteFunc(lines, func(l CheckLine) bool { return l.Check == "ci_required" }))
+	return failing(slices.DeleteFunc(lines, func(l CheckLine) bool { return l.Check == "ci_required" || l.Check == "qa_required" }))
 }
 
 // empty reports whether the repository has no commit: GitHub answers 409

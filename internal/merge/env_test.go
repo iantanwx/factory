@@ -3,6 +3,7 @@ package merge_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -158,15 +159,17 @@ func (e *env) passed(head string, params map[string]string) (string, *gt.PR) {
 	return id, pr
 }
 
-// postEligibility runs the reactor's eligibility step: it posts
-// loop/eligible on every reviewed head.
+// postEligibility runs the reactor's eligibility step of two ticks: it
+// posts loop/qa, then loop/eligible, on every reviewed head.
 func (e *env) postEligibility() {
 	e.t.Helper()
-	if _, err := e.svc.EnqueueEligibility(e.ctx, e.project); err != nil {
-		e.t.Fatal(err)
-	}
-	if err := e.svc.RunStatusEffects(e.ctx); err != nil {
-		e.t.Fatal(err)
+	for range 2 {
+		if _, err := e.svc.EnqueueEligibility(e.ctx, e.project); err != nil {
+			e.t.Fatal(err)
+		}
+		if err := errors.Join(e.svc.RunCheckRunEffects(e.ctx), e.svc.RunStatusEffects(e.ctx)); err != nil {
+			e.t.Fatal(err)
+		}
 	}
 }
 
