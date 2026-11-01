@@ -483,7 +483,7 @@ const tickertownCommit = "64e293f9ae2db7831d12462e76ffe1aa3deacd8c"
 // the runbooks that list it are its row of the spec's reader table.
 func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 	want := []string{
-		"loop-boundaries", "loop-brainstorm", "loop-bro", "loop-commit", "loop-domain-modeling",
+		"loop-boundaries", "loop-brainstorm", "loop-bro", "loop-commit", "loop-content-lens", "loop-domain-modeling",
 		"loop-encode-lessons", "loop-fault", "loop-init", "loop-least-code", "loop-reader-load", "loop-reflect", "loop-retro-rubric",
 		"loop-sdlc-documents", "loop-sdlc-glossary", "loop-sdlc-review", "loop-sdlc-split", "loop-sdlc-triage",
 		"loop-sdlc-turn", "loop-test-behavior-not-implementation", "loop-unslop", "loop-verifiable-units",
