@@ -110,7 +110,7 @@ func holdsCondition(cfg *config.ProjectConfig, key string, s Scope) bool {
 	}
 	for _, g := range d.Paths {
 		for _, e := range s.May {
-			if meets(g, e) {
+			if Meets(g, e) {
 				return true
 			}
 		}
@@ -118,11 +118,11 @@ func holdsCondition(cfg *config.ProjectConfig, key string, s Scope) bool {
 	return false
 }
 
-// meets reports whether the glob g meets one "May change" entry. A literal
+// Meets reports whether the glob g meets one "May change" entry. A literal
 // path matches by g. A glob or a directory entry meets g when g reaches
 // its literal directory: the entry cut at the last / before its first
 // glob character.
-func meets(g config.Glob, entry string) bool {
+func Meets(g config.Glob, entry string) bool {
 	entry = strings.TrimPrefix(entry, "./")
 	i := strings.IndexAny(entry, "*?[")
 	if i < 0 && !strings.HasSuffix(entry, "/") {
