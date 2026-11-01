@@ -17,6 +17,7 @@ Read these first, in this order:
 4. `../loop-sdlc-split/SKILL.md`, before you name a seam.
 5. `../loop-sdlc-triage/SKILL.md`, before you escalate anything.
 6. `../loop-sdlc-documents/SKILL.md`, the template of each document and the gates that check it.
+7. `../loop-doc-readers/SKILL.md`, when the brief's `Readers` line names readers.
 
 ## 1. Before you review
 
@@ -24,15 +25,21 @@ Read these first, in this order:
 2. Bring that head into the checkout. The turn skill states how.
 3. Run `loop review rounds <item>`. When a round already holds a verdict at this head, do not review
    again. Finish the run.
-4. Read the document at the head, the sources it cites, and `loop pr threads`.
+4. Go to section 2, 3 or 4 for the kind of the document. Each one starts the readers before you
+   read the document.
 
-`../loop-content-lens/SKILL.md` holds the lenses of the content-lens reader. You do not apply them
-yourself.
+The readers are three subagents of type `loop-doc-reader`. Each reads by the skill of one lens:
+`../loop-unslop/SKILL.md`, `../loop-asd-ste100/SKILL.md` and `../loop-content-lens/SKILL.md`,
+which holds the lenses of the content-lens reader. You do not apply them yourself. You judge what
+the readers return.
 
 When a fact you need is missing, never guess it. Run `loop work note <item> --body "<note>"`, name
 the fact, and finish `blocked`. The server holds the item and raises an alert.
 
 ## 2. Review a PRD
+
+Start the readers first, by `../loop-doc-readers/SKILL.md` § 2, when the brief names readers. Then
+read the document at the head, the sources it cites, and `loop pr threads`.
 
 Check in this order. The first check finds the worst fault.
 
@@ -74,6 +81,9 @@ So write a reject that the reviser can act on from the comment alone.
 
 ## 3. Review a spec
 
+Start the readers first, by `../loop-doc-readers/SKILL.md` § 2, when the brief names readers. Then
+read the document at the head, the sources it cites, and `loop pr threads`.
+
 Check in this order:
 
 1. A PRD requirement or criterion that no contract covers. This is the worst fault, because no
@@ -103,6 +113,9 @@ An epic in `adr_review` waits in the ADR stage. An open pull request adds an ADR
 `**Ticket:**` line names the epic. `loop pr show` shows that pull request, on whatever branch it
 lives. A ticket or the operator wrote it.
 
+Start the readers first, by `../loop-doc-readers/SKILL.md` § 2, when the brief names readers. Then
+read the document at the head, the sources it cites, and `loop pr threads`.
+
 Check in this order:
 
 1. Check each of the four lines of `## Why an ADR` against the test of
@@ -128,12 +141,20 @@ review. Never merge the ADR.
 
 ## 5. Submit the verdict
 
-1. Write the whole review as one comment, by `../loop-sdlc-review/SKILL.md`.
-2. Run `loop pr show` again. When the head moved, submit nothing. Start again at section 1 with
+1. When the readers ran, judge their reports by `../loop-doc-readers/SKILL.md` § 3 to § 5. A
+   reader that fails twice stops the review. Submit nothing. Report a loop fault with
+   `loop fault report`, and finish `blocked`.
+2. Write the whole review as one comment, by `../loop-sdlc-review/SKILL.md`. It holds each
+   reader finding that you did not drop.
+3. When the readers ran, run `git status --porcelain`. When the tree is not clean, a reader wrote
+   a file. Submit nothing. Report a loop fault with `loop fault report`, and finish `blocked`.
+4. Run `loop pr show` again. When the head moved, submit nothing. Start again at section 1 with
    the new head.
-3. Run `loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`. The
-   server posts the comment on the pull request and records it with the verdict.
-4. Finish with `loop run finish --outcome done`.
+5. Run `loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`. When the
+   readers ran, add `--readers unslop,asd-ste100,content-lens`, the readers that returned in start
+   order. With the readers off, add no `--readers`. The server posts the comment on the pull
+   request and records it with the verdict.
+6. Finish with `loop run finish --outcome done`.
 
 ## 6. When a person must decide
 
