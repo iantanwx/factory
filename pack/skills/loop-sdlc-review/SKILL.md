@@ -87,9 +87,9 @@ redesign.
 Never reject on style that no linter flagged. The linter holds the style rules. A style rule that
 matters belongs in the project's standards and in its linter.
 
-One exception holds. In a doc review, a reader's prose finding that you checked against the text
-may reject alone. A reader is a subagent of the doc-reviewer, and no linter reads a document's
-prose. A code review has no such exception.
+One exception holds. In a doc review, a reader's prose finding may reject alone when you check it
+against the text and it holds. A reader is a subagent of the doc-reviewer, and no linter reads a
+document's prose. A code review has no such exception.
 
 ## 7. Reject what the author can repair, and score the rest
 

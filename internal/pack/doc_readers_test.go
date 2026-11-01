@@ -46,7 +46,7 @@ func TestReviewSkillLetsAConfirmedProseFindingRejectADocument(t *testing.T) {
 	judge := reviewSection(t, "6. Judge the work")
 	holdsAll(t, "§ 6 of loop-sdlc-review", judge, []string{
 		"Never reject on style that no linter flagged.",
-		"In a doc review, a reader's prose finding that you checked against the text may reject alone.",
+		"In a doc review, a reader's prose finding may reject alone when you check it against the text and it holds.",
 		"A code review has no such exception.",
 	})
 }
