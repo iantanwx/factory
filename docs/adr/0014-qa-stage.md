@@ -40,15 +40,29 @@ This run read the loop at the base `c42f690` on 2026-11-01. It measured each fac
   reject, sets the entry `rework` and clears `reviewed_head` (`internal/machine/ticket.go:45-54`).
 - The merge hand-off takes a `ready_to_merge` ticket when its pull request's head holds the
   `loop/eligible` status (`internal/merge/handoff.go:61-65`). The server posts `loop/eligible` as
-  the loop App on the reviewed head only (`internal/github/status.go:46-56`).
+  the loop App on three kinds of head. It posts on the reviewed head of each `ready_to_merge` and
+  `queued` ticket, "on the reviewed sha only" (`internal/github/status.go:49-83`, line 58). It
+  posts on the head of a settings change (`internal/settings/land.go:154-188`). It posts on a
+  merge-group commit of the github-queue mechanism (`internal/merge/ghqueue/group.go:34-90`).
+- `base_merged` moves a queued ticket's reviewed head to the server's merge of a moved base, with
+  no new review (F-66, `internal/machine/ticket.go:206-210`, `internal/merge/handoff.go:322-333`).
+  `loop/eligible` follows that new reviewed head.
+- `loop/eligible` never counts as CI. `RequiredChecks` takes every required context of the ruleset
+  but `loop/eligible` (`internal/github/merge_api.go:209-216`). A review pass waits until each of
+  those checks is green at the head, or gets `CI_NOT_GREEN` (`internal/github/verbs.go:470-506`).
+  `Classify` skips a status named `loop/eligible` (`internal/github/reads.go:153-156`).
+  `loop register` drops it from the CI checks it finds (`cmd/loop/register.go:370`). `loop doctor`
+  counts any other required context as the CI check (`internal/github/rules.go:113-114`).
 - The default-branch ruleset requires the CI check and `loop/eligible`, with the loop App as its
-  source (`docs/operating.md:433-436`).
+  source (`docs/operating.md:433-436`). The operator is on its bypass list, so the sign-off merge
+  of a PRD or a spec needs no `loop/eligible` (`docs/operating.md:439-440`).
 - The loop App holds checks at read only. Its write scopes are push, pulls, statuses, actions and
   merge (`internal/github/token.go:24-39`, `docs/operating.md:80-83`). No scope can create a check
-  run.
+  run. A commit status holds a state, a description of at most 140 characters and one link.
 - `loop work create --kind bug` refuses any caller but the coordinator with `CAPABILITY_DENIED`
   and the reason `coordinator_only` (`internal/pipeline/adhoc.go:52-62`).
-- The run stages are the ten names in `internal/config/throughput.go:31-50`. None is a QA stage.
+- The run stages are the eleven names of `runStages` in `internal/config/throughput.go:46-51`,
+  with their constants at lines 30-44. None is a QA stage.
   Each stage's cap lives in the `stages` section of `.loop/config.yaml`.
 - The simplify spec, `docs/plans/factorio-1r94-simplify-stage-spec.md`, sets a `simplify_due` fact
   on `review_reject`. The next implementer hand-off then enters `in_simplify`, not `in_review`
@@ -59,11 +73,14 @@ required check. GitHub's documentation states this, and this run did not test it
 
 ## Decision
 
-**This ADR supersedes ADR 0002 gap G2 where it rejects QA fields, and ADR 0005 decision 9 where
-it rejects a bug source and says that only the coordinator files a bug. Where they differ from
-this ADR on those parts, this ADR wins.** The rest of both ADRs stands. ADR 0005 still rejects
-`--needs` and screenshot attachments. This ADR puts the stage cap and an evidence file in their
-place.
+**This ADR supersedes ADR 0002 gap G2 where its words "the QA states" would reject the loop's own
+QA fields, and ADR 0005 decision 9 where it rejects a bug source and says that only the coordinator
+files a bug. Where they differ from this ADR on those parts, this ADR wins.** The loop's QA fields
+are the ticket state `in_qa`, the settings `stages.qa.enabled` and `stages.qa.cap`, the check run
+`loop/qa` and the bug source `qa`. Each one is a field of the loop, and none names a product path.
+G2 still rejects each QA, design, frame or art rule on a ticket body, and no decision here adds
+one. The rest of both ADRs stands. ADR 0005 still rejects `--needs` and screenshot attachments.
+This ADR puts the stage cap and an evidence file in their place.
 
 1. **A QA stage, `qa`, takes each ticket after its code review passes and before it merges.** The
    ticket table gains the state `in_qa`. `review_pass` moves a ticket to `in_qa` when the project's
@@ -94,25 +111,51 @@ place.
    skips code review, so a QA fix would merge with no review of its code. I rejected a fail that
    returns to `in_review` and skips the implementer, because nobody writes the fix there.
 
-3. **The QA report is a check run named `loop/qa`, which the server posts as the loop App on the
-   head that the QA run read.** Its conclusion is `success` on a pass, `failure` on a fail, and
-   `neutral` when the project has no `verify-<app>` skill. When the stage is off, the server posts
-   `loop/qa` with `neutral` on the reviewed head at the review pass, so the required check passes
-   with no QA run. Its text names each check that ran, fuzzy UAT and visual QA when it ran, with
-   pass or fail for each. It links each
-   evidence file it cites. A screenshot is one such file, never an attachment in beads, and no
-   body, fact or note holds image data. The ruleset that `loop register` makes requires `loop/qa`
-   with the loop App as its source, next to `loop/eligible`. The App gains checks at write. A QA
+3. **The QA report is a check run named `loop/qa`, which the server posts as the loop App. Like
+   `loop/eligible`, `loop/qa` is a loop context, and it never counts as CI.** On the head that a
+   QA run read, its conclusion is `success` on a pass, `failure` on a fail, and `neutral` when the
+   project has no `verify-<app>` skill. Its text names each check that ran, fuzzy UAT and visual QA
+   when it ran, with pass or fail for each. It links each evidence file it cites. A screenshot is
+   one such file, never an attachment in beads, and no body, fact or note holds image data. A QA
    run never writes to GitHub itself. It hands its report to the server with a loop verb, and the
    server posts it.
 
-   I rejected a section in the pull request body, because the operator chose a check run, and a
-   section cannot block a merge. I rejected a commit status for the report, because a status holds
-   one line of 140 characters and cannot list the checks or link the evidence. I rejected the
-   report folded into `loop/eligible`, because a person who reads the pull request could then not
-   tell a QA fail from a review that has not passed. I rejected a check run that the QA run posts
-   with a token of its own, because a run holds no GitHub token, and the server is the one writer
-   of GitHub.
+   The server posts `loop/qa` on each head that it posts `loop/eligible` on, and it posts
+   `loop/eligible` only on a head that already holds `loop/qa`. So the direct mechanism and the
+   Mergify queue condition, which read `loop/eligible`, need no second read. On each head that no
+   QA run read, the conclusion is `neutral`, and the text names the reason:
+
+   - The reviewed head of a ticket in a project with the stage off. The text says that the stage
+     is off.
+   - A queued ticket's head after `base_merged`, the server's merge of a moved base (F-66). The
+     merge commit carries the QA pass as it carries the review pass. The text links the QA report
+     on the reviewed head that the merge built on.
+   - The head of a settings change. It changes `.loop/config.yaml` only, and no QA run reads it.
+   - A merge-group commit of the github-queue mechanism. The sweep posts it on each group commit
+     that gets `loop/eligible`. Each PR of the group is eligible at its queued head only after its
+     QA pass.
+
+   `RequiredChecks` and the CI discovery of `loop register` leave `loop/qa` out, as they leave
+   `loop/eligible` out, so a review pass never waits on it. `Classify` skips a check run named
+   `loop/qa`, so a QA fail never reads as a red build. The ruleset that `loop register` makes
+   requires `loop/qa` with the loop App as its source, next to `loop/eligible`, and `loop doctor`
+   checks both. The operator's bypass covers a document's sign-off merge for both contexts. The App
+   gains checks at write, because only a GitHub App with that permission can create a check run.
+
+   I rejected a `loop/qa` that counts as CI, because a review pass would then wait on a check that
+   only the pass can start. I rejected a return to `in_qa` on `base_merged`. Each moved base would
+   then cost a QA run and hold the ticket out of the queue. F-66 lets the merge commit carry the
+   review pass, because the merge has no conflict and no shared file, and the QA pass takes the
+   same risk under the same guard. I rejected heads with no `loop/qa` from the server's own
+   merges, because each settings change, merge group and moved base would then wait on a required
+   check that never posts. I rejected a section in the pull request body, because the operator
+   chose a check run, and a section cannot block a merge. I rejected a commit status for the
+   report. A status holds one line of 140 characters and one link. A check run holds a result for
+   each check and a link for each evidence file, and the operator chose it. I rejected the report
+   folded into `loop/eligible`, because a person who reads the pull request could then not tell a
+   QA fail from a review that has not passed. I rejected a check run that the QA run posts with a
+   token of its own, because a run holds no GitHub token, and the server is the one writer of
+   GitHub.
 
 4. **The QA stage files a bug with `loop work create --kind bug --source qa`, as a second filer
    next to the coordinator.** A bug that the coordinator files carries the source `operator`. A
@@ -155,11 +198,21 @@ Files and commands that change, for the spec of epic factorio-nhb5:
   from `in_qa`. Release and reclaim rows for `in_qa`.
 - `internal/config/throughput.go`: the run stage `qa`, with its cap and `enabled`, in the optional
   keys so an older host config still loads.
+- `internal/github/merge_api.go`: `RequiredChecks` leaves out `loop/qa`.
+- `internal/github/reads.go`: `Classify` skips a check run or a status named `loop/qa`.
+- `internal/github/status.go`: `EnqueueEligibility` posts `loop/qa` with `neutral` on a reviewed
+  head with the stage off and on a head after `base_merged`. It posts `loop/eligible` only on a head
+  that already holds `loop/qa`.
+- `internal/settings/land.go`: `await` posts `loop/qa` with `neutral` before `loop/eligible`.
+- `internal/merge/ghqueue/group.go`: the sweep posts `loop/qa` with `neutral` on a group commit
+  before `loop/eligible`.
+- `internal/github/rules.go`: `loop doctor` checks that the ruleset requires `loop/qa` from the
+  loop App, and its CI line counts neither loop context.
 - `internal/github/token.go`: a checks write scope. `loop install` asks for it in the App
   manifest, and `loop doctor` allows it. A host whose App lacks it fails `loop doctor`, and the
   operator accepts the new permission on GitHub.
-- `cmd/loop/register.go`: the ruleset requires `loop/qa`. `docs/operating.md` names it in the
-  ruleset steps.
+- `cmd/loop/register.go`: the ruleset requires `loop/qa`, and the CI discovery drops it.
+  `docs/operating.md` names it in the ruleset steps.
 - `internal/pipeline/adhoc.go`: `work create --kind bug` takes `--source`, and admits a QA run.
 - `internal/overwatch`: a part that reports each project with the QA stage on and no
   `verify-<app>` skill.
@@ -181,7 +234,11 @@ What this makes hard:
 
 A later reader must not:
 
-- Merge a ticket at a head that no QA run read while the project's QA stage is on.
+- Merge a ticket at a head that no QA run read while the project's QA stage is on. The one
+  exception is the server's merge of a moved base into a queued ticket's reviewed head (F-66). It
+  carries the QA pass as it carries the review pass.
+- Count `loop/qa` as CI, or make a review pass wait on it.
+- Post `loop/eligible` on a head that holds no `loop/qa`.
 - Return a QA fail to `repair`, or past code review.
 - Add a `needs` lock, or any other lock, on the browser.
 - Store a screenshot or other image data in beads.
@@ -190,10 +247,11 @@ A later reader must not:
   operator reports.
 - Edit ADR 0002 or ADR 0005.
 
-ADR 0002 and ADR 0005 keep their text. ADR 0002 gap G2 still rejects tickertown's QA states and
-design rules on ticket bodies, because the loop's QA fields name no product path. ADR 0005
-decision 9 still rejects `--from`, `--needs`, screenshot attachments and a duplicate check at
-filing. Decision 10 still rejects a production-bug marker, and priority 1 still covers that case.
+ADR 0002 and ADR 0005 keep their text. ADR 0002 gap G2 still rejects tickertown's QA, design,
+frame and art rules on ticket bodies, because each names tickertown's product paths. No decision
+here adds a rule on a ticket body. ADR 0005 decision 9 still rejects `--from`, `--needs`,
+screenshot attachments and a duplicate check at filing. Decision 10 still rejects a production-bug
+marker, and priority 1 still covers that case.
 
 ## Acceptance criteria
 
@@ -211,6 +269,13 @@ Epic factorio-nhb5 owns these checks, through its spec and tickets:
 - A test proves that `review_pass` moves a ticket to `in_qa` in a project with the QA stage on,
   and to `ready_to_merge` in a project with it off.
 - A test proves that the merge hand-off takes no ticket in `in_qa`.
+- A test proves that a review pass at a head with green CI and no `loop/qa` is not refused, in a
+  project whose ruleset requires `loop/qa`.
+- A test proves that a `loop/qa` check run with the conclusion `failure` does not make `Classify`
+  read the head as red.
+- A test proves that the server posts `loop/qa` with `neutral` before `loop/eligible` on a
+  settings change's head, on a merge-group commit and on a queued ticket's head after
+  `base_merged`.
 - A test proves that a QA fail moves the ticket to `todo` with the entry `rework` and
   `simplify_due` set.
 - A test proves that a QA report posts one `loop/qa` check run on the head the run read, with the
