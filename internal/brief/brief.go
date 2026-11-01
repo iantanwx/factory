@@ -76,6 +76,10 @@ type Brief struct {
 	// DesignSkill names the UI design skill the run holds. Inject fills it
 	// from the pack.
 	DesignSkill string `json:"design_skill,omitempty"`
+	// DocReaders lists the readers a doc-reviewer run starts: all three, or
+	// none when ReadersOff says why. Nil, and absent, on every other stage.
+	DocReaders []string `json:"doc_readers,omitzero"`
+	ReadersOff string   `json:"readers_off,omitempty"`
 }
 
 // BriefSkill is one userspace skill pin as a brief names it.
@@ -175,6 +179,12 @@ func (b Brief) Markdown() string {
 	line("- Base branch: %s", b.BaseBranch)
 	for _, u := range b.UserSkills {
 		line("- Userspace skill: `%s` from %s at %s", u.Name, u.Repo, u.Commit)
+	}
+	switch {
+	case len(b.DocReaders) > 0:
+		line("- Readers: %s", strings.Join(b.DocReaders, ", "))
+	case b.DocReaders != nil:
+		line("- Readers: off (%s)", b.ReadersOff)
 	}
 	if b.Item != nil {
 		line("")
