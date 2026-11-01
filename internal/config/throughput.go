@@ -39,6 +39,9 @@ const (
 	StageReproducer           = "reproducer"
 	// StageRetro learns from a finished epic or bug.
 	StageRetro = "retro"
+	// StageSimplify simplifies a ticket's code between the implementer and
+	// the code-reviewer (docs/plans/factorio-1r94-simplify-stage-spec.md).
+	StageSimplify = "simplify"
 	// StageBrainstorm is the stage whose cap counts epics, not runs (KTD30).
 	StageBrainstorm = "brainstorm"
 )
@@ -46,7 +49,7 @@ const (
 // The stage set (R13). The native jobs claim no item.
 var (
 	runStages = []string{
-		StageImplementer, StageCodeReviewer, StageDocReviewer, StageReviser, StageUnattendedBrainstorm,
+		StageImplementer, StageSimplify, StageCodeReviewer, StageDocReviewer, StageReviser, StageUnattendedBrainstorm,
 		StagePlanner, StageDecomposer, StageTriage, StageReproducer, StageRetro, StageBrainstorm,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch", "orca-acceptance"}
@@ -55,7 +58,7 @@ var (
 	// entry reads as its default and is never written to the file
 	// (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Decisions). Every
 	// other key stays required.
-	optional = []string{"overwatch", "orca-acceptance", StageUnattendedBrainstorm, StageRetro}
+	optional = []string{"overwatch", "orca-acceptance", StageUnattendedBrainstorm, StageRetro, StageSimplify}
 	// pools bound several stages together. The reviewers pool is today's
 	// REVIEW_CAP over every reviewer stage (scripts/sdlc/review-cap.ts,
 	// alpha), next to each stage's own cap.
@@ -102,6 +105,7 @@ func DefaultThroughput() map[string]Throughput {
 	triage := "14,44 * * * *"
 	return map[string]Throughput{
 		StageImplementer:          {Cap: 8, Schedule: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"},
+		StageSimplify:             {Cap: 8, Schedule: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"},
 		StageCodeReviewer:         {Cap: 8, Schedule: every5},
 		StageDocReviewer:          {Cap: 10, Schedule: "26,56 * * * *"},
 		"reviewers":               {Cap: 10},

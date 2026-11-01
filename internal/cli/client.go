@@ -286,8 +286,9 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 	}
 
 	res := cc.send(ctx, inv.Verb.RPC, req)
-	if exit := exitOf(res); pending != nil && (exit == ExitDone || exit == ExitRefused) {
-		// A definitive answer: the next same command is a new write.
+	if exit := exitOf(res); pending != nil && (exit == ExitDone || exit == ExitNothing || exit == ExitRefused) {
+		// A definitive answer, or a NOTHING that wrote nothing: the next
+		// same command is a new write.
 		_ = pending.Clear(req.IdempotencyKey)
 	}
 	return res
