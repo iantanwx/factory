@@ -150,7 +150,9 @@ func TestC29NoEligibleWhileGitHubRefusesCheckRuns(t *testing.T) {
 		gt.WriteJSON(w, http.StatusForbidden, map[string]string{"message": "Resource not accessible by integration"})
 	})
 	for range 3 {
-		e.svc.EnqueueEligibility(context.Background(), e.project) //nolint:errcheck // the posts below fail
+		if _, err := e.svc.EnqueueEligibility(context.Background(), e.project); err != nil {
+			t.Fatal(err)
+		}
 		e.exec(`UPDATE outbox SET next_attempt_at = 0, attempts = ?`, maxEffectAttempts-1)
 		_ = e.svc.RunCheckRunEffects(context.Background())
 		_ = e.svc.RunStatusEffects(context.Background())
