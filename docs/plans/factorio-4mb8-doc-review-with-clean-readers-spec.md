@@ -12,10 +12,11 @@ The PRD's criteria are A1 to A15. Each contract below names the criterion it pro
 contracts prove an answer that the operator gave at the PRD sign-off, and no criterion holds that
 answer. Those contracts name the answer under Decisions.
 
-Round 2 answers the four findings of the spec reject at `8799508`. Finding 1: the readers run on
-Claude Code only, and C23 proves it. Finding 2: C24 binds each lens to its skill. Finding 3: C25
-holds the merge and the rank. Finding 4: C26 holds a reader's open question. C21 no longer claims
-A15, and the stage-field note under Interfaces now names the refusal of C5.
+Round 2 answers the four findings of the round 1 spec reject on pull request #318. Finding 1:
+the readers run on Claude Code only, and C23 proves it. Finding 2: C24 binds each lens to its
+skill. Finding 3: C25 holds the merge and the rank. Finding 4: C26 holds a reader's open
+question. C21 no longer claims A15, and the stage-field note under Interfaces now names the
+refusal of C5.
 
 ## Scope check
 
@@ -28,8 +29,8 @@ A15, and the stage-field note under Interfaces now names the refusal of C5.
 2. **The server's record of the readers.** The setting that turns the readers off, the brief
    field that tells a run which readers to start, the `--readers` flag of `loop review submit`,
    two push refusals, a push from a doc-reviewer run and a reviser push that splits its edit set,
-   and the profile rule that keeps a doc-reviewer run with readers on Claude Code. Why not its own epic: the pack cannot know that a project turned the readers off unless
-   the brief says so. And without a record on the verdict, A1, A2, A3 and A12 have no
+   and the profile rule that keeps a doc-reviewer run with readers on Claude Code. Why not its own
+   epic: the pack cannot know that a project turned the readers off unless the brief says so. And without a record on the verdict, A1, A2, A3 and A12 have no
    observation that can fail them. Nothing else reads this record.
 
 The runbook text that describes server behaviour belongs to that behaviour's component. So work
@@ -488,8 +489,8 @@ sequenceDiagram
    config with the default false. Fill the brief's `doc_readers` and its Readers line. Add
    `--readers` to `review submit`, its two refusals, the record on the round, and the comment
    line. Refuse a `branch push` from a doc-reviewer run. Give a doc-reviewer run the Claude Code
-   profile only while the readers are in force, and refuse a doc-reviewer harness other than
-   `claude` in the config parse and in `loop settings set`.
+   profile only while the readers are in force. Refuse `doc_readers: true` beside a doc-reviewer
+   harness other than `claude`, in the config parse and in `loop settings set`.
    - Files: `internal/config/project.go`, `internal/config/settings.go`, `internal/brief/brief.go`,
      `internal/sched/dispatch.go`, `internal/sched/quota.go`, `internal/sched/plan.go`,
      `internal/cli/surface.go`, `internal/machine/verbs.go`, `internal/machine/rows.go`,
