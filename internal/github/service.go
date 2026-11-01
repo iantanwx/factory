@@ -226,17 +226,29 @@ func SpecBranchFor(epic string) string { return BranchFor(epic) + specSuffix }
 // SpecBranchFor meanwhile, so the ADR needs a branch of its own.
 func ADRBranchFor(epic string) string { return BranchFor(epic) + "-adr" }
 
+// designSuffix ends the branch of an epic's design record.
+const designSuffix = "-design"
+
+// DesignBranchFor is the branch of an epic's design record. The spec
+// branch opens only after the design merges, and a PRD that merged by
+// squash leaves the PRD's branch behind the base.
+func DesignBranchFor(epic string) string { return BranchFor(epic) + designSuffix }
+
 // BranchOf is the branch that holds an item's current work. An epic whose
-// PRD merged, or whose ADR landed, writes its spec on SpecBranchFor, and
-// its ADR on ADRBranchFor while it is in architecture or adr_review.
-// Every other item, and an epic before that, uses BranchFor: an epic
-// created for an ADR writes its first one there.
+// PRD merged, or whose ADR landed, writes its spec on SpecBranchFor, its
+// ADR on ADRBranchFor while it is in architecture or adr_review, and its
+// design record on DesignBranchFor while it is in a design state. Every
+// other item, and an epic before that, uses BranchFor: an epic created
+// for an ADR writes its first one there.
 func BranchOf(it machine.Item) string {
 	if it.Kind != machine.KindEpic || it.Fact(machine.FactPRDMerged) == "" && it.Fact(machine.FactADR) == "" {
 		return BranchFor(it.ID)
 	}
-	if it.Status == machine.Architecture || it.Status == machine.ADRReview {
+	switch it.Status {
+	case machine.Architecture, machine.ADRReview:
 		return ADRBranchFor(it.ID)
+	case machine.Design, machine.DesignReview, machine.DesignSignoff:
+		return DesignBranchFor(it.ID)
 	}
 	return SpecBranchFor(it.ID)
 }
@@ -253,8 +265,14 @@ func ItemOf(branch string) string {
 
 // SpecEpicOf is the epic a spec branch belongs to, or "" when branch is
 // no spec branch.
-func SpecEpicOf(branch string) string {
-	epic, ok := strings.CutSuffix(ItemOf(branch), specSuffix)
+func SpecEpicOf(branch string) string { return epicOf(branch, specSuffix) }
+
+// DesignEpicOf is the epic a design branch belongs to, or "" when branch
+// is no design branch.
+func DesignEpicOf(branch string) string { return epicOf(branch, designSuffix) }
+
+func epicOf(branch, suffix string) string {
+	epic, ok := strings.CutSuffix(ItemOf(branch), suffix)
 	if !ok || epic == "" {
 		return ""
 	}
