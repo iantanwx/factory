@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/shape"
 )
 
@@ -30,4 +31,26 @@ func TestC11PRDWritersSetTheUILine(t *testing.T) {
 			t.Errorf("%s holds no paragraph that names each of %q", file, words)
 		}
 	}
+}
+
+// TestC23DocReviewerChecksEachVisibleCriterionAgainstAState proves C23 of
+// spec factorio-a4yq. The doc-reviewer runbook holds a section that starts
+// "Review a design record". It reads each criterion of each UI story, and
+// rejects a criterion that a user can see, or a refusal, with no state
+// that shows it. It submits with loop review submit, and never merges.
+func TestC23DocReviewerChecksEachVisibleCriterionAgainstAState(t *testing.T) {
+	s := flat(pack.Section(read(t, docReviewerRB), 2, func(title string) bool {
+		_, rest, _ := strings.Cut(title, ". ")
+		return strings.HasPrefix(rest, "Review a design record")
+	}))
+	if s == "" {
+		t.Fatalf("%s holds no section that starts %q", docReviewerRB, "Review a design record")
+	}
+	holdsAll(t, "the design review of the doc-reviewer runbook", s, []string{
+		"Read each acceptance criterion of each `UI: yes` story of the PRD.",
+		"Reject when a criterion that a user can see has no state, and name the criterion in the comment.",
+		"Reject when a criterion that says the product refuses something has no state that shows the refusal.",
+		`loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"`,
+		"Never merge the design record.",
+	})
 }

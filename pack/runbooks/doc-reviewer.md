@@ -5,8 +5,8 @@ description: The doc-reviewer's runbook. Review the PRD, the spec or an ADR pull
 
 # Doc-reviewer
 
-You review one document: the PRD of an epic in `prd_review`, its spec in `spec_review`, or an ADR
-pull request of an epic in `adr_review`. The brief names the epic and its status. Nobody is present in this run. The operator reads the document
+You review one document: the PRD of an epic in `prd_review`, its spec in `spec_review`, an ADR
+pull request of an epic in `adr_review`, or its design record in `design_review`. The brief names the epic and its status. Nobody is present in this run. The operator reads the document
 only after your pass, at the sign-off. So a fault you miss reaches every ticket.
 
 Read these first, in this order:
@@ -25,7 +25,7 @@ Read these first, in this order:
 2. Bring that head into the checkout. The turn skill states how.
 3. Run `loop review rounds <item>`. When a round already holds a verdict at this head, do not review
    again. Finish the run.
-4. Go to section 2, 3 or 4 for the kind of the document. Each one starts the readers before you
+4. Go to section 2, 3, 4 or 5 for the kind of the document. Each one starts the readers before you
    read the document.
 
 The readers are three subagents of type `loop-doc-reader`. Each reads by the skill of one lens:
@@ -128,7 +128,7 @@ Check in this order:
 4. An acceptance criterion that cannot fail.
 5. An earlier ADR that the decision contradicts and does not name as the ADR it supersedes.
 
-Submit by section 5:
+Submit by section 6:
 
 ```bash
 loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"
@@ -139,7 +139,40 @@ The operator reads your comment on the pull request, and decides the merge. A me
 to `spec_needed`. A close with no merge ends the review. A new head on the pull request starts a new
 review. Never merge the ADR.
 
-## 5. Submit the verdict
+## 5. Review a design record
+
+An epic in `design_review` waits for the review of its design record. The design room opened the
+pull request on `loop/<epic>-design`. It adds `docs/design/<epic>/record.md` and one picture for
+each state of the record. The record pins a commit of `loop/<epic>-prototype`, and that branch
+never heads a pull request.
+
+Start the readers first, by `../loop-doc-readers/SKILL.md` § 2, when the brief names readers. Then
+read the document at the head, each picture beside it, the PRD that its `**PRD:**` line names, and
+`loop pr threads`. Run `loop branch sync`, and the `fetch` command of its `prototype` part. Then
+run `loop gates --docs`, and the `design` gate checks the pin.
+
+Check in this order:
+
+1. Read each acceptance criterion of each `UI: yes` story of the PRD. Find the state that shows it,
+   and open its picture. Reject when a criterion that a user can see has no state, and name the
+   criterion in the comment.
+2. Reject when a criterion that says the product refuses something has no state that shows the
+   refusal. Name the criterion.
+3. A picture that does not show what its state names.
+4. A finding of the `design` gate.
+
+Submit by section 6:
+
+```bash
+loop review submit <item> --verdict pass|reject --head <sha> --body "<comment>"
+```
+
+A pass moves the epic to `design_signoff`. The operator approves the record at that head, and the
+server merges it. A reject returns the epic to `design`. The design room revises the record with
+the operator on the same pull request, and the next review reads its new head. Never merge the
+design record.
+
+## 6. Submit the verdict
 
 1. When the readers ran, judge their reports by `../loop-doc-readers/SKILL.md` § 3 to § 5. A
    reader that fails twice stops the review. Submit nothing. Report a loop fault with
@@ -156,7 +189,7 @@ review. Never merge the ADR.
    request and records it with the verdict.
 6. Finish with `loop run finish --outcome done`.
 
-## 6. When a person must decide
+## 7. When a person must decide
 
 Score each finding below by `../loop-sdlc-triage/SKILL.md`. Escalate only at level 4 or 5. When
 another document says which side is wrong, reject, and name that document.
@@ -167,7 +200,7 @@ another document says which side is wrong, reject, and name that document.
 - A spec decided a question that the PRD left open.
 - A spec is right, and the PRD is wrong.
 
-## 7. Never
+## 8. Never
 
 - Never edit the document, and never merge it. The operator's approval is the sign-off, and the server merges.
 - Never create an epic, and never split one.

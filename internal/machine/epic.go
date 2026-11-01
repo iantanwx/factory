@@ -399,6 +399,7 @@ func epicTable() *Table {
 		claim(PRDReview, ToSame, StageDocReviewer),
 		claim(PRDAmending, ToSame, StageReviser),
 		claim(ADRReview, ToSame, StageDocReviewer),
+		claim(DesignReview, ToSame, StageDocReviewer),
 		specClaim(claim(SpecNeeded, SpecDrafting, StagePlanner)),
 		claim(SpecReview, ToSame, StageDocReviewer),
 		claim(SpecAmending, ToSame, StageReviser),
@@ -481,6 +482,17 @@ func epicTable() *Table {
 		{Verb: "review_reject", From: []string{SpecReview}, To: SpecNeeded, Command: "review submit", Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{SpecSignoff}, To: SpecApproved,
 			set: all(copyParam("spec_path", FactSpecPath), copyParam("sha", FactSpecMerged)), Facts: []string{FactSpecPath, FactSpecMerged}},
+		// The design room opens the design pull request, and the
+		// doc-reviewer reviews it once at each head. A reject returns the
+		// epic to the room, which revises the record on the same pull
+		// request. Only the operator's approval at sign-off merges it.
+		{Verb: "pr_open", From: []string{Design}, To: DesignReview, set: needCopy("pr", FactDocPR), Facts: []string{FactDocPR}},
+		{Verb: "review_pass", From: []string{DesignReview}, To: DesignSignoff, Command: "review submit", Lease: LeaseDrop,
+			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
+		{Verb: "review_reject", From: []string{DesignReview}, To: Design, Command: "review submit", Lease: LeaseDrop,
+			guard: headNamed},
+		{Verb: "doc_merged", From: []string{DesignSignoff}, To: SpecNeeded,
+			set: all(copyParam("design_path", FactDesignPath), copyParam("sha", FactDesignMerged)), Facts: []string{FactDesignPath, FactDesignMerged}},
 		{Verb: VerbDecomposed, From: []string{Decomposing}, To: Execution, Lease: LeaseDrop},
 		{Verb: "complete", From: []string{Execution}, To: Done, guard: childrenTerminal},
 		// An epic whose work moved elsewhere closes before it has children
@@ -496,6 +508,7 @@ func epicTable() *Table {
 		// sign-off and never past it.
 		{Verb: "doc_merged", From: []string{PRDReview}, To: PRDSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{SpecReview}, To: SpecSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop},
+		{Verb: "doc_merged", From: []string{DesignReview}, To: DesignSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop},
 		{Verb: "doc_merged", From: []string{PRDAmending}, To: PRDSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop,
 			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
 		{Verb: "doc_merged", From: []string{SpecAmending}, To: SpecSignoff, When: "outran", BumpsEpoch: true, Lease: LeaseDrop,
@@ -504,7 +517,7 @@ func epicTable() *Table {
 		// The document PR moved after the entry was raised. The server pins
 		// the new head, and the sign-off entry is raised again at it, so
 		// the operator approves only a head the entry named.
-		{Verb: VerbSignoffHead, From: []string{PRDSignoff, SpecSignoff}, To: ToSame,
+		{Verb: VerbSignoffHead, From: []string{PRDSignoff, SpecSignoff, DesignSignoff}, To: ToSame,
 			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 
 		// A person's unanswered comment on the document PR (1.12).
@@ -516,6 +529,10 @@ func epicTable() *Table {
 		// A closed document PR escalates the epic and never cancels it.
 		{Verb: VerbPRClosed, From: []string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending}, To: Escalated,
 			Lease: LeaseDrop, set: escalateTo(epicResumeFor), Facts: []string{FactResume, FactEscalation}},
+		// A closed design pull request leaves nothing to sign off, so the
+		// answer returns the epic to the design room, which opens another.
+		{Verb: VerbPRClosed, From: []string{DesignReview, DesignSignoff}, To: Escalated, Lease: LeaseDrop,
+			set: escalateTo(func(string) (string, string) { return Design, "" }), Facts: []string{FactResume, FactEscalation}},
 		{Verb: VerbEscalate, From: except(live, Escalated), To: Escalated, Lease: LeaseDrop,
 			set: escalateTo(epicResumeFor), Facts: []string{FactResume, FactEscalation}},
 		{Verb: VerbNote, From: live, To: ToSame, Command: "work note", set: notePut, Facts: []string{FactNote}},
@@ -523,7 +540,8 @@ func epicTable() *Table {
 	}
 	rows = withReviews(rows)
 	pairs := [][2]string{{PRDDrafting, PRDNeeded}, {SpecDrafting, SpecNeeded}, {Decomposing, SpecApproved},
-		{PRDReview, PRDReview}, {PRDAmending, PRDAmending}, {ADRReview, ADRReview}, {SpecReview, SpecReview}, {SpecAmending, SpecAmending}}
+		{PRDReview, PRDReview}, {PRDAmending, PRDAmending}, {ADRReview, ADRReview}, {DesignReview, DesignReview},
+		{SpecReview, SpecReview}, {SpecAmending, SpecAmending}}
 	rows = append(rows, releaseRows("release", false, pairs, nil)...)
 	rows = append(rows, releaseRows("reclaim", true, pairs, nil)...)
 	return &Table{Kind: KindEpic, BeadType: "epic", States: states, Rows: rows}

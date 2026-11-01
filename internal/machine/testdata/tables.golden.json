@@ -574,6 +574,20 @@
       {
         "verb": "claim",
         "from": [
+          "design_review"
+        ],
+        "to": "@same",
+        "stage": "doc-reviewer",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
+        "verb": "claim",
+        "from": [
           "spec_needed"
         ],
         "to": "spec_drafting",
@@ -957,6 +971,53 @@
         ]
       },
       {
+        "verb": "pr_open",
+        "from": [
+          "design"
+        ],
+        "to": "design_review",
+        "facts": [
+          "doc_pr"
+        ]
+      },
+      {
+        "verb": "review_pass",
+        "from": [
+          "design_review"
+        ],
+        "to": "design_signoff",
+        "command": "review submit",
+        "facts": [
+          "reviewed_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_reject",
+        "from": [
+          "design_review"
+        ],
+        "to": "design",
+        "command": "review submit",
+        "facts": [
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "design_signoff"
+        ],
+        "to": "spec_needed",
+        "facts": [
+          "design_path",
+          "design_merged"
+        ]
+      },
+      {
         "verb": "decomposed",
         "from": [
           "decomposing"
@@ -1051,6 +1112,16 @@
       {
         "verb": "doc_merged",
         "from": [
+          "design_review"
+        ],
+        "to": "design_signoff",
+        "when": "outran",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
           "prd_amending"
         ],
         "to": "prd_signoff",
@@ -1080,7 +1151,8 @@
         "verb": "signoff_head",
         "from": [
           "prd_signoff",
-          "spec_signoff"
+          "spec_signoff",
+          "design_signoff"
         ],
         "to": "@same",
         "facts": [
@@ -1120,6 +1192,19 @@
           "spec_review",
           "spec_signoff",
           "spec_amending"
+        ],
+        "to": "escalated",
+        "facts": [
+          "resume",
+          "escalation"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "pr_closed",
+        "from": [
+          "design_review",
+          "design_signoff"
         ],
         "to": "escalated",
         "facts": [
@@ -1270,6 +1355,14 @@
       {
         "verb": "release",
         "from": [
+          "design_review"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
+        "verb": "release",
+        "from": [
           "spec_review"
         ],
         "to": "@same",
@@ -1332,6 +1425,15 @@
         "verb": "reclaim",
         "from": [
           "adr_review"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "design_review"
         ],
         "to": "@same",
         "bumps_epoch": true,

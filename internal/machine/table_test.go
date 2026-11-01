@@ -215,12 +215,22 @@ func epicEdges() []edge {
 		{Architecture, "adr_landed", "design"},
 		{"adr_review", "adr_landed", "design"},
 		{"design", "adr_misjoined", Architecture},
+		// factorio-a4yq: the design room opens the design pull request.
+		// The doc-reviewer reviews it at its head, and only the operator's
+		// sign-off merges it. A merge in review is the sign-off.
+		{"design", "pr_open", "design_review"},
+		{"design_review", "review_pass", "design_signoff"},
+		{"design_review", "review_reject", "design"},
+		{"design_review", "doc_merged", "design_signoff"},
+		{"design_signoff", "doc_merged", SpecNeeded},
+		{"design_signoff", "signoff_head", "design_signoff"},
 	}
 	e = append(e, each([]string{PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff}, "adr_send", ToSame)...)
 	e = append(e, each([]string{SpecNeeded, SpecReview, SpecSignoff, SpecAmending}, "adr_send", Architecture)...)
 	e = append(e, edge{PRDSignoff, "adr_off", PRDSignoff})
 	// Text: a closed document PR escalates and never cancels.
-	e = append(e, each([]string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending}, "pr_closed", Escalated)...)
+	e = append(e, each([]string{PRDReview, PRDAmending, PRDSignoff, SpecReview, SpecSignoff, SpecAmending, "design_review", "design_signoff"},
+		"pr_closed", Escalated)...)
 	e = append(e, each(except(epicLive, Escalated), "escalate", Escalated)...)
 	// Added (F-55): an epic whose work moved elsewhere cancels before it
 	// has children.
@@ -233,7 +243,7 @@ func epicEdges() []edge {
 	}
 	// Added: the stages that claim without a move, and settlement of
 	// every claim (RESUME_TARGETS in scripts/sdlc/handoff.ts, alpha).
-	for _, s := range []string{PRDReview, PRDAmending, "adr_review", SpecReview, SpecAmending} {
+	for _, s := range []string{PRDReview, PRDAmending, "adr_review", "design_review", SpecReview, SpecAmending} {
 		e = append(e, edge{s, "claim", s}, edge{s, "release", s}, edge{s, "reclaim", s})
 	}
 	e = append(e, edge{SpecDrafting, "release", SpecNeeded}, edge{SpecDrafting, "reclaim", SpecNeeded},
@@ -323,6 +333,9 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.When == "second_reject" {
 		facts[FactPRDRejects] = "1"
+	}
+	if r.Verb == "pr_open" && slices.Contains(r.From, Design) {
+		params["pr"] = "7" // the design room's pull request
 	}
 	if r.Verb == VerbPRDSubmit {
 		params["pr"], params["path"] = "7", "docs/prd/x.md" // a run's submit records both

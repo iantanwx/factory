@@ -230,7 +230,7 @@ func TestEachReaderStartsClean(t *testing.T) {
 		}
 	}
 	runbook := read(t, "runbooks/doc-reviewer.md")
-	for _, prefix := range []string{"2. Review a PRD", "3. Review a spec", "4. Review an ADR"} {
+	for _, prefix := range []string{"2. Review a PRD", "3. Review a spec", "4. Review an ADR", "5. Review a design record"} {
 		s := section(t, runbook, prefix)
 		begin := strings.Index(s, "Start the readers first, by `../loop-doc-readers/SKILL.md` § 2, when the brief names readers. Then read the document")
 		check := strings.Index(s, " 1. ")
@@ -396,8 +396,8 @@ func TestDocReviewerManifestAndRunbookAgreeOnTheReaders(t *testing.T) {
 	if !strings.Contains(runbook, "loop-doc-reader`") {
 		t.Error("the doc-reviewer runbook never names agent loop-doc-reader")
 	}
-	submit := section(t, runbook, "5. Submit the verdict")
-	holdsAll(t, "§ 5 of the doc-reviewer runbook", submit, []string{
+	submit := section(t, runbook, "6. Submit the verdict")
+	holdsAll(t, "§ 6 of the doc-reviewer runbook", submit, []string{
 		"--readers " + strings.Join(config.DocReaderNames, ","),
 		"A reader that fails twice stops the review. Submit nothing. Report a loop fault with `loop fault report`, and finish `blocked`.",
 		"When the tree is not clean, a reader wrote a file. Submit nothing. Report a loop fault with `loop fault report`, and finish `blocked`.",
@@ -479,7 +479,7 @@ func TestAReaderReturnsEachQuestionAndTheReviewerScoresIt(t *testing.T) {
 	holdsAll(t, "§ 5 of loop-doc-readers", section(t, read(t, docReaders), "5. Score each question"), []string{
 		"Score each question by `../loop-sdlc-triage/SKILL.md`.",
 		"When the document or the repository answers it, answer it yourself.",
-		"At level 4 or 5, escalate it by `../loop-doc-reviewer/SKILL.md` § 6.",
+		"At level 4 or 5, escalate it by `../loop-doc-reviewer/SKILL.md` § 7.",
 	})
 }
 

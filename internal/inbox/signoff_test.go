@@ -214,3 +214,62 @@ func TestC12BothMergePathsRouteAUIPRDAlike(t *testing.T) {
 		t.Fatalf("the planner claimed %s in design", signed)
 	}
 }
+
+// C24: the inbox raises signoff/<project>/<epic> for an epic in
+// design_signoff, at its reviewed head. An approval at a head that moved
+// merges nothing, and the entry is raised again at the new head. The
+// operator's approval at the entry's head merges the design pull request
+// there, and the epic moves to spec_needed with design_path and
+// design_merged. A design record holds no Open questions, so the sign-off
+// reads no file of the pull request.
+func TestC24OnlyTheOperatorsApprovalMergesADesignRecord(t *testing.T) {
+	w, ep := newSignoffWorld(t, machine.DesignSignoff, nil, nil)
+	id := "signoff/" + prj + "/" + ep
+	entryHead := func() string {
+		t.Helper()
+		es, err := w.in.Entries(w.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range es {
+			if e.ID == id {
+				if !strings.Contains(e.Text, "design record") {
+					t.Errorf("entry text %q names no design record", e.Text)
+				}
+				return e.Head
+			}
+		}
+		t.Fatalf("the inbox holds no entry %s: %+v", id, es)
+		return ""
+	}
+	if got := entryHead(); got != signoffHead {
+		t.Fatalf("the entry names head %q, want %s", got, signoffHead)
+	}
+
+	w.gh.pr.Head.SHA = "h2"
+	if r := w.answer(ep).Refusal; r == nil || r.Rule != "head_moved" {
+		t.Fatalf("an approval after the head moved = %+v, want rule head_moved", r)
+	}
+	if w.gh.merged() || entryHead() != "h2" {
+		t.Fatalf("the approval at a moved head merged, or left the entry at its old head: calls %v", w.gh.calls)
+	}
+
+	record := "docs/design/" + ep + "/record.md"
+	w.gh.design = record
+	if res := w.answer(ep); res.Refusal != nil {
+		t.Fatalf("the design sign-off refused: %+v", res.Refusal)
+	}
+	if !slices.Contains(w.gh.calls, "MergePR 7 h2") {
+		t.Fatalf("calls %v, want a merge at h2", w.gh.calls)
+	}
+	for _, c := range w.gh.calls {
+		if strings.HasPrefix(c, "ReadAt ") || strings.HasPrefix(c, "PRFiles ") {
+			t.Fatalf("the design sign-off read the files of its pull request: %v", w.gh.calls)
+		}
+	}
+	it := w.status(ep)
+	if it.Status != machine.SpecNeeded || it.Fact(machine.FactDesignPath) != record || it.Fact(machine.FactDesignMerged) != "m-h2" {
+		t.Fatalf("after the sign-off: %s with design_path=%q design_merged=%q, want spec_needed with %s and m-h2", it.Status,
+			it.Fact(machine.FactDesignPath), it.Fact(machine.FactDesignMerged), record)
+	}
+}
