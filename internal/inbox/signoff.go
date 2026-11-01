@@ -15,14 +15,15 @@ import (
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// DocGitHub reads and merges an epic's document PR for a sign-off answer.
-// *github.Service is one.
+// DocGitHub reads and merges an epic's document PR for a sign-off answer,
+// and fills the merge event as the reactor does. *github.Service is one.
 type DocGitHub interface {
 	GetPR(ctx context.Context, p config.Project, n int) (github.PR, error)
 	PRFiles(ctx context.Context, p config.Project, n int) ([]github.File, error)
 	ReadAt(ctx context.Context, p config.Project, sha, path string) ([]byte, error)
 	MergePR(ctx context.Context, p config.Project, n int, sha string) (string, error)
 	DefaultBranch(ctx context.Context, p config.Project) (string, error)
+	DocMerge(ctx context.Context, p config.Project, it machine.Item, sha string) (machine.MergeEvent, error)
 }
 
 // SetGitHub gives the inbox GitHub, so a sign-off answer merges. The
@@ -99,8 +100,12 @@ func (in *Inbox) signoff(ctx context.Context, call *rpc.Call, id, project, item,
 	}
 	// The epic moves on at once. The reactor reads the same merge later,
 	// and an epic past sign-off takes it as Nothing.
-	res := in.cfg.Machine.MergeObserved(ctx, machine.MergeEvent{Project: project, Item: item, Base: base, Into: pr.Base.Ref, SHA: merged, SpecPath: spec})
-	if err := machine.Settled(res); err != nil {
+	ev, err := in.cfg.GitHub.DocMerge(ctx, p, it, merged)
+	if err == nil {
+		ev.Base, ev.Into, ev.SpecPath = base, pr.Base.Ref, spec
+		err = machine.Settled(in.cfg.Machine.MergeObserved(ctx, ev))
+	}
+	if err != nil {
 		in.log.WarnContext(ctx, "the sign-off merged, and the epic waits for the reactor", "item", item, "pr", n, "err", err)
 	}
 	if err := in.cfg.Store.Write(ctx, func(tx *store.Tx) error { return clearDefer(tx, id) }); err != nil {
