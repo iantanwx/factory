@@ -17,7 +17,7 @@ func main() {
 }
 
 // run builds the binary's registry: the surface, the socket client for
-// every server verb, the host verbs, serve, ui detect, qa plan, escalation
+// every server verb, the host verbs, serve, ui detect, qa plan, design capture, escalation
 // judge, retro judge and review proof.
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	r := cli.Surface()
@@ -33,6 +33,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		panic(err)
 	}
 	if err := registerQA(r); err != nil {
+		panic(err)
+	}
+	if err := registerDesign(r); err != nil {
 		panic(err)
 	}
 	if err := r.SetHandler("serve", serveVerb); err != nil {
