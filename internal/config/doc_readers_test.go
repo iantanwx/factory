@@ -108,3 +108,31 @@ func TestC23ReadersOffNameTheirReason(t *testing.T) {
 		})
 	}
 }
+
+// C5: a push that changes only doc_readers changes a setting, so a stage
+// run's push that holds it gets SETTINGS_CHANGE. The push scan decides with
+// SettingsChanged.
+func TestC5PushThatChangesDocReadersChangesASetting(t *testing.T) {
+	unset := []byte(docReadersBase + "  doc-reviewer:\n    harness: claude\n")
+	for _, value := range []string{"true", "false"} {
+		set := []byte(docReadersBase + "  doc-reviewer:\n    harness: claude\n    doc_readers: " + value + "\n")
+		for _, pair := range [][2][]byte{{unset, set}, {set, unset}} {
+			changed, err := SettingsChanged(pair[0], pair[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !changed {
+				t.Fatalf("SettingsChanged(%q, %q) = false, want true", pair[0], pair[1])
+			}
+		}
+	}
+	changed, err := SettingsChanged(
+		[]byte(docReadersBase+"  doc-reviewer:\n    doc_readers: true\n"),
+		[]byte(docReadersBase+"  doc-reviewer:\n    doc_readers: false\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("SettingsChanged from doc_readers true to false = false, want true")
+	}
+}

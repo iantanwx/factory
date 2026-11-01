@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 )
 
 // C5: settings set refuses doc_readers on a stage other than the
@@ -34,5 +35,16 @@ func TestC23SettingsSetRefusesReadersBesideAnotherHarness(t *testing.T) {
 			_, ref := f.set(c.key, strp(c.value), "the reason")
 			f.refused(ref, cli.CodeInvalidSetting, c.other)
 		})
+	}
+}
+
+// C23: settings show names the harness as the reason the readers are off,
+// when doc_readers is unset beside a doc-reviewer harness other than claude.
+func TestC23SettingsShowNamesTheHarnessThatTurnsTheReadersOff(t *testing.T) {
+	f := newFixture(t)
+	f.commit("merge:\n  mechanism: direct\nstages:\n  doc-reviewer:\n    harness: codex\n", "coordinator")
+	r := rowOf(t, f.show(), "stages.doc-reviewer.doc_readers")
+	if r.Value != "false" || r.Source != config.SourceDefault || r.Reason != "stages.doc-reviewer.harness is codex" {
+		t.Fatalf("doc_readers row = %+v, want false by default with reason %q", r, "stages.doc-reviewer.harness is codex")
 	}
 }
