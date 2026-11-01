@@ -23,7 +23,6 @@ import (
 	"net/http/cgi"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -33,6 +32,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // Fixture identity.
@@ -789,7 +790,7 @@ type GitServer struct {
 // http-backend is missing.
 func NewGitServer(t testing.TB, api *API) *GitServer {
 	t.Helper()
-	execPath, err := exec.Command("git", "--exec-path").Output()
+	execPath, err := gittest.Command("--exec-path").Output()
 	if err != nil {
 		t.Skipf("git is not available: %v", err)
 	}
@@ -798,10 +799,10 @@ func NewGitServer(t testing.TB, api *API) *GitServer {
 		t.Skipf("git-http-backend is not available: %v", err)
 	}
 	g := &GitServer{root: t.TempDir()}
-	h := &cgi.Handler{Path: backend, Env: []string{
+	// receive-pack runs auto maintenance in the remote after a push.
+	h := &cgi.Handler{Path: backend, Env: gittest.Env([]string{
 		"GIT_PROJECT_ROOT=" + g.root, "GIT_HTTP_EXPORT_ALL=1", "REMOTE_USER=loop",
-		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
-	}}
+	})}
 	g.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, pass, ok := r.BasicAuth()
 		if !ok || user != "x-access-token" || !api.ValidToken(pass) {
@@ -842,9 +843,9 @@ func (g *GitServer) SeenTokens() []string {
 
 // RemoteSHA reads a branch of the bare remote, or "".
 func (g *GitServer) RemoteSHA(branch string) string {
-	cmd := exec.Command("git", "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	cmd := gittest.Command("rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	cmd.Dir = g.RemoteDir()
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}
+	cmd.Env = gittest.Env([]string{"PATH=" + os.Getenv("PATH")})
 	out, _ := cmd.Output()
 	return strings.TrimSpace(string(out))
 }
@@ -864,11 +865,11 @@ func (g *GitServer) Seed(t testing.TB, dir string) string {
 // Git runs git for test setup with no user or system config.
 func Git(t testing.TB, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := gittest.Command(args...)
 	cmd.Dir = dir
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+	cmd.Env = gittest.Env([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + dir,
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid", "GIT_COMMITTER_NAME=t",
-		"GIT_COMMITTER_EMAIL=t@example.invalid", "GIT_TERMINAL_PROMPT=0"}
+		"GIT_COMMITTER_EMAIL=t@example.invalid", "GIT_TERMINAL_PROMPT=0"})
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // goldenKeyParts and goldenKey freeze the key canonicalisation (KTD13).
@@ -96,7 +98,7 @@ func TestContentHash(t *testing.T) {
 		{"init", "-q"},
 		{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one"},
 	} {
-		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd := gittest.Command(append([]string{"-C", repo}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
@@ -106,7 +108,7 @@ func TestContentHash(t *testing.T) {
 	if err != nil || !strings.HasPrefix(head1, "head:") {
 		t.Fatalf("head hash %s %v", head1, err)
 	}
-	cmd := exec.Command("git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two")
+	cmd := gittest.Command("-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git commit: %v %s", err, out)
 	}

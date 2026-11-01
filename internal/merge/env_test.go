@@ -17,6 +17,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/secrets"
@@ -90,7 +91,7 @@ func newEnv(t *testing.T, mk func(e *env) merge.Mechanism, opts ...func(*github.
 	}
 	gc := github.Config{
 		Apps: github.OneApp(gt.AppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
-		API:  e.api.URL(), GitURL: e.git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(),
+		API:  e.api.URL(), GitURL: e.git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(), GitConfig: gittest.Config,
 		Store: st, Redactor: red, Projects: staticProjects{e.project}, Machine: e.m,
 		Sleep: func(context.Context, time.Duration) error { return nil },
 	}

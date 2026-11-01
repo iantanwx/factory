@@ -20,6 +20,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/pipeline"
@@ -119,7 +120,7 @@ func newWorld(t *testing.T) *world {
 	}
 	w.svc, err = github.New(github.Config{
 		Apps: github.OneApp(gt.AppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
-		API:  w.api.URL(), GitURL: w.git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(),
+		API:  w.api.URL(), GitURL: w.git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(), GitConfig: gittest.Config,
 		Store: st, Redactor: w.red, Projects: w.projects, Machine: w.m, Logger: quiet,
 		Sleep: func(context.Context, time.Duration) error { return nil },
 	})

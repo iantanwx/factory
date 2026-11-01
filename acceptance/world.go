@@ -33,6 +33,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/pack"
@@ -330,7 +331,7 @@ func (w *World) options() server.Options {
 		t.Fatal(err)
 	}
 	opts := server.Options{Instance: w.Dir}
-	gh := &server.GitHub{API: w.API.URL(), GitURL: w.Git.URL, Protocols: []string{"http"},
+	gh := &server.GitHub{API: w.API.URL(), GitURL: w.Git.URL, Protocols: []string{"http"}, GitConfig: gittest.Config,
 		Sleep: func(context.Context, time.Duration) error { return nil }}
 	mg := &server.Merge{GitHub: gh}
 	w.GH, w.MG = gh, mg
@@ -731,8 +732,8 @@ func copyFile(from, to string) error {
 // its output.
 func (w *World) GitIn(dir string, args ...string) string {
 	w.T.Helper()
-	cmd := exec.Command("git", args...)
-	cmd.Dir, cmd.Env = dir, gitEnv(dir)
+	cmd := gittest.Command(args...)
+	cmd.Dir, cmd.Env = dir, gittest.Env(gitEnv(dir))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		w.T.Fatalf("git %s: %v: %s", strings.Join(args, " "), err, out)
@@ -742,9 +743,9 @@ func (w *World) GitIn(dir string, args ...string) string {
 
 // setupGit runs git as the test's own setup, with no user or system config.
 func setupGit(dir string, args ...string) error {
-	cmd := exec.Command("git", args...)
+	cmd := gittest.Command(args...)
 	cmd.Dir = dir
-	cmd.Env = gitEnv(dir)
+	cmd.Env = gittest.Env(gitEnv(dir))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, out)
 	}
@@ -752,7 +753,7 @@ func setupGit(dir string, args ...string) error {
 }
 
 func gitEnv(home string) []string {
-	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
+	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home,
 		"GIT_AUTHOR_NAME=agent", "GIT_AUTHOR_EMAIL=agent@example.invalid", "GIT_COMMITTER_NAME=agent",
 		"GIT_COMMITTER_EMAIL=agent@example.invalid", "GIT_TERMINAL_PROMPT=0"}
 }
@@ -1036,8 +1037,8 @@ func (w *World) Commit(checkout, msg string, files map[string]string) string {
 	if err := setupGit(checkout, "commit", "-q", "--allow-empty", "-m", msg); err != nil {
 		w.T.Fatal(err)
 	}
-	cmd := exec.Command("git", "rev-parse", "HEAD")
-	cmd.Dir, cmd.Env = checkout, gitEnv(checkout)
+	cmd := gittest.Command("rev-parse", "HEAD")
+	cmd.Dir, cmd.Env = checkout, gittest.Env(gitEnv(checkout))
 	out, err := cmd.Output()
 	if err != nil {
 		w.T.Fatal(err)

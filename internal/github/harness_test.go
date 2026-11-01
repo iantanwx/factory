@@ -13,6 +13,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
@@ -96,7 +97,7 @@ func (e *env) service() *Service {
 	e.t.Helper()
 	svc, err := New(Config{
 		Apps: OneApp(testAppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
-		API:  e.api.URL(), GitURL: e.git.URL, Protocols: []string{"http"}, MirrorRoot: e.root,
+		API:  e.api.URL(), GitURL: e.git.URL, Protocols: []string{"http"}, MirrorRoot: e.root, GitConfig: gittest.Config,
 		Store: e.st, Redactor: e.red, Projects: staticProjects{e.project}, Machine: e.m,
 		Sleep:      func(context.Context, time.Duration) error { return nil },
 		UserSkills: func(context.Context, string) ([]string, error) { return e.userSkills, nil },
