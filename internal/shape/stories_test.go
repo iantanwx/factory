@@ -41,3 +41,21 @@ func TestUIStoriesListOnlyTheYesLabels(t *testing.T) {
 		t.Fatalf("UIStories of no story = %v", got)
 	}
 }
+
+func TestUIFaultNamesAMissingOrBadUILine(t *testing.T) {
+	var got []string
+	for _, s := range shape.Stories(storiesPRD) {
+		got = append(got, s.Label+": "+s.UIFault())
+	}
+	want := []string{
+		"US-01: ",
+		"US-02: ",
+		"US-03: holds no **UI:** line",
+		"US-04: holds two **UI:** lines, or one that reads neither yes nor no",
+		"US-05: holds two **UI:** lines, or one that reads neither yes nor no",
+		"US-06: holds no **UI:** line",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("UIFault =\n%q\nwant\n%q", got, want)
+	}
+}
