@@ -26,6 +26,16 @@ func (w *world) qaTicket() (string, map[string]string) {
 		"title": "The widgets page is blank at the merge base", "body": "Open /widgets at the merge base: the page is blank."}
 }
 
+// stored is the metadata of the bead itself, with no read default.
+func (w *world) stored(id string) map[string]string {
+	w.t.Helper()
+	is, err := w.bx.Get(w.ctx, id)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return is.Metadata
+}
+
 func operatorBug() map[string]string {
 	return map[string]string{"kind": "bug", "project": testProject, "title": "The list page shows no widgets",
 		"body": "Open /widgets: the list is empty.", "request": "Ian: the widgets list is empty again, please look"}
@@ -44,18 +54,23 @@ func TestC16EachBugCarriesItsSource(t *testing.T) {
 		t.Fatalf("the QA run's bug: %+v", it)
 	}
 
+	// The read default answers a bug with no source fact, so the
+	// coordinator's bugs are checked on the stored bead.
 	data = ok(t, w.call(w.coordinator(), "", "work create", operatorBug()))
-	if it := w.show(data["item"].(string)); it.Fact("source") != "operator" || it.Fact("qa_run") != "" {
-		t.Fatalf("the coordinator's bug: %+v", it)
+	if md := w.stored(data["item"].(string)); md["loop.source"] != "operator" || md["loop.qa_run"] != "" {
+		t.Fatalf("the coordinator's bug stores %v", md)
 	}
 	explicit := operatorBug()
 	explicit["source"] = "operator"
 	data = ok(t, w.call(w.coordinator(), "", "work create", explicit))
-	if it := w.show(data["item"].(string)); it.Fact("source") != "operator" {
-		t.Fatalf("the coordinator's bug with --source operator: %+v", it)
+	if md := w.stored(data["item"].(string)); md["loop.source"] != "operator" {
+		t.Fatalf("the coordinator's bug with --source operator stores %v", md)
 	}
 
 	old := w.newItem(machine.KindBug, machine.VerbFile)
+	if md := w.stored(old); md["loop.source"] != "" {
+		t.Fatalf("the fixture bug stores source %q, want none", md["loop.source"])
+	}
 	if it := w.show(old); it.Fact("source") != "operator" {
 		t.Fatalf("a bug with no source fact reads as %q, want operator", it.Fact("source"))
 	}
