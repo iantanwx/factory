@@ -279,6 +279,15 @@ func (h *HandOff) advance(ctx context.Context, p config.Project, mech Mechanism,
 		// The reactor escalates the ticket and raises the alert (R8).
 		return h.recordIf(ctx, mp, stateClosed)
 	case pr.Head.SHA != mp.Head:
+		// The server's own merge of the base, which a crash kept from
+		// moving the ticket, takes the ticket to the merge commit.
+		sha, pending, err := h.cfg.GitHub.BaseMerge(ctx, p.ID, pr.Head.Ref, mp.Head)
+		if err != nil {
+			return err
+		}
+		if !pending && sha == pr.Head.SHA {
+			return h.baseMerged(ctx, mech, mp, sha)
+		}
 		// A push after the hand-off: the ticket returns to review, and
 		// the mechanism lets the PR go (AE1, R8).
 		if err := machine.Settled(h.cfg.Machine.HeadChanged(ctx, p.ID, it.ID, pr.Head.SHA)); err != nil {
@@ -304,8 +313,23 @@ func (h *HandOff) advance(ctx context.Context, p config.Project, mech Mechanism,
 		return h.recordIf(ctx, mp, stateClosed)
 	case Dequeued:
 		return h.dequeued(ctx, mech, mp, t, r)
+	case BaseMerged:
+		return h.baseMerged(ctx, mech, mp, r.SHA)
 	}
 	return nil
+}
+
+// baseMerged moves a queued ticket to sha, the mechanism's merge of a
+// moved base into the reviewed head (F-66). The ticket stays queued with
+// no new review round, and the mechanism holds the PR at the new head.
+func (h *HandOff) baseMerged(ctx context.Context, mech Mechanism, pr PR, sha string) error {
+	res := h.cfg.Machine.Apply(ctx, machine.Request{Project: pr.Project.ID, Item: pr.Item, Verb: machine.VerbBaseMerged,
+		ExpectedStatus: machine.Queued, Params: map[string]string{"from": pr.Head, "head": sha}, Actor: actor})
+	if res.Refusal != nil {
+		return machine.Settled(res)
+	}
+	pr.Head = sha
+	return h.start(ctx, mech, pr)
 }
 
 // dequeued makes the move of one dequeue reason. A broken merge config

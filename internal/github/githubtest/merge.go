@@ -41,6 +41,8 @@ type mergeWorld struct {
 	mutations []string
 	commits   map[string][]FileCommit // branch -> each commit the contents API made on it
 	main      []string                // each tip of main after BaseSHA, oldest first
+	changed   map[string][]string     // a commit of main -> each path it changed
+	based     int                     // the merges of main into a branch
 }
 
 // mainTip is the current tip of main. It runs under w.mu.
@@ -62,6 +64,31 @@ func (w *World) onMain(sha string) int {
 	}
 	return -1
 }
+
+// AdvanceMain lands one commit on main outside the loop, as a person's
+// push or another tool does, and returns it. It changes each path in
+// paths.
+func (w *World) AdvanceMain(paths ...string) string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	sha := fmt.Sprintf("%040x", 0xf000+len(w.merge.main))
+	w.landOnMain(sha, paths)
+	return sha
+}
+
+// landOnMain moves the tip of main to sha, a commit that changed paths.
+// It runs under w.mu.
+func (w *World) landOnMain(sha string, paths []string) {
+	w.merge.main = append(w.merge.main, sha)
+	if w.merge.changed == nil {
+		w.merge.changed = map[string][]string{}
+	}
+	w.merge.changed[sha] = paths
+}
+
+// BaseMergeSHA is the merge commit the fake's merges API makes for the
+// nth merge of main into a branch, counted from 1.
+func BaseMergeSHA(n int) string { return fmt.Sprintf("%040x", 0xa000+n) }
 
 // FileCommit is one commit that a contents API write made on a branch.
 type FileCommit struct {
@@ -174,6 +201,7 @@ var (
 	reRef        = regexp.MustCompile(`^/repos/` + Repo + `/git/ref/heads/(.+)$`)
 	reContents   = regexp.MustCompile(`^/repos/` + Repo + `/contents/(.+)$`)
 	reCompare    = regexp.MustCompile(`^/repos/` + Repo + `/compare/(.+)\.\.\.(.+)$`)
+	reMerges     = `/repos/` + Repo + `/merges`
 	mergeRefused = []string{"dirty", "behind", "blocked"}
 )
 
@@ -245,6 +273,8 @@ func (w *World) serveMerge(rw http.ResponseWriter, r *http.Request) bool {
 			return true
 		}
 		WriteJSON(rw, 200, map[string]any{"ref": "refs/heads/" + b, "object": map[string]any{"sha": sha, "type": "commit"}})
+	case r.Method == http.MethodPost && path == reMerges:
+		w.serveMergeBase(rw, r)
 	case r.Method == http.MethodGet && reCompare.MatchString(path):
 		w.serveCompare(rw, reCompare.FindStringSubmatch(path))
 	case r.Method == http.MethodPost && path == "/repos/"+Repo+"/git/refs":
@@ -349,32 +379,72 @@ func (w *World) serveMergePR(rw http.ResponseWriter, r *http.Request, n string) 
 	p.Merged, p.State, p.MergeSHA = true, "closed", MergeSHA(p.Number)
 	p.UpdatedAt = w.tick()
 	if p.Base == "main" {
-		w.merge.main = append(w.merge.main, p.MergeSHA)
+		w.landOnMain(p.MergeSHA, slices.Concat(p.Files, p.Added))
 	}
 	WriteJSON(rw, 200, map[string]any{"sha": p.MergeSHA, "merged": true, "message": "merged"})
 }
 
-// serveCompare answers the compare of a base and a head with the count of
-// base commits the head lacks. The base is main or a commit of main. The
-// head is a commit of main, or a PR's head, which holds the tip of main
-// that the PR's BaseSHA names. Any other head holds BaseSHA, as a head a
-// push replaced does. It runs under w.mu.
+// serveCompare answers the compare of a base and a head. Either side is
+// main, a commit of main, or a PR's head, which holds the tip of main that
+// the PR's BaseSHA names. Any other head holds BaseSHA, as a head a push
+// replaced does. behind_by counts the commits of main the head lacks and
+// the base holds. ahead_by counts those the head holds and the base
+// lacks, and files lists each path they changed. It runs under w.mu.
 func (w *World) serveCompare(rw http.ResponseWriter, m []string) {
 	base, head := m[1], m[2]
 	if base == "main" {
 		base = w.mainTip()
 	}
-	held := w.onMain(head)
-	if i := slices.IndexFunc(w.prs, func(p *PR) bool { return p.HeadSHA == head }); held < 0 && i >= 0 {
-		held = w.onMain(w.prs[i].BaseSHA)
+	if head == "main" {
+		head = w.mainTip()
 	}
-	held = max(held, 0)
-	at := w.onMain(base)
-	if at < 0 {
+	held := func(sha string) int {
+		at := w.onMain(sha)
+		if i := slices.IndexFunc(w.prs, func(p *PR) bool { return p.HeadSHA == sha }); at < 0 && i >= 0 {
+			at = w.onMain(w.prs[i].BaseSHA)
+		}
+		return max(at, 0)
+	}
+	if w.onMain(base) < 0 && w.onMain(head) < 0 {
 		WriteJSON(rw, 404, map[string]string{"message": "Not Found"})
 		return
 	}
-	WriteJSON(rw, 200, map[string]any{"behind_by": max(at-held, 0)})
+	from, to := held(base), held(head)
+	files := []any{}
+	for _, c := range w.merge.main[min(from, to):to] {
+		for _, f := range w.merge.changed[c] {
+			files = append(files, map[string]any{"filename": f, "status": "modified"})
+		}
+	}
+	WriteJSON(rw, 200, map[string]any{"behind_by": max(from-to, 0), "ahead_by": max(to-from, 0), "files": files})
+}
+
+// serveMergeBase answers the merges API for a merge of main into a PR's
+// branch: 409 when the PR conflicts with its base, 204 when the branch
+// holds the tip of main, and otherwise a merge commit whose parents are
+// the PR's head and the tip of main. The merge commit becomes the PR's
+// head. It runs under w.mu.
+func (w *World) serveMergeBase(rw http.ResponseWriter, r *http.Request) {
+	var body map[string]string
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	i := slices.IndexFunc(w.prs, func(p *PR) bool { return p.Head == body["base"] && p.State == "open" })
+	switch {
+	case i < 0 || body["head"] != "main":
+		WriteJSON(rw, 404, map[string]string{"message": "Not Found"})
+		return
+	case w.prs[i].MergeableState == "dirty":
+		WriteJSON(rw, 409, map[string]string{"message": "Merge conflict"})
+		return
+	case w.onMain(w.prs[i].BaseSHA) == len(w.merge.main):
+		rw.WriteHeader(http.StatusNoContent)
+		return
+	}
+	p := w.prs[i]
+	w.merge.based++
+	parents := []any{map[string]string{"sha": p.HeadSHA}, map[string]string{"sha": w.mainTip()}}
+	p.HeadSHA, p.BaseSHA, p.MergeableState = BaseMergeSHA(w.merge.based), w.mainTip(), ""
+	p.UpdatedAt = w.tick()
+	WriteJSON(rw, 201, map[string]any{"sha": p.HeadSHA, "parents": parents})
 }
 
 func (w *World) serveGraphQL(rw http.ResponseWriter, r *http.Request) {

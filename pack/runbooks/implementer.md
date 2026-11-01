@@ -40,7 +40,8 @@ with no failed check. Then `loop pr show` reports a conflict. GitHub runs no CI 
 pull request. Merge the base as section 2 states, and change nothing else.
 
 Under the `direct` mechanism, a pull request whose head is behind the base also comes back as
-rework with no reject. Section 2 states how you know. Merge the base, and change nothing else.
+rework with no reject when the base change touches a file of the pull request. Section 2 states how
+you know. Merge the base, and change nothing else.
 
 When the status says rework, no round holds a reject with a comment, the pull request has no
 conflict, and its head is not behind the base under `direct`, do not build. A rework without its
@@ -64,7 +65,7 @@ base in its own way:
 | --- | --- |
 | `mergify` | Mergify tests the pull request on the current base before it merges it. |
 | `github-queue` | GitHub's merge queue tests the pull request on the current base before it merges it. |
-| `direct` | No queue tests it. The server does not merge it, and it sends the ticket to rework. |
+| `direct` | No queue tests it. The server merges the base into it when the base change touches no file of the pull request. Otherwise it sends the ticket to rework. |
 
 Under a queue, a `behind` state alone is no conflict. A merge you do not need changes the reviewed
 head, and it costs a new build and a new review. Under `direct`, GitHub can report `clean` for a
