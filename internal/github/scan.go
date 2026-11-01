@@ -91,19 +91,9 @@ type change struct {
 // good config and never from head: a branch could otherwise drop a pin
 // and add its directory in one push (ADR 0013 decision 1).
 func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, settings bool, pins []string, head, base string, exclude ...string) ([]string, error) {
-	args := []string{"rev-list", "--reverse", head}
-	for _, e := range append([]string{base}, exclude...) {
-		if e != "" {
-			args = append(args, "^"+e)
-		}
-	}
-	out, err := m.git.text(ctx, gitRun{dir: m.Dir, args: args})
+	commits, err := m.newCommits(ctx, head, base, exclude...)
 	if err != nil {
 		return nil, err
-	}
-	var commits []string
-	if out != "" {
-		commits = strings.Split(out, "\n")
 	}
 	for _, c := range commits {
 		if err := m.scanCommit(ctx, red, settings, pins, c, base); err != nil {
@@ -111,6 +101,54 @@ func (m *Mirror) Scan(ctx context.Context, red *secrets.Redactor, settings bool,
 		}
 	}
 	return commits, nil
+}
+
+// newCommits lists the commits that head adds over base and the other
+// excluded refs, oldest first. An empty ref excludes nothing.
+func (m *Mirror) newCommits(ctx context.Context, head, base string, exclude ...string) ([]string, error) {
+	args := []string{"rev-list", "--reverse", head}
+	for _, e := range append([]string{base}, exclude...) {
+		if e != "" {
+			args = append(args, "^"+e)
+		}
+	}
+	out, err := m.git.text(ctx, gitRun{dir: m.Dir, args: args})
+	if err != nil || out == "" {
+		return nil, err
+	}
+	return strings.Split(out, "\n"), nil
+}
+
+// EditCommits lists each of commits that changes a file doc names,
+// against its first parent (rule one_edit_set). A merge whose second
+// parent base holds brings the base in, so it edits nothing.
+func (m *Mirror) EditCommits(ctx context.Context, doc func(path string) bool, base string, commits []string) ([]string, error) {
+	var edits []string
+	for _, c := range commits {
+		out, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"rev-list", "--parents", "-n", "1", c}})
+		if err != nil {
+			return nil, err
+		}
+		parents := strings.Fields(out)[1:]
+		if len(parents) > 1 {
+			ofBase, err := m.Reaches(ctx, base, parents[1])
+			if err != nil {
+				return nil, err
+			}
+			if ofBase {
+				continue
+			}
+		}
+		args := []string{"diff-tree", "-r", "--root", "--no-commit-id", "--name-only", "--no-renames", "-z"}
+		names, err := m.git.run(ctx, gitRun{dir: m.Dir, args: append(append(args, parents[:min(len(parents), 1)]...), c)})
+		if err != nil {
+			return nil, err
+		}
+		if slices.ContainsFunc(strings.Split(string(names), "\x00"), doc) {
+			edits = append(edits, c)
+		}
+	}
+	return edits, nil
 }
 
 func (m *Mirror) scanCommit(ctx context.Context, red *secrets.Redactor, settings bool, pins []string, commit, base string) error {
