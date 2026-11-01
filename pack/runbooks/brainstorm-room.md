@@ -30,7 +30,9 @@ that a recorded answer settles.
 
 ## 2. A new PRD
 
-Run the session in `../loop-brainstorm/SKILL.md`. When the operator calls the PRD ready, apply
+Run the session in `../loop-brainstorm/SKILL.md`. When `.loop/config.yaml` holds a `ui` key, set
+the `**UI:**` line of each story with the operator, as that skill states. Never choose a line for
+the operator. When the operator calls the PRD ready, apply
 `../loop-unslop/SKILL.md` to it. Then commit it, with a message by `../loop-commit/SKILL.md`, and
 submit it:
 

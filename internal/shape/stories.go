@@ -89,6 +89,19 @@ func Stories(prd string) []Story {
 	return out
 }
 
+// UIFault says what is wrong with the UI line of the story, or "" when it
+// reads yes or no. The prd gate asks for the line in a project that
+// declares a UI.
+func (s Story) UIFault() string {
+	switch s.UI {
+	case UIMissing:
+		return "holds no **UI:** line"
+	case UIBad:
+		return "holds two **UI:** lines, or one that reads neither yes nor no"
+	}
+	return ""
+}
+
 // UIStories lists the labels of the stories whose UI line reads yes, once
 // each, in order.
 func UIStories(prd string) []string {
