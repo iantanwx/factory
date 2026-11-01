@@ -80,6 +80,9 @@ type Brief struct {
 	// none when ReadersOff says why. Nil, and absent, on every other stage.
 	DocReaders []string `json:"doc_readers,omitzero"`
 	ReadersOff string   `json:"readers_off,omitempty"`
+	// Design is the project's design block. Only a design room's brief
+	// holds it, and `loop design capture` reads its capture command.
+	Design *config.DesignConfig `json:"design,omitempty"`
 }
 
 // BriefSkill is one userspace skill pin as a brief names it.
