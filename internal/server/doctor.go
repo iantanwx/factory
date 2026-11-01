@@ -50,7 +50,7 @@ func (g *GitHub) Doctor(ctx context.Context, projects *config.Projects) ([]Proje
 	out := []ProjectDoctor{}
 	for _, p := range ps {
 		lines := g.Service.Doctor(ctx, p)
-		lines = append(lines, g.requiredPermissionsLine(ctx, p))
+		lines = append(lines, g.requiredPermissionsLine(ctx, p), g.appChecksLine(ctx, p))
 		lines = append(lines, g.projectConfigLine(ctx, p))
 		lines = append(lines, g.quotaLine(ctx, p))
 		if l, ok := g.judgeKeyLine(ctx, p); ok {
@@ -78,6 +78,23 @@ func (g *GitHub) requiredPermissionsLine(ctx context.Context, p config.Project) 
 	line.Detail = "grant the loop App " + strings.Join(missing, ", ")
 	if line.OK {
 		line.Detail = "the App holds every permission the loop needs"
+	}
+	return line
+}
+
+// appChecksLine fails while the installation lacks checks write, because
+// the App then cannot post the loop/qa check run (ADR 0014 decision 3).
+func (g *GitHub) appChecksLine(ctx context.Context, p config.Project) github.CheckLine {
+	line := github.CheckLine{Check: "app_checks"}
+	in, err := g.Service.Installation(ctx, p)
+	if err != nil {
+		line.Detail = "the installation could not be read: " + err.Error()
+		return line
+	}
+	line.OK = github.PermissionLevel(in.Permissions["checks"]) >= github.PermissionLevel("write")
+	line.Detail = "the App can post the " + github.QAContext + " check run"
+	if !line.OK {
+		line.Detail = "grant the loop App checks:write and accept it on the installation; until then it cannot post " + github.QAContext
 	}
 	return line
 }

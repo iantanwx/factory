@@ -63,9 +63,12 @@ func write(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
+// git runs git in dir and returns its output. The git starts no auto
+// maintenance or auto gc, which could still write into the repository after
+// git returns and race t.TempDir's cleanup (factorio-d14g).
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	c := exec.Command("git", args...)
+	c := exec.Command("git", append([]string{"-c", "maintenance.auto=false", "-c", "gc.auto=0"}, args...)...)
 	c.Dir = dir
 	out, err := c.CombinedOutput()
 	if err != nil {
