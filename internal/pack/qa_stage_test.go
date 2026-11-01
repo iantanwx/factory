@@ -128,3 +128,31 @@ func TestC2QAStageStartsNoRunUnlessListed(t *testing.T) {
 		t.Fatalf("qa firing = %+v, want %+v", firings[i], want)
 	}
 }
+
+// C36: the implementer runbook reads a round of stage qa as a rejection
+// whose body is the QA report, and keeps the verify skill true by
+// loop-verify-maintain when a change alters how the app starts.
+func TestC36ImplementerReadsAQARoundAsARejection(t *testing.T) {
+	rb := read(t, "runbooks/implementer.md")
+	var round, verify string
+	for _, para := range strings.Split(rb, "\n\n") {
+		flat := strings.Join(strings.Fields(para), " ")
+		if round == "" && strings.Contains(flat, "stage `qa`") {
+			round = flat
+		}
+		if verify == "" && strings.Contains(flat, "`../loop-verify-maintain/SKILL.md`") && strings.Contains(flat, "how the app starts") {
+			verify = flat
+		}
+	}
+	if round == "" {
+		t.Fatal("the implementer runbook names no round of stage `qa`")
+	}
+	for _, want := range []string{"rejection", "QA report"} {
+		if !strings.Contains(round, want) {
+			t.Errorf("the qa round rule does not say %q: %s", want, round)
+		}
+	}
+	if verify == "" {
+		t.Error("the implementer runbook does not send a change to how the app starts to `../loop-verify-maintain/SKILL.md`")
+	}
+}

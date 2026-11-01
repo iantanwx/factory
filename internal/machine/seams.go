@@ -267,14 +267,15 @@ func (m *Machine) MergeObserved(ctx context.Context, ev MergeEvent) cli.Result {
 }
 
 // HeadChanged returns a ticket whose PR head moved after a review pass to
-// in_review, and clears reviewed_head in the same write (AE1, R8). Any
-// other item, or a head equal to the reviewed head, answers Nothing.
+// in_review, and clears reviewed_head in the same write (AE1, R8). A
+// ticket in in_qa also loses qa_head and its QA run's lease. Any other
+// item, or a head equal to the reviewed head, answers Nothing.
 func (m *Machine) HeadChanged(ctx context.Context, project, item, sha string) cli.Result {
 	it, ref := m.Show(ctx, project, item)
 	if ref != nil {
 		return ref.Result()
 	}
-	if it.Kind != KindTicket || !slices.Contains([]string{ReadyToMerge, Queued}, it.Status) || it.Fact(FactReviewedHead) == sha {
+	if it.Kind != KindTicket || !slices.Contains([]string{InQA, ReadyToMerge, Queued}, it.Status) || it.Fact(FactReviewedHead) == sha {
 		return cli.Nothing()
 	}
 	return m.Apply(ctx, Request{Project: project, Item: item, Verb: "head_changed", ExpectedStatus: it.Status,
