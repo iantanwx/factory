@@ -80,6 +80,38 @@ func TestRegisterSteps(t *testing.T) {
 	}
 }
 
+// TestC31TheRulesetRequiresLoopQAFromTheLoopApp: the ruleset that register
+// makes requires loop/qa and loop/eligible from the loop App, and the CI
+// discovery leaves both out (C30).
+func TestC31TheRulesetRequiresLoopQAFromTheLoopApp(t *testing.T) {
+	gh := &fakeGH{stdin: map[string][]byte{}, answers: map[string]string{
+		"gh api repos/me/app/commits/main/check-runs":             `{"check_runs":[{"name":"test"},{"name":"loop/qa"}]}`,
+		"gh api repos/me/app/commits/main/status":                 `{"statuses":[{"context":"loop/eligible"}]}`,
+		"gh api repos/me/app/rulesets":                            `[]`,
+		"gh api -X POST repos/me/app/rulesets --input - --silent": ``,
+	}}
+	h := &hostVerbs{cmd: gh.run}
+	ctx := context.Background()
+	rep := RegisterReport{Repo: "me/app", Branch: "main", Path: "/src/app"}
+	ci, err := h.ciChecks(ctx, rep)
+	if err != nil || !slices.Equal(ci, []string{"test"}) {
+		t.Fatalf("ci = %v %v, want [test]", ci, err)
+	}
+	rep.CI = ci
+	if _, err := h.ensureRuleset(ctx, rep, 42); err != nil {
+		t.Fatal(err)
+	}
+	raw := string(gh.stdin["gh api -X POST repos/me/app/rulesets --input - --silent"])
+	for _, want := range []string{`"context":"loop/qa","integration_id":42`, `"context":"loop/eligible","integration_id":42`} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("the ruleset lacks %s: %s", want, raw)
+		}
+	}
+	if strings.Count(raw, `"context":"loop/qa"`) != 1 {
+		t.Errorf("the ruleset requires loop/qa more than once: %s", raw)
+	}
+}
+
 // A private repository on a free plan has no rulesets; register goes on.
 func TestRegisterWithoutRulesets(t *testing.T) {
 	h := &hostVerbs{cmd: func(context.Context, string, []byte, string, ...string) ([]byte, error) {

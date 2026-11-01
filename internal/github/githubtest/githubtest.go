@@ -129,13 +129,14 @@ func NewAPI(t testing.TB) *API {
 	return a
 }
 
-// GoodRules require CI and loop/eligible from the App, and a PR.
+// GoodRules require CI, loop/qa and loop/eligible from the App, and a PR.
 func GoodRules() []any {
 	return []any{
 		map[string]any{"type": "pull_request", "parameters": map[string]any{"required_approving_review_count": 0}},
 		map[string]any{"type": "required_status_checks", "parameters": map[string]any{
 			"required_status_checks": []any{
 				map[string]any{"context": "ci"},
+				map[string]any{"context": "loop/qa", "integration_id": AppID},
 				map[string]any{"context": Eligible, "integration_id": AppID},
 			}}},
 	}

@@ -56,6 +56,13 @@ const eligibleRevive = time.Hour
 // again. A post that failed is made runnable again eligibleRevive after
 // its failure, while the ticket waits at the same head. It posts on the
 // reviewed sha only, never on a later head.
+//
+// loop/eligible follows loop/qa (ADR 0014 decision 3): it enqueues the
+// post only once the newest checkrun effect of the head is done. A head
+// with no stored report first gets a neutral loop/qa: with the key suffix
+// off while the project runs no QA stage, and carried when base_merged
+// carried a QA pass to it. A head with a stored report gets the report's
+// conclusion from EnqueueQAChecks.
 func (s *Service) EnqueueEligibility(ctx context.Context, p config.Project) (int, error) {
 	m := s.cfg.Machine
 	if m == nil {
@@ -69,11 +76,24 @@ func (s *Service) EnqueueEligibility(ctx context.Context, p config.Project) (int
 		}
 		want = append(want, items...)
 	}
+	if len(want) == 0 {
+		return 0, nil
+	}
+	cfg, err := s.baseConfig(ctx, p)
+	if err != nil {
+		return 0, err
+	}
+	qa := cfg != nil && cfg.StageEnabled(config.StageQA)
 	added := 0
 	for _, it := range want {
 		sha := it.Fact(machine.FactReviewedHead)
 		if !shaRe.MatchString(sha) {
 			continue
+		}
+		post, neutral := neutralQA(p, it, sha, qa)
+		qaPayload, err := json.Marshal(neutral)
+		if err != nil {
+			return added, err
 		}
 		payload, err := json.Marshal(StatusPayload{Project: p.ID, Item: it.ID, SHA: sha, Context: EligibleContext,
 			State: "success", Description: "the loop's review passed at this head"})
@@ -83,6 +103,9 @@ func (s *Service) EnqueueEligibility(ctx context.Context, p config.Project) (int
 		key := statusKey(p.ID, sha, EligibleContext)
 		err = s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 			now := tx.Now().UnixMilli()
+			if done, err := qaPosted(tx, p.ID, it.ID, sha, post, qaPayload); err != nil || !done {
+				return err
+			}
 			res, err := tx.Exec(`UPDATE outbox SET state = 'runnable', attempts = 0, next_attempt_at = 0, updated_at = ?
 				WHERE effect_kind = ? AND natural_key = ? AND state = 'failed' AND updated_at <= ?`,
 				now, EffectStatus, key, now-eligibleRevive.Milliseconds())
@@ -111,6 +134,55 @@ func (s *Service) EnqueueEligibility(ctx context.Context, p config.Project) (int
 		}
 	}
 	return added, nil
+}
+
+// neutralQA is the neutral loop/qa post that head sha of it gets before
+// loop/eligible, and the post of its key. post is "" when the head gets
+// none: a head the QA stage has yet to read.
+func neutralQA(p config.Project, it machine.Item, sha string, qa bool) (post string, c CheckRunPayload) {
+	c = CheckRunPayload{Project: p.ID, Item: it.ID, SHA: sha, Name: QAContext, Conclusion: "neutral"}
+	from := it.Fact(machine.FactQACarriedFrom)
+	switch {
+	case !qa:
+		c.Title = "The QA stage is off"
+		c.Summary = "The project runs no QA stage, so no QA run read this head. The loop's review passed at it."
+		return "off", c
+	case from != "" && it.Fact(machine.FactQAHead) == sha:
+		c.Title = "QA passed at the head the base merged into"
+		c.Summary = fmt.Sprintf("QA passed at %s, and the server merged the base into it with no conflict. The report: https://github.com/%s/commit/%s/checks",
+			short(from), p.Repo, from)
+		return "carried", c
+	}
+	return "", c
+}
+
+// qaPosted enqueues the neutral loop/qa of head sha of item under post
+// when post is set and no stored report holds the head, and reports
+// whether the newest checkrun effect of the head is done.
+func qaPosted(tx *store.Tx, project, item, sha, post string, payload []byte) (bool, error) {
+	var reported bool
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM qa_reports WHERE project = ? AND item = ? AND head = ?)`,
+		project, item, sha).Scan(&reported); err != nil {
+		return false, err
+	}
+	if post != "" && !reported {
+		intent, err := eligibleIntent(tx, project, item)
+		if err != nil || intent == 0 {
+			return false, err
+		}
+		now := tx.Now().UnixMilli()
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO outbox (intent_id, effect_kind, natural_key, payload, state, created_at, updated_at)
+			VALUES (?, ?, ?, ?, 'runnable', ?, ?)`, intent, EffectCheckRun, checkRunKey(project, sha, post), string(payload), now, now); err != nil {
+			return false, err
+		}
+	}
+	var state string
+	err := tx.QueryRow(`SELECT state FROM outbox WHERE effect_kind = ? AND json_extract(payload, '$.project') = ?
+		AND json_extract(payload, '$.sha') = ? ORDER BY id DESC LIMIT 1`, EffectCheckRun, project, sha).Scan(&state)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return state == "done", err
 }
 
 // eligibleIntent names the intent a ticket's loop/eligible effect joins:

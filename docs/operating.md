@@ -434,10 +434,13 @@ run `loop register` again. It records the new branch with
 Rules, then Rulesets in GitHub, and make a branch ruleset for the default
 branch:
 
-1. Require status checks to pass. Add the CI check. Add `loop/eligible`,
-   and set its source to the loop App. The loop posts `loop/eligible` only
-   after a review pass, because the App cannot approve its own pull
-   request.
+1. Require status checks to pass. Add the CI check. Add `loop/qa` and
+   `loop/eligible`, and set the source of each to the loop App. The loop
+   posts `loop/eligible` only after a review pass, because the App cannot
+   approve its own pull request. It posts `loop/qa` on the same head first:
+   the QA run's report, or `neutral` on a head that no QA run reads.
+   `loop/qa` never counts as CI. `loop doctor` fails the line `qa_required`
+   while the ruleset lacks `loop/qa` from the loop App.
 2. Require a pull request before merging, with no required approvals. This
    blocks direct pushes to the default branch.
 3. Add yourself to the bypass list. You sign off a PRD or a spec by merging

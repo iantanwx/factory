@@ -109,11 +109,14 @@ var redConclusions = []string{"failure", "timed_out", "action_required", "startu
 // never started is pending too: it has no result, so it is neither green
 // nor red. A failed run from an earlier attempt of a rerun workflow run
 // waits for the rerun to report its job: it is pending, never red (F-69).
-// loop/eligible is the loop's own status and never counts as CI.
+// loop/eligible and loop/qa are the loop's own and never count as CI.
 func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 	rep := CIReport{Head: head, Checks: []CheckView{}, Superseded: []CheckView{}}
 	latest := map[string]CheckRun{}
 	for _, r := range runs {
+		if loopContext(r.Name) {
+			continue
+		}
 		if r.HeadSHA != "" && r.HeadSHA != head {
 			rep.Superseded = append(rep.Superseded, CheckView{Name: r.Name, Kind: "check", State: "superseded", ID: r.ID,
 				URL: r.HTMLURL, Detail: "ran on " + short(r.HeadSHA)})
@@ -158,7 +161,7 @@ func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 		rep.Checks = append(rep.Checks, v)
 	}
 	for _, st := range statuses {
-		if st.Context == EligibleContext {
+		if loopContext(st.Context) {
 			continue
 		}
 		v := CheckView{Name: st.Context, Kind: "status", URL: st.TargetURL, Detail: st.Description}

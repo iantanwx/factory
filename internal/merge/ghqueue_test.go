@@ -1,6 +1,7 @@
 package merge_test
 
 import (
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -65,6 +66,41 @@ func TestGitHubQueuePostsEligibleOnlyOnAGroupOfEligiblePRs(t *testing.T) {
 		if posts(e, s) != 0 {
 			t.Fatalf("loop/eligible posted on %s, a group that holds an ineligible or unknown PR: %v", s, e.world.Posted())
 		}
+	}
+}
+
+// TestC29AMergeGroupCommitGetsANeutralLoopQABeforeLoopEligible: no QA run
+// reads a merge-group commit, so the sweep posts a neutral loop/qa there
+// before loop/eligible. A group whose loop/qa GitHub refuses gets no
+// loop/eligible.
+func TestC29AMergeGroupCommitGetsANeutralLoopQABeforeLoopEligible(t *testing.T) {
+	e := newQueue(t)
+	e.reviewed(sha('1'), true)
+	e.tick()
+	ga := sha('a')
+	e.world.AddGroup(group("1", gt.BaseSHA), ga)
+	before := len(e.api.Calls())
+	e.tick()
+	calls := e.api.Calls()[before:]
+	qa := slices.Index(calls, "POST /repos/"+gt.Repo+"/check-runs")
+	eligible := slices.Index(calls, "POST /repos/"+gt.Repo+"/statuses/"+ga)
+	if qa < 0 || eligible < 0 || qa > eligible {
+		t.Fatalf("calls %q; want the check run post before the loop/eligible post on %s", calls, ga)
+	}
+	if runs := e.world.CheckRunsAt(ga); len(runs) != 1 || runs[0]["name"] != github.QAContext || runs[0]["conclusion"] != "neutral" {
+		t.Fatalf("check runs at %s = %v, want one neutral loop/qa", ga, runs)
+	}
+
+	refused := newQueue(t)
+	refused.reviewed(sha('1'), true)
+	refused.tick()
+	refused.world.AddGroup(group("1", gt.BaseSHA), ga)
+	refused.api.Route("POST /repos/"+gt.Repo+"/check-runs", func(w http.ResponseWriter, _ *http.Request) {
+		gt.WriteJSON(w, http.StatusForbidden, map[string]string{"message": "Resource not accessible by integration"})
+	})
+	_ = refused.job.TickProject(refused.ctx, testProject)
+	if posts(refused, ga) != 0 {
+		t.Fatalf("loop/eligible posted on %s while GitHub refuses check runs: %v", ga, refused.world.Posted())
 	}
 }
 

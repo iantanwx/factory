@@ -32,11 +32,12 @@ type group struct {
 // maxChain bounds the walk through groups ahead of one group.
 const maxChain = 100
 
-// Sweep reads the merge groups of the project's base branch and posts
-// loop/eligible on each group commit whose every PR is eligible at its
-// queued head. A group's PRs are its own PR and the PRs of the groups it
-// builds on, back to the base tip. A group of unknown composition gets
-// nothing.
+// Sweep reads the merge groups of the project's base branch and posts a
+// neutral loop/qa, then loop/eligible, on each group commit whose every
+// PR is eligible at its queued head. No QA run reads a group commit: QA
+// read each of its PRs at the head the group holds. A group's PRs are its
+// own PR and the PRs of the groups it builds on, back to the base tip. A
+// group of unknown composition gets nothing.
 func (q *Queue) Sweep(ctx context.Context, p config.Project, eligible func(context.Context, int) (bool, error)) error {
 	base, err := q.gh.DefaultBranch(ctx, p)
 	if err != nil {
@@ -80,6 +81,12 @@ func (q *Queue) Sweep(ctx context.Context, p config.Project, eligible func(conte
 			continue
 		}
 		if !ok {
+			continue
+		}
+		if err := q.gh.PostCheckRun(ctx, p, github.CheckRunPayload{Project: p.ID, SHA: g.sha, Name: github.QAContext,
+			Conclusion: "neutral", Title: "No QA run reads a merge group",
+			Summary: "Each PR of this merge group passed the loop's review, and QA when the project runs it, at its queued head."}); err != nil {
+			errs = append(errs, fmt.Errorf("post %s on group %s: %w", github.QAContext, github.Short(g.sha), err))
 			continue
 		}
 		if err := q.gh.PostStatus(ctx, p, g.sha, github.EligibleContext, "success",

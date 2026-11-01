@@ -183,7 +183,8 @@ func (s *Service) BranchSHA(ctx context.Context, p config.Project, branch string
 }
 
 // BranchRules reads the rules that apply to the default branch: the type
-// of each rule, and the required status contexts other than loop/eligible.
+// of each rule, and the required status contexts other than loop/eligible
+// and loop/qa.
 // It reads the rule types and the contexts only, never a response layout.
 // A plan with no rulesets has no rules.
 func (s *Service) BranchRules(ctx context.Context, p config.Project) (types, checks []string, err error) {
@@ -210,7 +211,7 @@ func (s *Service) BranchRules(ctx context.Context, p config.Project) (types, che
 			return nil, nil, fmt.Errorf("github: read the required checks of %s: %w", base, err)
 		}
 		for _, c := range params.Checks {
-			if c.Context != "" && c.Context != EligibleContext {
+			if c.Context != "" && !loopContext(c.Context) {
 				checks = append(checks, c.Context)
 			}
 		}

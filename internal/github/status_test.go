@@ -38,6 +38,18 @@ func (e *env) enqueue() int {
 	return n
 }
 
+// postQA enqueues and posts the loop/qa check run that each reviewed head
+// gets before loop/eligible.
+func (e *env) postQA() {
+	e.t.Helper()
+	if n := e.enqueue(); n != 0 {
+		e.t.Fatalf("%d loop/eligible effects enqueued before loop/qa posted", n)
+	}
+	if err := e.svc.RunCheckRunEffects(context.Background()); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
 func (e *env) posted(sha string) bool {
 	e.t.Helper()
 	ok, err := e.svc.EligiblePosted(context.Background(), testProject, sha)
@@ -56,6 +68,7 @@ func TestFailedEligibilityIsRevived(t *testing.T) {
 	id := e.ticket(machine.ReadyToMerge, shaA)
 	post := "POST /repos/" + testRepo + "/statuses/" + shaA
 	ctx := context.Background()
+	e.postQA()
 	if e.enqueue() != 1 {
 		t.Fatal("no effect enqueued")
 	}
@@ -97,6 +110,7 @@ func TestStatus500KeepsTheEffectRunnable(t *testing.T) {
 	e := newEnv(t)
 	e.withWorld()
 	e.ticket(machine.ReadyToMerge, shaA)
+	e.postQA()
 	e.enqueue()
 	e.exec(`UPDATE outbox SET attempts = ?`, maxEffectAttempts-1)
 	e.api.World.FailNext("POST /repos/"+testRepo+"/statuses/"+shaA, http.StatusInternalServerError)
@@ -108,7 +122,7 @@ func TestStatus500KeepsTheEffectRunnable(t *testing.T) {
 
 // A restore from an older snapshot drops the review pass's history and
 // its outbox row, and beads keeps the ticket in ready_to_merge. The bead's
-// reviewed head still enqueues the post.
+// reviewed head still enqueues the post, after loop/qa posts again.
 func TestEligibilityEnqueuesWithNoReviewPassHistory(t *testing.T) {
 	e := newEnv(t)
 	e.withWorld()
@@ -117,6 +131,7 @@ func TestEligibilityEnqueuesWithNoReviewPassHistory(t *testing.T) {
 	e.exec(`DELETE FROM outbox`)
 	e.exec(`DELETE FROM transitions WHERE item = ?`, id)
 	e.exec(`DELETE FROM intents WHERE item = ?`, id)
+	e.postQA()
 	if e.enqueue() != 1 {
 		t.Fatal("no effect enqueued for the restored ticket")
 	}
