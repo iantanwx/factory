@@ -75,6 +75,10 @@ type Options struct {
 	Config string
 	// Files are more files on the project's main branch.
 	Files map[string]string
+	// Pack replaces files of the embedded pack source that each run
+	// receives, by their path in the source, such as
+	// agents/loop-doc-reader.md.
+	Pack map[string]string
 	// Real composes the world as production does on an orca host: the real
 	// clock, no coordinator, the project clone at Real.Clone. Nil keeps the
 	// fake world.
@@ -149,6 +153,7 @@ type World struct {
 	real    *RealHost
 	pl      *server.Pipeline
 	loop    string // a real world's copy of Binary under Dir, which each token file names
+	pack    map[string]string
 
 	mu      sync.Mutex
 	run     *running
@@ -202,7 +207,7 @@ func New(t *testing.T, o Options) *World {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &World{T: t, root: root, bd: bd, dolt: dolt, real: o.Real, logs: &syncBuffer{}}
+	w := &World{T: t, root: root, bd: bd, dolt: dolt, real: o.Real, pack: o.Pack, logs: &syncBuffer{}}
 	t.Cleanup(func() {
 		w.Stop()
 		if t.Failed() {
@@ -375,7 +380,7 @@ func (w *World) options() server.Options {
 		opts.Sched.Checkouts = func(string) sched.CheckoutHost { return realCheckouts{w} }
 		opts.LoopBinary = w.loop
 	}
-	src, fetched, err := fixtureSkills()
+	src, fetched, err := fixtureSkills(w.pack)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,9 +427,9 @@ func (w *World) options() server.Options {
 
 // fixtureSkills is the fetched third-party set each world's runs receive:
 // one skill, impeccable, with an executable file, and the embedded pack
-// source with a pin file that pins it. A world fetches nothing, so no
-// embedded pin could match.
-func fixtureSkills() (src, fetched fs.FS, err error) {
+// source with a pin file that pins it and the files of replace in place of
+// its own. A world fetches nothing, so no embedded pin could match.
+func fixtureSkills(replace map[string]string) (src, fetched fs.FS, err error) {
 	set := fstest.MapFS{
 		"impeccable/SKILL.md":           {Data: []byte("---\nname: impeccable\ndescription: A fixture.\n---\n\nRun `scripts/impeccable`.\n")},
 		"impeccable/scripts/impeccable": {Data: []byte("#!/bin/sh\necho impeccable\n"), Mode: 0o755},
@@ -439,18 +444,23 @@ func fixtureSkills() (src, fetched fs.FS, err error) {
 	}
 	pins := fmt.Sprintf(`{"skills": [{"name": "impeccable", "repo": "acme/impeccable", "commit": %q, "path": "", "sha256": %q}]}`,
 		strings.Repeat("a", 40), sum)
-	return pinned{pack.Source(), []byte(pins)}, set, nil
+	files := fstest.MapFS{pack.ThirdPartyFile: {Data: []byte(pins)}}
+	for name, data := range replace {
+		files[name] = &fstest.MapFile{Data: []byte(data)}
+	}
+	return pinned{pack.Source(), files}, set, nil
 }
 
-// pinned is a pack source whose pin file is pins.
+// pinned is a pack source whose files in replace take the place of its
+// own.
 type pinned struct {
 	fs.FS
-	pins []byte
+	replace fstest.MapFS
 }
 
 func (p pinned) Open(name string) (fs.File, error) {
-	if name == pack.ThirdPartyFile {
-		return fstest.MapFS{name: {Data: p.pins}}.Open(name)
+	if _, ok := p.replace[name]; ok {
+		return p.replace.Open(name)
 	}
 	return p.FS.Open(name)
 }

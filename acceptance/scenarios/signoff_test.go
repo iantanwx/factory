@@ -25,7 +25,8 @@ func docPass(w *acceptance.World, epic string) string {
 	if head == "" {
 		w.T.Fatalf("pr show named no head for %s", epic)
 	}
-	w.Must(w.In(run.Checkout, "review", "submit", epic, "--verdict", "pass", "--head", head, "--body", "Read the document at "+head+"."))
+	w.Must(w.In(run.Checkout, "review", "submit", epic, "--verdict", "pass", "--head", head, "--body", "Read the document at "+head+".",
+		"--readers", allReaders))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 	return head
 }
