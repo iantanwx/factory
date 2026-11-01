@@ -25,10 +25,10 @@ const AppListen = "127.0.0.1:47123"
 
 // AppPermissions are the permissions the loop App asks for: exactly the
 // set the GitHub checks of `loop doctor` allow (KTD15). actions is write
-// because `pr rerun` needs it.
+// because `pr rerun` needs it, and checks because the loop posts loop/qa.
 var AppPermissions = map[string]string{
 	"contents": "write", "pull_requests": "write", "statuses": "write", "workflows": "write",
-	"checks": "read", "actions": "write", "metadata": "read",
+	"checks": "write", "actions": "write", "metadata": "read",
 }
 
 // CreatedApp is what GitHub returns for a new App.

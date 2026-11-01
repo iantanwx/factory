@@ -32,6 +32,9 @@ type PushRequest struct {
 	// Prototype is a design room's push of the prototype: Branch is then
 	// PrototypeBranchFor(Item), and no other.
 	Prototype bool
+	// Stage is the stage of the pusher's token. A doc-reviewer run only
+	// reads, and each of its readers shares its token.
+	Stage string
 }
 
 // PushResult is what `branch push` answers.
@@ -63,6 +66,10 @@ var errCrash = errors.New("github: stopped at a kill point")
 // commits the head lacks.
 func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error) {
 	res := PushResult{Branch: req.Branch, Head: req.Head}
+	if req.Stage == config.StageDocReviewer {
+		return res, &RefusedError{Code: cli.CodeCapabilityDenied, Rule: "reviewer_reads_only",
+			Hint: "a doc-reviewer run reads the document and pushes nothing; submit the verdict with `loop review submit`"}
+	}
 	p, err := s.project(req.Project)
 	if err != nil {
 		return res, err
