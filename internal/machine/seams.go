@@ -220,6 +220,9 @@ type MergeEvent struct {
 	// UIStories is a PRD merge's UI: yes labels, comma-separated. It is ""
 	// in a project that declares no UI.
 	UIStories string
+	// DesignPath is a design merge's record, docs/design/<epic>/record.md.
+	// It is "" for any other merge, or a merge commit with no record.
+	DesignPath string
 }
 
 // mergeRetries bounds the re-reads after a status miss. Under the item's
@@ -246,7 +249,8 @@ func (m *Machine) MergeObserved(ctx context.Context, ev MergeEvent) cli.Result {
 	}
 	var res cli.Result
 	for range mergeRetries {
-		res = m.Apply(ctx, Request{Project: ev.Project, Item: ev.Item, Verb: verb, Params: map[string]string{"sha": ev.SHA, "spec_path": ev.SpecPath, "ui_stories": ev.UIStories},
+		res = m.Apply(ctx, Request{Project: ev.Project, Item: ev.Item, Verb: verb, Params: map[string]string{"sha": ev.SHA, "spec_path": ev.SpecPath,
+			"ui_stories": ev.UIStories, "design_path": ev.DesignPath},
 			Actor: Server("reactor")})
 		if res.Refusal == nil || res.Refusal.Code != cli.CodeStatusChanged {
 			break

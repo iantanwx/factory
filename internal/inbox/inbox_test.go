@@ -84,11 +84,12 @@ func TestEntryIDsRoundTrip(t *testing.T) {
 // docGitHub is a fake DocGitHub. It serves one open PR, its changed files
 // and their text at the PR's head, and it records each call.
 type docGitHub struct {
-	pr    github.PR
-	files []github.File
-	text  map[string]string // by path, at pr.Head.SHA
-	ui    string            // the UI stories that DocMerge reads at the merge
-	calls []string
+	pr     github.PR
+	files  []github.File
+	text   map[string]string // by path, at pr.Head.SHA
+	ui     string            // the UI stories that DocMerge reads at the merge
+	design string            // the design record that DocMerge finds at the merge
+	calls  []string
 }
 
 func (g *docGitHub) GetPR(_ context.Context, _ config.Project, n int) (github.PR, error) {
@@ -121,7 +122,7 @@ func (g *docGitHub) DefaultBranch(context.Context, config.Project) (string, erro
 
 func (g *docGitHub) DocMerge(_ context.Context, p config.Project, it machine.Item, sha string) (machine.MergeEvent, error) {
 	g.calls = append(g.calls, "DocMerge "+it.ID+" "+sha)
-	return machine.MergeEvent{Project: p.ID, Item: it.ID, SHA: sha, UIStories: g.ui}, nil
+	return machine.MergeEvent{Project: p.ID, Item: it.ID, SHA: sha, UIStories: g.ui, DesignPath: g.design}, nil
 }
 
 func (g *docGitHub) merged() bool {

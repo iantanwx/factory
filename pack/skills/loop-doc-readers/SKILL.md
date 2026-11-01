@@ -71,7 +71,7 @@ act on the comment alone. A confirmed prose finding may reject the document alon
 A reader decides nothing, so it returns each question it cannot decide. Score each question by
 `../loop-sdlc-triage/SKILL.md`. When the document or the repository answers it, answer it
 yourself. When the answer shows a fault, judge that fault as a finding by section 4. At level 4
-or 5, escalate it by `../loop-doc-reviewer/SKILL.md` § 6. No question reaches the verdict
+or 5, escalate it by `../loop-doc-reviewer/SKILL.md` § 7. No question reaches the verdict
 unscored, and no reader raises one.
 
 ## 6. Submit on a clean tree

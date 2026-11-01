@@ -341,3 +341,23 @@ func TestItemCommentsReadEveryPullRequestOfTheItem(t *testing.T) {
 		t.Fatalf("a ticket with no pull request has comments %q", g)
 	}
 }
+
+// C19: `pr open` from the design room opens the design pull request, and
+// its head is loop/<epic>-design, never the prototype's branch. The open
+// hands the epic to its doc review.
+func TestC19DesignRoomOpensThePullRequestOfTheDesignBranch(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	ep := e.designEpic(machine.Design)
+	commit(t, e.checkout, "prototype", map[string]string{"web/index.html": "<p>widgets</p>\n"})
+	mustOK(t, e.prototypePush(ep, "design-room"))
+	res := e.roomCall("pr open", ep, "design-room", map[string]string{"title": "Widgets: design record", "body": "The record."})
+	mustOK(t, res)
+	prs := w.PRs()
+	if len(prs) != 1 || prs[0].Head != "loop/"+ep+"-design" {
+		t.Fatalf("pull requests %+v, want one whose head is loop/%s-design", prs, ep)
+	}
+	if it := e.status(ep); it.Status != machine.DesignReview || it.Fact(machine.FactDocPR) != strconv.Itoa(prs[0].Number) {
+		t.Fatalf("epic %s: %s with doc_pr=%q, want design_review with doc_pr=%d", ep, it.Status, it.Fact(machine.FactDocPR), prs[0].Number)
+	}
+}

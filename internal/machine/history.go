@@ -94,10 +94,11 @@ func (m *Machine) History(ctx context.Context, project, item string) ([]Transiti
 // outran its review when a doc_merged row from one of its states came
 // before the merge row.
 var mergeFacts = map[string][]string{
-	FactMergedSHA:  nil,
-	FactPRDMerged:  {PRDReview, PRDAmending},
-	FactSpecMerged: {SpecReview, SpecAmending},
-	FactADRMerged:  nil,
+	FactMergedSHA:    nil,
+	FactPRDMerged:    {PRDReview, PRDAmending},
+	FactSpecMerged:   {SpecReview, SpecAmending},
+	FactDesignMerged: {DesignReview},
+	FactADRMerged:    nil,
 }
 
 // MergeRecord is the transition row that recorded a merge commit.
@@ -105,7 +106,7 @@ type MergeRecord struct {
 	Item         string
 	Kind         Kind
 	Verb         string // merged, doc_merged or adr_landed
-	Fact         string // merged_sha, prd_merged, spec_merged or adr_merged
+	Fact         string // merged_sha, prd_merged, spec_merged, design_merged or adr_merged
 	ReviewedHead string // the item's reviewed_head at that transition, or ""
 	Outran       bool   // the document merged during its review or amendment
 	Seq          int64

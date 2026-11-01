@@ -41,10 +41,11 @@ type mergeCheck func(c Commit, rec machine.MergeRecord) string
 // record passes with no check: no stage reviews an ADR, and the
 // operator's merge is its sign-off (ADR 0012).
 var mergeRules = map[string][]mergeCheck{
-	machine.FactMergedSHA:  {headRule},
-	machine.FactPRDMerged:  {outranRule, headRule},
-	machine.FactSpecMerged: {outranRule, headRule},
-	machine.FactADRMerged:  nil,
+	machine.FactMergedSHA:    {headRule},
+	machine.FactPRDMerged:    {outranRule, headRule},
+	machine.FactSpecMerged:   {outranRule, headRule},
+	machine.FactDesignMerged: {outranRule, headRule},
+	machine.FactADRMerged:    nil,
 }
 
 // outranRule fails a document that merged before its review passed,

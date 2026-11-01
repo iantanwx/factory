@@ -3,6 +3,7 @@ package inbox
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -26,6 +27,10 @@ type DocGitHub interface {
 	DocMerge(ctx context.Context, p config.Project, it machine.Item, sha string) (machine.MergeEvent, error)
 }
 
+// signoffStates are the epic states whose document waits for the
+// operator's approval.
+var signoffStates = []string{machine.PRDSignoff, machine.SpecSignoff, machine.DesignSignoff}
+
 // SetGitHub gives the inbox GitHub, so a sign-off answer merges. The
 // GitHub setup calls it after the inbox is composed.
 func (in *Inbox) SetGitHub(gh DocGitHub) { in.cfg.GitHub = gh }
@@ -44,7 +49,7 @@ func (in *Inbox) signoff(ctx context.Context, call *rpc.Call, id, project, item,
 	if ref != nil {
 		return ref.Result()
 	}
-	if it.Kind != machine.KindEpic || it.Status != machine.PRDSignoff && it.Status != machine.SpecSignoff {
+	if it.Kind != machine.KindEpic || !slices.Contains(signoffStates, it.Status) {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeStatusChanged, Rule: "not_in_signoff", Item: item, CurrentStatus: it.Status,
 			AllowedNext: it.AllowedNext, Hint: fmt.Sprintf("%s is %s, so no document of it waits for a sign-off; run `loop inbox list` again", item, it.Status)})
 	}
@@ -193,10 +198,11 @@ func (in *Inbox) project(id string) (config.Project, error) {
 }
 
 // answerAtOtherHead guards the replay of an answer to a sign-off entry.
-// The PRD and the spec of one epic share the entry, so a stored answer
-// can approve another head than the head the entry names now. Such an
-// answer is refused, and never replayed as success. A stored answer at
-// the entry's head, or after the epic left its sign-off, replays.
+// The PRD, the design record and the spec of one epic share the entry,
+// so a stored answer can approve another head than the head the entry
+// names now. Such an answer is refused, and never replayed as success. A
+// stored answer at the entry's head, or after the epic left its sign-off,
+// replays.
 func (in *Inbox) answerAtOtherHead(ctx context.Context, call *rpc.Call, stored cli.Envelope) *cli.Result {
 	kind, project, item, _, ok := parseEntry(call.Inv.Arg("entry"))
 	data, _ := stored.Data.(map[string]any)
@@ -205,7 +211,7 @@ func (in *Inbox) answerAtOtherHead(ctx context.Context, call *rpc.Call, stored c
 		return nil
 	}
 	it, ref := in.cfg.Machine.Read(ctx, project, item)
-	if ref != nil || it.Status != machine.PRDSignoff && it.Status != machine.SpecSignoff {
+	if ref != nil || !slices.Contains(signoffStates, it.Status) {
 		return nil
 	}
 	head := it.Fact(machine.FactReviewedHead)
