@@ -194,6 +194,27 @@ func TestGateRequiresEveryPackPathToExist(t *testing.T) {
 	wantOne(t, check(t, src), "path", "../loop-sdlc-triage/SKILL.md")
 }
 
+// pinnedFixture pins asd-ste100 and names a path in loop-sdlc-turn. The
+// source holds no file of a pinned skill, because the host fetches it.
+func pinnedFixture(paths string) fstest.MapFS {
+	src := fixture()
+	src[ThirdPartyFile] = &fstest.MapFile{Data: []byte(`{"skills": [{"name": "asd-ste100", "repo": "danyuchn/asd-ste100-skill",
+		"commit": "cd62d297d5ef7cf9f59718cadc233ab2876ea013", "path": "", "sha256": "04db809a9dc27d79c7f959424cb22c71553d53137f8db915e1ac8b83a9a9caec"}]}`)}
+	src["skills/loop-sdlc-turn/SKILL.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-sdlc-turn\ndescription: One run.\n---\n\n" + paths)}
+	return src
+}
+
+func TestC22GateAcceptsThePathOfAPinnedSkill(t *testing.T) {
+	if got := check(t, pinnedFixture("Read `../loop-asd-ste100/SKILL.md`.\n")); len(got) != 0 {
+		t.Fatalf("want no findings, got %v", got)
+	}
+}
+
+func TestC22GateRefusesAPathToNoSkillAndNoPin(t *testing.T) {
+	got := check(t, pinnedFixture("Read `../loop-asd-ste100/SKILL.md`, then `../loop-nothing/SKILL.md`.\n"))
+	wantOne(t, got, "path", "../loop-nothing/SKILL.md")
+}
+
 func TestGateRequiresTheManifestToNameEveryFile(t *testing.T) {
 	src := fixture()
 	src["runbooks/stray.md"] = &fstest.MapFile{Data: []byte("---\nname: loop-stray\ndescription: x\n---\n")}
