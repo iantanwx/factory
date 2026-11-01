@@ -103,6 +103,16 @@ func baseMergedGuard(c *change) *cli.Refusal {
 	return nil
 }
 
+// carryQAPass moves a QA pass of the head the base merged into to the
+// merge commit, and names the head it came from.
+func carryQAPass(c *change) *cli.Refusal {
+	if from := c.param("from"); from != "" && c.fact(FactQAHead) == from {
+		c.setFact(FactQAHead, c.param("head"))
+		c.setFact(FactQACarriedFrom, from)
+	}
+	return nil
+}
+
 // endBlock clears pending_block when it names the blocker that work
 // unblock --by removed, because that call ends the block on it.
 func endBlock(c *change) *cli.Refusal {
@@ -238,14 +248,18 @@ func ticketTable() *Table {
 			Facts: []string{FactRejects, FactModelTier, FactEntry, FactReviewedHead, FactSimplifyDue, FactQAHead, FactSimplifyFrom}},
 		{Verb: VerbQAOff, From: []string{InQA}, To: ReadyToMerge, guard: unheldGuard},
 		{Verb: VerbQADue, From: []string{ReadyToMerge, Queued}, To: InQA, guard: qaDueGuard},
-		{Verb: "head_changed", From: []string{ReadyToMerge, Queued}, To: InReview,
-			set: all(clearFacts(FactReviewedHead), copyParam("head", FactHead)), Facts: []string{FactReviewedHead, FactHead}},
+		// A new head in in_qa fences the QA run that reads the old one.
+		{Verb: "head_changed", From: []string{InQA, ReadyToMerge, Queued}, To: InReview, BumpsEpoch: true, Lease: LeaseDrop,
+			set:   all(clearFacts(FactReviewedHead, FactQAHead), copyParam("head", FactHead)),
+			Facts: []string{FactReviewedHead, FactQAHead, FactHead}},
 		{Verb: VerbEnqueue, From: []string{ReadyToMerge}, To: Queued, guard: reviewedHeadGuard},
 		// The server merged a moved base into the reviewed head with no
 		// conflict and no shared file (F-66). The merge commit takes the
-		// review pass, so no new review round starts.
+		// review pass and the QA pass, so no new round starts (ADR 0014
+		// decision 3).
 		{Verb: VerbBaseMerged, From: []string{Queued}, To: ToSame, guard: baseMergedGuard,
-			set: all(needCopy("head", FactReviewedHead), copyParam("head", FactHead)), Facts: []string{FactReviewedHead, FactHead}},
+			set:   all(carryQAPass, needCopy("head", FactReviewedHead), copyParam("head", FactHead)),
+			Facts: []string{FactReviewedHead, FactQAHead, FactQACarriedFrom, FactHead}},
 		{Verb: "dequeue_conflict", From: []string{Queued}, To: Todo,
 			set: all(setEntry(EntryRework), clearFacts(FactReviewedHead)), Facts: []string{FactEntry, FactReviewedHead}},
 		{Verb: "dequeue_red", From: []string{Queued}, To: Repair,
