@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // captureFixture is a design room's checkout with the record of
@@ -25,7 +26,7 @@ type captureFixture struct {
 // git runs git in dir and returns its trimmed output.
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	c := exec.Command("git", append([]string{"-c", "user.email=t@example.com", "-c", "user.name=t"}, args...)...)
+	c := gittest.Command(append([]string{"-c", "user.email=t@example.com", "-c", "user.name=t"}, args...)...)
 	c.Dir = dir
 	out, err := c.CombinedOutput()
 	if err != nil {

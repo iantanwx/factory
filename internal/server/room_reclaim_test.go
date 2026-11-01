@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/sched"
 )
@@ -25,7 +25,7 @@ func TestCleanupDeletesAClosedRoomsCleanCheckout(t *testing.T) {
 		t.Fatalf("close = %d %v", code, env)
 	}
 	for _, args := range [][]string{{"status", "--porcelain", "--untracked-files=all"}, {"rev-list", "HEAD", "--not", "--remotes"}} {
-		out, err := exec.Command("git", append([]string{"-C", co}, args...)...).Output()
+		out, err := gittest.Command(append([]string{"-C", co}, args...)...).Output()
 		if err != nil || len(out) != 0 {
 			t.Fatalf("the room's checkout is not clean and pushed: git %v = %q %v", args, out, err)
 		}

@@ -25,6 +25,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/overwatch"
@@ -95,7 +96,7 @@ func TestProductionWiringWithFakes(t *testing.T) {
 			}
 			return host, func(string) sched.CheckoutHost { return host }, nil
 		},
-		github: &server.GitHub{API: api.URL(), GitURL: git.URL, Protocols: []string{"http"},
+		github: &server.GitHub{API: api.URL(), GitURL: git.URL, Protocols: []string{"http"}, GitConfig: gittest.Config,
 			Sleep: func(context.Context, time.Duration) error { return nil }},
 	}
 	opts, cleanup, err := productionOptions(context.Background(), dir, w)

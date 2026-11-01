@@ -5,13 +5,13 @@ package scenarios
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/iantanwx/loop/acceptance"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // agent is a scripted agent that knows only what a run finds in its
@@ -150,10 +150,10 @@ func (a *agent) verb(args []string) (schemaVerb, []string) {
 
 // git runs git in the checkout with the agent's environment.
 func (a *agent) git(args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := gittest.Command(args...)
 	cmd.Dir = a.dir
-	cmd.Env = append(a.w.CLIEnv(), "GIT_AUTHOR_NAME=agent", "GIT_AUTHOR_EMAIL=agent@example.invalid",
-		"GIT_COMMITTER_NAME=agent", "GIT_COMMITTER_EMAIL=agent@example.invalid")
+	cmd.Env = gittest.Env(append(a.w.CLIEnv(), "GIT_AUTHOR_NAME=agent", "GIT_AUTHOR_EMAIL=agent@example.invalid",
+		"GIT_COMMITTER_NAME=agent", "GIT_COMMITTER_EMAIL=agent@example.invalid"))
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }

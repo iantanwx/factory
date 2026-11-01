@@ -40,6 +40,8 @@ type GitHub struct {
 	Protocols []string
 	HTTP      *http.Client
 	Sleep     func(ctx context.Context, d time.Duration) error
+	// GitConfig is github.Config.GitConfig. A test sets gittest.Config.
+	GitConfig [][2]string
 
 	// ProjectConfig reads each project's config for `loop doctor`. Setup
 	// sets the scheduler's source when it is nil.
@@ -74,7 +76,7 @@ func (g *GitHub) Setup(s *Server) error {
 			}
 			return keys, nil
 		},
-		API: g.API, GitURL: g.GitURL, Protocols: g.Protocols, HTTP: g.HTTP, Sleep: g.Sleep,
+		API: g.API, GitURL: g.GitURL, Protocols: g.Protocols, HTTP: g.HTTP, Sleep: g.Sleep, GitConfig: g.GitConfig,
 		MirrorRoot: filepath.Join(s.Instance, MirrorDir),
 		Store:      s.Store, Redactor: s.Redactor, Projects: s.Projects, Machine: s.Machine,
 		Logger: s.RPC.Logger(), UserSkills: s.userSkills,

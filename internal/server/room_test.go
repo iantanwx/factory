@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,6 +13,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/sched"
@@ -439,7 +439,7 @@ func TestReopenedIdleRoomReceivesOnlyItsStagesSecrets(t *testing.T) {
 			t.Fatalf("%s/.env holds the wrong names (%d bytes): %v", dir, len(got), err)
 		}
 	}
-	out, err := exec.Command("git", "-C", co, "status", "--porcelain").Output()
+	out, err := gittest.Command("-C", co, "status", "--porcelain").Output()
 	if err != nil || len(out) != 0 {
 		t.Fatalf("git status after the reopen = %q, %v", out, err)
 	}

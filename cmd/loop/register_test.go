@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/userspace"
@@ -94,7 +94,7 @@ func TestRegisterWithoutRulesets(t *testing.T) {
 // Code's, and git ignores them.
 func TestRegisterInstallsTheSkills(t *testing.T) {
 	clone := t.TempDir()
-	if out, err := exec.Command("git", "init", "-q", clone).CombinedOutput(); err != nil {
+	if out, err := gittest.Command("init", "-q", clone).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
 	p, _, err := pack.Brief(nil)
@@ -116,7 +116,7 @@ func TestRegisterInstallsTheSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(clone, ".claude/agents/loop-escalation-prep.md")); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("git", "-C", clone, "status", "--porcelain", "--untracked-files=all").Output()
+	out, err := gittest.Command("-C", clone, "status", "--porcelain", "--untracked-files=all").Output()
 	if err != nil || len(out) != 0 {
 		t.Fatalf("git sees the skills: %q %v", out, err)
 	}
@@ -130,8 +130,7 @@ func committedClone(t *testing.T, files ...string) string {
 		writeClone(t, clone, f, f+"\n")
 	}
 	for _, args := range [][]string{{"init", "-q"}, {"add", "-A"}, {"commit", "-q", "--allow-empty", "-m", "init"}} {
-		cmd := exec.Command("git", append([]string{"-C", clone, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		cmd := gittest.Command(append([]string{"-C", clone, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
@@ -200,7 +199,7 @@ func TestRegisterClearsOnlyStaleUntrackedLoopDirs(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	out, err := exec.Command("git", "-C", clone, "status", "--porcelain", "--untracked-files=no").Output()
+	out, err := gittest.Command("-C", clone, "status", "--porcelain", "--untracked-files=no").Output()
 	if err != nil || len(out) != 0 {
 		t.Fatalf("register changed a tracked file: %q %v", out, err)
 	}
@@ -241,7 +240,7 @@ func TestARegisteredCloneHoldsWhatARunHolds(t *testing.T) {
 	writeSkill(t, skills, "impeccable")
 	src := pinnedSource(t, skills, "impeccable")
 	clone := t.TempDir()
-	if out, err := exec.Command("git", "init", "-q", clone).CombinedOutput(); err != nil {
+	if out, err := gittest.Command("init", "-q", clone).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
 	// Register builds its pack from the instance's fetched set. The
@@ -256,7 +255,7 @@ func TestARegisteredCloneHoldsWhatARunHolds(t *testing.T) {
 	}
 	for _, h := range []agenthost.Harness{agenthost.Claude, agenthost.Codex} {
 		run := t.TempDir()
-		if out, err := exec.Command("git", "init", "-q", run).CombinedOutput(); err != nil {
+		if out, err := gittest.Command("init", "-q", run).CombinedOutput(); err != nil {
 			t.Fatalf("git init: %v %s", err, out)
 		}
 		_, err := brief.Inject(context.Background(), brief.Injection{Checkout: run, Harness: h, Pack: p,
@@ -374,8 +373,7 @@ func originClone(t *testing.T, files map[string]string) string {
 
 func gitIn(t *testing.T, clone string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", clone, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	cmd := gittest.Command(append([]string{"-C", clone, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v %s", args, err, out)
 	}
@@ -454,7 +452,7 @@ func TestC17RegisterWritesItsProjectsPinsAndNoOther(t *testing.T) {
 		if _, ok := store.Held("p1", neon); !ok {
 			t.Error("the fetched neon is not in the store")
 		}
-		out, err := exec.Command("git", "-C", clone, "status", "--porcelain", "--untracked-files=all").Output()
+		out, err := gittest.Command("-C", clone, "status", "--porcelain", "--untracked-files=all").Output()
 		if err != nil || len(out) != 0 {
 			t.Fatalf("git sees the skills: %q %v", out, err)
 		}
