@@ -5,8 +5,9 @@ description: Where a project keeps its PRDs, specs and ADRs, the template of eac
 
 # loop-sdlc-documents
 
-Three documents carry an epic before its tickets exist. Each one has one place in the project, one
-template, and gates that `loop gates --docs` runs on each change.
+Three documents carry an epic before its tickets exist. An epic with a `UI: yes` story also
+carries a design record. Each one has one place in the project, one template, and gates that
+`loop gates --docs` runs on each change.
 
 ## 1. Where each one lives
 
@@ -15,6 +16,7 @@ template, and gates that `loop gates --docs` runs on each change.
 | PRD | `docs/prd/<slug>.md` | `../loop-brainstorm/prd.md` |
 | Spec | `docs/specs/<epic id>-<slug>-spec.md` | `../loop-sdlc-documents/spec.md` |
 | ADR | `docs/adr/NNNN-<slug>.md` | `../loop-sdlc-documents/adr.md` |
+| Design record | `docs/design/<epic id>/record.md` | `../loop-sdlc-documents/design.md` |
 
 The epic id is the work-item id that the server gave the epic. The slug is a few words of the
 title, in lower case, joined by dashes. An ADR takes the next free four-digit number. Never reuse
@@ -44,6 +46,11 @@ Run `loop gates --docs` before you commit a document. Each gate below names the 
   Date and Ticket. The four sections are there. Decision names an alternative that it rejected.
   Acceptance criteria holds a list item. The template's instruction block is gone. No two ADRs
   share a number, and each `docs/adr/NNNN` that an ADR cites exists.
+- **`design`** reads each design record. The record parses. Each `UI: yes` story of the PRD that
+  its `**PRD:**` line names has a screen. Each screen cites a story of that PRD. Each state names a
+  picture, and the picture is in the record's directory. A pixel mark is a percent from 0% to 5%
+  with its `%` sign. When the branch adds or changes the record, the remote prototype branch holds
+  the pinned commit. A repository with no record passes.
 - **`prose`** lints the agent-facing documents, the ADRs and the PRDs.
 
 The `spec` gate reads the shape of a spec, and not what it says. The doc-reviewer checks each
