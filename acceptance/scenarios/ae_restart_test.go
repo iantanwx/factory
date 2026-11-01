@@ -70,6 +70,7 @@ func TestAE2ALiveRunIsReadoptedAfterALongOutage(t *testing.T) {
 	w.Commit(run.Checkout, "work done through the outage", map[string]string{"a.txt": "a\n"})
 	w.Must(w.In(run.Checkout, "branch", "push"))
 	w.Must(w.In(run.Checkout, "pr", "open", "--title", "Add a"))
+	passSimplify(w, id)
 	wantStatus(w, id, machine.InReview)
 }
 
@@ -134,6 +135,7 @@ func TestAE4AWriteAcrossARestart(t *testing.T) {
 		w.Must(w.In(run.Checkout, "branch", "push"))
 		w.Must(w.In(run.Checkout, "pr", "open", "--title", "Add a"))
 		w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
+		passSimplify(w, run.Item)
 		rev := w.Dispatch(machine.StageCodeReviewer)
 		// After the server reads the item for the CLI's key, CI turns red
 		// and the reactor moves the ticket to repair. Then the server
@@ -283,6 +285,8 @@ func TestAE6AnUpgradeDrainsAndLosesNoLease(t *testing.T) {
 	w.Must(w.InBinary(acceptance.Binary, runB.Checkout, "branch", "push"))
 	w.Must(w.InBinary(acceptance.Binary, runB.Checkout, "pr", "open", "--title", "Add b"))
 	w.Must(w.InBinary(acceptance.Binary, runB.Checkout, "run", "finish", "--outcome", "done"))
+	passSimplify(w, a)
+	passSimplify(w, b)
 	wantStatus(w, a, machine.InReview)
 	wantStatus(w, b, machine.InReview)
 	if n := w.Count(`SELECT count(*) FROM transitions WHERE verb IN ('reclaim', 'release')`); n != 0 {

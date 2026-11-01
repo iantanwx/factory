@@ -151,9 +151,10 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 // its PR to the table verb that hands the item to review. The reviser
 // pushes its revision to the document's open PR, and its `pr open` returns
 // the epic to review, or to sign-off when it pushed nothing. The design
-// room's `pr open` hands the design record to its doc review.
+// room's `pr open` hands the design record to its doc review. A simplify
+// run's `pr open` hands its ticket to code review.
 var openVerbs = map[machine.Kind]map[string]string{
-	machine.KindTicket: {machine.InProgress: "pr_open", machine.Repair: "fix_pushed"},
+	machine.KindTicket: {machine.InProgress: "pr_open", machine.Repair: "fix_pushed", machine.InSimplify: machine.VerbSimplified},
 	machine.KindEpic: {machine.SpecDrafting: "pr_open", machine.PRDAmending: "prd_amended",
 		machine.SpecAmending: "spec_amended", machine.Design: "pr_open"},
 }
@@ -205,6 +206,11 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 	}
 	head := pr.Head.SHA
+	if it.Status == machine.InSimplify {
+		// The simplify run pushed nothing, so review starts at the head
+		// its round started from.
+		head = it.Fact(machine.FactSimplifyFrom)
+	}
 	if it.Status == machine.PRDAmending || it.Status == machine.SpecAmending {
 		// GitHub moves a PR's head some time after a push. The amended
 		// row compares the head with the one a comment found, so it
