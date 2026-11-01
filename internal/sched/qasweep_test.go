@@ -25,7 +25,7 @@ func TestC15TheSweepsFollowTheSetting(t *testing.T) {
 		t.Fatalf("admit a QA run for %s: %+v", held, ref)
 	}
 
-	w.project.set(snapshot(t, "stages:\n  implementer: {}\n  code-reviewer: {}\nmerge:\n  mechanism: direct\n", ""))
+	w.project.set(snapshot(t, "stages:\n  implementer: {}\n  code-reviewer: {}\n  qa: {enabled: false}\nmerge:\n  mechanism: direct\n", ""))
 	w.advance()
 	want := map[string]string{unheld: machine.ReadyToMerge, held: machine.InQA, queued: machine.Queued, passed: machine.ReadyToMerge}
 	for id, st := range want {

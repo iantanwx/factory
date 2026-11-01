@@ -220,7 +220,7 @@ func TestDirectLeavesAHeadWithNoCheckPending(t *testing.T) {
 // acceptance check has not reported.
 func TestDirectWaitsForEveryCheckProjectConfigRequires(t *testing.T) {
 	e := newDirect(t)
-	e.baseConfig("merge:\n  mechanism: direct\n  required_checks: [acceptance]\n")
+	e.baseConfig("merge:\n  mechanism: direct\n  required_checks: [acceptance]\nstages:\n  qa: {enabled: false}\n")
 	id, pr := e.reviewed(sha('1'), true)
 	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
 	e.world.SetRuns(sha('1'), gt.CheckRun("ci", sha('1'), "completed", "success", at))

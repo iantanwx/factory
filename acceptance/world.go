@@ -51,8 +51,10 @@ const (
 )
 
 // DefaultConfig enables every run stage the server starts an agent for,
-// and merges with the direct mechanism: the loop is the queue, and each
-// merge goes through GitHub's merge API (KTD29).
+// except the qa stage, and merges with the direct mechanism: the loop is
+// the queue, and each merge goes through GitHub's merge API (KTD29). The
+// qa stage is on by default, so the config turns it off: a scenario that
+// drives a QA run removes QAOff.
 const DefaultConfig = `merge:
   mechanism: direct
 stages:
@@ -64,7 +66,10 @@ stages:
   decomposer: {}
   triage: {}
   reproducer: {}
-`
+` + QAOff
+
+// QAOff is the line of DefaultConfig that turns the qa stage off.
+const QAOff = "  qa: {enabled: false}\n"
 
 // ShutdownTimeout bounds each world server's graceful stop. After it the
 // server closes every connection, as production does after its own.

@@ -80,7 +80,7 @@ func TestC11StageListPrintsEachFiringWithItsEffectiveValues(t *testing.T) {
 		{Project: prj, Stage: "implementer", Kind: FiringRun, Enabled: true, Schedule: "*/5 * * * *"},
 		{Project: prj, Stage: "simplify", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "code-reviewer", Kind: FiringRun, Enabled: true, Schedule: never},
-		{Project: prj, Stage: "qa", Kind: FiringRun, Enabled: false, Schedule: never},
+		{Project: prj, Stage: "qa", Kind: FiringRun, Enabled: true, Schedule: never},
 		{Project: prj, Stage: "doc-reviewer", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "reviser", Kind: FiringRun, Enabled: false, Schedule: never},
 		{Project: prj, Stage: "unattended-brainstorm", Kind: FiringRun, Enabled: false, Schedule: never},
@@ -208,7 +208,7 @@ func TestC12StageListPrintsTheScheduleTheSchedulerFiresOn(t *testing.T) {
 		}
 		delete(want, r.Stage)
 	}
-	if len(want) != 0 || enabled != 4 {
-		t.Fatalf("rows not enabled: %v; %d enabled rows, want 4 with dependency-advance", want, enabled)
+	if len(want) != 0 || enabled != 5 {
+		t.Fatalf("rows not enabled: %v; %d enabled rows, want 5 with qa and dependency-advance", want, enabled)
 	}
 }

@@ -415,10 +415,19 @@ func (c *ProjectConfig) ManifestPath() string {
 	return c.Manifest
 }
 
-// StageEnabled reports whether the project enables stage.
+// defaultOn lists the stages a project runs when its config does not list
+// them.
+var defaultOn = []string{StageQA}
+
+// StageEnabled reports whether the project enables stage. A listed stage
+// is enabled unless it sets enabled: false. An unlisted stage is enabled
+// when defaultOn holds it.
 func (c *ProjectConfig) StageEnabled(stage string) bool {
 	s, ok := c.Stages[stage]
-	return ok && (s.Enabled == nil || *s.Enabled)
+	if !ok {
+		return slices.Contains(defaultOn, stage)
+	}
+	return s.Enabled == nil || *s.Enabled
 }
 
 // RefReader returns the bytes of path at a git ref. It returns an error that

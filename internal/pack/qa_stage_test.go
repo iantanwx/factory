@@ -109,23 +109,32 @@ func TestC2PackShipsTheQARunbookAndTheVerifySkills(t *testing.T) {
 	}
 }
 
-// C2: with entry 1 alone, a project config that does not list qa gets a qa
-// firing that is not enabled, so the stage starts no run.
-func TestC2QAStageStartsNoRunUnlessListed(t *testing.T) {
-	pc, err := config.ParseProjectConfig([]byte("stages:\n  implementer: {}\n  code-reviewer: {}\nmerge:\n  mechanism: direct\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	snap := &config.ProjectSnapshot{Config: pc, Manifest: &config.Manifest{}}
-	hc := config.DefaultHost(t.TempDir())
-	firings := sched.Firings(hc, []config.Project{{ID: "p"}}, func(string) *config.ProjectSnapshot { return snap }, sched.Jobs{})
-	i := slices.IndexFunc(firings, func(f sched.Firing) bool { return f.Stage == config.StageQA })
-	if i < 0 {
-		t.Fatalf("firings %+v hold no qa firing", firings)
-	}
-	if want := (sched.Firing{Project: "p", Stage: "qa", Kind: sched.FiringRun, Enabled: false,
-		Schedule: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"}); firings[i] != want {
-		t.Fatalf("qa firing = %+v, want %+v", firings[i], want)
+// C2 and C33: the qa firing follows the setting. A project config that
+// does not list qa gets an enabled qa firing, and one that sets enabled:
+// false gets a firing that is not enabled, so the stage starts no run.
+func TestC2QAStageFiringFollowsTheSetting(t *testing.T) {
+	for _, c := range []struct {
+		stages string
+		on     bool
+	}{
+		{"  implementer: {}\n  code-reviewer: {}\n", true},
+		{"  implementer: {}\n  code-reviewer: {}\n  qa: {enabled: false}\n", false},
+	} {
+		pc, err := config.ParseProjectConfig([]byte("stages:\n" + c.stages + "merge:\n  mechanism: direct\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		snap := &config.ProjectSnapshot{Config: pc, Manifest: &config.Manifest{}}
+		hc := config.DefaultHost(t.TempDir())
+		firings := sched.Firings(hc, []config.Project{{ID: "p"}}, func(string) *config.ProjectSnapshot { return snap }, sched.Jobs{})
+		i := slices.IndexFunc(firings, func(f sched.Firing) bool { return f.Stage == config.StageQA })
+		if i < 0 {
+			t.Fatalf("firings %+v hold no qa firing", firings)
+		}
+		if want := (sched.Firing{Project: "p", Stage: "qa", Kind: sched.FiringRun, Enabled: c.on,
+			Schedule: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"}); firings[i] != want {
+			t.Fatalf("stages:\n%sqa firing = %+v, want %+v", c.stages, firings[i], want)
+		}
 	}
 }
 

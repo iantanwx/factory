@@ -18,7 +18,7 @@ func TestC5ReviewSubmitReadsTheProjectsQAStage(t *testing.T) {
 	}{
 		{"listed", "stages:\n  qa: {}\n", nil, true},
 		{"listed and off", "stages:\n  qa:\n    enabled: false\n", nil, false},
-		{"not listed", "stages:\n  implementer: {}\n", nil, false},
+		{"not listed", "stages:\n  implementer: {}\n", nil, true},
 		{"no config", "stages:\n  qa: {}\n", errors.New("no config at origin/main"), false},
 	}
 	for _, c := range cases {
