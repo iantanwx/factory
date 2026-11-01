@@ -9,6 +9,7 @@ import (
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 )
@@ -35,8 +36,10 @@ const DependencyAdvanceJob = "dependency-advance"
 // It then routes each bug that waits for a build whose end it reads
 // (routeWaitingBugs), and completes each epic in execution whose children
 // are all terminal, because a child's terminal write and its epic's
-// complete write are two writes (machine.CompleteEpics). Any other refusal
-// or read error is reported, and the next tick tries again.
+// complete write are two writes (machine.CompleteEpics). Last, it moves
+// tickets in or out of in_qa by the project's QA setting (followQASetting).
+// Any other refusal or read error is reported, and the next tick tries
+// again.
 func (s *Scheduler) advanceDependencies(ctx context.Context, project string) error {
 	bc, err := s.cfg.Beads(project)
 	if err != nil {
@@ -60,7 +63,62 @@ func (s *Scheduler) advanceDependencies(ctx context.Context, project string) err
 	if err := s.cfg.Machine.CompleteEpics(ctx, project); err != nil {
 		errs = append(errs, err)
 	}
+	errs = append(errs, s.followQASetting(ctx, project)...)
 	return errors.Join(errs...)
+}
+
+// followQASetting reads the project's QA setting and applies it by
+// FollowQASetting. A project with no config runs no stage, so the stage is
+// off. A config that cannot be read moves nothing.
+func (s *Scheduler) followQASetting(ctx context.Context, project string) []error {
+	on := false
+	switch snap, err := s.cfg.ProjectConfig(ctx, project); {
+	case err == nil:
+		on = snap.Config.StageEnabled(config.StageQA)
+	case !errors.Is(err, config.ErrConfigMissing):
+		return []error{fmt.Errorf("sched: the QA setting of %s: %w", project, err)}
+	}
+	moved, errs := FollowQASetting(ctx, s.cfg.Machine, project, on)
+	for _, id := range moved {
+		s.log.InfoContext(ctx, "QA setting followed", "project", project, "item", id, "qa", on)
+	}
+	return errs
+}
+
+// FollowQASetting moves the tickets that a change of the QA setting left in
+// the wrong state, as the server (spec factorio-nhb5 C15), and answers the
+// tickets it moved. With the stage off, it applies qa_off to each in_qa
+// ticket, and the machine refuses a ticket that a run holds: that run
+// settles it. With the stage on, it applies qa_due to each ready_to_merge
+// or queued ticket, and the machine refuses a ticket whose qa_head equals
+// its reviewed_head. The merge hand-off then withdraws the pull request of
+// each ticket that left queued.
+func FollowQASetting(ctx context.Context, m *machine.Machine, project string, on bool) (moved []string, errs []error) {
+	verb, from := machine.VerbQAOff, []string{machine.InQA}
+	if on {
+		verb, from = machine.VerbQADue, []string{machine.ReadyToMerge, machine.Queued}
+	}
+	for _, status := range from {
+		tickets, ref := m.List(ctx, project, machine.ListFilter{Kind: machine.KindTicket, Status: status})
+		if ref != nil {
+			errs = append(errs, fmt.Errorf("sched: list the %s tickets of %s: %s: %s", status, project, ref.Code, ref.Hint))
+			continue
+		}
+		for _, t := range tickets {
+			res := m.Apply(ctx, machine.Request{Project: project, Item: t.ID, Verb: verb,
+				ExpectedStatus: status, Actor: machine.Server(DependencyAdvanceJob)})
+			switch r := res.Refusal; {
+			case r == nil:
+				moved = append(moved, t.ID)
+			case r.Code == cli.CodeLeaseHeld || r.Code == cli.CodeStatusChanged || r.Code == cli.CodeTransitionNotAllowed || r.Code == cli.CodeNotFound:
+				// A run holds the ticket, QA passed its reviewed head, or
+				// another writer moved it. Nothing waits.
+			default:
+				errs = append(errs, fmt.Errorf("sched: %s %s: %s: %s", verb, t.ID, r.Code, r.Hint))
+			}
+		}
+	}
+	return moved, errs
 }
 
 // unblockLanded applies unblock to one backlog item once every blocker
