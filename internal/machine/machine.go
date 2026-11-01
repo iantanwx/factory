@@ -112,6 +112,9 @@ type Machine struct {
 	// passGate reads CI at the head a code review passes. Nil reads
 	// nothing: a server with no GitHub has no CI and posts no status.
 	passGate PassGate
+	// qaEnabled reads whether the project runs the QA stage. Nil reads it
+	// as off.
+	qaEnabled QAEnabled
 	// supersedeCheck reads the evidence of `work supersede` back from
 	// GitHub. Nil refuses every supersede.
 	supersedeCheck SupersedeChecker

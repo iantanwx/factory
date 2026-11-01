@@ -66,6 +66,10 @@ const (
 	FactADRPR           = "adr_pr"           // the number of the ADR pull request under review
 	FactADRHead         = "adr_head"         // that pull request's head when adr_opened read it
 	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
+	FactQAHead          = "qa_head"          // the head of the latest QA pass
+	FactQACarriedFrom   = "qa_carried_from"  // the head whose QA pass base_merged carried
+	FactSimplifyDue     = "simplify_due"     // "true" when the next implementer hand-off enters the simplify run
+	FactSimplifyFrom    = "simplify_from"    // the implementer's head that the latest simplify round started from
 )
 
 // Entry values of a todo ticket (R6).
@@ -92,8 +96,10 @@ func all(fns ...setter) setter {
 	}
 }
 
-func setEntry(v string) setter {
-	return func(c *change) *cli.Refusal { c.setFact(FactEntry, v); return nil }
+func setEntry(v string) setter { return setTo(FactEntry, v) }
+
+func setTo(fact, v string) setter {
+	return func(c *change) *cli.Refusal { c.setFact(fact, v); return nil }
 }
 
 func clearFacts(names ...string) setter {
@@ -171,15 +177,16 @@ func recordRejectedHead(c *change) *cli.Refusal {
 	return nil
 }
 
-// withReviews makes every row that review submit performs carry the
-// review fact, and every reject row the head it named.
+// withReviews makes every row that review submit or qa report performs
+// carry the review fact, and every reject row the head it named. So the
+// implementer reads a QA fail where it reads a review reject.
 func withReviews(rows []Row) []Row {
 	for i, r := range rows {
-		if r.Command != "review submit" {
+		if r.Command != "review submit" && r.Command != "qa report" {
 			continue
 		}
 		record, facts := recordReview, []string{FactReview}
-		if r.Verb == "review_reject" {
+		if r.Verb == "review_reject" || r.Verb == VerbQAFail {
 			record, facts = all(recordRejectedHead, recordReview), []string{FactRejectedHead, FactReview}
 		}
 		if r.set == nil {
