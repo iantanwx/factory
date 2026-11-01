@@ -175,6 +175,32 @@ Ask the operator who signs the PRDs and the specs off. The server asks each read
 when it opens a PRD or a spec pull request, so GitHub notifies them. Name a person's login, never
 an organisation. Delete `signoff` when nobody wants the request.
 
+### The `ui` block
+
+A `ui` block declares that the project ships a screen. A run holds the loop's design skill only
+when the project declares one. Only the operator declares it, so take these steps in this order:
+
+1. Run `loop ui detect` in the clone. It reads only the files of the last commit.
+2. On exit 1, `NOTHING`, the repository shows no frontend: write no `ui` block, ask nothing, and
+   go on to § 6.
+3. On exit 0, show the operator each signal with its path, the proposed block, and its cost. With
+   the block, the brainstorm room and each epic run hold the design skill, and so does each ticket
+   run whose "May change" list matches a glob of `paths`. Each of those runs then reads the skill
+   and follows its design rules. Without the block, no run holds the skill. The overwatch sweep
+   then reports the project until the coordinator records the operator's no as a decision.
+4. Recommend one answer, and say why. Recommend a yes when each signal is a screen the project
+   ships. Recommend an edited block when a signal is only a fixture or a vendored copy. Recommend
+   a no when no signal is a screen, such as a Go package named `android`.
+5. Ask the operator for a yes, an edited block or a no. Then wait for the answer.
+6. On a yes, write the proposed block into `.loop/config.yaml`. On an edited block, write the
+   operator's block. On a no, write no `ui` block.
+
+```yaml
+ui:
+  kind: <web or native>
+  paths: [<each glob>]
+```
+
 ## 6. Policy and ledger
 
 The runbooks read the project's own rules from `.loop/policy/`, and the `loop-encode-lessons`
