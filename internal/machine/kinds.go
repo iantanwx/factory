@@ -70,6 +70,7 @@ const (
 	VerbPRClosed           = "pr_closed"
 	VerbPRDSubmit          = "prd_submit"
 	VerbSignoffHead        = "signoff_head"
+	VerbSkipDesign         = "skip_design"
 	VerbSupersede          = "supersede"
 	VerbUnblock            = "unblock"
 )

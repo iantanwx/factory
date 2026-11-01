@@ -526,6 +526,19 @@ either kind of epic:
 
   The entry returns at that time when the epic is still in `architecture`.
 
+An epic in `design` waits for its design record. The operator can skip that stage, and the epic
+then goes to its spec with no record. Skip it only when the operator asks for the skip. Quote the
+operator's own words:
+
+```bash
+loop epic skip-design <epic> --request "<the operator's words>"
+```
+
+The epic moves to `spec_needed`, and `design_skipped` holds the words. Only an epic in `design`
+moves. The skip refuses with `SHAPE_REFUSED` and rule `design_pr_open` while the epic's design
+branch heads an open pull request. Tell the operator to close that pull request first, then run the
+skip again.
+
 Never file work at level 4 or 5 with no PRD on your own.
 
 ## 9. Loop faults
