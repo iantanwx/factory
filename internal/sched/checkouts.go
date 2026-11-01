@@ -87,6 +87,10 @@ func (s *Scheduler) CleanCheckouts(ctx context.Context) CleanReport {
 			}
 			continue
 		}
+		if err := unlockCheckout(ctx, r.path); err != nil {
+			rep.Errors[r.path] = err.Error()
+			continue
+		}
 		why, err := s.keepReason(ctx, r.project, r.path)
 		if err != nil {
 			rep.Errors[r.path] = err.Error()
@@ -218,6 +222,10 @@ func (s *Scheduler) cleanStrays(ctx context.Context, rep *CleanReport) {
 		if project == "" {
 			continue // a clone, or another server's checkout
 		}
+		if err := unlockCheckout(ctx, dir); err != nil {
+			rep.Errors[dir] = err.Error()
+			continue
+		}
 		why, err := s.keepReason(ctx, project, dir)
 		if err != nil {
 			rep.Errors[dir] = err.Error()
@@ -305,6 +313,21 @@ func (s *Scheduler) alertKept(ctx context.Context, project, id, owner, path, why
 		s.raise(ctx, config.Alert{Project: project, Kind: AlertCheckoutKept, DedupeKey: keptKey(id),
 			Subject: "checkout " + path + " stays: " + why, Body: body})
 	}
+}
+
+// unlockCheckout lifts the lock that dispatch put on a run's checkout. The
+// pass reaches only a checkout whose run ended, so its own removal, or a
+// person's by hand, can then go. A checkout with no lock is left as it is.
+func unlockCheckout(ctx context.Context, dir string) error {
+	gitDir, err := checkoutGit(ctx, dir, "rev-parse", "--path-format=absolute", "--git-dir")
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(gitDir, "locked")); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	_, err = gitx.Run(ctx, dir, "worktree", "unlock", dir)
+	return err
 }
 
 func checkoutGit(ctx context.Context, dir string, args ...string) (string, error) {
