@@ -28,15 +28,16 @@ const (
 
 // CheckRun is one check run as GitHub's REST API reads it.
 type CheckRun struct {
-	ID         int64      `json:"id"`
-	Name       string     `json:"name"`
-	HeadSHA    string     `json:"head_sha"`
-	Status     string     `json:"status"`
-	Conclusion string     `json:"conclusion"`
-	StartedAt  *time.Time `json:"started_at"`
-	HTMLURL    string     `json:"html_url"`
-	App        CheckApp   `json:"app"`
-	Output     CheckOut   `json:"output"`
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	HeadSHA     string     `json:"head_sha"`
+	Status      string     `json:"status"`
+	Conclusion  string     `json:"conclusion"`
+	StartedAt   *time.Time `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at"`
+	HTMLURL     string     `json:"html_url"`
+	App         CheckApp   `json:"app"`
+	Output      CheckOut   `json:"output"`
 	// Unstarted says why GitHub never started the run's job. Checks
 	// fills it in; GitHub's answer never holds it.
 	Unstarted *Unstarted `json:"-"`
@@ -229,39 +230,66 @@ func (r CIReport) Against(required []string) CIVerdict {
 var actionsJob = regexp.MustCompile(`/actions/runs/(\d+)/job/`)
 
 // earlierAttempt names each check whose latest run on head belongs to an
-// earlier attempt of its Actions workflow run. A rerun runs each of its
-// jobs once more, so in one workflow run a job of the newest attempt has
-// run the most times, and a job the rerun has not reached has run fewer.
+// earlier attempt of its Actions workflow run. GitHub reruns a workflow
+// run only after its attempt completed, and the rerun runs a job of that
+// attempt again. So a run starts a new attempt when its name already ran
+// in the current attempt, and each run of that attempt completed before
+// it started. Two jobs of one attempt that share a name overlap, so the
+// second starts no attempt. A run with no completed_at counts as
+// completed by its status.
 func earlierAttempt(head string, runs []CheckRun, latest map[string]CheckRun) map[string]bool {
-	type key struct{ run, name string }
-	times, most := map[key]int{}, map[string]int{}
+	byRun := map[string][]CheckRun{}
 	for _, r := range runs {
-		m := actionsJob.FindStringSubmatch(r.HTMLURL)
-		if m == nil || r.HeadSHA != "" && r.HeadSHA != head {
-			continue
+		if m := actionsJob.FindStringSubmatch(r.HTMLURL); m != nil && (r.HeadSHA == "" || r.HeadSHA == head) {
+			byRun[m[1]] = append(byRun[m[1]], r)
 		}
-		k := key{m[1], r.Name}
-		times[k]++
-		most[k.run] = max(most[k.run], times[k])
+	}
+	newest := map[string]map[int64]bool{}
+	for id, rs := range byRun {
+		slices.SortStableFunc(rs, func(a, b CheckRun) int { return started(a).Compare(started(b)) })
+		var cur []CheckRun
+		for _, r := range rs {
+			if startsAttempt(cur, r) {
+				cur = nil
+			}
+			cur = append(cur, r)
+		}
+		newest[id] = map[int64]bool{}
+		for _, r := range cur {
+			newest[id][r.ID] = true
+		}
 	}
 	out := map[string]bool{}
 	for name, r := range latest {
-		if m := actionsJob.FindStringSubmatch(r.HTMLURL); m != nil && times[key{m[1], name}] < most[m[1]] {
+		if m := actionsJob.FindStringSubmatch(r.HTMLURL); m != nil && !newest[m[1]][r.ID] {
 			out[name] = true
 		}
 	}
 	return out
 }
 
+// startsAttempt reports whether r reruns a job of attempt, a run of jobs
+// that each completed before r started.
+func startsAttempt(attempt []CheckRun, r CheckRun) bool {
+	rerun := false
+	for _, c := range attempt {
+		if c.Status != "completed" || !started(c).Before(started(r)) || c.CompletedAt != nil && c.CompletedAt.After(started(r)) {
+			return false
+		}
+		rerun = rerun || c.Name == r.Name
+	}
+	return rerun
+}
+
+func started(r CheckRun) time.Time {
+	if r.StartedAt == nil {
+		return time.Time{}
+	}
+	return *r.StartedAt
+}
+
 func newer(a, b CheckRun) bool {
-	at, bt := time.Time{}, time.Time{}
-	if a.StartedAt != nil {
-		at = *a.StartedAt
-	}
-	if b.StartedAt != nil {
-		bt = *b.StartedAt
-	}
-	if c := at.Compare(bt); c != 0 {
+	if c := started(a).Compare(started(b)); c != 0 {
 		return c > 0
 	}
 	return cmp.Compare(a.ID, b.ID) > 0

@@ -106,3 +106,34 @@ func TestARerunsOwnFailureIsRedAndItsEarlierAttemptPending(t *testing.T) {
 		t.Fatalf("head %s with checks %v; want red with %v", rep.State, got, want)
 	}
 }
+
+// C-bug-1: two jobs of one workflow run may share a name. With no rerun,
+// the only attempt is the newest one, so its failure is red as before.
+func TestAFailureWithNoRerunIsRedWhenTwoJobsShareAName(t *testing.T) {
+	const head = "c8bca9c13f95573d8fad8cab34a06be57f127a1b"
+	at := func(m, s int) *time.Time { t := time.Date(2026, 11, 1, 9, m, s, 0, time.UTC); return &t }
+	job := func(id string) string { return "https://github.com/" + testRepo + "/actions/runs/7/job/" + id }
+	for name, runs := range map[string][]CheckRun{
+		"no times": {
+			{ID: 1, Name: "test", HeadSHA: head, Status: "completed", Conclusion: "success", HTMLURL: job("1")},
+			{ID: 2, Name: "lint", HeadSHA: head, Status: "completed", Conclusion: "failure", HTMLURL: job("2")},
+			{ID: 3, Name: "test", HeadSHA: head, Status: "completed", Conclusion: "success", HTMLURL: job("3")},
+		},
+		"jobs overlap": {
+			{ID: 1, Name: "test", HeadSHA: head, Status: "completed", Conclusion: "success", StartedAt: at(10, 0), CompletedAt: at(14, 0), HTMLURL: job("1")},
+			{ID: 2, Name: "test", HeadSHA: head, Status: "completed", Conclusion: "success", StartedAt: at(10, 2), CompletedAt: at(15, 0), HTMLURL: job("2")},
+			{ID: 3, Name: "lint", HeadSHA: head, Status: "completed", Conclusion: "failure", StartedAt: at(10, 1), CompletedAt: at(12, 0), HTMLURL: job("3")},
+		},
+	} {
+		rep := Classify(head, runs, nil)
+
+		got := map[string]string{}
+		for _, c := range rep.Checks {
+			got[c.Name] = c.State
+		}
+		want := map[string]string{"lint": CIRed, "test": CIGreen}
+		if rep.State != CIRed || !maps.Equal(got, want) {
+			t.Errorf("%s: head %s with checks %v; want red with %v", name, rep.State, got, want)
+		}
+	}
+}
