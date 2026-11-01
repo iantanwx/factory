@@ -93,5 +93,8 @@
     "loop-checkout-forensics",
     "loop-doctor",
     "loop-escalation-prep"
-  ]
+  ],
+  "conditional": {
+    "loop-impeccable": {"key": "ui"}
+  }
 }

@@ -31,6 +31,19 @@ type Pack struct {
 	// User holds the userspace skills of the run's project, each written
 	// under its own name (ADR 0013 decision 1). Hash leaves them out.
 	User []UserSkill
+	// Conditional maps each skill the manifest marks conditional to the
+	// project config key it reads.
+	Conditional map[string]string
+	// withheld names each skill directory of FS that the run does not
+	// hold. Hash still reads it.
+	withheld []string
+}
+
+// Without returns a copy of p that writes, lists and injects none of the
+// named skill directories. Its Hash is p's.
+func (p Pack) Without(names ...string) Pack {
+	p.withheld = append(slices.Clone(p.withheld), names...)
+	return p
 }
 
 // UserSkill is one userspace skill pin and its verified tree, as the store
@@ -100,8 +113,9 @@ func Runbook(h agenthost.Harness, stage string) string {
 	return SkillRoot(h) + "/" + SkillPrefix + stage + "/SKILL.md"
 }
 
-// Skills lists the pack's skill directories, sorted. A top-level entry
-// outside the loop- namespace, or a file, is refused.
+// Skills lists the pack's skill directories, sorted, each withheld one
+// left out. A top-level entry outside the loop- namespace, or a file, is
+// refused.
 func (p Pack) Skills() ([]string, error) {
 	if p.FS == nil {
 		return nil, nil
@@ -114,6 +128,9 @@ func (p Pack) Skills() ([]string, error) {
 	for _, e := range entries {
 		if !e.IsDir() || !strings.HasPrefix(e.Name(), SkillPrefix) {
 			return nil, fmt.Errorf("brief: pack entry %q is not a %s* skill directory", e.Name(), SkillPrefix)
+		}
+		if slices.Contains(p.withheld, e.Name()) {
+			continue
 		}
 		out = append(out, e.Name())
 	}
@@ -264,8 +281,12 @@ func (p Pack) Write(checkout string, hs agenthost.Harness) error {
 			return fmt.Errorf("brief: clear %s: %w", dir, err)
 		}
 	}
-	if p.FS != nil {
-		if err := writeTree(p.FS, root); err != nil {
+	for _, s := range skills {
+		tree, err := fs.Sub(p.FS, s)
+		if err != nil {
+			return err
+		}
+		if err := writeTree(tree, filepath.Join(root, s)); err != nil {
 			return err
 		}
 	}
