@@ -63,6 +63,9 @@ type Loader struct {
 	// Check runs after a parse. Its error makes the read invalid, so the
 	// last good config stays in force. Nil checks nothing.
 	Check func(*ProjectConfig) error
+	// Kernel lists the pack's skills, which a design.skill may name. Nil
+	// lists none.
+	Kernel func() ([]string, error)
 }
 
 func configAlertKey(project string) string { return AlertProjectConfigInvalid + ":" + project }
@@ -75,7 +78,8 @@ func configAlertKey(project string) string { return AlertProjectConfigInvalid + 
 // the ref returns, such as a missing mirror, goes to the caller. Every load
 // lists the skill directories through refs.Tree, so no loader saves a pin
 // whose directory the default branch tracks, or a design_skill that names
-// no skill of the project.
+// no skill of the project. A design.skill must name a kernel skill or a
+// pin.
 func (l *Loader) Load(ctx context.Context, project string, refs Refs, defaultBranch string) (*Loaded, error) {
 	snap, err := ReadProjectSnapshot(ctx, refs.Read, defaultBranch)
 	if err == nil && l.Check != nil {
@@ -86,6 +90,9 @@ func (l *Loader) Load(ctx context.Context, project string, refs Refs, defaultBra
 	}
 	if err == nil {
 		err = DesignSkill(ctx, snap.Config, refs.Tree, DefaultRef(defaultBranch))
+	}
+	if err == nil {
+		err = l.canvasSkill(snap.Config)
 	}
 	if err == nil {
 		if err := l.LKG.SaveLKG(ctx, project, snap.ConfigRaw, snap.ManifestRaw); err != nil {
@@ -131,6 +138,18 @@ func (l *Loader) Load(ctx context.Context, project string, refs Refs, defaultBra
 	}
 	lkg.Branch = defaultBranch
 	return &Loaded{ProjectSnapshot: *lkg, Stale: true, Problem: problem}, nil
+}
+
+// canvasSkill checks cfg's design.skill against the kernel and the pins.
+func (l *Loader) canvasSkill(cfg *ProjectConfig) error {
+	var kernel []string
+	if l.Kernel != nil {
+		var err error
+		if kernel, err = l.Kernel(); err != nil {
+			return fmt.Errorf("config: list the kernel skills: %w", err)
+		}
+	}
+	return CanvasSkill(cfg, kernel)
 }
 
 func parseSnapshot(craw, mraw []byte) (*ProjectSnapshot, error) {

@@ -49,7 +49,7 @@ func (m *Merge) Setup(s *Server) error {
 	}
 	svc := m.GitHub.Service
 	loader := &config.Loader{LKG: config.StoreLKG(s.Store), Alerts: config.StoreAlerter(s.Store),
-		Check: config.StageCheck(&config.HostLoader{Path: s.HostPath})}
+		Check: config.StageCheck(&config.HostLoader{Path: s.HostPath}), Kernel: s.opts.Sched.Pack.Skills}
 	// The source reads the default branch in the project's mirror, which
 	// the reactor's tick and the GitHub add hook keep current (KTD20). It
 	// reads the mirror by path, so it serves `project add` before the
