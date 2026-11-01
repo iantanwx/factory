@@ -194,30 +194,38 @@ func (s *Service) runStatus(ctx context.Context, e effect) error {
 		return s.cfg.Store.Write(ctx, func(tx *store.Tx) error { return tx.MarkEffectFailed(e.id, err.Error()) })
 	}
 	perr := s.PostStatus(ctx, p, pl.SHA, pl.Context, pl.State, pl.Description)
+	return s.settleEffect(ctx, e.id, e.attempts, pl.Project, pl.Item, pl.SHA, pl.Context, perr)
+}
+
+// settleEffect records the answer to one post of effect id: done on
+// success, a retry on a rate limit or an unknown answer, and failed with an
+// alert after maxEffectAttempts refusals. name is what the post posts. It
+// returns perr, or the error of the record.
+func (s *Service) settleEffect(ctx context.Context, id int64, attempts int, project, item, sha, name string, perr error) error {
 	var (
 		rl  *RateLimitError
 		api *APIError
 	)
 	switch {
 	case perr == nil:
-		return s.cfg.Store.Write(ctx, func(tx *store.Tx) error { return tx.MarkEffectDone(e.id) })
+		return s.cfg.Store.Write(ctx, func(tx *store.Tx) error { return tx.MarkEffectDone(id) })
 	case errors.As(perr, &rl):
 		_ = s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-			return tx.MarkEffectRetry(e.id, rl.Until, "rate limited")
+			return tx.MarkEffectRetry(id, rl.Until, "rate limited")
 		})
 		return perr
-	case errors.As(perr, &api) && !api.Transient() && e.attempts+1 >= maxEffectAttempts:
-		err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error { return tx.MarkEffectFailed(e.id, s.cfg.Redactor.Redact(perr.Error())) })
+	case errors.As(perr, &api) && !api.Transient() && attempts+1 >= maxEffectAttempts:
+		err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error { return tx.MarkEffectFailed(id, s.cfg.Redactor.Redact(perr.Error())) })
 		if err != nil {
 			return err
 		}
-		return rpc.WriteAuditAlert(ctx, s.cfg.Store, s.cfg.Redactor, rpc.AuditAlert{Actor: "server:github", Project: pl.Project,
-			Item: pl.Item, Kind: AlertEffectFailed, Subject: pl.Project + "/" + pl.Item + "@" + pl.SHA,
-			Body: fmt.Sprintf("the server could not post %s on %s: %v", pl.Context, short(pl.SHA), perr)})
+		return rpc.WriteAuditAlert(ctx, s.cfg.Store, s.cfg.Redactor, rpc.AuditAlert{Actor: "server:github", Project: project,
+			Item: item, Kind: AlertEffectFailed, Subject: project + "/" + item + "@" + sha,
+			Body: fmt.Sprintf("the server could not post %s on %s: %v", name, short(sha), perr)})
 	default:
-		next := s.cfg.Now().Add(backoff(e.attempts))
+		next := s.cfg.Now().Add(backoff(attempts))
 		if err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-			return tx.MarkEffectRetry(e.id, next, s.cfg.Redactor.Redact(perr.Error()))
+			return tx.MarkEffectRetry(id, next, s.cfg.Redactor.Redact(perr.Error()))
 		}); err != nil {
 			return err
 		}
