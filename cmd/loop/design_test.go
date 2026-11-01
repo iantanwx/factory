@@ -13,7 +13,9 @@ import (
 )
 
 // captureFixture is a design room's checkout with the record of
-// factorio-x, and a prototype worktree whose HEAD the record pins.
+// factorio-x, and a prototype worktree whose HEAD the record pins. The
+// prototype commits the fixed PNG, and the capture command copies it by a
+// relative path, so a capture outside the prototype fails.
 type captureFixture struct {
 	room, prototype string
 	log             string // the targets the capture command received, one a line
@@ -46,8 +48,10 @@ func newCaptureFixture(t *testing.T, design bool, fail, failAt string) captureFi
 		t.Fatal(err)
 	}
 	f := captureFixture{room: t.TempDir(), prototype: t.TempDir(), log: filepath.Join(t.TempDir(), "targets"), png: png}
-	if err := os.WriteFile(filepath.Join(f.prototype, "index.html"), []byte("<p>fleet</p>\n"), 0o644); err != nil {
-		t.Fatal(err)
+	for name, body := range map[string][]byte{"index.html": []byte("<p>fleet</p>\n"), "fixed.png": png} {
+		if err := os.WriteFile(filepath.Join(f.prototype, name), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	git(t, f.prototype, "init", "-q", "-b", "loop/factorio-x-prototype")
 	git(t, f.prototype, "add", "-A")
@@ -62,7 +66,7 @@ func newCaptureFixture(t *testing.T, design bool, fail, failAt string) captureFi
 	if design {
 		b["design"] = map[string]string{
 			"run":     "true",
-			"capture": fmt.Sprintf("sh %q %q %q %q %q", filepath.Join(testdata, "capture.sh"), filepath.Join(testdata, "fixed.png"), f.log, fail, failAt),
+			"capture": fmt.Sprintf("sh %q %q %q %q", filepath.Join(testdata, "capture.sh"), f.log, fail, failAt),
 		}
 	}
 	brief, err := json.Marshal(b)
