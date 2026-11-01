@@ -421,8 +421,9 @@ func (s *Server) replayed(rec store.IdemRecord, requestID string) (*cli.Envelope
 }
 
 // conditional reports a refusal that depends only on the moment: a full
-// cap, a held mutex, an open dependency, CI that is not green yet, or an
-// escalation answer that waits on an open question. Such a refusal changed
+// cap, a held mutex, an open dependency, CI that is not green yet, an
+// escalation answer that waits on an open question, or a design skip that
+// waits on an open design pull request. Such a refusal changed
 // nothing, so it is not stored, and the same call later gets a fresh
 // answer.
 func conditional(r *cli.Refusal) bool {
@@ -433,7 +434,8 @@ func conditional(r *cli.Refusal) bool {
 	case cli.CodeCapFull, cli.CodeMutexHeld, cli.CodeDependencyOpen, cli.CodeCINotGreen:
 		return true
 	}
-	return r.Code == cli.CodeTransitionNotAllowed && r.Rule == "question_open"
+	return r.Code == cli.CodeTransitionNotAllowed && r.Rule == "question_open" ||
+		r.Code == cli.CodeShapeRefused && r.Rule == "design_pr_open"
 }
 
 // fingerprint is what an idempotency key must match on a replay.
