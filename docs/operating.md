@@ -79,8 +79,12 @@ the hint lists each difference. Run `loop install` again to repair drift.
 
 Install creates the App through GitHub's manifest flow. The App gets no
 webhook, because the reactor polls, and it gets exactly the permissions
-`loop doctor` allows: contents, pull requests, statuses, workflows and
-actions (read and write), and checks and metadata (read).
+`loop doctor` allows: contents, pull requests, statuses, workflows, actions
+and checks (read and write), and metadata (read). The App posts the
+`loop/qa` check run with checks write, and `loop doctor` fails the line
+`app_checks` while the installation lacks it. An App made before the loop
+asked for it needs checks write in its settings, and its installation must
+accept the new permission.
 
 1. Install prints a link to a page it serves on port 47123, which opens
    GitHub's form with every setting filled in. On a Tailscale host the page

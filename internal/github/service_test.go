@@ -66,13 +66,13 @@ func TestDoctorFailsOnAnExtraPermission(t *testing.T) {
 	if bad := failed(e.svc.Doctor(ctx, e.project)); len(bad) != 0 {
 		t.Fatalf("a good setup fails: %v", bad)
 	}
-	e.api.SetInstall("all", map[string]string{"contents": "write", "administration": "read", "checks": "write", "metadata": "read"})
+	e.api.SetInstall("all", map[string]string{"contents": "write", "administration": "read", "checks": "admin", "metadata": "read"})
 	bad := failed(e.svc.Doctor(ctx, e.project))
 	if slices.Contains(bad, "installation_repositories") || !slices.Contains(bad, "installation_permissions") {
 		t.Fatalf("doctor = %v", bad)
 	}
 	for _, l := range e.svc.Doctor(ctx, e.project) {
-		if l.Check == "installation_permissions" && (!strings.Contains(l.Detail, "administration") || !strings.Contains(l.Detail, "checks:write")) {
+		if l.Check == "installation_permissions" && (!strings.Contains(l.Detail, "administration") || !strings.Contains(l.Detail, "checks:admin")) {
 			t.Fatalf("the line does not name each extra permission: %s", l.Detail)
 		}
 	}

@@ -27,6 +27,7 @@ const (
 	ScopeStatuses Scope = "statuses" // post loop/eligible
 	ScopeActions  Scope = "actions"  // rerun failed CI jobs
 	ScopeMerge    Scope = "merge"    // merge a PR, use the merge queue, open the Mergify setup PR
+	ScopeChecks   Scope = "checks"   // post the loop/qa check run
 )
 
 var scopePermissions = map[Scope]map[string]string{
@@ -37,6 +38,7 @@ var scopePermissions = map[Scope]map[string]string{
 	ScopeStatuses: {"statuses": "write", "metadata": "read"},
 	ScopeActions:  {"actions": "write", "metadata": "read"},
 	ScopeMerge:    {"contents": "write", "pull_requests": "write", "metadata": "read"},
+	ScopeChecks:   {"checks": "write", "metadata": "read"},
 }
 
 // Permissions returns a copy of the permission subset of scope.
@@ -315,10 +317,11 @@ func (s *Service) lastGrant(p config.Project, scope Scope) Grant {
 }
 
 // allowedPermissions is the most the App may hold (KTD15). actions write
-// is allowed because `pr rerun` needs it.
+// is allowed because `pr rerun` needs it, and checks write because the
+// loop posts loop/qa.
 var allowedPermissions = map[string]string{
 	"contents": "write", "pull_requests": "write", "statuses": "write", "workflows": "write",
-	"checks": "read", "actions": "write", "metadata": "read",
+	"checks": "write", "actions": "write", "metadata": "read",
 }
 
 // PermissionLevel orders a GitHub App permission level: none, read, write,
