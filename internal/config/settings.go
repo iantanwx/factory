@@ -51,6 +51,15 @@ var (
 	mergeFields = []string{"mechanism", "required_checks"}
 )
 
+// fieldsOf lists the fields of the stage name of kind. Only the
+// doc-reviewer holds doc_readers.
+func fieldsOf(name string, kind StageKind) []string {
+	if name == StageDocReviewer {
+		return append(slices.Clone(stageFields[kind]), "doc_readers")
+	}
+	return stageFields[kind]
+}
+
 // Known is the set of stage names a project config may hold under stages.
 // KnownStages builds it.
 type Known struct {
@@ -185,7 +194,7 @@ func ParseSettingKey(s string, k Known) (SettingKey, error) {
 		if !ok {
 			return refuse("names no run stage, project job or agent job of this loop")
 		}
-		if !slices.Contains(stageFields[kind], field) {
+		if !slices.Contains(fieldsOf(name, kind), field) {
 			return refuse("is not a field that this stage kind holds")
 		}
 		return SettingKey{section, name, field}, nil
@@ -198,6 +207,9 @@ type Setting struct {
 	Key    SettingKey
 	Value  string // as `settings set --value` takes it; "" when no value is in force
 	Source Source
+	// Reason says why the value is in force. Only doc_readers holds one,
+	// when the readers are off.
+	Reason string
 }
 
 // Defaults gives the loop's own default of a stage field that host config
@@ -293,9 +305,14 @@ func (t ProjectThroughput) Settings(k Known, d Defaults) []Setting {
 	}
 	for _, name := range slices.Concat(k.RunStages, k.ProjectJobs, k.AgentJobs) {
 		kind, _ := KindOf(name, k)
-		for _, field := range stageFields[kind] {
+		for _, field := range fieldsOf(name, kind) {
 			v, src := t.stageField(name, field, d)
 			add(SettingKey{"stages", name, field}, v, src)
+		}
+	}
+	for i := range out {
+		if out[i].Key.field == "doc_readers" {
+			out[i].Reason = t.pc.DocReaders().Off
 		}
 	}
 	for _, p := range pools {
@@ -341,6 +358,12 @@ func (t ProjectThroughput) stageField(stage, field string, d Defaults) (string, 
 			return strconv.Itoa(*s.RunsPerTick), SourceProject
 		}
 		return strconv.Itoa(t.RunsPerTick(stage)), SourceDefault
+	case "doc_readers":
+		v := strconv.FormatBool(len(t.pc.DocReaders().Readers) > 0)
+		if s.DocReaders != nil {
+			return v, SourceProject
+		}
+		return v, SourceDefault
 	case "run_budget":
 		switch {
 		case s.RunBudget != 0:

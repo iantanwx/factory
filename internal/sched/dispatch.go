@@ -408,6 +408,10 @@ func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *conf
 	if j, ok := hc.AgentJob(ad.Stage); ok {
 		b.Runbook = j.Runbook
 	}
+	if ad.Stage == config.StageDocReviewer {
+		dr := snap.Config.DocReaders()
+		b.DocReaders, b.ReadersOff = dr.Readers, dr.Off
+	}
 	// The brief names the loop faults filed from this project and stage
 	// (KTD31), so the run learns their status without asking.
 	if fs, err := fault.ForBrief(ctx, s.cfg.Store, ad.Project, ad.Stage, s.now()); err != nil {
