@@ -68,6 +68,10 @@ const (
 	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
 	FactSimplifyDue     = "simplify_due"     // "true" when the ticket's next pr_open enters in_simplify
 	FactSimplifyFrom    = "simplify_from"    // the implementer's head that the latest simplify round started from
+	FactUIStories       = "ui_stories"       // the labels of the PRD's UI: yes stories at its merge, comma-separated
+	FactDesignPath      = "design_path"      // the merged design record's path
+	FactDesignMerged    = "design_merged"    // the merge commit of the design pull request
+	FactDesignSkipped   = "design_skipped"   // the operator's words that skipped the design stage
 )
 
 // Entry values of a todo ticket (R6).
