@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/machine"
 )
 
 func refusalCode(t *testing.T, err error) string {
@@ -673,5 +676,43 @@ func TestC14RoomPushThatChangesASettingLands(t *testing.T) {
 	}
 	if got := e.remoteSHA("loop/tk-1"); got != head {
 		t.Fatalf("remote loop/tk-1 = %q, want %s", got, head)
+	}
+}
+
+// TestC16DocReviewerPushesNothing proves C16: `branch push` from a
+// doc-reviewer run is refused with CAPABILITY_DENIED and rule
+// reviewer_reads_only, the server records no push intent, and the remote
+// branch stays where it was. A reader shares the run's token, so the same
+// refusal covers it.
+func TestC16DocReviewerPushesNothing(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	ctx := context.Background()
+	prdHead := commit(t, e.checkout, "prd", map[string]string{"docs/prd.md": "# PRD\n"})
+	pr := w.Add(&gt.PR{Head: "loop/placeholder", HeadSHA: prdHead})
+	id := e.epicInReview(pr.Number)
+	w.Update(pr, func(p *gt.PR) { p.Head = BranchFor(id) })
+	if _, err := e.push(id, prdHead); err != nil {
+		t.Fatalf("PRD push: %v", err)
+	}
+	_, res := e.m.Claim(ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageDocReviewer, RunID: "run-" + machine.StageDocReviewer})
+	mustOK(t, res)
+
+	edit := commit(t, e.checkout, "reviewer edit", map[string]string{"docs/prd.md": "# PRD\n\nedited\n"})
+	res = e.runCall("branch push", id, machine.StageDocReviewer, nil, map[string]string{cli.ExtraHead: edit})
+	if res.Refusal == nil || res.Refusal.Code != cli.CodeCapabilityDenied || res.Refusal.Rule != "reviewer_reads_only" {
+		t.Fatalf("doc-reviewer push: %+v, want CAPABILITY_DENIED rule reviewer_reads_only", res.Refusal)
+	}
+	var intents int
+	if err := e.svc.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT count(*) FROM push_intents WHERE run_id = ?`, "run-"+machine.StageDocReviewer).Scan(&intents)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if intents != 0 {
+		t.Fatalf("the doc-reviewer run recorded %d push intent(s), want 0", intents)
+	}
+	if got := e.remoteSHA(BranchFor(id)); got != prdHead {
+		t.Fatalf("remote %s = %q, want %s", BranchFor(id), got, prdHead)
 	}
 }
