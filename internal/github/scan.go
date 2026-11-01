@@ -408,3 +408,64 @@ func (m *Mirror) scanBlobs(ctx context.Context, red *secrets.Redactor, commit st
 		}
 	}
 }
+
+// CheckDesignScope refuses a push of epic's design branch at head that
+// reaches outside the epic's design directory (C18). A commit that the
+// prototype's branch holds and base lacks is SHAPE_REFUSED with rule
+// prototype_in_design: the prototype keeps its own branch. A path that
+// differs from the merge base with base outside docs/design/<epic>/ is
+// SHAPE_REFUSED with rule design_scope. A merge of the base brings in
+// the base's paths, so the merge base moves and the push passes. Each
+// hint names every commit or path it refuses.
+func (m *Mirror) CheckDesignScope(ctx context.Context, epic, head, base, prototype string) error {
+	if m.Resolve(ctx, prototype) != "" {
+		own, err := m.lines(ctx, "rev-list", head, "^"+base)
+		if err != nil {
+			return err
+		}
+		theirs, err := m.lines(ctx, "rev-list", prototype, "^"+base)
+		if err != nil {
+			return err
+		}
+		var shared []string
+		for _, c := range own {
+			if slices.Contains(theirs, c) {
+				shared = append(shared, short(c))
+			}
+		}
+		if len(shared) > 0 {
+			return &RefusedError{Code: cli.CodeShapeRefused, Rule: "prototype_in_design",
+				Hint: fmt.Sprintf("the design branch holds commits of %s that the base lacks: %s; the prototype stays on its own branch, so build the design branch from the base again without them",
+					strings.TrimPrefix(prototype, "refs/remotes/origin/"), strings.Join(shared, ", "))}
+		}
+	}
+	fork, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"merge-base", head, base}})
+	if err != nil {
+		return err
+	}
+	changed, err := m.lines(ctx, "diff", "--name-only", "--no-renames", fork, head)
+	if err != nil {
+		return err
+	}
+	dir := "docs/design/" + epic + "/"
+	var outside []string
+	for _, p := range changed {
+		if !strings.HasPrefix(p, dir) {
+			outside = append(outside, p)
+		}
+	}
+	if len(outside) > 0 {
+		return &RefusedError{Code: cli.CodeShapeRefused, Rule: "design_scope",
+			Hint: fmt.Sprintf("the design branch holds only %s; these paths differ from the merge base outside it: %s", dir, strings.Join(outside, ", "))}
+	}
+	return nil
+}
+
+// lines runs git in the mirror and splits its output into lines.
+func (m *Mirror) lines(ctx context.Context, args ...string) ([]string, error) {
+	out, err := m.git.text(ctx, gitRun{dir: m.Dir, args: args})
+	if err != nil || out == "" {
+		return nil, err
+	}
+	return strings.Split(out, "\n"), nil
+}
