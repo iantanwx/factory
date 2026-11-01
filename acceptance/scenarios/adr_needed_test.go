@@ -45,7 +45,7 @@ func adrNeededPass(w *acceptance.World, title string) string {
 	}
 	head := w.Must(w.In(run.Checkout, "pr", "show")).Str("head_sha")
 	w.Must(w.In(run.Checkout, "review", "submit", epic, "--verdict", "pass", "--head", head, "--body", "Read the document: pass.",
-		"--adr-needed", "R1 binds every later epic"))
+		"--adr-needed", "R1 binds every later epic", "--readers", allReaders))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 	wantStatus(w, epic, machine.PRDSignoff)
 	if got := w.Show(epic).Facts[machine.FactADRNeeded]; got != "R1 binds every later epic" {

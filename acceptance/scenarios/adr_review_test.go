@@ -52,7 +52,8 @@ func adrVerdict(w *acceptance.World, epic, verdict string) {
 		w.T.Fatalf("the doc-reviewer took %s, want %s", run.Item, epic)
 	}
 	head := w.Must(w.In(run.Checkout, "pr", "show")).Str("head_sha")
-	w.Must(w.In(run.Checkout, "review", "submit", epic, "--verdict", verdict, "--head", head, "--body", "The ADR binds two epics."))
+	w.Must(w.In(run.Checkout, "review", "submit", epic, "--verdict", verdict, "--head", head, "--body", "The ADR binds two epics.",
+		"--readers", allReaders))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 	wantStatus(w, epic, machine.Architecture)
 }
@@ -95,7 +96,7 @@ func TestADRReviewEndToEnd(t *testing.T) {
 	w.MergeByHand(pr2)
 	w.React()
 	wantStatus(w, e2, machine.SpecNeeded)
-	if r := w.In(run.Checkout, "review", "submit", e2, "--verdict", "pass", "--head", pr2.HeadSHA); r.Code != 3 {
+	if r := w.In(run.Checkout, "review", "submit", e2, "--verdict", "pass", "--head", pr2.HeadSHA, "--readers", allReaders); r.Code != 3 {
 		t.Fatalf("the outran reviewer's verdict = %s", r)
 	}
 }
