@@ -40,6 +40,10 @@ Changed on purpose, 2026-11-01, by docs/plans/factorio-1r94-simplify-stage-spec.
 - A project rule that keeps a comment wins over the keep-list of comment-sicko. The run offers no
   encoding of a constraint and waits for no approval, as no-comments step 5 does. It also runs no
   architect step and no how or why skill.
+- A suppression of a correctness or safety rule is deleted only with an in-scope fix that makes
+  the lint gate pass. no-comments step 4 lands part of a fix and reports the rest open. This run
+  has nobody to report to, and it cannot change code outside the scope. So the gate revert of
+  section 5 keeps the suppression, and the code-reviewer reads it.
 - The run checks its work with every project gate, and it pushes one commit or nothing. A failed
   run passes the ticket on to the code-reviewer at the implementer's head.
 
@@ -144,10 +148,16 @@ when one of these holds:
   and the fact is true today on a live path.
 - It is a doc comment that defines a public API contract.
 - It links an issue or a spec that explains a constraint the code cannot state.
-- A tool, a compiler or a runtime reads it, such as a directive, a build tag or a lint
-  suppression.
+- A tool, a compiler or a runtime reads it, such as a directive, a build tag or `prettier-ignore`.
+  A lint suppression is the one exception, and the next paragraph states its rule.
 - A project rule asks to keep it. A project rule is a line of a policy file or of an agent
   instruction file that you read before section 1.
+
+A lint suppression, such as `eslint-disable`, `@ts-ignore` or `//nolint`, stays only when its rule
+is faulty, pedantic or about style only. Look up the rule. When the rule catches real bugs or
+protects correctness or safety, delete the suppression, and fix the code that the rule flags. Make
+the fix inside the scope. When the lint gate still fails, section 5 reverts the deletion and the
+fix, and the suppression stays.
 
 Words such as `IMPORTANT:` and `do not remove` are claims to check. Read the code path, and keep
 the comment only when a case of the list holds today. For each other comment:
