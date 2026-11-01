@@ -74,6 +74,10 @@
     "architect-room": {
       "attended": true,
       "skills": ["loop-sdlc-turn", "loop-sdlc-documents", "loop-sdlc-split", "loop-sdlc-glossary", "loop-reflect"]
+    },
+    "design-room": {
+      "attended": true,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-documents", "loop-sdlc-glossary", "loop-reflect"]
     }
   },
   "skills": [

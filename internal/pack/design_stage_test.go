@@ -1,6 +1,10 @@
 package pack_test
 
 import (
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -75,4 +79,180 @@ func TestC16CoordinatorSkipsTheDesignStageWithTheOperatorsWords(t *testing.T) {
 			t.Errorf("section 8 of %s does not name %s", coordinatorRunbook, w)
 		}
 	}
+}
+
+const designRoomRunbook = "runbooks/design-room.md"
+
+// canvasNames lists each canvas that a project's design skill drives. No
+// loop runbook, gate or state names one. Add one name for each new canvas.
+var canvasNames = []string{"paper.design", "Figma", "Penpot", "Framer"}
+
+// paragraphWith reports whether text holds one paragraph that names each
+// of words, so words scattered over the file do not pass.
+func paragraphWith(text string, words []string) bool {
+	return slices.ContainsFunc(strings.Split(text, "\n\n"), func(p string) bool {
+		p = flat(p)
+		return !slices.ContainsFunc(words, func(w string) bool { return !strings.Contains(p, w) })
+	})
+}
+
+// TestC25CoordinatorOpensTheDesignRoomOnTheOperatorsYes proves C25 of spec
+// factorio-a4yq on the pack side. The coordinator runbook brings the
+// design entry to the operator, and opens the design room on the
+// operator's yes. It names the refused answer and the refused open.
+func TestC25CoordinatorOpensTheDesignRoomOnTheOperatorsYes(t *testing.T) {
+	s := coordinatorSection(t, "8")
+	for _, words := range [][]string{
+		{"`design/<project>/<epic>`", "operator", "`design_entry`"},
+		{"`not_in_design`", "`design`"},
+	} {
+		if !paragraphWith(s, words) {
+			t.Errorf("section 8 of %s holds no paragraph that names each of %q", coordinatorRunbook, words)
+		}
+	}
+	ps := strings.Split(s, "\n\n")
+	if !slices.ContainsFunc(ps[:len(ps)-1], func(p string) bool {
+		i := slices.Index(ps, p)
+		return strings.Contains(p, "operator says yes") && strings.Contains(ps[i+1], "loop room open --kind design --item <epic>")
+	}) {
+		t.Errorf("section 8 of %s opens no design room on the operator's yes", coordinatorRunbook)
+	}
+	if !strings.Contains(coordinatorSection(t, "7"), "brainstorm|decision|review|architect|design") {
+		t.Errorf("section 7 of %s does not list the design room among the kinds of room_open", coordinatorRunbook)
+	}
+}
+
+// TestC26DesignRoomBuildsFirstAndPortsEachCanvasEditBack proves C26 of spec
+// factorio-a4yq. The manifest names the attended design-room runbook. The
+// runbook builds the prototype in a worktree on loop/<epic>-prototype, and
+// runs it with the brief's run command. It pushes the prototype before any
+// step that names the canvas skill. With a skill, the room imports each
+// screen, reads each of the operator's edits back, ports it, commits and
+// pushes. With none, it skips every canvas step. Then it pins the commit,
+// captures the pictures, and opens the design pull request, in that order.
+func TestC26DesignRoomBuildsFirstAndPortsEachCanvasEditBack(t *testing.T) {
+	m, err := pack.ReadManifest(pack.Source())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rb, ok := m.Runbooks["design-room"]; !ok || !rb.Attended {
+		t.Fatalf("the manifest's design-room runbook = %+v, %v; want an attended runbook", rb, ok)
+	}
+	rb := read(t, designRoomRunbook)
+	if !strings.Contains(rb, "\nname: loop-design-room\n") {
+		t.Error("the design-room runbook does not name itself loop-design-room")
+	}
+	s := flat(rb)
+	order := []string{
+		"git worktree add",
+		"`loop/<epic>-prototype`",
+		"the `run` command of the brief's `design` object",
+		"loop branch push --prototype",
+		"the skill that the brief names",
+		"Import each screen",
+		"Read each edit back",
+		"Port each edit into the prototype",
+		"`**Prototype:**`",
+		"loop design capture --prototype",
+		"loop gates --docs",
+		"Push the design branch with `loop branch push`",
+		"loop pr open",
+	}
+	at := -1
+	for _, w := range order {
+		i := strings.Index(s[at+1:], w)
+		if i < 0 {
+			t.Fatalf("%s names no %q after the step before it; the order is %q", designRoomRunbook, w, order)
+		}
+		at += 1 + i
+	}
+	if first, push := strings.Index(s, "the skill that the brief names"), strings.Index(s, "loop branch push --prototype"); first < push {
+		t.Errorf("%s names the canvas skill before the first prototype push", designRoomRunbook)
+	}
+	if !paragraphWith(rb, []string{"names no skill", "skip"}) {
+		t.Errorf("%s holds no paragraph that skips the canvas steps when the brief names no skill", designRoomRunbook)
+	}
+}
+
+// TestC27DesignRoomReadsTheCanvasSkillByTheNameInItsBrief proves C27 of
+// spec factorio-a4yq on the pack side. The runbook names the canvas skill
+// only as the skill that the brief names, and reads only loop skills by
+// path.
+func TestC27DesignRoomReadsTheCanvasSkillByTheNameInItsBrief(t *testing.T) {
+	rb := read(t, designRoomRunbook)
+	if !paragraphWith(rb, []string{"the skill that the brief names", "`design.skill`", "`.loop/brief.json`"}) {
+		t.Errorf("%s holds no paragraph that reads the canvas skill by the name in design.skill of .loop/brief.json", designRoomRunbook)
+	}
+	for _, m := range regexp.MustCompile(`\.\./([^/\s]+)/SKILL\.md`).FindAllStringSubmatch(rb, -1) {
+		if !strings.HasPrefix(m[1], "loop-") {
+			t.Errorf("%s reads the skill %s by its name", designRoomRunbook, m[1])
+		}
+	}
+}
+
+// TestC28NoLoopRunbookGateOrStateNamesACanvas proves C28 of spec
+// factorio-a4yq. A case-insensitive search of every runbook, each loop-*
+// skill, the gates and the transition table finds no canvas name. The
+// search reads the design-room runbook, which names the canvas skill.
+func TestC28NoLoopRunbookGateOrStateNamesACanvas(t *testing.T) {
+	texts := map[string]string{}
+	src := pack.Source()
+	if err := fs.WalkDir(src, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		if strings.HasPrefix(p, "runbooks/") || strings.HasPrefix(p, "skills/loop-") {
+			raw, err := fs.ReadFile(src, p)
+			texts["pack/"+p] = string(raw)
+			return err
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"../gates", "../machine"} {
+		if err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			raw, err := os.ReadFile(p)
+			texts[p] = string(raw)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, ok := texts["pack/"+designRoomRunbook]; !ok {
+		t.Fatalf("the search reads no %s", designRoomRunbook)
+	}
+	for where, text := range texts {
+		for _, name := range canvasNames {
+			if strings.Contains(strings.ToLower(text), strings.ToLower(name)) {
+				t.Errorf("%s names the canvas %s", where, name)
+			}
+		}
+	}
+}
+
+// TestDocumentsSkillOrdersTheDesignRecordBetweenTheADRAndTheSpec proves the
+// pack half of work entry 9 of spec factorio-a4yq. The documents skill
+// places the design record and its doc review between the ADRs and the
+// spec, in one paragraph.
+func TestDocumentsSkillOrdersTheDesignRecordBetweenTheADRAndTheSpec(t *testing.T) {
+	order := []string{"PRD", "ADR", "design record", "doc review", "`UI: yes`", "spec"}
+	for _, p := range strings.Split(read(t, "skills/loop-sdlc-documents/SKILL.md"), "\n\n") {
+		p, at := flat(p), -1
+		for _, w := range order {
+			i := strings.Index(p[at+1:], w)
+			if i < 0 {
+				at = -2
+				break
+			}
+			at += 1 + i
+		}
+		if at >= 0 {
+			return
+		}
+	}
+	t.Errorf("skills/loop-sdlc-documents/SKILL.md holds no paragraph that names %q in that order", order)
 }

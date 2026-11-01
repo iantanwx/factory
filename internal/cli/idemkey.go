@@ -99,6 +99,17 @@ func DeriveKey(p KeyParts) string {
 // server to push: branch push, and prd submit, which pushes the PRD.
 func pushesHead(path string) bool { return path == "branch push" || path == "prd submit" }
 
+// headDir is the git directory whose HEAD a push sends. A design room's
+// `branch push --prototype` runs in the prototype worktree inside its
+// checkout, so it sends that worktree's HEAD. Every other push sends the
+// checkout's.
+func headDir(inv Invocation, checkout, cwd string) string {
+	if inv.Verb.Path == "branch push" && inv.Flags["prototype"] == "true" {
+		return cwd
+	}
+	return checkout
+}
+
 // ContentHash is the hash of the content a write carries: the local HEAD
 // sha for a verb that pushes it, the --body text, or the bytes of the
 // --file file and of each --evidence file. It is "" for a write that
@@ -106,7 +117,7 @@ func pushesHead(path string) bool { return path == "branch push" || path == "prd
 func ContentHash(ctx context.Context, inv Invocation, checkout, cwd string) (string, error) {
 	switch {
 	case pushesHead(inv.Verb.Path):
-		head, err := CheckoutHead(ctx, checkout)
+		head, err := CheckoutHead(ctx, headDir(inv, checkout, cwd))
 		if err != nil {
 			return "", err
 		}
