@@ -85,7 +85,7 @@ func (e *SecretError) Error() string {
 
 // ScanError is a push the scan refused (KTD14).
 type ScanError struct {
-	Code   string // cli.CodeUnsafePath, cli.CodeSecretInDiff or cli.CodeSecretInOutput
+	Code   string // cli.CodeUnsafePath, cli.CodeSecretInDiff, cli.CodeSecretInOutput or cli.CodeSimplifyScope
 	Rule   string
 	Commit string
 	Path   string

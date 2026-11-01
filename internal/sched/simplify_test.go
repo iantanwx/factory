@@ -2,6 +2,7 @@ package sched
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -206,5 +207,42 @@ func TestC11ASimplifyRunStartsClean(t *testing.T) {
 	}
 	if strings.Contains(md, impl.RunID) || strings.Contains(md, impl.Checkout) {
 		t.Fatalf("the brief names the implementer's run:\n%s", md)
+	}
+}
+
+// C18: every end of a simplify run drops the commit the server holds for
+// it, so a commit that no hand-off pushed never reaches GitHub. The
+// settlement of an implementer run drops nothing.
+func TestC18SettlementDropsTheHeldCommit(t *testing.T) {
+	ctx := context.Background()
+	for _, end := range []string{"failed", "blocked", "done", "crash"} {
+		t.Run(end, func(t *testing.T) {
+			w := newWorld(t)
+			var dropped []string
+			w.s.SetHeldDropper(func(_ context.Context, project, run string) error {
+				dropped = append(dropped, project+"/"+run)
+				return nil
+			})
+			w.withSimplify(true)
+			id := w.waitingForSimplify()
+			st := w.dispatch(config.StageSimplify)
+			if end == "crash" {
+				w.host.Exit(st.Session.ID, 1)
+				w.tick()
+			} else if _, ref := w.s.Finish(ctx, st.RunID, end); ref != nil {
+				t.Fatal(ref)
+			}
+			if want := []string{prj + "/" + st.RunID}; !slices.Equal(dropped, want) {
+				t.Fatalf("dropped %v, want %v", dropped, want)
+			}
+			w.passedThrough(id, st.RunID)
+
+			dropped = nil
+			w.runMove(machine.StageCodeReviewer, "review_reject")
+			w.runMove(machine.StageImplementer, "pr_open")
+			if len(dropped) != 0 {
+				t.Fatalf("the settlement of other stages dropped %v", dropped)
+			}
+		})
 	}
 }
