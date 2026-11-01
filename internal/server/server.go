@@ -428,6 +428,9 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			}
 			return snap.Config.DocReaders().Readers, nil
 		})
+		// review submit lands a code pass on in_qa when the project runs
+		// the QA stage.
+		s.Machine.SetQAEnabled(qaEnabled(projects))
 		s.Retro = &retro.Service{World: retro.World{Store: st, Machine: s.Machine, Faults: s.Faults}, Redactor: red}
 		if err := s.Retro.Register(srv); err != nil {
 			return nil, err
@@ -523,5 +526,14 @@ func holdsItem(st *store.Store, next rpc.HoldsItem) rpc.HoldsItem {
 				p.Project, item, escalation.StateAwaitingPanel, p.Actor()).Scan(&n)
 		})
 		return n == 1, err
+	}
+}
+
+// qaEnabled reads the QA stage setting of a project from its config. A
+// config that cannot be read reads as off.
+func qaEnabled(projects sched.ProjectSource) machine.QAEnabled {
+	return func(ctx context.Context, project string) bool {
+		snap, err := projects(ctx, project)
+		return err == nil && snap.Config.StageEnabled(config.StageQA)
 	}
 }
