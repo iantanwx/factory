@@ -248,3 +248,73 @@ func TestAQARunWithNoReportLeavesTheTicketInQA(t *testing.T) {
 		t.Fatalf("an escalation from in_qa resumes to %q with entry %q; want todo, rework", it.Fact(FactResume), it.Fact(FactResumeEntry))
 	}
 }
+
+const shaC = "cccccccccccccccccccccccccccccccccccccccc"
+
+// C11: a new head in in_qa returns the ticket to review. It clears
+// reviewed_head and qa_head, drops the QA run's lease and bumps the epoch,
+// so the run's next write with its old lease refuses. The reviewed head
+// itself is no change.
+func TestC11ANewHeadInQAReturnsTheTicketToReview(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	id := w.inQA()
+	w.force(id, InQA, map[string]string{FactQAHead: shaC})
+	epoch := w.claim(id, StageQA, "run-qa")
+
+	if res := w.m.HeadChanged(ctx, prj, id, shaA); res.Exit != cli.ExitNothing {
+		t.Fatalf("the reviewed head is no change: %+v", res)
+	}
+	mustOK(t, w.m.HeadChanged(ctx, prj, id, shaB))
+	it := w.show(id)
+	if it.Status != InReview || it.Owner != "" || it.Epoch != epoch+1 {
+		t.Fatalf("after head %s: %s owner %q epoch %d; want in_review, no owner, epoch %d", shaB, it.Status, it.Owner, it.Epoch, epoch+1)
+	}
+	if it.Fact(FactReviewedHead) != "" || it.Fact(FactQAHead) != "" || it.Fact(FactHead) != shaB {
+		t.Fatalf("after head %s: facts %v; want no reviewed_head, no qa_head, head %s", shaB, it.Facts, shaB)
+	}
+	r := wantCode(t, w.runWrite(id, "run-qa", epoch, VerbQAPass, map[string]string{"head": shaA, "body": "report"}), cli.CodeLeaseNotHeld)
+	if r.CurrentStatus != InReview {
+		t.Fatalf("the old lease's report: %+v", *r)
+	}
+}
+
+// queuedAfterQA walks a ticket through a QA pass at shaA into the queue.
+func (w *world) queuedAfterQA() string {
+	w.t.Helper()
+	id := w.inQA()
+	epoch := w.claim(id, StageQA, "run-qa")
+	mustOK(w.t, w.runWrite(id, "run-qa", epoch, VerbQAPass, map[string]string{"head": shaA, "body": "QA passed."}))
+	w.must(id, VerbEnqueue, map[string]string{"head": shaA})
+	return id
+}
+
+// C12: base_merged carries the QA pass of the reviewed head to the merge
+// commit, and names the head it carried the pass from. A queued ticket
+// with no QA pass keeps none.
+func TestC12BaseMergedCarriesTheQAPass(t *testing.T) {
+	w := newWorld(t)
+	passed := w.queuedAfterQA()
+	unpassed := w.ticketInReview(shaA)
+	w.must(unpassed, "review_pass", map[string]string{"head": shaA})
+	w.must(unpassed, VerbEnqueue, map[string]string{"head": shaA})
+	cases := []struct {
+		id   string
+		want map[string]string
+	}{
+		{passed, map[string]string{FactReviewedHead: shaC, FactQAHead: shaC, FactQACarriedFrom: shaA, FactHead: shaC}},
+		{unpassed, map[string]string{FactReviewedHead: shaC, FactQAHead: "", FactQACarriedFrom: "", FactHead: shaC}},
+	}
+	for _, c := range cases {
+		w.must(c.id, VerbBaseMerged, map[string]string{"from": shaA, "head": shaC})
+		it := w.show(c.id)
+		if it.Status != Queued {
+			t.Fatalf("after base_merged: %s, want %s", it.Status, Queued)
+		}
+		for f, v := range c.want {
+			if got := it.Fact(f); got != v {
+				t.Fatalf("after base_merged on %s: %s = %q, want %q", c.id, f, got, v)
+			}
+		}
+	}
+}

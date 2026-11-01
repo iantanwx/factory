@@ -42,6 +42,9 @@ var (
 	sentenceEnd  = regexp.MustCompile(`\.(\s|$)`)
 	closesAState = regexp.MustCompile("(?i)\\bclos\\w*\\b.*`(shaped|duplicate|canceled)`")
 	glossaryCode = regexp.MustCompile("`([^`]+)`")
+	// qaAfterReview finds the QA run after the code-reviewer in the build
+	// phase.
+	qaAfterReview = regexp.MustCompile(`code-reviewer.*\bQA\b`)
 )
 
 // glossarySections splits text at each "## " heading, and returns each
@@ -90,7 +93,37 @@ func sentences(def string) []string {
 	return out
 }
 
-// glossaryFaults names each way text breaks C21.
+// ticketStates returns each state that the ticket line of the loop states
+// lists.
+func ticketStates(lines []string) []string {
+	var out []string
+	for _, m := range glossaryCode.FindAllStringSubmatch(glossaryTerms(lines)["Ticket"], -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+// buildPhase returns the text of the build phase, on one line.
+func buildPhase(lines []string) string {
+	build := ""
+	for _, l := range lines {
+		if m := phaseLine.FindStringSubmatch(l); m != nil {
+			if build != "" {
+				break
+			}
+			if m[2] == "Build" {
+				build = l
+			}
+			continue
+		}
+		if build != "" && strings.HasPrefix(l, "   ") {
+			build += " " + strings.TrimSpace(l)
+		}
+	}
+	return build
+}
+
+// glossaryFaults names each way text breaks C21 and C35.
 func glossaryFaults(text string) []string {
 	var faults []string
 	sections := glossarySections(text)
@@ -136,17 +169,32 @@ func glossaryFaults(text string) []string {
 	}
 
 	rows := map[string]int{}
-	triage := ""
+	triage, qa := "", ""
 	for _, r := range pack.Table(text, "stage", "what it does", "item states it takes") {
 		rows[pack.Bare(r.Cells[0])]++
-		if pack.Bare(r.Cells[0]) == "triage" {
+		switch pack.Bare(r.Cells[0]) {
+		case "triage":
 			triage = r.Cells[1]
+		case "qa":
+			qa = r.Cells[2]
 		}
 	}
 	for _, role := range []string{"reviser", "planner", "triage", "unattended-brainstorm", "retro"} {
 		if rows[role] != 1 {
 			faults = append(faults, fmt.Sprintf("the stage table defines %s %d times, want once", role, rows[role]))
 		}
+	}
+	if rows["qa"] != 1 {
+		faults = append(faults, fmt.Sprintf("the stage table defines qa %d times, want once", rows["qa"]))
+	}
+	if !strings.Contains(qa, "`in_qa`") {
+		faults = append(faults, fmt.Sprintf("the qa stage takes %q, want ticket `in_qa`", qa))
+	}
+	if !slices.Contains(ticketStates(sections["Loop states"]), "in_qa") {
+		faults = append(faults, "the ticket states do not list `in_qa`")
+	}
+	if build := buildPhase(sections["Phases"]); !qaAfterReview.MatchString(build) {
+		faults = append(faults, fmt.Sprintf("the build phase is %q, want the QA run after the code-reviewer", build))
 	}
 	if !strings.Contains(triage, "triage rubric") {
 		faults = append(faults, fmt.Sprintf("the triage stage is %q, want the run that applies the triage rubric", triage))
@@ -188,7 +236,8 @@ func glossaryFaults(text string) []string {
 
 // C21: the glossary holds the nine phases, the units of work, the holds,
 // the triage words, the retro, its two events and the rule for a closed
-// bug.
+// bug. C35: it names the qa stage, its state `in_qa` and the QA run of the
+// build phase.
 func TestC21GlossaryHoldsTheNewWords(t *testing.T) {
 	if faults := glossaryFaults(read(t, glossarySkill)); len(faults) > 0 {
 		t.Fatalf("the glossary breaks C21:\n%s", strings.Join(faults, "\n"))
@@ -214,6 +263,9 @@ func TestC21GlossaryFaultsCatchAWrongGlossary(t *testing.T) {
 			"A canceled bug closes at once. A duplicate bug closes at once." + good[start+end:],
 		"a decision as work":  strings.Replace(good, "- **Work kinds**: `epic`,", "- **Work kinds**: `decision`, `epic`,", 1),
 		"ideate not optional": strings.Replace(good, "1. **Ideate** (optional): ", "1. **Ideate**: ", 1),
+		"no qa row":           noRow(good, "| `qa` |"),
+		"no in_qa state":      strings.Replace(good, "`repair`, `in_qa`,", "`repair`,", 1),
+		"no QA run in build":  strings.Replace(good, " In a project\n   that lists the `qa` stage, the QA run then drives the app of each reviewed ticket.", "", 1),
 	}
 	for name, text := range cases {
 		if text == good {
@@ -223,6 +275,17 @@ func TestC21GlossaryFaultsCatchAWrongGlossary(t *testing.T) {
 			t.Errorf("%s: the fixture glossary passes C21", name)
 		}
 	}
+}
+
+// noRow returns text with each line that starts with prefix removed.
+func noRow(text, prefix string) string {
+	var out []string
+	for _, l := range strings.Split(text, "\n") {
+		if !strings.HasPrefix(l, prefix) {
+			out = append(out, l)
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 // C9: AAR is a retired word, and no file of the pack holds it.

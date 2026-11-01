@@ -144,6 +144,9 @@ func ticketEdges() []edge {
 		edge{InQA, "claim", InQA}, edge{InQA, "release", InQA}, edge{InQA, "reclaim", InQA},
 		edge{InQA, "qa_pass", ReadyToMerge}, edge{InQA, "qa_fail", Todo}, edge{InQA, "qa_off", ReadyToMerge},
 		edge{ReadyToMerge, "qa_due", InQA}, edge{Queued, "qa_due", InQA}, edge{InQA, "pr_closed", Escalated})
+	// Added: a push in in_qa returns the ticket to review (spec
+	// factorio-nhb5 C11).
+	e = append(e, edge{InQA, "head_changed", InReview})
 	return e
 }
 
