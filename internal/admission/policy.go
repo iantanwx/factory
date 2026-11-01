@@ -67,11 +67,27 @@ type Config struct {
 	Now func() time.Time
 }
 
+// CIState is the CI state of one head. The zero value is CIPending, so an
+// unknown state never reads as green.
+type CIState int
+
+// CI states of one head.
+const (
+	CIPending CIState = iota // a check runs or waits, or no check has reported
+	CIGreen                  // every required check passed
+	CIRed                    // a check failed
+)
+
+// CIReader reads the CI state of a head of a project. The server wires it
+// to github.Service.Checks.
+type CIReader func(ctx context.Context, project, head string) (CIState, error)
+
 // Admission is the admission policy. It implements machine.ClaimGuard.
 type Admission struct {
 	cfg   Config
 	items Items
 	heads machine.PRHeadReader
+	ci    CIReader
 
 	mu      sync.Mutex
 	pending map[string]snapshot // by run id, between reservation and claim
@@ -100,6 +116,10 @@ func (a *Admission) Attach(items Items) { a.items = items }
 // SetPRHeadReader sets the reader of live pull request heads. The GitHub
 // setup sets it before the socket binds.
 func (a *Admission) SetPRHeadReader(f machine.PRHeadReader) { a.heads = f }
+
+// SetCIReader sets the reader of CI at a pull request head. The GitHub
+// setup sets it before the socket binds.
+func (a *Admission) SetCIReader(f CIReader) { a.ci = f }
 
 var _ machine.ClaimGuard = (*Admission)(nil)
 
@@ -247,6 +267,40 @@ func (a *Admission) inputsOf(ctx context.Context, project, item, stage string) (
 	return computeInputs(ctx, a.cfg.Base, project, t, a.cfg.Release)
 }
 
+// ciWait refuses a code review of a ticket whose live head differs from a
+// set simplify_from until CI at that head is green. The simplify run made
+// that head, and only CI runs every gate there. A red head waits too: the
+// reactor's pollCI sends it to repair. The head at simplify_from, the
+// implementer's own, never waits here. It makes outside reads, so no
+// caller holds a lock.
+func (a *Admission) ciWait(ctx context.Context, stage string, it machine.Item) (*cli.Refusal, error) {
+	from := it.Fact(machine.FactSimplifyFrom)
+	if stage != config.StageCodeReviewer || from == "" || a.heads == nil {
+		return nil, nil
+	}
+	head, ref := a.heads(ctx, it.Project, it.ID)
+	switch {
+	case ref != nil && ref.Code == cli.CodeNotFound:
+		return nil, nil
+	case ref != nil:
+		return nil, refusalErr{ref}
+	case head == from:
+		return nil, nil
+	}
+	state := CIPending
+	if a.ci != nil {
+		var err error
+		if state, err = a.ci(ctx, it.Project, head); err != nil {
+			return nil, fmt.Errorf("admission: read CI at %s of %s: %w", head, it.ID, err)
+		}
+	}
+	if state == CIGreen {
+		return nil, nil
+	}
+	return &cli.Refusal{Code: cli.CodeCINotGreen, Rule: "simplify_head_ci", Item: it.ID, CurrentStatus: it.Status,
+		Hint: fmt.Sprintf("%s waits for green CI at %s, the head its simplify run left, before its code review", it.ID, head)}, nil
+}
+
 // Admit admits one run: the stage pause, the dependency rule, the stage
 // mutex, the holds, the caps and the retry limit, in that order. It
 // reserves the run in the runs table, then claims the item through the
@@ -304,6 +358,12 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 		if it.Owner != "" {
 			return Admitted{}, &cli.Refusal{Code: cli.CodeLeaseHeld, Rule: "lease_held", Item: it.ID, CurrentStatus: it.Status,
 				Hint: fmt.Sprintf("%s belongs to run %s until that run settles", it.ID, it.Owner)}
+		}
+		if ref, err := a.ciWait(ctx, r.Stage, it); err != nil || ref != nil {
+			if err != nil {
+				return Admitted{}, asRefusal(err)
+			}
+			return Admitted{}, ref
 		}
 		status = it.Status
 		var err error
@@ -680,6 +740,9 @@ func (a *Admission) admissible(ctx context.Context, stage string, it machine.Ite
 		return false, nil
 	}
 	if ref, err := a.dependencyRefusal(ctx, it); err != nil || ref != nil {
+		return false, err
+	}
+	if ref, err := a.ciWait(ctx, stage, it); err != nil || ref != nil {
 		return false, err
 	}
 	var held, blocked, holds bool

@@ -32,7 +32,7 @@ func TestC2QAStageIsOptional(t *testing.T) {
 }
 
 // C33: the qa stage is on by default, and a project turns it off with
-// enabled: false. No other unlisted stage turns on.
+// enabled: false. An unlisted stage outside defaultOn stays off.
 func TestC33QAStageIsOnByDefaultAndAProjectTurnsItOff(t *testing.T) {
 	for _, c := range []struct {
 		name, stages string
@@ -50,7 +50,7 @@ func TestC33QAStageIsOnByDefaultAndAProjectTurnsItOff(t *testing.T) {
 		if got := pc.StageEnabled("qa"); got != c.qa {
 			t.Fatalf("%s: StageEnabled(qa) = %t, want %t", c.name, got, c.qa)
 		}
-		for _, other := range []string{"reproducer", "simplify", "code-reviewer"} {
+		for _, other := range []string{"reproducer", "code-reviewer"} {
 			if pc.StageEnabled(other) {
 				t.Fatalf("%s: StageEnabled(%s) = true for an unlisted stage", c.name, other)
 			}

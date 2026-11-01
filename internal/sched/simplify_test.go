@@ -11,10 +11,10 @@ import (
 	"github.com/iantanwx/loop/internal/machine"
 )
 
-// C2: with the simplify stage registered and StageEnabled unchanged, a
-// project config that does not list simplify gets its firing, disabled, on
-// the stage's default schedule (docs/plans/factorio-1r94-simplify-stage-spec.md).
-func TestC2AConfigWithNoSimplifyEntryFiresNoSimplifyRun(t *testing.T) {
+// C9: the simplify stage is on by default, so a project config that does
+// not list simplify gets its firing, enabled, on the stage's default
+// schedule (docs/plans/factorio-1r94-simplify-stage-spec.md).
+func TestC9AConfigWithNoSimplifyEntryFiresTheSimplifyStage(t *testing.T) {
 	sn := snapshot(t, "stages:\n  implementer: {}\n  code-reviewer: {}\nmerge:\n  mechanism: direct\n", "")
 	firings := Firings(config.DefaultHost(t.TempDir()), []config.Project{{ID: prj}},
 		func(string) *config.ProjectSnapshot { return sn }, Jobs{})
@@ -24,7 +24,7 @@ func TestC2AConfigWithNoSimplifyEntryFiresNoSimplifyRun(t *testing.T) {
 			got = append(got, f)
 		}
 	}
-	want := Firing{Project: prj, Stage: "simplify", Kind: FiringRun, Enabled: false, Schedule: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"}
+	want := Firing{Project: prj, Stage: "simplify", Kind: FiringRun, Enabled: true, Schedule: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("simplify firings = %+v, want [%+v]", got, want)
 	}

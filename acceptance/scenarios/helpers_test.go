@@ -58,10 +58,20 @@ func createTicket(w *acceptance.World, title, body string) string {
 	return w.CreateTicket(title, body)
 }
 
-// implement starts an implementer run on the next ticket, commits files,
+// implement runs the implementer on item by implementRun, then passes the
+// ticket on to review by passSimplify. It returns the run and the pushed
+// head.
+func implement(w *acceptance.World, item string, files map[string]string) (acceptance.Run, string) {
+	w.T.Helper()
+	run, head := implementRun(w, item, files)
+	passSimplify(w, item)
+	return run, head
+}
+
+// implementRun starts an implementer run on the next ticket, commits files,
 // pushes and opens the PR from the run's checkout, and finishes the run.
 // It returns the run and the pushed head.
-func implement(w *acceptance.World, item string, files map[string]string) (acceptance.Run, string) {
+func implementRun(w *acceptance.World, item string, files map[string]string) (acceptance.Run, string) {
 	w.T.Helper()
 	run := w.Dispatch(machine.StageImplementer)
 	if run.Item != item {
@@ -71,7 +81,6 @@ func implement(w *acceptance.World, item string, files map[string]string) (accep
 	w.Must(w.In(run.Checkout, "branch", "push"))
 	w.Must(w.In(run.Checkout, "pr", "open", "--title", "Implement "+item, "--body", "Implements "+item+"."))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
-	passSimplify(w, item)
 	return run, head
 }
 

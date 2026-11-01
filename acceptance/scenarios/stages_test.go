@@ -40,7 +40,7 @@ func TestStageKindsTheOtherScenariosMiss(t *testing.T) {
 // checkStages fails the run unless every stage, room and the coordinator
 // started at least once. It runs after a full run only.
 func checkStages() []string {
-	want := []string{"coordinator", "implementer", "code-reviewer", "doc-reviewer", "reviser", "planner",
+	want := []string{"coordinator", "implementer", "simplify", "code-reviewer", "doc-reviewer", "reviser", "planner",
 		"decomposer", "triage", "reproducer", "brainstorm-room", "decision-room", "review-room",
 		"architect-room"}
 	got := acceptance.Started()

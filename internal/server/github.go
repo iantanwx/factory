@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
@@ -135,11 +136,40 @@ func (g *GitHub) Setup(s *Server) error {
 		// The PR head enters a code review's retry identity, so a push
 		// offers a held review again.
 		s.Admission.SetPRHeadReader(svc.PRHead)
+		// The code-reviewer waits for green CI at a head that a simplify
+		// run left.
+		s.Admission.SetCIReader(headCI(s.Projects, svc))
 	}
 	if err := s.RPC.Handle("pr pending", g.prPending(s)); err != nil {
 		return fmt.Errorf("server: github: %w", err)
 	}
 	return s.RPC.Handle("doctor-github", g.doctorVerb(s))
+}
+
+// headCI reads CI at a head as a code pass does: the checks on the head
+// against the project's required checks.
+func headCI(projects *config.Projects, svc *github.Service) admission.CIReader {
+	return func(ctx context.Context, project, head string) (admission.CIState, error) {
+		p, err := projects.Show(project)
+		if err != nil {
+			return admission.CIPending, err
+		}
+		required, err := svc.RequiredChecks(ctx, p)
+		if err != nil {
+			return admission.CIPending, err
+		}
+		rep, err := svc.Checks(ctx, p, head)
+		if err != nil {
+			return admission.CIPending, err
+		}
+		switch rep.Against(required).State {
+		case github.CIGreen:
+			return admission.CIGreen, nil
+		case github.CIRed:
+			return admission.CIRed, nil
+		}
+		return admission.CIPending, nil
+	}
 }
 
 // userSkills reads the pin names of project's last good config, never the
