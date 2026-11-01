@@ -22,7 +22,9 @@ passes and before it merges, so that no ticket merges before a run uses the chan
 > "QA --> same as tickertown"
 
 The epic body states that the QA stage is a kernel stage, and that it runs after code review and
-before merge. The stage cap holds the browser, in place of a `needs` lock.
+before merge. The stage cap holds the browser, in place of a `needs` lock. The epic body also
+records the operator's choice of a new ADR. That ADR supersedes the parts of ADR 0002 and ADR 0005
+that the epic body names, and nobody edits either ADR.
 
 ### US-02 Fuzzy UAT drives each change toward its ticket's goal
 
@@ -118,8 +120,10 @@ read what the run did and see its evidence, and a ticket that fails goes back to
 - A QA run runs no visual QA on a ticket when no path in its Files section matches a glob of
   `ui.paths`, or when the project declares no `ui` block.
   → § US-03
-- A QA run that runs visual QA holds `loop-impeccable`.
+- A QA run that runs visual QA holds the project's design skill. That skill is the one that
+  `ui.design_skill` names, or `loop-impeccable` when the project names none.
   → § US-03
+  → docs/prd/conditional-kernel-skills.md § US-04 A project names its own design skill in place of the default
 - The QA run reads how to start and drive the app from the project's verify skill at
   `.claude/skills/verify-<app>/`.
   → § US-04
@@ -135,7 +139,8 @@ read what the run did and see its evidence, and a ticket that fails goes back to
 - The QA report cites each evidence file it relies on. A screenshot is an evidence file that the
   report cites.
   → § US-05
-- The record holds no screenshot as an attachment of an item.
+- Each screenshot that a QA run takes is an evidence file that its report cites. No body, fact or
+  note that a QA run writes holds image data.
   → § US-05
 - A QA fail returns the ticket to repair.
   → § US-05
@@ -147,6 +152,7 @@ read what the run did and see its evidence, and a ticket that fails goes back to
   → § US-06
 - A new ADR records the QA stage, and it supersedes the parts of ADR 0002 and ADR 0005 that the
   epic body names. Nobody edits ADR 0002 or ADR 0005.
+  → § US-01
   → pack/skills/loop-sdlc-documents/SKILL.md § 6. When a decision needs an ADR
 
 ## Acceptance criteria
@@ -163,11 +169,13 @@ read what the run did and see its evidence, and a ticket that fails goes back to
 - **A8.** A QA run on a ticket whose Files section names no path that a `ui.paths` glob matches
   reports no visual QA result.
 - **A9.** A QA run in a project with no `ui` block reports no visual QA result.
-- **A10.** A QA run that runs visual QA holds `loop-impeccable`.
+- **A10.** A QA run that runs visual QA in a project with no `ui.design_skill` holds
+  `loop-impeccable`.
 - **A11.** A QA run reads the start and drive steps from the project's verify skill.
 - **A12.** Each ticket that a QA run takes gets one QA report for the head the run read.
 - **A13.** Each evidence file that a QA report cites exists where the report says it is.
-- **A14.** No item in the record holds a screenshot as an attachment.
+- **A14.** Each screenshot that a QA run takes is an evidence file that its QA report cites. A
+  body, fact or note that a QA run writes and that holds image data makes this false.
 - **A15.** A ticket whose QA report fails returns to repair, and it does not merge at that head.
 - **A16.** A ticket whose QA report passes reaches merge.
 - **A17.** A bug that the QA stage files carries the source `qa`.
@@ -175,6 +183,8 @@ read what the run did and see its evidence, and a ticket that fails goes back to
 - **A19.** The pack's skills that write and keep a verify skill name the upstream and the commit of
   each source that they fork.
 - **A20.** ADR 0002 and ADR 0005 are the same before and after this epic.
+- **A21.** A QA run that runs visual QA in a project whose `ui.design_skill` names a skill holds
+  that skill, and it does not hold `loop-impeccable`.
 
 ## Boundaries with other epics
 
@@ -188,6 +198,7 @@ read what the run did and see its evidence, and a ticket that fails goes back to
   holds `loop-impeccable` only when a path in the ticket's `## Files` section matches a `ui.paths`
   glob. This epic follows that rule for visual QA and adds none of its own.
   → docs/prd/conditional-kernel-skills.md § US-02 The design skill reaches only the runs
+  → docs/prd/conditional-kernel-skills.md § US-04 A project names its own design skill in place of the default
 - **Kernel and userspace skills, factorio-yzrt, `docs/prd/kernel-and-userspace-skills.md`.** That
   epic owns where a userspace skill lives and how a project declares one. A project's verify skill
   is a skill of that project. This epic adds no other way to hold a skill.
