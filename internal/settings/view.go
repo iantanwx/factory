@@ -22,6 +22,7 @@ type Row struct {
 	Key    string        `json:"key"`
 	Value  string        `json:"value"`
 	Source config.Source `json:"source"`
+	Reason string        `json:"reason,omitempty"` // why another setting decides the value
 	Commit string        `json:"commit,omitempty"` // project rows only
 }
 
@@ -113,7 +114,7 @@ func (s *Service) Show(ctx context.Context, project string) (View, *cli.Refusal)
 func rows(hc *config.HostConfig, pc *config.ProjectConfig, d config.Defaults) []Row {
 	var out []Row
 	for _, st := range config.Effective(hc, pc).Settings(config.KnownStages(hc), d) {
-		out = append(out, Row{Key: st.Key.String(), Value: st.Value, Source: st.Source})
+		out = append(out, Row{Key: st.Key.String(), Value: st.Value, Source: st.Source, Reason: st.Reason})
 	}
 	return out
 }

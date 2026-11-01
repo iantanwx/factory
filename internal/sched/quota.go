@@ -72,7 +72,10 @@ const QuotaSpent = 100.0
 // stage config (claude when it names no harness), then each other harness
 // that host config lists a login for, at its default model. The stage
 // config's effort holds on its own harness only. Each profile else takes
-// the stage's default effort.
+// the stage's default effort. A doc-reviewer whose readers are in force
+// lists its own profile alone, which the config holds on claude: the
+// readers run on Claude Code only, so the run waits for that harness, as
+// escalatedProfiles does.
 func profiles(stage string, pc *config.ProjectConfig, hc *config.HostConfig) []Profile {
 	sc := pc.Stages[stage]
 	h := agenthost.Harness(sc.Harness)
@@ -88,6 +91,9 @@ func profiles(stage string, pc *config.ProjectConfig, hc *config.HostConfig) []P
 		e = DefaultEfforts[stage]
 	}
 	out := []Profile{{Harness: h, Model: m, Effort: e}}
+	if stage == config.StageDocReviewer && len(pc.DocReaders().Readers) > 0 {
+		return out
+	}
 	for _, l := range hc.Harnesses {
 		lh := agenthost.Harness(l.Name)
 		if DefaultModels[lh] == "" || slices.ContainsFunc(out, func(p Profile) bool { return p.Harness == lh }) {
