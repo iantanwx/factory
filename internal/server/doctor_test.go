@@ -85,6 +85,47 @@ func TestDoctorChecksGitHubOnTheServer(t *testing.T) {
 	}
 }
 
+// TestC28DoctorAppChecksOverTwoInstallations: app_checks fails for the
+// project whose installation holds checks read, and passes for the one
+// whose installation holds checks write.
+func TestC28DoctorAppChecksOverTwoInstallations(t *testing.T) {
+	w := newGHWorld(t)
+	ctx := context.Background()
+	if err := w.srv.Projects.Add(ctx, config.Project{ID: "alpha", Repo: gt.Repo, Path: w.checkout}); err != nil {
+		t.Fatal(err)
+	}
+	beta := gt.NewAPI(t)
+	beta.SetInstall("selected", map[string]string{"contents": "write", "pull_requests": "write", "statuses": "write",
+		"workflows": "write", "checks": "read", "actions": "read", "metadata": "read"})
+	w.api.Serve("acme/gadgets", beta)
+	host, err := config.LoadHost(w.srv.HostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.Projects = append(host.Projects, config.Project{ID: "beta", Repo: "acme/gadgets", Path: t.TempDir()})
+	if err := config.SaveHost(w.srv.HostPath, host); err != nil {
+		t.Fatal(err)
+	}
+	got, err := w.gh.Doctor(ctx, w.srv.Projects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := map[string]github.CheckLine{}
+	for _, d := range got {
+		for _, l := range d.Lines {
+			if l.Check == "app_checks" {
+				lines[d.Project] = l
+			}
+		}
+	}
+	if l, ok := lines["alpha"]; !ok || !l.OK {
+		t.Errorf("alpha app_checks = %+v, %v; want a pass", l, ok)
+	}
+	if l, ok := lines["beta"]; !ok || l.OK || !strings.Contains(l.Detail, "checks:write") {
+		t.Errorf("beta app_checks = %+v, %v; want a fail that names checks:write", l, ok)
+	}
+}
+
 // staleEnvWorld is one checkout of each kind the loop makes, each with a
 // .env: a live run, a settled run, a crashed run kept for a person, a live
 // room, an idle room and the coordinator. A second settled run holds only
