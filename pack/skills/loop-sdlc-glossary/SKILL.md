@@ -20,6 +20,10 @@ word differently make two agents that act differently, and no gate compares them
 - **A room**: an agent session where the operator talks to an agent. Its kinds are brainstorm,
   decision, review and architect. A room prepares a decision and applies it. A room never makes it.
 - **The author**: in a review, the run or the person who wrote the work.
+- **A reader**: a subagent of the doc-reviewer that reads one document by one lens, from a clean
+  context. A reader finds, and it never judges. It returns its findings and its questions to the
+  doc-reviewer, who judges each finding and submits the verdict. The doc-reviewer starts its readers
+  when the brief names them, by `../loop-doc-readers/SKILL.md`.
 
 ## Phases
 
@@ -30,13 +34,13 @@ takes the retro phase.
 1. **Ideate** (optional): the operator shapes a raw idea before a PRD exists. The loop has no room
    for this phase.
 2. **Brainstorm**: an unattended brainstorm or a brainstorm room writes the PRD.
-3. **Doc review**: the doc-reviewer reviews the PRD, and the reviser answers its findings. The
-   operator signs it off.
+3. **Doc review**: the doc-reviewer starts its readers and reviews the PRD, and the reviser
+   answers its findings. The operator signs it off.
 4. **ADR** (optional): an architect room writes the ADRs of an epic that needs them, and the
-   doc-reviewer reviews each ADR pull request.
+   doc-reviewer starts its readers and reviews each ADR pull request.
 5. **Plan**: the planner writes the spec.
-6. **Doc review**: the doc-reviewer reviews the spec, and the reviser answers a person's comment
-   on it. The operator signs it off.
+6. **Doc review**: the doc-reviewer starts its readers and reviews the spec, and the reviser
+   answers a person's comment on it. The operator signs it off.
 7. **Decompose**: the decomposer cuts the approved spec into tickets.
 8. **Build**: the implementer builds each ticket, and the code-reviewer reviews it. In a project
    that lists the `qa` stage, the QA run then drives the app of each reviewed ticket.
