@@ -9,6 +9,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/rpc"
 )
 
 const qaHead = "4f1c2a9e8b7d6c5f4e3d2c1b0a9f8e7d6c5b4a39"
@@ -69,40 +70,45 @@ func wantRule(t *testing.T, res cli.Result, code, rule string) {
 
 // C17: an implementer or a code-reviewer run files no bug. The
 // coordinator files none with source qa, and a QA run none with another
-// source. A source that is neither refuses for every filer, and writes
-// no bug.
+// source or with a request. A source that is neither refuses for every
+// filer. No refusal writes a bug.
 func TestC17OnlyTheCoordinatorAndAQARunFileABug(t *testing.T) {
 	w := newWorld(t)
 	ticket, bug := w.qaTicket()
-	for _, stage := range []string{machine.StageImplementer, machine.StageCodeReviewer} {
-		run := w.run("run-"+stage, ticket, stage)
-		wantCode(t, w.call(run, "", "work create", bug), cli.CodeCapabilityDenied)
-		plain := maps.Clone(bug)
-		delete(plain, "source")
-		wantCode(t, w.call(run, "", "work create", plain), cli.CodeCapabilityDenied)
-	}
-
 	qa := w.run("run-qa", ticket, config.StageQA)
-	coordQA := operatorBug()
-	coordQA["source"] = "qa"
-	wantRule(t, w.call(w.coordinator(), "", "work create", coordQA), cli.CodeUsage, "source_mismatch")
-	none := maps.Clone(bug)
-	delete(none, "source")
-	wantRule(t, w.call(qa, "", "work create", none), cli.CodeUsage, "source_mismatch")
-	asOperator := maps.Clone(bug)
-	asOperator["source"] = "operator"
-	wantRule(t, w.call(qa, "", "work create", asOperator), cli.CodeUsage, "source_mismatch")
-	withRequest := maps.Clone(bug)
-	withRequest["request"] = "Ian: please file it"
-	wantRule(t, w.call(qa, "", "work create", withRequest), cli.CodeUsage, "qa_takes_no_request")
-
-	for _, v := range []string{"qa-stagehand", "apps/web"} {
-		fromCoord := operatorBug()
-		fromCoord["source"] = v
-		wantRule(t, w.call(w.coordinator(), "", "work create", fromCoord), cli.CodeUsage, "source_unknown")
-		fromQA := maps.Clone(bug)
-		fromQA["source"] = v
-		wantRule(t, w.call(qa, "", "work create", fromQA), cli.CodeUsage, "source_unknown")
+	implementer := w.run("run-impl", ticket, machine.StageImplementer)
+	reviewer := w.run("run-rev", ticket, machine.StageCodeReviewer)
+	with := func(base map[string]string, k, v string) map[string]string {
+		out := maps.Clone(base)
+		if v == "" {
+			delete(out, k)
+		} else {
+			out[k] = v
+		}
+		return out
+	}
+	cases := []struct {
+		name       string
+		pr         rpc.Principal
+		flags      map[string]string
+		code, rule string
+	}{
+		{"implementer with source qa", implementer, bug, cli.CodeCapabilityDenied, "bug_filer"},
+		{"implementer with no source", implementer, with(bug, "source", ""), cli.CodeCapabilityDenied, "bug_filer"},
+		{"code-reviewer with source qa", reviewer, bug, cli.CodeCapabilityDenied, "bug_filer"},
+		{"coordinator with source qa", w.coordinator(), with(operatorBug(), "source", "qa"), cli.CodeUsage, "source_mismatch"},
+		{"QA run with no source", qa, with(bug, "source", ""), cli.CodeUsage, "source_mismatch"},
+		{"QA run with source operator", qa, with(bug, "source", "operator"), cli.CodeUsage, "source_mismatch"},
+		{"QA run with a request", qa, with(bug, "request", "Ian: please file it"), cli.CodeUsage, "qa_takes_no_request"},
+		{"coordinator with source qa-stagehand", w.coordinator(), with(operatorBug(), "source", "qa-stagehand"), cli.CodeUsage, "source_unknown"},
+		{"coordinator with source apps/web", w.coordinator(), with(operatorBug(), "source", "apps/web"), cli.CodeUsage, "source_unknown"},
+		{"QA run with source qa-stagehand", qa, with(bug, "source", "qa-stagehand"), cli.CodeUsage, "source_unknown"},
+		{"QA run with source apps/web", qa, with(bug, "source", "apps/web"), cli.CodeUsage, "source_unknown"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			wantRule(t, w.call(c.pr, "", "work create", c.flags), c.code, c.rule)
+		})
 	}
 	if n := len(w.items(machine.KindBug)); n != 0 {
 		t.Fatalf("a refused filing made %d bugs", n)
