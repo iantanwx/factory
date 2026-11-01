@@ -47,6 +47,9 @@ var (
 	// qaAfterReview finds the QA run after the code-reviewer in the build
 	// phase.
 	qaAfterReview = regexp.MustCompile(`code-reviewer.*\bQA\b`)
+	// simplifyBeforeReview finds the simplify run between the implementer
+	// and the code-reviewer in the build phase.
+	simplifyBeforeReview = regexp.MustCompile(`implementer.*\bsimplify run\b.*code-reviewer`)
 )
 
 // glossarySections splits text at each "## " heading, and returns each
@@ -125,7 +128,8 @@ func buildPhase(lines []string) string {
 	return build
 }
 
-// glossaryFaults names each way text breaks C21 and C35.
+// glossaryFaults names each way text breaks C21, C35 and C15 of
+// factorio-1r94.
 func glossaryFaults(text string) []string {
 	var faults []string
 	sections := glossarySections(text)
@@ -171,7 +175,7 @@ func glossaryFaults(text string) []string {
 	}
 
 	rows := map[string]int{}
-	triage, qa := "", ""
+	triage, qa, simplify := "", "", ""
 	for _, r := range pack.Table(text, "stage", "what it does", "item states it takes") {
 		rows[pack.Bare(r.Cells[0])]++
 		switch pack.Bare(r.Cells[0]) {
@@ -179,6 +183,8 @@ func glossaryFaults(text string) []string {
 			triage = r.Cells[1]
 		case "qa":
 			qa = r.Cells[2]
+		case "simplify":
+			simplify = r.Cells[2]
 		}
 	}
 	for _, role := range []string{"reviser", "planner", "triage", "unattended-brainstorm", "retro"} {
@@ -186,17 +192,29 @@ func glossaryFaults(text string) []string {
 			faults = append(faults, fmt.Sprintf("the stage table defines %s %d times, want once", role, rows[role]))
 		}
 	}
-	if rows["qa"] != 1 {
-		faults = append(faults, fmt.Sprintf("the stage table defines qa %d times, want once", rows["qa"]))
+	for _, stage := range []string{"qa", "simplify"} {
+		if rows[stage] != 1 {
+			faults = append(faults, fmt.Sprintf("the stage table defines %s %d times, want once", stage, rows[stage]))
+		}
 	}
 	if !strings.Contains(qa, "`in_qa`") {
 		faults = append(faults, fmt.Sprintf("the qa stage takes %q, want ticket `in_qa`", qa))
 	}
-	if !slices.Contains(ticketStates(sections["Loop states"]), "in_qa") {
-		faults = append(faults, "the ticket states do not list `in_qa`")
+	if !strings.Contains(simplify, "`in_simplify`") {
+		faults = append(faults, fmt.Sprintf("the simplify stage takes %q, want ticket `in_simplify`", simplify))
 	}
-	if build := buildPhase(sections["Phases"]); !qaAfterReview.MatchString(build) {
+	states := ticketStates(sections["Loop states"])
+	for _, state := range []string{"in_qa", "in_simplify"} {
+		if !slices.Contains(states, state) {
+			faults = append(faults, fmt.Sprintf("the ticket states do not list `%s`", state))
+		}
+	}
+	build := buildPhase(sections["Phases"])
+	if !qaAfterReview.MatchString(build) {
 		faults = append(faults, fmt.Sprintf("the build phase is %q, want the QA run after the code-reviewer", build))
+	}
+	if !simplifyBeforeReview.MatchString(build) {
+		faults = append(faults, fmt.Sprintf("the build phase is %q, want the simplify run between the implementer and the code-reviewer", build))
 	}
 	if !strings.Contains(triage, "triage rubric") {
 		faults = append(faults, fmt.Sprintf("the triage stage is %q, want the run that applies the triage rubric", triage))
@@ -239,7 +257,8 @@ func glossaryFaults(text string) []string {
 // C21: the glossary holds the phases, the units of work, the holds,
 // the triage words, the retro, its two events and the rule for a closed
 // bug. C35: it names the qa stage, its state `in_qa` and the QA run of the
-// build phase.
+// build phase. C15 of factorio-1r94: it names the simplify stage, its state
+// `in_simplify` and the simplify run of the build phase.
 func TestC21GlossaryHoldsTheNewWords(t *testing.T) {
 	if faults := glossaryFaults(read(t, glossarySkill)); len(faults) > 0 {
 		t.Fatalf("the glossary breaks C21:\n%s", strings.Join(faults, "\n"))
@@ -263,11 +282,14 @@ func TestC21GlossaryFaultsCatchAWrongGlossary(t *testing.T) {
 		"three terminal states": good[:start] + "- **Closed bug**: a bug closes when it reaches `shaped`, `duplicate` or `canceled`." + good[start+end:],
 		"a closed duplicate": good[:start] + "- **Closed bug**: A shaped bug closes when its shaped ticket reaches `done`. " +
 			"A canceled bug closes at once. A duplicate bug closes at once." + good[start+end:],
-		"a decision as work":  strings.Replace(good, "- **Work kinds**: `epic`,", "- **Work kinds**: `decision`, `epic`,", 1),
-		"ideate not optional": strings.Replace(good, "1. **Ideate** (optional): ", "1. **Ideate**: ", 1),
-		"no qa row":           noRow(good, "| `qa` |"),
-		"no in_qa state":      strings.Replace(good, "`repair`, `in_qa`,", "`repair`,", 1),
-		"no QA run in build":  strings.Replace(good, " In a project\n   that lists the `qa` stage, the QA run then drives the app of each reviewed ticket.", "", 1),
+		"a decision as work":       strings.Replace(good, "- **Work kinds**: `epic`,", "- **Work kinds**: `decision`, `epic`,", 1),
+		"ideate not optional":      strings.Replace(good, "1. **Ideate** (optional): ", "1. **Ideate**: ", 1),
+		"no qa row":                noRow(good, "| `qa` |"),
+		"no in_qa state":           strings.Replace(good, "`repair`, `in_qa`,", "`repair`,", 1),
+		"no QA run in build":       strings.Replace(good, " In a project\n   that lists the `qa` stage, the QA run then drives the app of each reviewed ticket.", "", 1),
+		"no simplify row":          noRow(good, "| `simplify` |"),
+		"no in_simplify state":     strings.Replace(good, "`in_progress`, `in_simplify`,", "`in_progress`,", 1),
+		"no simplify run in build": strings.Replace(good, "the simplify run makes its code simpler", "a person makes its code simpler", 1),
 	}
 	for name, text := range cases {
 		if text == good {

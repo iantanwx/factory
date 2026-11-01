@@ -46,7 +46,8 @@ takes the retro phase.
 8. **Doc review**: the doc-reviewer starts its readers and reviews the spec, and the reviser
    answers a person's comment on it. The operator signs it off.
 9. **Decompose**: the decomposer cuts the approved spec into tickets.
-10. **Build**: the implementer builds each ticket, and the code-reviewer reviews it. In a project
+10. **Build**: the implementer builds each ticket, the simplify run makes its code simpler, and the
+   code-reviewer reviews it. A project can turn off the simplify run. In a project
    that lists the `qa` stage, the QA run then drives the app of each reviewed ticket.
 11. **Retro**: the retro stage learns from the finished unit of work.
 
@@ -57,6 +58,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | Stage | What it does | Item states it takes |
 | --- | --- | --- |
 | `implementer` | Builds one ticket in one pull request, and repairs a red build | ticket `todo`, `repair` |
+| `simplify` | Makes the code of one ticket's pull request simpler in one commit, with the same behaviour, before the code-reviewer reads it | ticket `in_simplify` |
 | `code-reviewer` | Reviews the pull request of one ticket | ticket `in_review` |
 | `qa` | Drives the app of one reviewed ticket at its head as a user does, and reports one verdict with its evidence | ticket `in_qa` |
 | `unattended-brainstorm` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
@@ -75,8 +77,8 @@ eligible pull request to the project's merge mechanism. No agent merges.
 
 ## Loop states
 
-- **Ticket**: `backlog`, `todo`, `in_progress`, `in_review`, `repair`, `in_qa`, `ready_to_merge`,
-  `queued`, `escalated`, `done`, `canceled`.
+- **Ticket**: `backlog`, `todo`, `in_progress`, `in_simplify`, `in_review`, `repair`, `in_qa`,
+  `ready_to_merge`, `queued`, `escalated`, `done`, `canceled`.
 - **Epic**: `backlog`, `prd_needed`, `prd_drafting`, `prd_review`, `prd_amending`, `prd_signoff`,
   `architecture`, `adr_review`, `design`, `design_review`, `design_signoff`, `spec_needed`,
   `spec_drafting`, `spec_review`, `spec_signoff`, `spec_amending`, `spec_approved`, `decomposing`,
