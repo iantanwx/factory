@@ -380,6 +380,18 @@
         "category": "active"
       },
       {
+        "name": "design",
+        "category": "active"
+      },
+      {
+        "name": "design_review",
+        "category": "active"
+      },
+      {
+        "name": "design_signoff",
+        "category": "active"
+      },
+      {
         "name": "spec_needed",
         "category": "active"
       },
@@ -720,7 +732,20 @@
         "to": "architecture",
         "when": "adr_requested",
         "facts": [
-          "prd_merged"
+          "prd_merged",
+          "ui_stories"
+        ]
+      },
+      {
+        "verb": "doc_merged",
+        "from": [
+          "prd_signoff"
+        ],
+        "to": "design",
+        "when": "ui_stories",
+        "facts": [
+          "prd_merged",
+          "ui_stories"
         ]
       },
       {
@@ -730,7 +755,8 @@
         ],
         "to": "spec_needed",
         "facts": [
-          "prd_merged"
+          "prd_merged",
+          "ui_stories"
         ]
       },
       {
@@ -779,11 +805,37 @@
         "from": [
           "architecture"
         ],
+        "to": "design",
+        "when": "design_due",
+        "facts": [
+          "adr",
+          "adr_merged"
+        ]
+      },
+      {
+        "verb": "adr_landed",
+        "from": [
+          "architecture"
+        ],
         "to": "spec_needed",
         "facts": [
           "adr",
           "adr_merged"
         ]
+      },
+      {
+        "verb": "adr_landed",
+        "from": [
+          "adr_review"
+        ],
+        "to": "design",
+        "when": "design_due",
+        "facts": [
+          "adr",
+          "adr_merged"
+        ],
+        "bumps_epoch": true,
+        "lease": "drop"
       },
       {
         "verb": "adr_landed",
@@ -847,7 +899,8 @@
       {
         "verb": "adr_misjoined",
         "from": [
-          "spec_needed"
+          "spec_needed",
+          "design"
         ],
         "to": "architecture",
         "facts": [
@@ -929,6 +982,9 @@
           "prd_signoff",
           "architecture",
           "adr_review",
+          "design",
+          "design_review",
+          "design_signoff",
           "spec_needed",
           "spec_drafting",
           "spec_review",
@@ -957,6 +1013,8 @@
           "prd_amending",
           "prd_signoff",
           "architecture",
+          "design",
+          "design_signoff",
           "spec_needed",
           "spec_signoff",
           "spec_amending",
@@ -1081,6 +1139,9 @@
           "prd_signoff",
           "architecture",
           "adr_review",
+          "design",
+          "design_review",
+          "design_signoff",
           "spec_needed",
           "spec_drafting",
           "spec_review",
@@ -1108,6 +1169,9 @@
           "prd_signoff",
           "architecture",
           "adr_review",
+          "design",
+          "design_review",
+          "design_signoff",
           "spec_needed",
           "spec_drafting",
           "spec_review",
@@ -1135,6 +1199,9 @@
           "prd_signoff",
           "architecture",
           "adr_review",
+          "design",
+          "design_review",
+          "design_signoff",
           "spec_needed",
           "spec_drafting",
           "spec_review",
