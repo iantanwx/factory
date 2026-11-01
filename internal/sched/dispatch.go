@@ -201,7 +201,7 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	if b.Item != nil {
 		scope = ScopeOf(machine.Kind(b.Item.Kind), b.Item.Body)
 	}
-	p := Select(s.cfg.Pack, snap.Config, scope).WithUser(UserSkills(s.cfg.SkillStore, ad.Project, snap.Config.Skills))
+	p := Select(s.cfg.Pack.WithUser(UserSkills(s.cfg.SkillStore, ad.Project, snap.Config.Skills)), snap.Config, scope)
 	res, err := brief.Inject(ctx, brief.Injection{Checkout: co.Path, Harness: prof.Harness, Pack: p, Brief: b, Env: brief.GroupEnv(manifest, env)})
 	var conflict *brief.ConflictError
 	if errors.As(err, &conflict) {

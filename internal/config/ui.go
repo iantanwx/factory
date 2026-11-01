@@ -1,9 +1,12 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,10 +21,12 @@ const (
 )
 
 // UIConfig is the ui block of a project config: the project has a user
-// interface, and its files sit under Paths. No reader reads it yet.
+// interface, and its files sit under Paths. DesignSkill names a project
+// skill that a run holds in place of loop-impeccable.
 type UIConfig struct {
-	Kind  UIKind `yaml:"kind"`
-	Paths []Glob `yaml:"paths"` // at least one
+	Kind        UIKind `yaml:"kind"`
+	Paths       []Glob `yaml:"paths"` // at least one
+	DesignSkill string `yaml:"design_skill,omitempty"`
 }
 
 // UnmarshalYAML refuses an unknown field of the block, a key that is not a
@@ -62,6 +67,10 @@ func (u *UIConfig) UnmarshalYAML(n *yaml.Node) error {
 				}
 				out.Paths = append(out.Paths, g)
 			}
+		case "design_skill":
+			if err := v.Decode(&out.DesignSkill); err != nil {
+				return errors.New("ui.design_skill: must be a skill name")
+			}
 		default:
 			return fmt.Errorf("ui: unknown field %s", strconv.Quote(k))
 		}
@@ -81,4 +90,37 @@ func checkUI(ck *checker, u *UIConfig) {
 	if len(u.Paths) == 0 {
 		ck.fail("ui.paths", "must list at least one glob")
 	}
+}
+
+// DesignSkill refuses a ui.design_skill that names no skill of the
+// project: a name in the loop- namespace, a name that breaks the pin name
+// rule, and a name that is neither a pin of skills: nor an entry of a
+// skill root at ref.
+func DesignSkill(ctx context.Context, cfg *ProjectConfig, tree TreeReader, ref string) error {
+	if cfg.UI == nil || cfg.UI.DesignSkill == "" {
+		return nil
+	}
+	name := cfg.UI.DesignSkill
+	ck := &checker{source: ProjectConfigPath}
+	switch {
+	case strings.HasPrefix(name, reservedSkillPrefix):
+		ck.fail("ui.design_skill", "is in the %s* namespace, which the pack adds", reservedSkillPrefix)
+	case !pinNameRe.MatchString(name):
+		ck.fail("ui.design_skill", "is not lower-case letters, digits and dashes")
+	case slices.ContainsFunc(cfg.Skills, func(p SkillPin) bool { return p.Name == name }):
+	case tree == nil:
+		return errors.New("config: no tree reader lists the skill directories")
+	default:
+		for _, root := range skillRoots {
+			entries, err := tree(ctx, ref, root)
+			if err != nil {
+				return fmt.Errorf("config: list %s at %s: %w", root, ref, err)
+			}
+			if slices.ContainsFunc(entries, func(e TreeEntry) bool { return e.Name == name }) {
+				return nil
+			}
+		}
+		ck.fail("ui.design_skill", "names no pin of skills: and no entry of %s at %s", strings.Join(skillRoots, " or "), ref)
+	}
+	return ck.err()
 }
