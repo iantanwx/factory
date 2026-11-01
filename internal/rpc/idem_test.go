@@ -353,6 +353,73 @@ func TestConditionalRefusalIsNotReplayed(t *testing.T) {
 	}
 }
 
+// factorio-t0kv: `pr rerun` has no args, no flags and no content, so each
+// call derives the same key at the same item state. A NOTHING answer
+// (the workflow run was still in progress) must not pin that key: a later
+// rerun, once the run completed, reaches the handler and reruns.
+func TestPRRerunAfterANothingAnswerRunsAgain(t *testing.T) {
+	h := newHarness(t)
+	state := &itemState{status: "repair", seq: 7}
+	h.handle("work show", state.handler)
+	var calls atomic.Int32
+	h.handle("pr rerun", func(context.Context, *Call) cli.Result {
+		if calls.Add(1) == 1 {
+			return cli.Nothing()
+		}
+		return cli.Found(map[string]any{"head_sha": "239722c", "reran": []int64{124770637492}})
+	})
+	h.start()
+	a := h.issue("run-a", cli.PrincipalRun, "T-A")
+
+	if _, code := h.run(a, "pr", "rerun"); code != 1 {
+		t.Fatalf("first rerun exits %d, want 1", code)
+	}
+	if k := pendingKeys(t, a); len(k) != 0 {
+		t.Fatalf("exit 1 clears the entry, left %v", k)
+	}
+	env, code := h.run(a, "pr", "rerun")
+	if code != 0 || env["replayed"] != nil {
+		t.Fatalf("the rerun after a NOTHING answer must run again, got exit %d %v", code, env)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("the handler ran %d times, want 2", calls.Load())
+	}
+}
+
+// A NOTHING answer wrote nothing, so the server stores no replay for it:
+// the same key later reaches the handler again.
+func TestNothingAnswerIsNotReplayed(t *testing.T) {
+	h := newHarness(t)
+	var calls atomic.Int32
+	h.handle("work note", func(context.Context, *Call) cli.Result {
+		if calls.Add(1) == 1 {
+			return cli.Nothing()
+		}
+		return cli.Found(map[string]any{"done": true})
+	})
+	h.start()
+	a := h.issue("run-a", cli.PrincipalRun, "T-A")
+	tf, _ := cli.ReadTokenFile(a)
+	h.proc.setCwd(a)
+	conn, err := grpc.NewClient("unix://"+cli.SocketPath(h.dir), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	req := &loopv1.VerbRequest{Verb: "work note", Args: []string{"T-A"}, Flags: map[string]string{"body": "b"},
+		IdempotencyKey: "k1-nothing", RunToken: tf.Token, ClientVersion: cli.Version}
+	if env, _ := rawCall(t, conn, "/loop.v1.WorkService/Note", req); env.GetExit() != int32(cli.ExitNothing) {
+		t.Fatalf("first call: %v", env)
+	}
+	env, _ := rawCall(t, conn, "/loop.v1.WorkService/Note", req)
+	if env.GetExit() != int32(cli.ExitDone) {
+		t.Fatalf("the same key after a NOTHING answer must run again: %v", env)
+	}
+	if n := calls.Load(); n != 2 {
+		t.Fatalf("the handler ran %d times, want 2", n)
+	}
+}
+
 // factorio-ny3n: a sign-off answer names an entry and no item. Its key
 // holds the state of the epic the entry names. So a repeat at the same
 // state replays, and the same words at the next sign-off of that entry
