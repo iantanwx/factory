@@ -45,6 +45,17 @@ func ScopeOf(kind machine.Kind, body string) Scope {
 	return Scope{}
 }
 
+// RoomScope is the scope of a room of roomKind that holds an item of kind
+// with body, or kind "" when it holds none. The brainstorm room is the
+// epic level, with or without its epic. Each other room holds the scope of
+// its item.
+func RoomScope(roomKind string, kind machine.Kind, body string) Scope {
+	if roomKind == "brainstorm" {
+		return Scope{Level: EpicLevel}
+	}
+	return ScopeOf(kind, body)
+}
+
 // Select withholds from p each conditional skill whose condition fails for
 // the project config cfg and the scope s, and names the design skill when
 // the run holds it. A nil cfg holds no condition.

@@ -205,7 +205,7 @@ func (s *Scheduler) tellCoordinatorRelease(ctx context.Context, cc *CoordinatorC
 		return
 	}
 	// The runbook the message names is the new release's.
-	if err := brief.RefreshPack(ctx, cs.Checkout, cc.Harness, s.cfg.Pack); err != nil {
+	if err := brief.RefreshPack(ctx, cs.Checkout, cc.Harness, s.coordinatorPack()); err != nil {
 		s.log.WarnContext(ctx, "write the new pack into the coordinator's checkout", "checkout", cs.Checkout, "err", err)
 	}
 	text := fmt.Sprintf("loop: the server now runs release %s, and you started under %s. Read %s again. "+
@@ -284,7 +284,7 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 	run := "coordinator-" + s.cfg.NewRunID()
 	b := brief.Brief{RunID: run, Stage: CoordinatorStage, Role: CoordinatorStage, Harness: string(cc.Harness), Model: model,
 		BaseBranch: base, Secrets: brief.Secrets{Present: []string{}, Missing: []string{}}}
-	res, err := brief.Inject(ctx, brief.Injection{Checkout: cs.Checkout, Harness: cc.Harness, Pack: s.cfg.Pack, Brief: b})
+	res, err := brief.Inject(ctx, brief.Injection{Checkout: cs.Checkout, Harness: cc.Harness, Pack: s.coordinatorPack(), Brief: b})
 	if err != nil {
 		return err
 	}
@@ -300,4 +300,11 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 	}
 	cs.RunID, cs.Session, cs.Release, cs.NotifiedRelease = run, &sess, s.cfg.Release, ""
 	return nil
+}
+
+// coordinatorPack is the pack the coordinator holds: no conditional skill.
+// A condition reads one project's config, and the coordinator serves every
+// project.
+func (s *Scheduler) coordinatorPack() brief.Pack {
+	return Select(s.cfg.Pack, nil, Scope{})
 }
