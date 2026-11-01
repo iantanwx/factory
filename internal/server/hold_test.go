@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -174,8 +175,7 @@ func TestC16AFiredDecisionIsAnInboxHold(t *testing.T) {
 		if _, err := tx.Exec(`INSERT INTO questions (entry, body, created_at) VALUES (?, 'ship on Friday? yes or no', 0)`, "decision/alpha/"+d); err != nil {
 			return err
 		}
-		_, err := tx.Exec(`PRAGMA user_version = 18`)
-		return err
+		return rewindSchema(tx, 18)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -224,4 +224,15 @@ func TestC17ADecisionDoesNotFireBeforeItsTrigger(t *testing.T) {
 	if p := w.decisions("--project", "alpha", "--status", "pending"); len(p) != 1 || p[waits] == nil {
 		t.Fatalf("pending after both runs = %v, want %s only", p, waits)
 	}
+}
+
+// rewindSchema sets the store back to schema version, so the next start
+// runs each later migration again. A migration that adds a column cannot
+// run twice, so the rewind drops each such column first.
+func rewindSchema(tx *store.Tx, version int) error {
+	if _, err := tx.Exec(`ALTER TABLE runs DROP COLUMN design_skill`); err != nil { // 0022
+		return err
+	}
+	_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, version))
+	return err
 }
