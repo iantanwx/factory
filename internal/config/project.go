@@ -157,17 +157,13 @@ type StageConfig struct {
 	// escalated, after two code-review rejects. Nil takes the default.
 	Escalated *EscalatedProfile `yaml:"escalated,omitempty"`
 	// DocReaders turns the doc review's readers on or off. Only the
-	// doc-reviewer holds it. Nil takes DocReadersDefault, unless a
-	// doc-reviewer harness other than claude is named.
+	// doc-reviewer holds it. Nil means on, unless a doc-reviewer harness
+	// other than claude is named.
 	DocReaders *bool `yaml:"doc_readers,omitempty"`
 }
 
 // DocReaderNames lists the readers of a doc review, in start order.
 var DocReaderNames = []string{"unslop", "asd-ste100", "content-lens"}
-
-// DocReadersDefault is whether the readers are in force when the
-// doc-reviewer's doc_readers is unset.
-const DocReadersDefault = false
 
 // DocReaders is the readers one doc-reviewer run must start: all of
 // DocReaderNames, or none. Off says why when the set is empty.
@@ -177,8 +173,8 @@ type DocReaders struct {
 }
 
 // DocReaders returns the readers the project's doc reviews start. They are
-// in force when doc_readers is true, or when it is unset, its default is
-// true and no doc-reviewer harness other than claude is named.
+// in force when doc_readers is true, or when it is unset and no
+// doc-reviewer harness other than claude is named.
 func (c *ProjectConfig) DocReaders() DocReaders {
 	sc := c.Stages[StageDocReviewer]
 	f := "stages." + StageDocReviewer
@@ -191,10 +187,7 @@ func (c *ProjectConfig) DocReaders() DocReaders {
 	if field, h := sc.otherHarness(); field != "" {
 		return DocReaders{Readers: []string{}, Off: f + "." + field + " is " + h}
 	}
-	if DocReadersDefault {
-		return DocReaders{Readers: slices.Clone(DocReaderNames)}
-	}
-	return DocReaders{Readers: []string{}, Off: f + ".doc_readers is false by default"}
+	return DocReaders{Readers: slices.Clone(DocReaderNames)}
 }
 
 // otherHarness returns the first harness field of s that names a harness

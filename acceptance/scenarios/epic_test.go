@@ -75,6 +75,10 @@ func docPR(w *acceptance.World, epic string) *gt.PR {
 	return w.API.World.PR(n)
 }
 
+// allReaders are the doc readers of a project with no doc_readers key, in
+// start order. A doc review names them as the runbook does.
+const allReaders = "unslop,asd-ste100,content-lens"
+
 // docReview starts a doc-reviewer run on epic and submits verdict at the
 // head it reads with `loop pr show`.
 func docReview(w *acceptance.World, epic, verdict string) {
@@ -84,7 +88,8 @@ func docReview(w *acceptance.World, epic, verdict string) {
 		w.T.Fatalf("the doc-reviewer took %s, want %s", run.Item, epic)
 	}
 	head := w.Must(w.In(run.Checkout, "pr", "show")).Str("head_sha")
-	w.Must(w.In(run.Checkout, "review", "submit", epic, "--verdict", verdict, "--head", head, "--body", "Read the document: "+verdict+"."))
+	w.Must(w.In(run.Checkout, "review", "submit", epic, "--verdict", verdict, "--head", head, "--body", "Read the document: "+verdict+".",
+		"--readers", allReaders))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
 }
 
