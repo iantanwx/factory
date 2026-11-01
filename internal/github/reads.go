@@ -28,15 +28,16 @@ const (
 
 // CheckRun is one check run as GitHub's REST API reads it.
 type CheckRun struct {
-	ID         int64      `json:"id"`
-	Name       string     `json:"name"`
-	HeadSHA    string     `json:"head_sha"`
-	Status     string     `json:"status"`
-	Conclusion string     `json:"conclusion"`
-	StartedAt  *time.Time `json:"started_at"`
-	HTMLURL    string     `json:"html_url"`
-	App        CheckApp   `json:"app"`
-	Output     CheckOut   `json:"output"`
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	HeadSHA     string     `json:"head_sha"`
+	Status      string     `json:"status"`
+	Conclusion  string     `json:"conclusion"`
+	StartedAt   *time.Time `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at"`
+	HTMLURL     string     `json:"html_url"`
+	App         CheckApp   `json:"app"`
+	Output      CheckOut   `json:"output"`
 	// Unstarted says why GitHub never started the run's job. Checks
 	// fills it in; GitHub's answer never holds it.
 	Unstarted *Unstarted `json:"-"`
@@ -106,7 +107,9 @@ var redConclusions = []string{"failure", "timed_out", "action_required", "startu
 // run waits for a rerun: it is pending, never red, and never green, so an
 // unknown result is never read as success. A failed run whose job GitHub
 // never started is pending too: it has no result, so it is neither green
-// nor red. loop/eligible is the loop's own status and never counts as CI.
+// nor red. A failed run from an earlier attempt of a rerun workflow run
+// waits for the rerun to report its job: it is pending, never red (F-69).
+// loop/eligible is the loop's own status and never counts as CI.
 func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 	rep := CIReport{Head: head, Checks: []CheckView{}, Superseded: []CheckView{}}
 	latest := map[string]CheckRun{}
@@ -125,6 +128,7 @@ func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 			latest[r.Name] = r
 		}
 	}
+	earlier := earlierAttempt(head, runs, latest)
 	red, pending := false, false
 	for _, name := range slices.Sorted(maps.Keys(latest)) {
 		r := latest[name]
@@ -138,6 +142,9 @@ func Classify(head string, runs []CheckRun, statuses []CommitStatus) CIReport {
 			if rep.Unstarted == nil {
 				rep.Unstarted = r.Unstarted
 			}
+		case earlier[name] && slices.Contains(redConclusions, r.Conclusion):
+			v.State, pending = CIPending, true
+			v.Detail = r.Conclusion + " in an earlier attempt; the rerun has not reported it"
 		case slices.Contains(redConclusions, r.Conclusion):
 			v.State, red = CIRed, true
 			v.Detail = r.Conclusion
@@ -219,15 +226,70 @@ func (r CIReport) Against(required []string) CIVerdict {
 	return v
 }
 
+// actionsJob matches the workflow run id in an Actions job's URL.
+var actionsJob = regexp.MustCompile(`/actions/runs/(\d+)/job/`)
+
+// earlierAttempt names each check whose latest run on head belongs to an
+// earlier attempt of its Actions workflow run. GitHub reruns a workflow
+// run only after its attempt completed, and the rerun runs a job of that
+// attempt again. So a run starts a new attempt when its name already ran
+// in the current attempt, and each run of that attempt completed before
+// it started. Two jobs of one attempt that share a name overlap, so the
+// second starts no attempt. A run with no completed_at counts as
+// completed by its status.
+func earlierAttempt(head string, runs []CheckRun, latest map[string]CheckRun) map[string]bool {
+	byRun := map[string][]CheckRun{}
+	for _, r := range runs {
+		if m := actionsJob.FindStringSubmatch(r.HTMLURL); m != nil && (r.HeadSHA == "" || r.HeadSHA == head) {
+			byRun[m[1]] = append(byRun[m[1]], r)
+		}
+	}
+	newest := map[string]map[int64]bool{}
+	for id, rs := range byRun {
+		slices.SortStableFunc(rs, func(a, b CheckRun) int { return started(a).Compare(started(b)) })
+		var cur []CheckRun
+		for _, r := range rs {
+			if startsAttempt(cur, r) {
+				cur = nil
+			}
+			cur = append(cur, r)
+		}
+		newest[id] = map[int64]bool{}
+		for _, r := range cur {
+			newest[id][r.ID] = true
+		}
+	}
+	out := map[string]bool{}
+	for name, r := range latest {
+		if m := actionsJob.FindStringSubmatch(r.HTMLURL); m != nil && !newest[m[1]][r.ID] {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// startsAttempt reports whether r reruns a job of attempt, a run of jobs
+// that each completed before r started.
+func startsAttempt(attempt []CheckRun, r CheckRun) bool {
+	rerun := false
+	for _, c := range attempt {
+		if c.Status != "completed" || !started(c).Before(started(r)) || c.CompletedAt != nil && c.CompletedAt.After(started(r)) {
+			return false
+		}
+		rerun = rerun || c.Name == r.Name
+	}
+	return rerun
+}
+
+func started(r CheckRun) time.Time {
+	if r.StartedAt == nil {
+		return time.Time{}
+	}
+	return *r.StartedAt
+}
+
 func newer(a, b CheckRun) bool {
-	at, bt := time.Time{}, time.Time{}
-	if a.StartedAt != nil {
-		at = *a.StartedAt
-	}
-	if b.StartedAt != nil {
-		bt = *b.StartedAt
-	}
-	if c := at.Compare(bt); c != 0 {
+	if c := started(a).Compare(started(b)); c != 0 {
 		return c > 0
 	}
 	return cmp.Compare(a.ID, b.ID) > 0
