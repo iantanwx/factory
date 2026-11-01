@@ -74,7 +74,8 @@ func configAlertKey(project string) string { return AlertProjectConfigInvalid + 
 // Only a refusal of the file (ErrInvalid) falls back: an error that reading
 // the ref returns, such as a missing mirror, goes to the caller. Every load
 // lists the skill directories through refs.Tree, so no loader saves a pin
-// whose directory the default branch tracks.
+// whose directory the default branch tracks, or a design_skill that names
+// no skill of the project.
 func (l *Loader) Load(ctx context.Context, project string, refs Refs, defaultBranch string) (*Loaded, error) {
 	snap, err := ReadProjectSnapshot(ctx, refs.Read, defaultBranch)
 	if err == nil && l.Check != nil {
@@ -82,6 +83,9 @@ func (l *Loader) Load(ctx context.Context, project string, refs Refs, defaultBra
 	}
 	if err == nil {
 		err = SkillDirs(ctx, snap.Config, refs.Tree, DefaultRef(defaultBranch))
+	}
+	if err == nil {
+		err = DesignSkill(ctx, snap.Config, refs.Tree, DefaultRef(defaultBranch))
 	}
 	if err == nil {
 		if err := l.LKG.SaveLKG(ctx, project, snap.ConfigRaw, snap.ManifestRaw); err != nil {
