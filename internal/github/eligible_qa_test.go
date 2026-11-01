@@ -31,6 +31,9 @@ func (e *env) eligibility() {
 	if _, err := e.svc.EnqueueQAChecks(ctx, e.project); err != nil {
 		e.t.Fatal(err)
 	}
+	if _, err := e.svc.EnqueueEligibility(ctx, e.project); err != nil {
+		e.t.Fatal(err)
+	}
 	cerr := e.svc.RunCheckRunEffects(ctx)
 	if _, err := e.svc.EnqueueEligibility(ctx, e.project); err != nil {
 		e.t.Fatal(err)
