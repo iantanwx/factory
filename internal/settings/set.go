@@ -107,7 +107,7 @@ type edit struct {
 // editSetting sets key to value in raw, the file at the default branch
 // head, or removes key when value is nil. It refuses a key that names no
 // setting, a field other than enabled on a run stage or an agent job that
-// raw does not list, a file that does not validate, and a change that
+// raw does not list and that is off, a file that does not validate, and a change that
 // moves neither the setting's value nor its source in force. It refuses a
 // key that names an old stage, and a key on a new stage moves the stage's
 // old entry to the new key. d gives the loop's defaults for one config, or
@@ -130,7 +130,7 @@ func editSetting(hc *config.HostConfig, raw []byte, key string, value *string, d
 	stage, field, _ := strings.Cut(rest, ".")
 	if section == "stages" && field != "enabled" {
 		kind, _ := config.KindOf(stage, known)
-		if _, listed := base.Stages[stage]; !listed && kind != config.KindBrainstorm && kind != config.KindProjectJob {
+		if _, listed := base.Stages[stage]; !listed && !base.StageEnabled(stage) && kind != config.KindBrainstorm && kind != config.KindProjectJob {
 			return edit{}, invalid(key, fmt.Sprintf("the project does not list %s, so a new entry would turn it on; set stages.%s.enabled first", stage, stage))
 		}
 	}
@@ -152,8 +152,8 @@ func editSetting(hc *config.HostConfig, raw []byte, key string, value *string, d
 	}
 	old, now := named(hc, base, known, d, key), named(hc, pc, known, d, key)
 	// An enabled row has no host value. Its source says only whether the
-	// file lists the stage, so enabled: false on an unlisted stage moves
-	// nothing that is in force.
+	// file lists the stage, so enabled set to the default of an unlisted
+	// stage moves nothing that is in force.
 	if old.Value == now.Value && (old.Source == now.Source || field == "enabled") {
 		return edit{}, invalid(key, fmt.Sprintf("the change moves neither the value %q nor its source %s in force", old.Value, old.Source))
 	}
