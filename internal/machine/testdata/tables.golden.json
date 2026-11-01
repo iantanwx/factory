@@ -1515,6 +1515,17 @@
         "to": "queued"
       },
       {
+        "verb": "base_merged",
+        "from": [
+          "queued"
+        ],
+        "to": "@same",
+        "facts": [
+          "reviewed_head",
+          "head"
+        ]
+      },
+      {
         "verb": "dequeue_conflict",
         "from": [
           "queued"

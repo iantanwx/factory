@@ -52,6 +52,7 @@ const (
 	VerbADRWithdrawn       = "adr_withdrawn"
 	VerbAnswer             = "answer"
 	VerbAwaitBuild         = "await_build"    // bug: reported, reproducing -> awaiting_build
+	VerbBaseMerged         = "base_merged"    // ticket: queued -> queued at the server's merge of the base
 	VerbBuildCanceled      = "build_canceled" // bug: awaiting_build -> reported (server)
 	VerbBuildLanded        = "build_landed"   // bug: awaiting_build -> duplicate (server)
 	VerbCIRed              = "ci_red"

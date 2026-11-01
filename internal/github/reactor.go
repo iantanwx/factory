@@ -859,9 +859,19 @@ func (r *Reactor) closed(ctx context.Context, p config.Project, it machine.Item,
 // head reacts to an open PR's head. A head the server did not push raises
 // an audit alert (KTD14). A head that differs from the reviewed head
 // returns a ticket that passed review to in_review (AE1), whoever pushed
-// it: a review room's push is a head change too (KTD23).
+// it: a review room's push is a head change too (KTD23). The server's own
+// merge of the base into a queued ticket's reviewed head is the one
+// exception: the hand-off job owns it.
 func (r *Reactor) head(ctx context.Context, p config.Project, it machine.Item, pr PR) error {
 	sha := pr.Head.SHA
+	if it.Kind == machine.KindTicket && it.Status == machine.Queued && sha != it.Fact(machine.FactReviewedHead) {
+		// The hand-off job moves the ticket to its own merge of the base
+		// into the reviewed head, once GitHub answers that merge (F-66).
+		merged, pending, err := r.s.BaseMerge(ctx, p.ID, pr.Head.Ref, it.Fact(machine.FactReviewedHead))
+		if err != nil || pending || merged == sha {
+			return err
+		}
+	}
 	if sha != it.Fact(machine.FactHead) && sha != it.Fact(machine.FactReviewedHead) {
 		own, err := r.s.ownPush(ctx, p.ID, pr.Head.Ref, sha)
 		if err != nil {
