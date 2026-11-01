@@ -502,15 +502,15 @@ func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 	}
 
 	readers := map[string][]string{
-		"loop-commit": {"brainstorm-room", "implementer", "planner", "review-room", "reviser"},
+		"loop-commit": {"brainstorm-room", "implementer", "planner", "review-room", "reviser", "simplify"},
 		"loop-bro":    {"decomposer"},
 		"loop-unslop": {"brainstorm-room", "decomposer", "planner", "reviser"},
 
 		"loop-boundaries":                       {"code-reviewer", "implementer"},
-		"loop-least-code":                       {"code-reviewer", "implementer"},
-		"loop-reader-load":                      {"code-reviewer", "implementer"},
+		"loop-least-code":                       {"code-reviewer", "implementer", "simplify"},
+		"loop-reader-load":                      {"code-reviewer", "implementer", "simplify"},
 		"loop-verifiable-units":                 {"implementer"},
-		"loop-test-behavior-not-implementation": {"code-reviewer", "implementer", "qa", "reproducer"},
+		"loop-test-behavior-not-implementation": {"code-reviewer", "implementer", "qa", "reproducer", "simplify"},
 		"loop-domain-modeling":                  {"doc-reviewer", "implementer", "planner"},
 	}
 	m, err := pack.ReadManifest(pack.Source())

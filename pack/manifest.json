@@ -5,6 +5,11 @@
       "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-commit", "loop-verifiable-units", "loop-test-behavior-not-implementation", "loop-boundaries", "loop-domain-modeling", "loop-least-code", "loop-reader-load", "loop-verify-create", "loop-verify-maintain"],
       "policy": "implementer"
     },
+    "simplify": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-commit", "loop-least-code", "loop-reader-load", "loop-test-behavior-not-implementation"],
+      "policy": "code-reviewer"
+    },
     "code-reviewer": {
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-test-behavior-not-implementation", "loop-boundaries", "loop-least-code", "loop-reader-load"],

@@ -23,12 +23,12 @@ var forks = map[string][]string{
 	},
 }
 
-var forkCommit = regexp.MustCompile(`^commit: +[0-9a-f]{40}$`)
+var qaForkCommit = regexp.MustCompile(`^commit: +[0-9a-f]{40}$`)
 
-// forkFaults returns one fault for each upstream prefix that the header
+// qaForkFaults returns one fault for each upstream prefix that the header
 // comment of text does not record as an "upstream:" line whose next line is
 // "commit:" and 40 lowercase hexadecimal characters.
-func forkFaults(text string, upstreams []string) []string {
+func qaForkFaults(text string, upstreams []string) []string {
 	comment, _, _ := strings.Cut(text, "-->")
 	_, comment, ok := strings.Cut(comment, "<!--")
 	if !ok {
@@ -41,7 +41,7 @@ func forkFaults(text string, upstreams []string) []string {
 		for i, l := range lines {
 			url, ok := strings.CutPrefix(strings.TrimSpace(l), "upstream:")
 			if ok && strings.HasPrefix(strings.TrimSpace(url), up) &&
-				i+1 < len(lines) && forkCommit.MatchString(strings.TrimSpace(lines[i+1])) {
+				i+1 < len(lines) && qaForkCommit.MatchString(strings.TrimSpace(lines[i+1])) {
 				found = true
 			}
 		}
@@ -57,7 +57,7 @@ func forkFaults(text string, upstreams []string) []string {
 func TestC1EachForkRecordsItsSource(t *testing.T) {
 	for name, upstreams := range forks {
 		text := read(t, name)
-		if faults := forkFaults(text, upstreams); faults != nil {
+		if faults := qaForkFaults(text, upstreams); faults != nil {
 			t.Errorf("%s: %v", name, faults)
 		}
 		lines := strings.Split(text, "\n")
@@ -68,7 +68,7 @@ func TestC1EachForkRecordsItsSource(t *testing.T) {
 			}
 			dropped++
 			cut := strings.Join(slices.Delete(slices.Clone(lines), i, i+1), "\n")
-			if forkFaults(cut, upstreams) == nil {
+			if qaForkFaults(cut, upstreams) == nil {
 				t.Errorf("%s with line %d dropped passes the fork check", name, i+1)
 			}
 		}
