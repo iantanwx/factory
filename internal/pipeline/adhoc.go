@@ -7,6 +7,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/shape"
@@ -27,7 +28,8 @@ type CreateResult struct {
 // writes an architecture epic's ADR is such PRD-less work, and it still
 // names its epic. With --kind bug the
 // coordinator files the operator's bug report in reported, the state the
-// reproducer stage claims from, under the same rule. With --blocked-by
+// reproducer stage claims from, under the same rule, and a QA run files
+// what it found there (bugFacts). With --blocked-by
 // the ticket waits in backlog on each blocker, which is checked before any
 // write. A bug takes no blocker. A ticket under an epic with a PRD holds
 // the Ticket shape, and records it as its shape fact. PRD-less work, a bug
@@ -50,23 +52,18 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 	facts := map[string]string{}
 	switch {
 	case inv.Flags["kind"] == string(machine.KindBug):
-		// A bug skips the PRD, so it follows R48 as a PRD-less ticket
-		// does: only the coordinator files one, on the operator's request.
 		kind, verb = machine.KindBug, machine.VerbFile
-		switch {
-		case len(blockers) > 0:
+		if len(blockers) > 0 {
 			return cli.Reject(cli.CodeUsage, "bug_takes_no_blocker",
 				"a bug report waits on nothing; the reproducer shapes it into a ticket, and work shape takes --blocked-by")
-		case pr.Kind != cli.PrincipalCoordinator:
-			return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only",
-				"only the coordinator files a bug, from the operator's report; a run reports a fault in the loop with `loop fault report`")
-		case request == "":
-			return cli.Reject(cli.CodePRDRequired, "no_operator_request",
-				"a bug skips the PRD, so it needs the operator's request: quote the operator's own words with --request")
-		case epicID != "" || len(stories) > 0:
+		}
+		var ref *cli.Refusal
+		if facts, ref = p.bugFacts(ctx, call, prj, request); ref != nil {
+			return ref.Result()
+		}
+		if epicID != "" || len(stories) > 0 {
 			return cli.Reject(cli.CodeUsage, "bug_without_epic", "a bug cites no epic and no story; the reproducer shapes it into a ticket")
 		}
-		facts[machine.FactRequest] = request
 	case epicID != "":
 		epic, ref := p.cfg.Machine.Read(ctx, prj, epicID)
 		if ref != nil {
@@ -178,6 +175,77 @@ func (p *Pipeline) workCreate(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 	}
 	return cli.Found(CreateResult{Item: it.ID, Status: it.Status, Epic: epicID})
+}
+
+// QABugCap is the bugs one QA run may file. A run that misreads the merge
+// base could flood the reproducer, and each bug costs a reproducer run.
+const QABugCap = 3
+
+// bugFacts checks the filer and the source of a bug, and returns the bug's
+// facts. A bug skips the PRD, so the coordinator files one as it creates
+// PRD-less work under R48: on the operator's request, with source
+// operator. A QA run that holds a ticket files what it found with source
+// qa and no request, and the bug records the run and the head it read. No
+// other run files a bug. The value of --source is checked first, so every
+// filer gets one answer for a value that is neither.
+func (p *Pipeline) bugFacts(ctx context.Context, call *rpc.Call, prj, request string) (map[string]string, *cli.Refusal) {
+	pr, source := call.Principal, call.Inv.Flags["source"]
+	if source != "" && source != machine.SourceOperator && source != machine.SourceQA {
+		return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "source_unknown",
+			Hint: fmt.Sprintf("--source is operator or qa, not %q; nothing was written", source)}
+	}
+	switch {
+	case pr.Kind == cli.PrincipalCoordinator && source == machine.SourceQA:
+		return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "source_mismatch",
+			Hint: "the coordinator files the operator's report, with source operator; only a QA run files a bug with --source qa"}
+	case pr.Kind == cli.PrincipalCoordinator && request == "":
+		return nil, &cli.Refusal{Code: cli.CodePRDRequired, Rule: "no_operator_request",
+			Hint: "a bug skips the PRD, so it needs the operator's request: quote the operator's own words with --request"}
+	case pr.Kind == cli.PrincipalCoordinator:
+		return map[string]string{machine.FactSource: machine.SourceOperator, machine.FactRequest: request}, nil
+	case pr.Kind != cli.PrincipalRun || pr.Stage != config.StageQA || pr.Item == "":
+		return nil, &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "bug_filer",
+			Hint: "only the coordinator files a bug, from the operator's report, and a QA run files what it found; a run reports a fault in the loop with `loop fault report`"}
+	case source != machine.SourceQA:
+		return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "source_mismatch", Hint: "a QA run files a bug with --source qa"}
+	case request != "":
+		return nil, &cli.Refusal{Code: cli.CodeUsage, Rule: "qa_takes_no_request",
+			Hint: "--request quotes the operator, and a QA run files what it found; drop --request"}
+	}
+	ticket, ref := p.cfg.Machine.Show(ctx, prj, pr.Item)
+	if ref != nil {
+		return nil, ref
+	}
+	if pr.Epoch != ticket.Epoch {
+		return nil, &cli.Refusal{Code: cli.CodeLeaseNotHeld, Rule: "stale_epoch", Item: ticket.ID, CurrentStatus: ticket.Status,
+			Hint: fmt.Sprintf("the run holds epoch %d of %s, and the lease is at epoch %d", pr.Epoch, ticket.ID, ticket.Epoch)}
+	}
+	if ref := p.qaBugCap(ctx, call, prj); ref != nil {
+		return nil, ref
+	}
+	return map[string]string{machine.FactSource: machine.SourceQA, machine.FactQARun: pr.RunID,
+		machine.FactQAHead: ticket.Fact(machine.FactReviewedHead)}, nil
+}
+
+// qaBugCap refuses the QA run's bug past QABugCap, unless a replay finds
+// the bug its create key already made.
+func (p *Pipeline) qaBugCap(ctx context.Context, call *rpc.Call, prj string) *cli.Refusal {
+	if key := createKey(call, "work"); key != "" {
+		it, ref := p.byKey(ctx, prj, machine.KindBug, key)
+		if ref != nil || it != nil {
+			return ref
+		}
+	}
+	run := call.Principal.RunID
+	filed, ref := p.cfg.Machine.List(ctx, prj, machine.ListFilter{Kind: machine.KindBug, Facts: map[string]string{machine.FactQARun: run}})
+	if ref != nil {
+		return ref
+	}
+	if len(filed) >= QABugCap {
+		return &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "qa_bug_cap",
+			Hint: fmt.Sprintf("%s already filed %d bugs, and a QA run files at most %d", run, len(filed), QABugCap)}
+	}
+	return nil
 }
 
 // addBlockers writes one blocks edge from a ticket or an epic in Initial
