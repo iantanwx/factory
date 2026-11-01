@@ -16,6 +16,10 @@ import (
 // EligibleContext is the commit status a review pass posts (KTD15).
 const EligibleContext = "loop/eligible"
 
+// loopContext reports whether a required check is one the loop posts,
+// loop/eligible or loop/qa, which never counts as CI.
+func loopContext(name string) bool { return name == EligibleContext || name == QAContext }
+
 // CheckLine is one line of a setup checklist. A line that fails names the
 // rule and what the operator changes.
 type CheckLine struct {
@@ -73,6 +77,7 @@ func pathEscapeBranch(b string) string {
 //
 //   - CI is a required status check;
 //   - loop/eligible is a required status check from the loop App;
+//   - loop/qa is a required check from the loop App;
 //   - a direct push to the branch is blocked: a pull request is required,
 //     or updates are restricted.
 //
@@ -110,8 +115,13 @@ func (s *Service) CheckRules(ctx context.Context, p config.Project) ([]CheckLine
 			required = append(required, params.Checks...)
 		}
 	}
+	appID, err := s.AppID(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	fromApp := func(c requiredCheck) bool { return c.IntegrationID != nil && *c.IntegrationID == appID }
 	eligible := slices.IndexFunc(required, func(c requiredCheck) bool { return c.Context == EligibleContext })
-	ci := slices.ContainsFunc(required, func(c requiredCheck) bool { return c.Context != EligibleContext && c.Context != "" })
+	ci := slices.ContainsFunc(required, func(c requiredCheck) bool { return !loopContext(c.Context) && c.Context != "" })
 	lines := []CheckLine{
 		{Check: "ci_required", OK: ci,
 			Detail: fmt.Sprintf("add the CI check to the required status checks of %s", base)},
@@ -119,14 +129,12 @@ func (s *Service) CheckRules(ctx context.Context, p config.Project) ([]CheckLine
 			Detail: fmt.Sprintf("add %s to the required status checks of %s", EligibleContext, base)},
 	}
 	if eligible >= 0 {
-		appID, err := s.AppID(ctx, p)
-		if err != nil {
-			return nil, err
-		}
-		id := required[eligible].IntegrationID
-		lines = append(lines, CheckLine{Check: "eligible_source", OK: id != nil && *id == appID,
+		lines = append(lines, CheckLine{Check: "eligible_source", OK: fromApp(required[eligible]),
 			Detail: fmt.Sprintf("require %s from the loop App (app id %d) as its expected source", EligibleContext, appID)})
 	}
+	lines = append(lines, CheckLine{Check: "qa_required", OK: slices.ContainsFunc(required, func(c requiredCheck) bool {
+		return c.Context == QAContext && fromApp(c)
+	}), Detail: fmt.Sprintf("require %s from the loop App (app id %d) in the required status checks of %s", QAContext, appID, base)})
 	lines = append(lines, CheckLine{Check: "direct_push_blocked", OK: blocked,
 		Detail: fmt.Sprintf("block direct pushes to %s: require a pull request before merging", base)})
 	return lines, nil

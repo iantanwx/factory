@@ -24,8 +24,9 @@ type fakeGitHub struct {
 	prs      map[int]*github.PR
 	required []string                     // github.RequiredChecks at the default branch
 	runs     map[string][]github.CheckRun // by head
-	posted   []string                     // "<sha> <context>"
+	posted   []string                     // "<sha> <context>", and "<sha> <name> <conclusion>" for a check run
 	closed   []int
+	qaErr    error // the answer to each check run post
 }
 
 func (g *fakeGitHub) GetPR(_ context.Context, _ config.Project, n int) (github.PR, error) {
@@ -46,6 +47,14 @@ func (g *fakeGitHub) Checks(_ context.Context, _ config.Project, head string) (g
 
 func (g *fakeGitHub) PostStatus(_ context.Context, _ config.Project, sha, context, _, _ string) error {
 	g.posted = append(g.posted, sha+" "+context)
+	return nil
+}
+
+func (g *fakeGitHub) PostCheckRun(_ context.Context, _ config.Project, c github.CheckRunPayload) error {
+	if g.qaErr != nil {
+		return g.qaErr
+	}
+	g.posted = append(g.posted, c.SHA+" "+c.Name+" "+c.Conclusion)
 	return nil
 }
 
@@ -248,7 +257,7 @@ func TestC26ChangeLandsThroughTheMechanismOnceItsChecksAreGreen(t *testing.T) {
 
 	f.land()
 	f.wantState(c.ID, Handed)
-	if want := []string{c.Head + " " + github.EligibleContext}; !slices.Equal(f.gh.posted, want) {
+	if want := []string{c.Head + " " + github.QAContext + " neutral", c.Head + " " + github.EligibleContext}; !slices.Equal(f.gh.posted, want) {
 		t.Fatalf("posted %v; want %v", f.gh.posted, want)
 	}
 	if !f.mech.HandedOff(c.PR) || !f.eligible(c) {
@@ -266,8 +275,30 @@ func TestC26ChangeLandsThroughTheMechanismOnceItsChecksAreGreen(t *testing.T) {
 	if !slices.Equal(f.forgot, []string{"alpha"}) {
 		t.Fatalf("forgot the config of %v; want alpha once", f.forgot)
 	}
-	if len(f.gh.posted) != 1 || len(f.gh.closed) != 0 || f.eligible(c) {
+	if len(f.gh.posted) != 2 || len(f.gh.closed) != 0 || f.eligible(c) {
 		t.Fatalf("posted %v, closed %v, eligible %v after the merge", f.gh.posted, f.gh.closed, f.eligible(c))
+	}
+}
+
+// TestC29ASettingsHeadGetsANeutralLoopQABeforeLoopEligible: no QA run
+// reads a settings change, so its head gets a neutral loop/qa, then
+// loop/eligible. A check run GitHub refuses posts no loop/eligible and
+// hands off nothing.
+func TestC29ASettingsHeadGetsANeutralLoopQABeforeLoopEligible(t *testing.T) {
+	f := newLandFixture(t, baseConfig)
+	c := f.open("stages.implementer.cap", strp("5"), "success")
+	f.gh.qaErr = errors.New("403 Resource not accessible by integration")
+	if err := f.svc.Land(context.Background(), f.project, f.mech); err == nil {
+		t.Fatal("land with check runs refused reports success")
+	}
+	if len(f.gh.posted) != 0 || f.mech.HandedOff(c.PR) {
+		t.Fatalf("posted %v, handed off %v while GitHub refuses check runs", f.gh.posted, f.mech.HandedOff(c.PR))
+	}
+	f.gh.qaErr = nil
+	f.land()
+	want := []string{c.Head + " " + github.QAContext + " neutral", c.Head + " " + github.EligibleContext}
+	if !slices.Equal(f.gh.posted, want) || !f.mech.HandedOff(c.PR) {
+		t.Fatalf("posted %v, handed off %v; want %v, then the hand-off", f.gh.posted, f.mech.HandedOff(c.PR), want)
 	}
 }
 
@@ -334,7 +365,7 @@ func TestC27HandedChangeWhoseHeadMovedFails(t *testing.T) {
 	if as := f.alerts(); len(as) != 1 || !strings.Contains(as[0].body, "moved") {
 		t.Fatalf("alerts = %+v; want one that names the moved head", as)
 	}
-	if want := []string{c.Head + " " + github.EligibleContext}; !slices.Equal(f.gh.posted, want) || len(f.notices()) != 0 {
+	if want := []string{c.Head + " " + github.QAContext + " neutral", c.Head + " " + github.EligibleContext}; !slices.Equal(f.gh.posted, want) || len(f.notices()) != 0 {
 		t.Fatalf("posted %v, notices %+v; want only the post before the hand-off", f.gh.posted, f.notices())
 	}
 }
