@@ -5,8 +5,11 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -56,6 +59,35 @@ func TestCommandStartsNoAutoMaintenance(t *testing.T) {
 	}
 }
 
+// AutoMaintenance names each auto maintenance that a traced git started,
+// and the git that started it. A git with Config in force starts none.
+func TestAutoMaintenanceNamesTheGitThatStartedIt(t *testing.T) {
+	tmp := t.TempDir()
+	work, trace := filepath.Join(tmp, "work"), filepath.Join(tmp, "trace")
+	run(t, tmp, "init", "-q", "-b", "main", work)
+	run(t, work, "config", "maintenance.autoDetach", "false")
+	if err := os.Mkdir(trace, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	commit := []string{"-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "c"}
+	cmd := exec.Command("git", commit...)
+	cmd.Dir = work
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_TRACE2_EVENT="+trace)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	t.Setenv("GIT_TRACE2_EVENT", trace)
+	run(t, work, commit...)
+	starts, err := AutoMaintenance(trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "git " + strings.Join(commit, " ") + " started git maintenance run --auto"
+	if len(starts) != 1 || !strings.HasPrefix(starts[0], want) {
+		t.Fatalf("starts = %q, want one that starts with %q", starts, want)
+	}
+}
+
 // ownHelpers are the test git helpers that turn auto maintenance off on
 // their own, each with its own guard test. They keep their fixes.
 var ownHelpers = map[string]string{
@@ -67,10 +99,13 @@ var ownHelpers = map[string]string{
 // Every git that test code starts runs through Command or CommandContext,
 // and an environment that a test sets on such a command passes through
 // Env. Test code is a _test.go file, a file of a package whose name ends
-// in "test", and the acceptance harness.
+// in "test", and the acceptance harness. A package whose tests import
+// gitx, gittest or githubtest has a TestMain that calls Main, unless it
+// holds one of ownHelpers.
 func TestEveryTestGitRunsThroughGittest(t *testing.T) {
 	root := moduleRoot(t)
 	var found []string
+	runsGit, callsMain := map[string]bool{}, map[string]bool{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -102,10 +137,22 @@ func TestEveryTestGitRunsThroughGittest(t *testing.T) {
 				found = append(found, rel+": "+p.what)
 			}
 		}
+		if pkg := filepath.ToSlash(filepath.Dir(rel)); strings.HasSuffix(path, "_test.go") {
+			runsGit[pkg] = runsGit[pkg] || importsGit(f)
+			callsMain[pkg] = callsMain[pkg] || testMainCallsMain(f)
+		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for key := range ownHelpers {
+		delete(runsGit, filepath.ToSlash(filepath.Dir(strings.Fields(key)[0])))
+	}
+	for _, pkg := range slices.Sorted(maps.Keys(runsGit)) {
+		if runsGit[pkg] && !callsMain[pkg] {
+			found = append(found, pkg+": its tests run git with no TestMain that calls gittest.Main")
+		}
 	}
 	if len(found) > 0 {
 		t.Fatalf("test git that can start auto maintenance:\n%s", strings.Join(found, "\n"))
@@ -161,6 +208,35 @@ func directGit(fset *token.FileSet, f *ast.File) []finding {
 		})
 	}
 	return out
+}
+
+// importsGit reports whether f imports a package that runs git.
+func importsGit(f *ast.File) bool {
+	for _, imp := range f.Imports {
+		switch strings.Trim(imp.Path.Value, `"`) {
+		case "github.com/iantanwx/loop/internal/gitx", "github.com/iantanwx/loop/internal/gitx/gittest",
+			"github.com/iantanwx/loop/internal/github/githubtest":
+			return true
+		}
+	}
+	return false
+}
+
+// testMainCallsMain reports whether f holds a TestMain that calls
+// gittest.Main.
+func testMainCallsMain(f *ast.File) bool {
+	calls := false
+	for _, decl := range f.Decls {
+		if d, ok := decl.(*ast.FuncDecl); ok && d.Name.Name == "TestMain" {
+			ast.Inspect(d, func(n ast.Node) bool {
+				if c, ok := n.(*ast.CallExpr); ok && selector(c.Fun) == "gittest.Main" {
+					calls = true
+				}
+				return true
+			})
+		}
+	}
+	return calls
 }
 
 // selector returns "pkg.Name" for a selector expression, or "".

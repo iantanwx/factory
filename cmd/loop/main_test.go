@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
@@ -25,7 +26,7 @@ import (
 var buildOnce sync.Map
 
 func TestMain(m *testing.M) {
-	code := m.Run()
+	code := gittest.Main(m)
 	buildOnce.Range(func(_, v any) bool {
 		if b := v.(*builtBinary); b.path != "" {
 			_ = os.RemoveAll(filepath.Dir(b.path))

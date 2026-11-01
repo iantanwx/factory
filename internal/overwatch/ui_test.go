@@ -16,6 +16,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/frontend"
 	"github.com/iantanwx/loop/internal/gitx"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // memTree is a tracked tree held in memory: each path and its bytes.
@@ -134,9 +135,12 @@ func TestC27TheSweepSaysNothingAboutADeclaredUI(t *testing.T) {
 // git runs git in dir with a fixed author, and fails the test on error.
 func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, err := gitx.Run(context.Background(), dir, append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+	cmd := gittest.Command(append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("git %v: %v: %s", args, err, stderr.String())
 	}
 	return string(out)
 }
