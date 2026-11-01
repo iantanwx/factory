@@ -166,6 +166,18 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 		params["adr_needed"] = adrNeeded
 		body = strings.TrimSpace(body + "\n\nRequirements that pass the ADR test: " + adrNeeded)
 	}
+	// The round records the readers, and the comment names them. The rows
+	// read params before Before runs, so the readers are checked here, and
+	// Before refuses by the item's kind.
+	readers, readersSent := call.Inv.Flags["readers"]
+	var readersRefused *cli.Refusal
+	if readersSent {
+		var named []string
+		if named, readersRefused = m.readersNamed(ctx, prj, readers); len(named) > 0 {
+			params["readers"] = strings.Join(named, ",")
+			body = strings.TrimSpace(body + "\n\nReaders: " + strings.Join(named, ", ") + ".")
+		}
+	}
 	if body != "" {
 		params["body"] = body
 	}
@@ -175,6 +187,19 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 		if adrNeeded != "" && (verb != "review_pass" || it.Kind != KindEpic || it.Status != PRDReview) {
 			return refusedAt(&cli.Refusal{Code: cli.CodeUsage, Rule: "adr_needed_scope",
 				Hint: "--adr-needed goes only on a pass of a PRD in prd_review; submit the verdict again without it"}, item, it)
+		}
+		// The doc-reviewer reviews only an epic's document. A ticket's code
+		// has no readers.
+		switch {
+		case readersSent && it.Kind != KindEpic:
+			return refusedAt(&cli.Refusal{Code: cli.CodeShapeRefused, Rule: "readers_scope",
+				Hint: "--readers goes only on a doc review of a PRD, a spec or an ADR; submit the verdict again without it"}, item, it)
+		case readersSent && readersRefused != nil:
+			return refusedAt(readersRefused, item, it)
+		case !readersSent && it.Kind == KindEpic:
+			if _, r := m.readersNamed(ctx, prj, ""); r != nil {
+				return refusedAt(r, item, it)
+			}
 		}
 		// The live head first: a stale head is refused head_changed, not
 		// for CI at a commit the PR no longer holds.
@@ -197,6 +222,42 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 		return nil
 	}
 	return m.Apply(ctx, req)
+}
+
+// readersNamed checks the readers a doc review's --readers sent against
+// the readers the run's brief names, and returns them in the brief's
+// order. A set that differs, or that names an unknown reader, refuses.
+func (m *Machine) readersNamed(ctx context.Context, project, sent string) ([]string, *cli.Refusal) {
+	var want []string
+	if m.docReaders != nil {
+		var err error
+		if want, err = m.docReaders(ctx, project); err != nil {
+			return nil, cli.InternalRefusal(err)
+		}
+	}
+	var got []string
+	for r := range strings.SplitSeq(sent, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			got = append(got, r)
+		}
+	}
+	if sameSet(got, want) {
+		return want, nil
+	}
+	hint := "the brief names no readers; submit the verdict again without --readers"
+	if len(want) > 0 {
+		hint = fmt.Sprintf("the brief names the readers %s; start each one that did not return, and submit the verdict again with --readers %s",
+			strings.Join(want, ", "), strings.Join(want, ","))
+	}
+	return nil, &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "readers", Hint: hint}
+}
+
+// sameSet reports whether a and b hold the same values, in any order.
+func sameSet(a, b []string) bool {
+	a, b = slices.Clone(a), slices.Clone(b)
+	slices.Sort(a)
+	slices.Sort(b)
+	return slices.Equal(slices.Compact(a), slices.Compact(b))
 }
 
 // contractsNamed refuses a review of a shaped ticket whose body omits a
@@ -877,6 +938,15 @@ type RetroReader func(ctx context.Context, project, item string) (RetroOnItem, e
 // wait reader.
 func (m *Machine) SetRetroReader(f RetroReader) { m.retro = f }
 
+// DocReadersSource reads the readers a doc review of the project starts,
+// as the brief of its doc-reviewer run names them: all three, or none
+// when the project turned them off.
+type DocReadersSource func(ctx context.Context, project string) ([]string, error)
+
+// SetDocReadersSource sets the reader of a project's doc readers. The
+// server sets it before the socket binds.
+func (m *Machine) SetDocReadersSource(f DocReadersSource) { m.docReaders = f }
+
 // PassGate reads CI at head, the head a code review passes. It refuses
 // unless every required check is green there.
 type PassGate func(ctx context.Context, project, item, head string) *cli.Refusal
@@ -913,13 +983,16 @@ type Round struct {
 	Verdict string `json:"verdict"` // pass or reject
 	// Head is the head review submit --head named for the verdict; "" when
 	// it named none.
-	Head  string    `json:"head"`
-	Body  string    `json:"body"` // the review comment; "" when the verdict sent none
-	From  string    `json:"from"`
-	To    string    `json:"to"`
-	Actor string    `json:"actor"`
-	RunID string    `json:"run_id"`
-	At    time.Time `json:"at"`
+	Head string `json:"head"`
+	Body string `json:"body"` // the review comment; "" when the verdict sent none
+	// Readers are the doc readers the verdict named, in start order; empty
+	// when it named none, as on every round before the readers.
+	Readers []string  `json:"readers"`
+	From    string    `json:"from"`
+	To      string    `json:"to"`
+	Actor   string    `json:"actor"`
+	RunID   string    `json:"run_id"`
+	At      time.Time `json:"at"`
 }
 
 // reviewRounds lists every verdict review submit recorded on the item, in
@@ -949,8 +1022,12 @@ func Rounds(hist []Transition) []Round {
 		if !ok {
 			continue
 		}
+		readers := []string{}
+		if r := t.Fact(FactReaders); r != "" {
+			readers = strings.Split(r, ",")
+		}
 		out = append(out, Round{Round: len(out) + 1, Verdict: verdict, Head: cmp.Or(t.Fact(FactReviewedHead), t.Fact(FactRejectedHead)),
-			Body: t.Set[factPrefix+FactReview], From: t.From, To: t.To, Actor: t.Actor, RunID: t.RunID, At: t.At})
+			Body: t.Set[factPrefix+FactReview], Readers: readers, From: t.From, To: t.To, Actor: t.Actor, RunID: t.RunID, At: t.At})
 	}
 	return out
 }
