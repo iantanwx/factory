@@ -35,13 +35,6 @@ var tableOnly = map[string]string{
 	// the epic it holds. The key names the state, so a room's submit from
 	// initial stays checked end to end.
 	"epic prd_submit prd_drafting": "TestC10ARunSubmitsThePRDOfTheEpicItHolds",
-	// No project runs the simplify stage until it is on by default (spec
-	// factorio-1r94, Work entry 4), so no scenario starts a simplify run.
-	// That entry's scenario applies these rows end to end.
-	"ticket claim in_simplify":   "TestC3NewTicketEntersInSimplify",
-	"ticket simplified":          "TestSimplifyRunHandsTheTicketToReview",
-	"ticket release in_simplify": "TestC7EveryOtherEndPassesTheTicketThrough",
-	"ticket reclaim in_simplify": "TestC7EveryOtherEndPassesTheTicketThrough",
 	// factorio-nhb5: no scenario project lists stages.qa until the stage is
 	// on by default, so no review pass lands on in_qa and no QA run claims
 	// a ticket. No CLI verb performs qa_pass or qa_fail until `loop qa

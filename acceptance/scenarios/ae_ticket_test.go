@@ -196,7 +196,9 @@ func TestAPushOffersAHeldReviewAgain(t *testing.T) {
 	if st, ref := w.TryDispatch(machine.StageCodeReviewer); st != nil || ref != nil {
 		t.Fatalf("the blocked review started again at the same head: %+v %+v", st, ref)
 	}
-	w.PushBranch("loop/"+id, "a fix after the blocked review", map[string]string{"a.txt": "a fixed\n"})
+	// The push moves the head off simplify_from, so the review waits for
+	// green CI there.
+	w.CI(w.PushBranch("loop/"+id, "a fix after the blocked review", map[string]string{"a.txt": "a fixed\n"}), "success")
 	w.React()
 	wantStatus(w, id, machine.InReview)
 	for range 2 {
@@ -206,7 +208,7 @@ func TestAPushOffersAHeldReviewAgain(t *testing.T) {
 	if st, ref := w.TryDispatch(machine.StageCodeReviewer); st != nil || ref != nil {
 		t.Fatalf("a review started after two failures at the same head: %+v %+v", st, ref)
 	}
-	w.PushBranch("loop/"+id, "a fix after two failed reviews", map[string]string{"a.txt": "a fixed again\n"})
+	w.CI(w.PushBranch("loop/"+id, "a fix after two failed reviews", map[string]string{"a.txt": "a fixed again\n"}), "success")
 	w.React()
 	if run = w.Dispatch(machine.StageCodeReviewer); run.Item != id {
 		t.Fatalf("the code-reviewer took %s, want %s", run.Item, id)

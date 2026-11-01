@@ -52,11 +52,15 @@ const (
 
 // DefaultConfig enables every run stage the server starts an agent for,
 // and merges with the direct mechanism: the loop is the queue, and each
-// merge goes through GitHub's merge API (KTD29).
+// merge goes through GitHub's merge API (KTD29). It turns off the simplify
+// stage, which is on by default, so a scenario passes each ticket on to
+// review by itself. A scenario that drives a simplify run names its own
+// config.
 const DefaultConfig = `merge:
   mechanism: direct
 stages:
   implementer: {}
+  simplify: {enabled: false}
   code-reviewer: {}
   doc-reviewer: {}
   reviser: {}
