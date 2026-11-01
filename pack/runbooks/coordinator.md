@@ -72,6 +72,7 @@ waits on that record and not on you.
 | `server` | 9 | Make the failed check pass, or report it as a loop fault |
 | `rules` | 9 | Compare the landed rule with the rules of each other project, and record the comparison |
 | `ui` | 5 | Ask the operator whether the project declares the user interface that its default branch shows |
+| `qa` | 5 | Ask the operator to run `loop-verify-create` in the project, or to turn the qa stage off |
 
 Each finding has a key, such as `overwatch:main:factorio:ci-yml@1a2b3c4d5e6f`. When you file a bug,
 report a fault, prepare a question or file a decision for a finding, quote the finding's key in its

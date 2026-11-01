@@ -69,6 +69,10 @@ const (
 	VerbPersonComment      = "person_comment"
 	VerbPRClosed           = "pr_closed"
 	VerbPRDSubmit          = "prd_submit"
+	VerbQADue              = "qa_due"  // ticket: ready_to_merge, queued -> in_qa when the stage turns on (server)
+	VerbQAFail             = "qa_fail" // ticket: in_qa -> todo, a reject by qa report
+	VerbQAOff              = "qa_off"  // ticket: in_qa -> ready_to_merge when the stage turns off (server)
+	VerbQAPass             = "qa_pass" // ticket: in_qa -> ready_to_merge by qa report
 	VerbSignoffHead        = "signoff_head"
 	VerbSupersede          = "supersede"
 	VerbUnblock            = "unblock"
@@ -85,6 +89,7 @@ const (
 	StagePlanner              = config.StagePlanner
 	StageDecomposer           = config.StageDecomposer
 	StageReproducer           = config.StageReproducer
+	StageQA                   = config.StageQA
 )
 
 // Lease effects of a row.
