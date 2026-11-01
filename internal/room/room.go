@@ -575,8 +575,7 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 			kind, body = it.Kind, it.Body
 		}
 	}
-	p := sched.Select(s.cfg.Pack, snap.Config, sched.RoomScope(r.Kind, kind, body)).
-		WithUser(sched.UserSkills(s.cfg.SkillStore, r.Project, snap.Config.Skills))
+	p := sched.Select(s.cfg.Pack.WithUser(sched.UserSkills(s.cfg.SkillStore, r.Project, snap.Config.Skills)), snap.Config, sched.RoomScope(r.Kind, kind, body))
 	res, err := brief.Inject(ctx, brief.Injection{Checkout: r.Checkout, Harness: s.cfg.Harness, Pack: p, Brief: b, Env: brief.GroupEnv(manifest, env)})
 	var reserved *brief.ReservedError
 	if errors.As(err, &reserved) {

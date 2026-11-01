@@ -21,10 +21,12 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
+	"github.com/iantanwx/loop/internal/userspace"
 )
 
 const uiConfig = "ui:\n  kind: web\n  paths: [web/**]\n"
@@ -230,5 +232,39 @@ func TestC18ADecisionRoomOnADecisionHoldsNoLoopImpeccable(t *testing.T) {
 	w := newSkillWorld(t, uiConfig)
 	if holdsImpeccable(t, "a decision room", w.open("decision", w.item("decision", machine.NeedsHuman, ""))) {
 		t.Fatal("a decision room on a decision item holds loop-impeccable")
+	}
+}
+
+// C20: in a project whose ui block names the pin acme-design its design
+// skill, and whose store holds the pin, an architect room holds acme-design
+// in place of loop-impeccable and names it.
+func TestC20AnEpicRoomNamesThePinnedDesignSkill(t *testing.T) {
+	acme := fstest.MapFS{"SKILL.md": {Data: []byte("---\nname: acme-design\n---\n"), Mode: 0o644}}
+	sum, err := pack.TreeHash(acme)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin := config.SkillPin{Name: "acme-design", Repo: "acme/skills", Commit: "0123456789abcdef0123456789abcdef01234567", SHA256: sum}
+	w := newSkillWorld(t, uiConfig+"  design_skill: acme-design\nskills:\n  - name: acme-design\n    repo: "+pin.Repo+
+		"\n    commit: "+pin.Commit+"\n    path: \"\"\n    sha256: "+pin.SHA256+"\n")
+	w.s.cfg.SkillStore = userspace.Store{Dir: filepath.Join(t.TempDir(), "userspace-skills")}
+	if err := w.s.cfg.SkillStore.Put("alpha", pin, acme); err != nil {
+		t.Fatal(err)
+	}
+	co := w.open("architect", w.item("epic", machine.Architecture, ""))
+	if holdsImpeccable(t, "an architect room", co) {
+		t.Fatal("an architect room with a design_skill override holds loop-impeccable")
+	}
+	raw, err := os.ReadFile(filepath.Join(co, brief.BriefJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b brief.Brief
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatal(err)
+	}
+	_, err = os.Stat(filepath.Join(co, brief.SkillRoot(agenthost.Claude), "acme-design"))
+	if err != nil || b.DesignSkill != "acme-design" {
+		t.Fatalf("an architect room: acme-design %v, design_skill %q; want acme-design held and named", err, b.DesignSkill)
 	}
 }
