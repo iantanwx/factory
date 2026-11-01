@@ -27,6 +27,17 @@ func (w *ghWorld) issue(item, stage, run string) {
 	w.token(item, stage, run, lease.Epoch)
 }
 
+// simplifyOff passes a ticket from in_simplify to review, as the
+// dependency-advance job does in a project that runs no simplify stage.
+func (w *ghWorld) simplifyOff(item string) {
+	w.t.Helper()
+	res := w.srv.Machine.Apply(context.Background(), machine.Request{Project: "alpha", Item: item, Verb: machine.VerbSimplifyOff,
+		Actor: machine.Server("test")})
+	if res.Refusal != nil {
+		w.t.Fatalf("simplify_off: %+v", *res.Refusal)
+	}
+}
+
 func (w *ghWorld) token(item, stage, run string, epoch int64) {
 	w.t.Helper()
 	if _, err := w.srv.Tokens.IssueToCheckout(context.Background(), rpc.IssueRequest{RunID: run, Kind: cli.PrincipalRun,
@@ -52,6 +63,7 @@ func TestReviewSubmitPostsItsBodyOnThePR(t *testing.T) {
 	if env := w.run("pr", "open", "--title", "Add a"); env["ok"] != true {
 		t.Fatalf("pr open = %v", env)
 	}
+	w.simplifyOff(id)
 	w.issue(id, machine.StageCodeReviewer, "run-2")
 
 	env := w.run("review", "submit", id, "--verdict", "reject", "--body", "the key is "+ghSecret)
@@ -95,6 +107,7 @@ func TestReviewPassNeedsGreenCIAtItsHead(t *testing.T) {
 		t.Fatalf("pr open = %v", env)
 	}
 	head := w.api.World.PR(1).HeadSHA
+	w.simplifyOff(id)
 	w.issue(id, machine.StageCodeReviewer, "run-2")
 	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
 	refused := func(rule string) {
@@ -154,6 +167,7 @@ func TestReviewSubmitRefusesAHeadThePRNoLongerHolds(t *testing.T) {
 		t.Fatalf("pr open = %v", env)
 	}
 	read := gt.Git(t, w.checkout, "rev-parse", "HEAD")
+	w.simplifyOff(id)
 	w.issue(id, machine.StageCodeReviewer, "run-2")
 	at := time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)
 	w.api.World.SetRuns(read, gt.CheckRun("ci", read, "completed", "success", at))
@@ -199,6 +213,7 @@ func TestReviewSubmitRefusesAHeadWithNoOpenPR(t *testing.T) {
 		t.Fatalf("pr open = %v", env)
 	}
 	head := w.api.World.PR(1).HeadSHA
+	w.simplifyOff(id)
 	w.issue(id, machine.StageCodeReviewer, "run-2")
 	w.api.World.Update(w.api.World.PR(1), func(p *gt.PR) { p.State = "closed" })
 

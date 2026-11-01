@@ -405,7 +405,7 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 			claims = s.Admission
 		}
 		s.Machine, err = machine.New(machine.Config{Store: st, Beads: opts.Beads, Redactor: red, Claims: claims,
-			Terminal: terminal, Applied: retro.SignalsFor, Registry: cli.Surface(), Logger: srv.Logger()})
+			Terminal: terminal, Applied: applied, Registry: cli.Surface(), Logger: srv.Logger()})
 		if err != nil {
 			return nil, err
 		}
@@ -461,6 +461,15 @@ func terminal(tx *store.Tx, ev machine.TerminalEvent) error {
 		return err
 	}
 	return retro.Enqueue(tx, ev)
+}
+
+// applied is the machine's Applied hook: it writes the retro signals of
+// the move, then ends the inbox defer of a fired decision's hold.
+func applied(tx *store.Tx, ev machine.AppliedEvent) error {
+	if err := retro.SignalsFor(tx, ev); err != nil {
+		return err
+	}
+	return inbox.EndHoldDefer(tx, ev)
 }
 
 func readPreviousVersion(dir string) string {

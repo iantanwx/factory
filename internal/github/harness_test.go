@@ -177,6 +177,11 @@ func (e *env) ticket(status, head string) string {
 			Params: map[string]string{"head": head}, Actor: machine.Server("test")}))
 	}
 	apply("pr_open")
+	if status == machine.InSimplify {
+		return id
+	}
+	// The pass of a project that runs no simplify stage.
+	apply(machine.VerbSimplifyOff)
 	switch status {
 	case machine.ReadyToMerge:
 		apply("review_pass")

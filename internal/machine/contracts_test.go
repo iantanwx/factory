@@ -22,7 +22,7 @@ func (w *world) shapedInReview(body string, facts map[string]string) (string, rp
 		Description: body, Verb: "create", Actor: Server("test"), Facts: facts})
 	mustOK(w.t, res)
 	w.claimAs(id, StageImplementer, "impl")
-	w.must(id, "pr_open", map[string]string{"head": shaA})
+	w.opened(id, shaA)
 	return id, w.claimAs(id, StageCodeReviewer, "rev")
 }
 
