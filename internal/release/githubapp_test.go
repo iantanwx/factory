@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"html"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -91,9 +92,14 @@ func TestAppFlowFollowsTheRedirect(t *testing.T) {
 	if err := json.Unmarshal([]byte(html.UnescapeString(string(value[1]))), &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Public || manifest.Hook["active"] != false || manifest.Permissions["administration"] != "" ||
-		manifest.Permissions["contents"] != "write" || len(manifest.Permissions) != len(AppPermissions) {
+	if manifest.Public || manifest.Hook["active"] != false {
 		t.Fatalf("manifest = %+v", manifest)
+	}
+	// C28: the App asks for checks write, so it can post loop/qa.
+	want := map[string]string{"contents": "write", "pull_requests": "write", "statuses": "write", "workflows": "write",
+		"checks": "write", "actions": "write", "metadata": "read"}
+	if !maps.Equal(manifest.Permissions, want) {
+		t.Fatalf("manifest permissions = %v, want %v", manifest.Permissions, want)
 	}
 
 	// A redirect with another state is refused; the real one redirects to
