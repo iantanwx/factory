@@ -21,6 +21,7 @@ import (
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/release"
+	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
 	"github.com/iantanwx/loop/internal/userspace"
 )
@@ -221,11 +222,12 @@ type pinSource struct {
 }
 
 // registerSkills builds the pack from the instance's fetched skill set,
-// as loop serve does, adds the project's userspace pins, and installs it
-// into the clone at rep.Path. It records the skills in rep. A pin that
-// fails, or a config that does not load, does not fail the register.
-// build is the test seam: nil is pack.Brief, whose pins the binary
-// embeds.
+// as loop serve does, selects its skills at the epic level, adds the
+// project's userspace pins, and installs it into the clone at rep.Path.
+// It records the skills in rep. A pin that fails, or a config that does
+// not load, does not fail the register. A config that does not load gives
+// no level. build is the test seam: nil is pack.Brief, whose pins the
+// binary embeds.
 func registerSkills(ctx context.Context, instance string, rep *RegisterReport, pins pinSource, build func(fetched fs.FS) (brief.Pack, []pack.ThirdParty, error)) error {
 	if build == nil {
 		build = pack.Brief
@@ -234,19 +236,19 @@ func registerSkills(ctx context.Context, instance string, rep *RegisterReport, p
 	if err != nil {
 		return err
 	}
-	user, err := userSkills(ctx, rep, pins)
+	cfg, err := projectConfig(ctx, rep)
 	if err != nil {
 		rep.UserSkillsConfig = err.Error()
 	}
-	rep.Skills, err = installSkills(ctx, rep.Path, p.WithUser(user))
+	p = sched.Select(p, cfg, sched.Scope{Level: sched.EpicLevel}).WithUser(userSkills(ctx, rep, pins, cfg))
+	rep.Skills, err = installSkills(ctx, rep.Path, p)
 	return err
 }
 
-// userSkills reads the pins of the project's config at origin/<branch> of
-// the clone, as the server reads them (KTD20), and returns each one that
-// the store holds or that a fetch puts into it. It records each written
-// and each failed pin in rep. Its error is a config that does not load.
-func userSkills(ctx context.Context, rep *RegisterReport, pins pinSource) ([]brief.UserSkill, error) {
+// projectConfig reads the project's config at origin/<branch> of the
+// clone, as the server reads it (KTD20). Its error is a config that does
+// not load.
+func projectConfig(ctx context.Context, rep *RegisterReport) (*config.ProjectConfig, error) {
 	refs, _, err := server.LocalRefs(ctx, config.Project{Path: rep.Path, Branch: rep.Branch})
 	if err != nil {
 		return nil, err
@@ -258,8 +260,18 @@ func userSkills(ctx context.Context, rep *RegisterReport, pins pinSource) ([]bri
 	if err := config.SkillDirs(ctx, snap.Config, refs.Tree, config.DefaultRef(rep.Branch)); err != nil {
 		return nil, err
 	}
+	return snap.Config, nil
+}
+
+// userSkills returns each pin of cfg that the store holds or that a fetch
+// puts into it. It records each written and each failed pin in rep. A nil
+// cfg holds no pin.
+func userSkills(ctx context.Context, rep *RegisterReport, pins pinSource, cfg *config.ProjectConfig) []brief.UserSkill {
+	if cfg == nil {
+		return nil
+	}
 	var out []brief.UserSkill
-	for _, pin := range snap.Config.Skills {
+	for _, pin := range cfg.Skills {
 		h, err := pins.take(ctx, rep.Project, pin)
 		if err != nil {
 			rep.UserSkillsFailed = append(rep.UserSkillsFailed, PinFailure{Name: pin.Name, Reason: err.Error()})
@@ -268,7 +280,7 @@ func userSkills(ctx context.Context, rep *RegisterReport, pins pinSource) ([]bri
 		out = append(out, brief.UserSkill{Pin: h.Pin, Tree: h.Tree})
 		rep.UserSkills = append(rep.UserSkills, pin.Name)
 	}
-	return out, nil
+	return out
 }
 
 // take returns pin of project from the store, or fetches it and puts it
