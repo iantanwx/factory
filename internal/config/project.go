@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"maps"
 	"path"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -45,6 +46,19 @@ type ProjectConfig struct {
 	UI *UIConfig `yaml:"ui,omitempty"`
 	// Renames lists each old stage key that the parse moved to its new key.
 	Renames []Rename `yaml:"-"`
+}
+
+// ProjectKeys lists each top-level key of the project config, in field
+// order.
+func ProjectKeys() []string {
+	t := reflect.TypeFor[ProjectConfig]()
+	var out []string
+	for i := range t.NumField() {
+		if key, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ","); key != "" && key != "-" {
+			out = append(out, key)
+		}
+	}
+	return out
 }
 
 // HealthConfig is the project's own health limits, which the overwatch

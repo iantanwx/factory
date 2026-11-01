@@ -28,6 +28,10 @@ func Brief(fetched fs.FS) (brief.Pack, []ThirdParty, error) {
 
 // BriefOf is Brief over the pack source src and the pins src holds.
 func BriefOf(src, fetched fs.FS) (brief.Pack, []ThirdParty, error) {
+	m, err := ReadManifest(src)
+	if err != nil {
+		return brief.Pack{}, nil, err
+	}
 	tree, err := layout(src)
 	if err != nil {
 		return brief.Pack{}, nil, err
@@ -49,7 +53,11 @@ func BriefOf(src, fetched fs.FS) (brief.Pack, []ThirdParty, error) {
 		}
 		maps.Copy(tree, skill)
 	}
-	return brief.Pack{Version: cli.Version, FS: tree, Agents: agents}, left, nil
+	conditional := map[string]string{}
+	for skill, c := range m.Conditional {
+		conditional[skill] = c.Key
+	}
+	return brief.Pack{Version: cli.Version, FS: tree, Agents: agents, Conditional: conditional}, left, nil
 }
 
 // verified lays the pin's fetched directory out as loop-<name>/, when its
