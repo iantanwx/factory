@@ -49,7 +49,7 @@ func TestEpicRowsEndToEnd(t *testing.T) {
 	w.MergeByHand(docPR(w, e1))
 	w.React()
 	wantStatus(w, e1, machine.SpecNeeded)
-	if r := w.In(run.Checkout, "review", "submit", e1, "--verdict", "pass"); r.Code != 3 {
+	if r := w.In(run.Checkout, "review", "submit", e1, "--verdict", "pass", "--readers", allReaders); r.Code != 3 {
 		t.Fatalf("the outran reviewer's verdict = %s", r)
 	}
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))

@@ -102,7 +102,8 @@ func (w *humanWorld) docReview(epic, verdict string) {
 		w.t.Fatalf("pr show = %d %v", code, pr)
 	}
 	head := pr["data"].(map[string]any)["head_sha"].(string)
-	if env, code := w.as(st.Checkout, "review", "submit", epic, "--verdict", verdict, "--head", head); code != 0 {
+	if env, code := w.as(st.Checkout, "review", "submit", epic, "--verdict", verdict, "--head", head,
+		"--readers", "unslop,asd-ste100,content-lens"); code != 0 {
 		w.t.Fatalf("review submit = %d %v", code, env)
 	}
 	if _, ref := w.srv.Sched.Finish(ctx, st.RunID, "done"); ref != nil {

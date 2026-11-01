@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/cli"
@@ -28,6 +29,9 @@ type PushRequest struct {
 	// Caller is the principal kind of the pusher. Only a cli.PrincipalRun
 	// push takes the settings check: a room acts with the operator.
 	Caller string
+	// Prototype is a design room's push of the prototype: Branch is then
+	// PrototypeBranchFor(Item), and no other.
+	Prototype bool
 	// Stage is the stage of the pusher's token. A doc-reviewer run only
 	// reads, and each of its readers shares its token.
 	Stage string
@@ -78,9 +82,9 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	case req.Branch == base:
 		return res, &RefusedError{Code: cli.CodeCapabilityDenied, Rule: "base_branch",
 			Hint: fmt.Sprintf("the loop never pushes the base branch %s; push the item's branch", base)}
-	case req.Branch != BranchFor(req.Item) && req.Branch != SpecBranchFor(req.Item):
+	case !slices.Contains(pushBranches(req.Item, req.Prototype), req.Branch):
 		return res, &RefusedError{Code: cli.CodeCapabilityDenied, Rule: "not_the_item_branch",
-			Hint: fmt.Sprintf("%s pushes only to its branch %s", req.Item, BranchFor(req.Item))}
+			Hint: fmt.Sprintf("%s pushes only to its branch %s", req.Item, pushBranches(req.Item, req.Prototype)[0])}
 	case !shaRe.MatchString(req.Head):
 		return res, &RefusedError{Code: cli.CodeUsage, Rule: "bad_head", Hint: "the checkout's HEAD is not a full sha"}
 	case req.Checkout == "":
@@ -97,7 +101,12 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	if err != nil {
 		return res, err
 	}
-	if err := m.Fetch(ctx, readTok, base, req.Branch); err != nil {
+	design := DesignEpicOf(req.Branch) == req.Item
+	fetch := []string{base, req.Branch}
+	if design {
+		fetch = append(fetch, PrototypeBranchFor(req.Item))
+	}
+	if err := m.Fetch(ctx, readTok, fetch...); err != nil {
 		return res, err
 	}
 	if err := m.FetchCheckout(ctx, req.Checkout, req.Head, incomingRef(req.Branch)); err != nil {
@@ -144,6 +153,11 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 		return res, err
 	}
 	res.Commits = len(commits)
+	if design {
+		if err := m.CheckDesignScope(ctx, req.Item, req.Head, remoteRef(base), remoteRef(PrototypeBranchFor(req.Item))); err != nil {
+			return res, err
+		}
+	}
 
 	pushTok, err := s.Token(ctx, p, ScopePush)
 	if err != nil {
@@ -175,6 +189,16 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	_, _ = s.git.run(ctx, gitRun{dir: m.Dir, args: []string{"update-ref", remoteRef(req.Branch), req.Head}})
 	res.Pushed = true
 	return res, nil
+}
+
+// pushBranches are the branches a push of item may write: its own, its
+// spec's and its design record's, or for a prototype push the prototype's
+// branch alone.
+func pushBranches(item string, prototype bool) []string {
+	if prototype {
+		return []string{PrototypeBranchFor(item)}
+	}
+	return []string{BranchFor(item), SpecBranchFor(item), DesignBranchFor(item)}
 }
 
 // baseMergeRun names a push intent of MergeBase in place of a run.
@@ -389,6 +413,10 @@ const baseSyncRef = "refs/loop/base"
 // branch that the last `branch sync` read.
 func itemSyncRef(item string) string { return "refs/loop/items/" + item }
 
+// prototypeSyncRef is the ref the mirror keeps for the head of an epic's
+// prototype branch that the last `branch sync` read.
+func prototypeSyncRef(epic string) string { return "refs/loop/prototypes/" + epic }
+
 // SyncResult is what `branch sync` answers: a contract a checkout uses
 // with no credential and no knowledge of the mirror's layout. Mirror is a
 // path, and a fetch from it needs no token. The server keeps Ref for the
@@ -402,6 +430,9 @@ type SyncResult struct {
 	// Fetch brings the base into the checkout as origin/<base>.
 	Fetch []string `json:"fetch"`
 	Item  SyncItem `json:"item"`
+	// Prototype is the head of the prototype's branch, for an epic in a
+	// design state. Nil for any other item.
+	Prototype *SyncItem `json:"prototype,omitempty"`
 }
 
 // SyncItem is the head of the item's branch. SHA is "" and Fetch is
@@ -417,10 +448,11 @@ type SyncItem struct {
 
 // Sync runs `branch sync` (KTD14). It fetches the base and the item's
 // branch into the mirror with the token, then points the refs the server
-// keeps at the heads it read. It lets a fetch from the mirror path ask
-// for any object by sha, so a checkout can fetch a head by its sha. The
-// checkout itself is never touched.
-func (s *Service) Sync(ctx context.Context, p config.Project, item, branch string) (SyncResult, error) {
+// keeps at the heads it read. With prototype, the branch of an epic's
+// prototype, it does the same for that branch. It lets a fetch from the
+// mirror path ask for any object by sha, so a checkout can fetch a head
+// by its sha. The checkout itself is never touched.
+func (s *Service) Sync(ctx context.Context, p config.Project, item, branch, prototype string) (SyncResult, error) {
 	base, err := s.DefaultBranch(ctx, p)
 	if err != nil {
 		return SyncResult{}, err
@@ -435,26 +467,47 @@ func (s *Service) Sync(ctx context.Context, p config.Project, item, branch strin
 	if err != nil {
 		return SyncResult{}, err
 	}
-	if err := m.Fetch(ctx, tok, base, branch); err != nil {
+	fetch := []string{base, branch}
+	if prototype != "" {
+		fetch = append(fetch, prototype)
+	}
+	if err := m.Fetch(ctx, tok, fetch...); err != nil {
 		return SyncResult{}, err
 	}
 	if err := m.ServeLocalFetch(ctx); err != nil {
 		return SyncResult{}, err
 	}
-	res := SyncResult{Mirror: m.Dir, Base: base, Ref: baseSyncRef, Item: SyncItem{ID: item, Branch: branch, Ref: itemSyncRef(item), Fetch: []string{}}}
+	res := SyncResult{Mirror: m.Dir, Base: base, Ref: baseSyncRef, Item: SyncItem{ID: item, Branch: branch, Ref: itemSyncRef(item)}}
 	res.SHA = m.Resolve(ctx, remoteRef(base))
 	if err := m.Keep(ctx, baseSyncRef, res.SHA); err != nil {
 		return SyncResult{}, err
 	}
 	res.Fetch = []string{"git", "fetch", m.Dir, "+" + baseSyncRef + ":refs/remotes/origin/" + base}
-	res.Item.SHA = m.Resolve(ctx, remoteRef(branch))
-	if err := m.Keep(ctx, res.Item.Ref, res.Item.SHA); err != nil {
+	if err := m.keepHead(ctx, &res.Item); err != nil {
 		return SyncResult{}, err
 	}
-	if res.Item.SHA != "" {
-		res.Item.Fetch = []string{"git", "fetch", m.Dir, "+" + res.Item.Ref + ":refs/remotes/origin/" + branch}
+	if prototype != "" {
+		res.Prototype = &SyncItem{ID: item, Branch: prototype, Ref: prototypeSyncRef(item)}
+		if err := m.keepHead(ctx, res.Prototype); err != nil {
+			return SyncResult{}, err
+		}
 	}
 	return res, nil
+}
+
+// keepHead points part.Ref at the head the mirror holds for part.Branch,
+// and fills part's SHA and the fetch that brings that head into a
+// checkout as origin/<branch>.
+func (m *Mirror) keepHead(ctx context.Context, part *SyncItem) error {
+	part.SHA = m.Resolve(ctx, remoteRef(part.Branch))
+	part.Fetch = []string{}
+	if err := m.Keep(ctx, part.Ref, part.SHA); err != nil {
+		return err
+	}
+	if part.SHA != "" {
+		part.Fetch = []string{"git", "fetch", m.Dir, "+" + part.Ref + ":refs/remotes/origin/" + part.Branch}
+	}
+	return nil
 }
 
 // FetchBase reads the head the remote holds for base, the project's base

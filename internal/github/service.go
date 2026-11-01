@@ -238,6 +238,11 @@ const designSuffix = "-design"
 // squash leaves the PRD's branch behind the base.
 func DesignBranchFor(epic string) string { return BranchFor(epic) + designSuffix }
 
+// PrototypeBranchFor is the branch of an epic's prototype. Only a design
+// room pushes it, and it never heads a pull request, so GitHub's delete
+// of a merged head never reaches the commit a design record pins.
+func PrototypeBranchFor(epic string) string { return BranchFor(epic) + "-prototype" }
+
 // BranchOf is the branch that holds an item's current work. An epic whose
 // PRD merged, or whose ADR landed, writes its spec on SpecBranchFor, its
 // ADR on ADRBranchFor while it is in architecture or adr_review, and its
