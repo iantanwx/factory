@@ -21,7 +21,10 @@ Work in this order. Each step needs the answers of the step before it.
 2. **The users.** Name each kind of user the work serves.
 3. **The stories.** Write each story as "As a <user>, I can <act>, so that <outcome>". Give each
    story a stable label: US-01, US-02 and so on. A label never changes after you write it, because
-   specs and tickets cite it.
+   specs and tickets cite it. In a project whose `.loop/config.yaml` holds a `ui` key, ask the
+   operator whether each story changes what a user sees, and write the answer under its heading:
+   `**UI:** yes` or `**UI:** no`. The `prd` gate refuses a story with no UI line. A `UI: yes`
+   story sends the epic to the design stage.
 4. **The scope check** (section 2).
 5. **The acceptance criteria** of each story.
 6. **The boundaries and what stays out.**
