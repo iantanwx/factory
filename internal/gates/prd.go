@@ -50,16 +50,9 @@ func PRD(_ context.Context, r *Repo) ([]Finding, error) {
 func checkUILines(file, text string) []Finding {
 	var out []Finding
 	for _, s := range docshape.Stories(text) {
-		var why string
-		switch s.UI {
-		case docshape.UIMissing:
-			why = "holds no **UI:** line"
-		case docshape.UIBad:
-			why = "holds two **UI:** lines, or one that reads neither yes nor no"
-		default:
-			continue
+		if why := s.UIFault(); why != "" {
+			out = append(out, Finding{File: file, Line: s.Line, Rule: "ui_line", Message: s.Label + " " + why + "; this project declares a UI, so write `**UI:** yes` or `**UI:** no` under the story heading"})
 		}
-		out = append(out, Finding{File: file, Line: s.Line, Rule: "ui_line", Message: s.Label + " " + why + "; this project declares a UI, so write `**UI:** yes` or `**UI:** no` under the story heading"})
 	}
 	return out
 }
