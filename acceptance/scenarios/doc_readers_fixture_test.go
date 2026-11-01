@@ -45,7 +45,7 @@ func TestC14FixturePRDPassesEveryDocumentGate(t *testing.T) {
 	dir := t.TempDir()
 	gt.Git(t, dir, "init", "-q", "-b", "main")
 	base := gt.Commit(t, dir, "seed the fixture project", map[string]string{config.ProjectConfigPath: docReadersConfig})
-	gt.Commit(t, dir, "docs(prd): greeting file", map[string]string{docReadersPRDPath: docReadersPRD})
+	gt.Commit(t, dir, "docs(prd): add the PRD of Greeting file", map[string]string{docReadersPRDPath: docReadersPRD})
 	cfg, err := config.ParseProjectConfig([]byte(docReadersConfig))
 	if err != nil {
 		t.Fatal(err)

@@ -77,7 +77,7 @@ func prdInReview(w *acceptance.World, title, path, text string) (string, int) {
 	dir := w.T.TempDir()
 	gt.Git(w.T, dir, "clone", "-q", "-b", "main", w.Remote, ".")
 	gt.Git(w.T, dir, "switch", "-q", "-c", github.BranchFor(epic))
-	head := gt.Commit(w.T, dir, "docs(prd): "+title, map[string]string{path: text})
+	head := gt.Commit(w.T, dir, "docs(prd): add the PRD of "+title, map[string]string{path: text})
 	gt.Git(w.T, dir, "push", "-q", "origin", github.BranchFor(epic))
 	pr := w.API.World.Add(&gt.PR{Head: github.BranchFor(epic), HeadSHA: head, Title: title})
 	w.API.World.Update(pr, func(p *gt.PR) { p.Added = []string{path} })
