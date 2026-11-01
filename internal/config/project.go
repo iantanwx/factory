@@ -153,6 +153,58 @@ type StageConfig struct {
 	// Escalated is the profile of a run on an item whose model_tier is
 	// escalated, after two code-review rejects. Nil takes the default.
 	Escalated *EscalatedProfile `yaml:"escalated,omitempty"`
+	// DocReaders turns the doc review's readers on or off. Only the
+	// doc-reviewer holds it. Nil takes DocReadersDefault, unless a
+	// doc-reviewer harness other than claude is named.
+	DocReaders *bool `yaml:"doc_readers,omitempty"`
+}
+
+// DocReaderNames lists the readers of a doc review, in start order.
+var DocReaderNames = []string{"unslop", "asd-ste100", "content-lens"}
+
+// DocReadersDefault is whether the readers are in force when the
+// doc-reviewer's doc_readers is unset.
+const DocReadersDefault = false
+
+// DocReaders is the readers one doc-reviewer run must start: all of
+// DocReaderNames, or none. Off says why when the set is empty.
+type DocReaders struct {
+	Readers []string
+	Off     string
+}
+
+// DocReaders returns the readers the project's doc reviews start. They are
+// in force when doc_readers is true, or when it is unset, its default is
+// true and no doc-reviewer harness other than claude is named.
+func (c *ProjectConfig) DocReaders() DocReaders {
+	sc := c.Stages[StageDocReviewer]
+	f := "stages." + StageDocReviewer
+	switch {
+	case sc.DocReaders != nil && *sc.DocReaders:
+		return DocReaders{Readers: slices.Clone(DocReaderNames)}
+	case sc.DocReaders != nil:
+		return DocReaders{Readers: []string{}, Off: f + ".doc_readers is false"}
+	}
+	if field, h := sc.otherHarness(); field != "" {
+		return DocReaders{Readers: []string{}, Off: f + "." + field + " is " + h}
+	}
+	if DocReadersDefault {
+		return DocReaders{Readers: slices.Clone(DocReaderNames)}
+	}
+	return DocReaders{Readers: []string{}, Off: f + ".doc_readers is false by default"}
+}
+
+// otherHarness returns the first harness field of s that names a harness
+// other than claude, the stage's own first, and its value. It returns ""
+// when s names none.
+func (s StageConfig) otherHarness() (field, harness string) {
+	switch {
+	case s.Harness != "" && s.Harness != "claude":
+		return "harness", s.Harness
+	case s.Escalated != nil && s.Escalated.Harness != "" && s.Escalated.Harness != "claude":
+		return "escalated.harness", s.Escalated.Harness
+	}
+	return "", ""
 }
 
 // EscalatedProfile is the stronger profile a stage's run takes after two
@@ -240,6 +292,7 @@ func (c *ProjectConfig) validate() error {
 		if kind, ok := KindOf(name, codeKnown()); ok {
 			checkStageFields(ck, f, kind, s)
 		}
+		checkDocReaders(ck, name, s)
 		if e := s.Escalated; e != nil {
 			if e.Harness != "" && !validIdent(e.Harness) {
 				ck.fail(f+".escalated.harness", "must be a lower-case identifier")
@@ -279,6 +332,22 @@ func (c *ProjectConfig) validate() error {
 		ck.fail("health.operator_reminder", "must be a positive duration, such as 12h")
 	}
 	return ck.err()
+}
+
+// checkDocReaders refuses doc_readers on a stage other than the
+// doc-reviewer, and doc_readers: true beside a doc-reviewer harness other
+// than claude, since the readers run on Claude Code only.
+func checkDocReaders(ck *checker, name string, s StageConfig) {
+	f := "stages." + name + ".doc_readers"
+	switch {
+	case s.DocReaders == nil:
+	case name != StageDocReviewer:
+		ck.fail(f, "must be absent; only stages.%s holds doc_readers", StageDocReviewer)
+	case *s.DocReaders:
+		if field, h := s.otherHarness(); field != "" {
+			ck.fail(f, "is true beside stages.%s.%s: %s; the readers run on claude only, so change one of the two", name, field, h)
+		}
+	}
 }
 
 func checkCommands(ck *checker, field string, cmds []Command) {
