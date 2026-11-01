@@ -318,3 +318,40 @@ func TestValidateChecksWireCalls(t *testing.T) {
 		t.Fatal("a global flag never travels on the wire")
 	}
 }
+
+// C24: the content of qa report holds its evidence, so a report sent again
+// with other evidence is a new write and not the replay of a refusal. A
+// report with no --evidence keeps the hash of its file alone.
+func TestContentHashOfQAReportHoldsItsEvidence(t *testing.T) {
+	ctx := context.Background()
+	v, _ := New().Verb("qa report")
+	dir := t.TempDir()
+	for p, c := range map[string]string{"report.json": "{}", "ev/web/a.png": "a", "ev/web/b.png": "b"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hash := func(flags map[string]string) string {
+		t.Helper()
+		h, err := ContentHash(ctx, Invocation{Verb: v, Flags: flags}, dir, dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	plain := hash(map[string]string{"file": "report.json"})
+	if plain != hashText("file", "{}") {
+		t.Fatalf("the hash of a report with no evidence = %s, want the hash of its file", plain)
+	}
+	before := hash(map[string]string{"file": "report.json", "evidence": "ev"})
+	if err := os.WriteFile(filepath.Join(dir, "ev/web/b.png"), []byte("c"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after := hash(map[string]string{"file": "report.json", "evidence": "ev"})
+	if before == plain || before == after {
+		t.Fatalf("hashes: no evidence %s, evidence %s, changed evidence %s; want three", plain, before, after)
+	}
+}
