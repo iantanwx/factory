@@ -1382,6 +1382,10 @@
         "category": "active"
       },
       {
+        "name": "in_qa",
+        "category": "active"
+      },
+      {
         "name": "repair",
         "category": "active"
       },
@@ -1526,6 +1530,20 @@
         "lease": "take"
       },
       {
+        "verb": "claim",
+        "from": [
+          "in_qa"
+        ],
+        "to": "@same",
+        "stage": "qa",
+        "facts": [
+          "owner",
+          "stage"
+        ],
+        "bumps_epoch": true,
+        "lease": "take"
+      },
+      {
         "verb": "pr_open",
         "from": [
           "in_progress"
@@ -1594,7 +1612,22 @@
         "from": [
           "in_review"
         ],
+        "to": "in_qa",
+        "when": "qa_on",
+        "command": "review submit",
+        "facts": [
+          "reviewed_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_pass",
+        "from": [
+          "in_review"
+        ],
         "to": "ready_to_merge",
+        "when": "qa_off",
         "command": "review submit",
         "facts": [
           "reviewed_head",
@@ -1620,6 +1653,55 @@
           "review"
         ],
         "lease": "drop"
+      },
+      {
+        "verb": "qa_pass",
+        "from": [
+          "in_qa"
+        ],
+        "to": "ready_to_merge",
+        "command": "qa report",
+        "facts": [
+          "qa_head",
+          "qa_carried_from",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "qa_fail",
+        "from": [
+          "in_qa"
+        ],
+        "to": "todo",
+        "command": "qa report",
+        "facts": [
+          "rejects",
+          "model_tier",
+          "entry",
+          "reviewed_head",
+          "simplify_due",
+          "qa_head",
+          "simplify_from",
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "qa_off",
+        "from": [
+          "in_qa"
+        ],
+        "to": "ready_to_merge"
+      },
+      {
+        "verb": "qa_due",
+        "from": [
+          "ready_to_merge",
+          "queued"
+        ],
+        "to": "in_qa"
       },
       {
         "verb": "head_changed",
@@ -1684,6 +1766,7 @@
           "in_simplify",
           "in_review",
           "repair",
+          "in_qa",
           "ready_to_merge",
           "queued",
           "escalated"
@@ -1701,6 +1784,7 @@
           "in_simplify",
           "in_review",
           "repair",
+          "in_qa",
           "ready_to_merge",
           "queued"
         ],
@@ -1720,6 +1804,7 @@
           "in_progress",
           "in_review",
           "repair",
+          "in_qa",
           "ready_to_merge",
           "queued"
         ],
@@ -1786,6 +1871,7 @@
           "in_simplify",
           "in_review",
           "repair",
+          "in_qa",
           "ready_to_merge",
           "queued",
           "escalated"
@@ -1805,6 +1891,7 @@
           "in_simplify",
           "in_review",
           "repair",
+          "in_qa",
           "ready_to_merge",
           "queued",
           "escalated"
@@ -1852,6 +1939,14 @@
         "lease": "drop"
       },
       {
+        "verb": "release",
+        "from": [
+          "in_qa"
+        ],
+        "to": "@same",
+        "lease": "drop"
+      },
+      {
         "verb": "reclaim",
         "from": [
           "in_progress"
@@ -1885,6 +1980,15 @@
         "verb": "reclaim",
         "from": [
           "in_review"
+        ],
+        "to": "@same",
+        "bumps_epoch": true,
+        "lease": "drop"
+      },
+      {
+        "verb": "reclaim",
+        "from": [
+          "in_qa"
         ],
         "to": "@same",
         "bumps_epoch": true,

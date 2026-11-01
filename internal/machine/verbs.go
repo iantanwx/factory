@@ -158,6 +158,12 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 	if head != "" {
 		params["head"] = head
 	}
+	if verb == "review_pass" && m.qaEnabled != nil {
+		params["qa"] = "off"
+		if m.qaEnabled(ctx, prj) {
+			params["qa"] = "on"
+		}
+	}
 	body := call.Inv.Flags["body"]
 	// The comment holds the requirements, so the operator reads them at
 	// the sign-off.
@@ -955,6 +961,14 @@ type PassGate func(ctx context.Context, project, item, head string) *cli.Refusal
 // it before the socket binds.
 func (m *Machine) SetPassGate(f PassGate) { m.passGate = f }
 
+// QAEnabled reports whether a project runs the QA stage.
+type QAEnabled func(ctx context.Context, project string) bool
+
+// SetQAEnabled sets the reader of the QA stage setting, which picks where
+// a code review pass lands. The server sets it before the socket binds.
+// Nil reads the stage as off.
+func (m *Machine) SetQAEnabled(f QAEnabled) { m.qaEnabled = f }
+
 // TaskText is the title and the body of an item's task: the text work
 // edit wrote, or the bead's own, and then an answer that amends the task.
 // Admission hashes it for the retry identity (R10), so an edit, or a
@@ -981,6 +995,10 @@ func shapeKey(bug string) string { return "bug/" + bug }
 type Round struct {
 	Round   int    `json:"round"`
 	Verdict string `json:"verdict"` // pass or reject
+	// Stage is the stage that gave the verdict: code-reviewer or
+	// doc-reviewer for review submit, by the item's kind, and qa for a QA
+	// report.
+	Stage string `json:"stage"`
 	// Head is the head review submit --head named for the verdict; "" when
 	// it named none.
 	Head string `json:"head"`
@@ -1013,20 +1031,28 @@ func (m *Machine) reviewRounds(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.List(Rounds(hist))
 }
 
-// Rounds lists every verdict review submit recorded in an item's history,
-// in order. The retro's record reads the same rounds.
+// Rounds lists every verdict review submit and qa report recorded in an
+// item's history, in order. The retro's record reads the same rounds.
 func Rounds(hist []Transition) []Round {
 	var out []Round
 	for _, t := range hist {
-		verdict, ok := map[string]string{"review_pass": "pass", "review_reject": "reject"}[t.Verb]
+		verdict, ok := map[string]string{"review_pass": "pass", "review_reject": "reject", VerbQAPass: "pass", VerbQAFail: "reject"}[t.Verb]
 		if !ok {
 			continue
+		}
+		stage := StageCodeReviewer
+		switch {
+		case t.Verb == VerbQAPass || t.Verb == VerbQAFail:
+			stage = StageQA
+		case t.Kind != KindTicket:
+			stage = StageDocReviewer
 		}
 		readers := []string{}
 		if r := t.Fact(FactReaders); r != "" {
 			readers = strings.Split(r, ",")
 		}
-		out = append(out, Round{Round: len(out) + 1, Verdict: verdict, Head: cmp.Or(t.Fact(FactReviewedHead), t.Fact(FactRejectedHead)),
+		head := cmp.Or(t.Fact(FactReviewedHead), t.Fact(FactQAHead), t.Fact(FactRejectedHead))
+		out = append(out, Round{Round: len(out) + 1, Verdict: verdict, Stage: stage, Head: head,
 			Body: t.Set[factPrefix+FactReview], Readers: readers, From: t.From, To: t.To, Actor: t.Actor, RunID: t.RunID, At: t.At})
 	}
 	return out

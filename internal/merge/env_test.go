@@ -132,6 +132,17 @@ func (e *env) apply(item, verb string, params map[string]string) {
 // returns it with its PR. It posts loop/eligible on head when eligible.
 func (e *env) reviewed(head string, eligible bool) (string, *gt.PR) {
 	e.t.Helper()
+	id, pr := e.passed(head, map[string]string{"head": head})
+	if eligible {
+		e.postEligibility()
+	}
+	return id, pr
+}
+
+// passed makes a ticket with an open PR at head and applies review_pass
+// with params at green CI.
+func (e *env) passed(head string, params map[string]string) (string, *gt.PR) {
+	e.t.Helper()
 	id, res := e.m.Create(e.ctx, machine.CreateRequest{Project: testProject, Kind: machine.KindTicket, Title: "t",
 		Verb: "create", Actor: machine.Server("test")})
 	e.mustOK(res)
@@ -142,10 +153,7 @@ func (e *env) reviewed(head string, eligible bool) (string, *gt.PR) {
 	pr := e.world.Add(&gt.PR{Head: github.BranchFor(id), HeadSHA: head, Title: id})
 	// The review passed at green CI: the ruleset's ci check reported.
 	e.world.SetRuns(head, gt.CheckRun("ci", head, "completed", "success", time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)))
-	e.apply(id, "review_pass", map[string]string{"head": head})
-	if eligible {
-		e.postEligibility()
-	}
+	e.apply(id, "review_pass", params)
 	return id, pr
 }
 

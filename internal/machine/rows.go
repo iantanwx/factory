@@ -66,12 +66,14 @@ const (
 	FactADRPR           = "adr_pr"           // the number of the ADR pull request under review
 	FactADRHead         = "adr_head"         // that pull request's head when adr_opened read it
 	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
-	FactSimplifyDue     = "simplify_due"     // "true" when the ticket's next pr_open enters in_simplify
-	FactSimplifyFrom    = "simplify_from"    // the implementer's head that the latest simplify round started from
 	FactUIStories       = "ui_stories"       // the labels of the PRD's UI: yes stories at its merge, comma-separated
 	FactDesignPath      = "design_path"      // the merged design record's path
 	FactDesignMerged    = "design_merged"    // the merge commit of the design pull request
 	FactDesignSkipped   = "design_skipped"   // the operator's words that skipped the design stage
+	// FactQAHead (bug.go) on a ticket: the head of the latest QA pass
+	FactQACarriedFrom = "qa_carried_from" // the head whose QA pass base_merged carried
+	FactSimplifyDue   = "simplify_due"    // "true" when the next implementer hand-off enters the simplify run
+	FactSimplifyFrom  = "simplify_from"   // the implementer's head that the latest simplify round started from
 )
 
 // Entry values of a todo ticket (R6).
@@ -98,8 +100,10 @@ func all(fns ...setter) setter {
 	}
 }
 
-func setEntry(v string) setter {
-	return func(c *change) *cli.Refusal { c.setFact(FactEntry, v); return nil }
+func setEntry(v string) setter { return setTo(FactEntry, v) }
+
+func setTo(fact, v string) setter {
+	return func(c *change) *cli.Refusal { c.setFact(fact, v); return nil }
 }
 
 func clearFacts(names ...string) setter {
@@ -177,15 +181,16 @@ func recordRejectedHead(c *change) *cli.Refusal {
 	return nil
 }
 
-// withReviews makes every row that review submit performs carry the
-// review fact, and every reject row the head it named.
+// withReviews makes every row that review submit or qa report performs
+// carry the review fact, and every reject row the head it named. So the
+// implementer reads a QA fail where it reads a review reject.
 func withReviews(rows []Row) []Row {
 	for i, r := range rows {
-		if r.Command != "review submit" {
+		if r.Command != "review submit" && r.Command != "qa report" {
 			continue
 		}
 		record, facts := recordReview, []string{FactReview}
-		if r.Verb == "review_reject" {
+		if r.Verb == "review_reject" || r.Verb == VerbQAFail {
 			record, facts = all(recordRejectedHead, recordReview), []string{FactRejectedHead, FactReview}
 		}
 		if r.set == nil {
@@ -219,23 +224,14 @@ func factIs(name, value string) func(c *change) bool {
 	return func(c *change) bool { return c.fact(name) == value }
 }
 
-// freeGuard refuses a move while a run holds the item's lease. That run's
-// settlement moves the item instead.
-func freeGuard(c *change) *cli.Refusal {
-	if c.item.Owner == "" {
-		return nil
-	}
-	return &cli.Refusal{Code: cli.CodeLeaseHeld, Rule: "lease_held", Item: c.item.ID, CurrentStatus: c.item.Status,
-		Hint: fmt.Sprintf("%s belongs to run %s until that run settles", c.item.ID, c.item.Owner)}
-}
-
 // claimGuard refuses a claim on a held lease, then asks admission.
 func claimGuard(c *change) *cli.Refusal {
 	if r := c.needParam("run"); r != nil {
 		return r
 	}
-	if r := freeGuard(c); r != nil {
-		return r
+	if c.item.Owner != "" {
+		return &cli.Refusal{Code: cli.CodeLeaseHeld, Rule: "lease_held", Item: c.item.ID, CurrentStatus: c.item.Status,
+			Hint: fmt.Sprintf("%s belongs to run %s until that run settles", c.item.ID, c.item.Owner)}
 	}
 	if g := c.m.cfg.Claims; g != nil {
 		return g.AdmitClaim(c.ctx, ClaimCheck{

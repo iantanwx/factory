@@ -69,6 +69,10 @@ const (
 	VerbPersonComment      = "person_comment"
 	VerbPRClosed           = "pr_closed"
 	VerbPRDSubmit          = "prd_submit"
+	VerbQADue              = "qa_due"  // ticket: ready_to_merge, queued -> in_qa when the stage turns on (server)
+	VerbQAFail             = "qa_fail" // ticket: in_qa -> todo, a reject by qa report
+	VerbQAOff              = "qa_off"  // ticket: in_qa -> ready_to_merge when the stage turns off (server)
+	VerbQAPass             = "qa_pass" // ticket: in_qa -> ready_to_merge by qa report
 	VerbSignoffHead        = "signoff_head"
 	VerbSimplified         = "simplified"   // ticket: in_simplify -> in_review at the simplify run's pr open
 	VerbSimplifyOff        = "simplify_off" // ticket: in_simplify -> in_review when the project disables the stage (server)
@@ -88,6 +92,7 @@ const (
 	StageDecomposer           = config.StageDecomposer
 	StageReproducer           = config.StageReproducer
 	StageSimplify             = config.StageSimplify
+	StageQA                   = config.StageQA
 )
 
 // Lease effects of a row.

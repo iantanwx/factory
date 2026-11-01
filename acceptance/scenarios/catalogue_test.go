@@ -42,6 +42,19 @@ var tableOnly = map[string]string{
 	"ticket simplified":          "TestSimplifyRunHandsTheTicketToReview",
 	"ticket release in_simplify": "TestC7EveryOtherEndPassesTheTicketThrough",
 	"ticket reclaim in_simplify": "TestC7EveryOtherEndPassesTheTicketThrough",
+	// factorio-nhb5: no scenario project lists stages.qa until the stage is
+	// on by default, so no review pass lands on in_qa and no QA run claims
+	// a ticket. No CLI verb performs qa_pass or qa_fail until `loop qa
+	// report` lands, and no sweep applies qa_off or qa_due until the sweep
+	// ticket lands.
+	"ticket review_pass[qa_on]": "TestC5AReviewPassLandsOnInQAWithTheStageOn",
+	"ticket claim in_qa":        "TestC6OnlyTheQAStageClaimsFromInQA",
+	"ticket release in_qa":      "TestAQARunWithNoReportLeavesTheTicketInQA",
+	"ticket reclaim in_qa":      "TestAQARunWithNoReportLeavesTheTicketInQA",
+	"ticket qa_pass":            "TestC9AQAPassLandsOnReadyToMergeAtTheReviewedHead",
+	"ticket qa_fail":            "TestC10AQAFailIsAReject",
+	"ticket qa_off":             "TestEveryEdgeAppliesAndEveryOtherPairRefuses",
+	"ticket qa_due":             "TestEveryEdgeAppliesAndEveryOtherPairRefuses",
 }
 
 // rowName names one row: its kind, verb and selector, and its edge.

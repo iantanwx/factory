@@ -17,6 +17,7 @@ const (
 	InProgress   = "in_progress"
 	InSimplify   = "in_simplify"
 	InReview     = "in_review"
+	InQA         = "in_qa"
 	Repair       = "repair"
 	ReadyToMerge = "ready_to_merge"
 	Queued       = "queued"
@@ -27,7 +28,7 @@ const (
 
 // prOpenStates hold an open pull request, so an escalation from one
 // resumes as rework.
-var prOpenStates = []string{InSimplify, InReview, Repair, ReadyToMerge, Queued}
+var prOpenStates = []string{InSimplify, InReview, Repair, InQA, ReadyToMerge, Queued}
 
 // ticketResume is where answer returns a ticket. A ticket escalated from
 // backlog returns to backlog, where it waits on its blockers again, and
@@ -62,9 +63,9 @@ func simplifyDue(c *change) *cli.Refusal {
 	return nil
 }
 
-// enqueueGuard lets the merge interface take only the head a review
-// passed (AE1).
-func enqueueGuard(c *change) *cli.Refusal {
+// reviewedHeadGuard lets the merge interface take only the head a review
+// passed (AE1), and a QA pass name only that head.
+func reviewedHeadGuard(c *change) *cli.Refusal {
 	if r := c.needParam("head"); r != nil {
 		return r
 	}
@@ -74,6 +75,27 @@ func enqueueGuard(c *change) *cli.Refusal {
 			Hint: fmt.Sprintf("head %s has no review pass; the pass is at %q", c.param("head"), c.fact(FactReviewedHead))}
 	}
 	return nil
+}
+
+// unheldGuard refuses a server move while a run holds the lease: that run
+// settles the ticket itself.
+func unheldGuard(c *change) *cli.Refusal {
+	if c.item.Owner == "" {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeLeaseHeld, Rule: "lease_held", Item: c.item.ID, CurrentStatus: c.item.Status,
+		Hint: fmt.Sprintf("%s belongs to run %s until that run settles", c.item.ID, c.item.Owner)}
+}
+
+// qaDueGuard refuses to send a ticket back to QA when QA already passed
+// the head its review passed.
+func qaDueGuard(c *change) *cli.Refusal {
+	if c.fact(FactQAHead) != c.fact(FactReviewedHead) {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "qa_passed", Item: c.item.ID,
+		CurrentStatus: c.item.Status, AllowedNext: c.table.AllowedNext(c.item.Status),
+		Hint: fmt.Sprintf("QA already passed %s at %s", c.item.ID, c.fact(FactQAHead))}
 }
 
 // baseMergedGuard refuses a merge of the base into any head but the one
@@ -170,6 +192,7 @@ func ticketTable() *Table {
 		{Name: InProgress, Category: beadsx.CategoryWIP},
 		{Name: InSimplify, Category: beadsx.CategoryActive},
 		{Name: InReview, Category: beadsx.CategoryActive},
+		{Name: InQA, Category: beadsx.CategoryActive},
 		{Name: Repair, Category: beadsx.CategoryActive},
 		{Name: ReadyToMerge, Category: beadsx.CategoryActive},
 		{Name: Queued, Category: beadsx.CategoryWIP},
@@ -177,7 +200,7 @@ func ticketTable() *Table {
 		{Name: Done, Category: beadsx.CategoryDone, Terminal: true},
 		{Name: Canceled, Category: beadsx.CategoryDone, Terminal: true},
 	}
-	live := []string{Backlog, Todo, InProgress, InSimplify, InReview, Repair, ReadyToMerge, Queued, Escalated}
+	live := []string{Backlog, Todo, InProgress, InSimplify, InReview, Repair, InQA, ReadyToMerge, Queued, Escalated}
 	rows := []Row{
 		{Verb: VerbCreate, From: []string{Initial}, To: Todo, When: "no_open_dependency",
 			when: paramIs("blocked", ""), set: all(setEntry(EntryNew), simplifyDue), Facts: []string{FactEntry, FactSimplifyDue}},
@@ -202,6 +225,8 @@ func ticketTable() *Table {
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
 		{Verb: "claim", From: []string{InReview}, To: ToSame, Stage: StageCodeReviewer, when: stageIs(StageCodeReviewer),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
+		{Verb: "claim", From: []string{InQA}, To: ToSame, Stage: StageQA, when: stageIs(StageQA),
+			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}},
 
 		{Verb: "pr_open", From: []string{InProgress}, To: InSimplify, When: "simplify_due", Lease: LeaseDrop,
 			when:  factIs(FactSimplifyDue, "true"),
@@ -211,18 +236,31 @@ func ticketTable() *Table {
 			set: copyParam("head", FactHead), Facts: []string{FactHead}},
 		{Verb: VerbSimplified, From: []string{InSimplify}, To: InReview, Command: "pr open", Lease: LeaseDrop,
 			set: copyParam("head", FactHead), Facts: []string{FactHead}},
-		{Verb: VerbSimplifyOff, From: []string{InSimplify}, To: InReview, guard: freeGuard},
+		{Verb: VerbSimplifyOff, From: []string{InSimplify}, To: InReview, guard: unheldGuard},
 		{Verb: VerbCIRed, From: []string{InReview}, To: Repair},
 		{Verb: "fix_pushed", From: []string{Repair}, To: InReview, Lease: LeaseDrop,
 			set: all(copyParam("head", FactHead), clearFacts(FactSimplifyFrom)), Facts: []string{FactHead, FactSimplifyFrom}},
-		{Verb: "review_pass", From: []string{InReview}, To: ReadyToMerge, Command: "review submit", Lease: LeaseDrop,
+		// review submit passes qa=on when the project runs the QA stage
+		// (ADR 0014 decision 1). A pass with no qa parameter skips QA.
+		{Verb: "review_pass", From: []string{InReview}, To: InQA, When: "qa_on", Command: "review submit", Lease: LeaseDrop,
+			when: paramIs("qa", "on"), set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
+		{Verb: "review_pass", From: []string{InReview}, To: ReadyToMerge, When: "qa_off", Command: "review submit", Lease: LeaseDrop,
 			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_reject", From: []string{InReview}, To: Todo, Command: "review submit", Lease: LeaseDrop,
 			set: reviewReject, Facts: []string{FactRejects, FactModelTier, FactEntry, FactSimplifyDue, FactReviewedHead, FactSimplifyFrom}},
+		{Verb: VerbQAPass, From: []string{InQA}, To: ReadyToMerge, Command: "qa report", Lease: LeaseDrop, guard: reviewedHeadGuard,
+			set: all(needCopy("head", FactQAHead), clearFacts(FactQACarriedFrom)), Facts: []string{FactQAHead, FactQACarriedFrom}},
+		// A QA fail is a reject (ADR 0014 decision 2): the next head goes
+		// through the simplify run, review and QA again.
+		{Verb: VerbQAFail, From: []string{InQA}, To: Todo, Command: "qa report", Lease: LeaseDrop,
+			set:   all(reviewReject, setTo(FactSimplifyDue, "true"), clearFacts(FactQAHead, FactSimplifyFrom)),
+			Facts: []string{FactRejects, FactModelTier, FactEntry, FactReviewedHead, FactSimplifyDue, FactQAHead, FactSimplifyFrom}},
+		{Verb: VerbQAOff, From: []string{InQA}, To: ReadyToMerge, guard: unheldGuard},
+		{Verb: VerbQADue, From: []string{ReadyToMerge, Queued}, To: InQA, guard: qaDueGuard},
 		{Verb: "head_changed", From: []string{ReadyToMerge, Queued}, To: InReview,
 			set:   all(clearFacts(FactReviewedHead, FactSimplifyFrom), copyParam("head", FactHead)),
 			Facts: []string{FactReviewedHead, FactSimplifyFrom, FactHead}},
-		{Verb: VerbEnqueue, From: []string{ReadyToMerge}, To: Queued, guard: enqueueGuard},
+		{Verb: VerbEnqueue, From: []string{ReadyToMerge}, To: Queued, guard: reviewedHeadGuard},
 		// The server merged a moved base into the reviewed head with no
 		// conflict and no shared file (F-66). The merge commit takes the
 		// review pass, so no new review round starts.
@@ -254,7 +292,7 @@ func ticketTable() *Table {
 	}
 	rows = withReviews(rows)
 	resume := map[string]setter{InProgress: setEntry(EntryResume)}
-	pairs := [][2]string{{InProgress, Todo}, {Repair, Repair}, {InSimplify, InReview}, {InReview, InReview}}
+	pairs := [][2]string{{InProgress, Todo}, {Repair, Repair}, {InSimplify, InReview}, {InReview, InReview}, {InQA, InQA}}
 	rows = append(rows, releaseRows("release", false, pairs, resume)...)
 	rows = append(rows, releaseRows("reclaim", true, pairs, resume)...)
 	return &Table{Kind: KindTicket, BeadType: "task", States: states, Rows: rows}
