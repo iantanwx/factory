@@ -136,6 +136,12 @@ the planner. The rest are choices this spec makes.
   names the bug. We chose `neutral` over a fail, because a fault in the base would then stop every
   ticket of the project at QA. We chose it over `success`, because no check ran, and the check run
   must say so. An app that starts at the merge base and not at the head is a fail.
+- **A report with one unstartable app concludes `neutral`, even when each other app passes.** A
+  fail on any app still concludes `failure`. So a plan that drives `web` and `api`, with `web`
+  passing and `api` unstartable, concludes `neutral`, and the check run's text names `api` and its
+  bug. We rejected `success` with the unstartable app named in the text, because the pull request's
+  checks list shows only the conclusion, and a person who reads `success` there would read that
+  every planned app was driven. The reason of the entry above holds for one app as for all of them.
 - **A QA run writes no commit.** We rejected the fix loop of ce-dogfood, which commits each small
   fix. A QA run reads a head that code review already passed. A commit of its own would need a
   review too, and ADR 0014 decision 2 sends each fix through the implementer and code review.
@@ -172,6 +178,23 @@ the planner. The rest are choices this spec makes.
   takes each release in order shows the failed line before any merge waits on it. The overwatch
   sweep's `server` part already reports each failed doctor line. We rejected `loop/eligible`
   without `loop/qa` on such a host, because ADR 0014 forbids it.
+- **Each post of `loop/qa` has an outbox key of its own, and every post to one head updates the
+  one check run of that head.** One head can get more than one `loop/qa` post. A head gets a
+  `neutral` post while the stage is off, and a QA report later at the same head when the stage
+  turns on. The key of a report's effect is `<project>:<sha>:loop/qa:<run id>`. The key of a
+  `neutral` effect is `<project>:<sha>:loop/qa:off` for a stage-off head, and
+  `<project>:<sha>:loop/qa:carried` for a head that `base_merged` made. `PostCheckRun` creates the
+  head's check run on the first post, stores its id in `qa_check_runs`, and updates that check run
+  on each later post. The effect runner posts only the newest `checkrun` effect of each head, by
+  outbox id. It marks each older effect of that head done with no post, and a note that names the
+  newer one. So the last post wins, even when an older effect waits on a retry. We rejected one key
+  for each head, because the outbox holds one live row for each effect kind and key
+  (`internal/store/migrations/0001_init.sql:67`), and `RecordIntent` refuses a key that a `done` row
+  holds (`internal/store/intents.go:166-172`). A second post to a head would then never reach
+  GitHub. We rejected a new check run for each post, because this spec would then depend on which
+  of two check runs with one name the ruleset reads, and GitHub's documentation does not promise
+  an answer. A `loop/eligible` that the stage-off head got stays `success` after a QA fail at that
+  head. The required `loop/qa` then shows `failure`, so the ruleset blocks the merge.
 - **A QA run files at most 3 bugs.** The fourth `loop work create --kind bug` from one QA run
   refuses. We rejected no cap, because a run that misreads the merge base could flood the
   reproducer, and each bug costs a reproducer run.
@@ -210,6 +233,10 @@ part 1. The four operator answers also fail part 4, because each decides what th
   the push against the fake GitHub only, so the first real QA run is the proof.
 - A push to a ref outside `refs/heads/` and `refs/tags/` starts no workflow. This is wrong when a
   workflow run appears for an evidence commit.
+- GitHub accepts an update that changes the conclusion of a completed check run, and the ruleset
+  and the checks list of the pull request then read the new conclusion. This is wrong when the
+  update answers 422, or when the merge box still shows the old conclusion. C38 runs the update
+  against the fake GitHub only, so the first real stage turn-on is the proof.
 - GitHub counts a check run with the conclusion `neutral` as a pass of a required check. ADR 0014
   § Context holds this assumption, and this spec inherits it. This is wrong when a ruleset blocks a
   merge on a `neutral` `loop/qa`.
@@ -271,13 +298,23 @@ ticket and the tree at the head in the mirror. It computes the plan with `qa.Mak
 the report with `qa.Validate`: the shape, the planned checks, the bounds, the evidence files, the
 bug list and the verify-skill claim. It scans each text evidence file for a secret. It then pushes
 the evidence commit, stores the report in `qa_reports`, applies `qa_pass` or `qa_fail`, and enqueues
-one `checkrun` effect for `loop/qa` at the head.
+one `checkrun` effect for `loop/qa` at the head, with the key `<project>:<sha>:loop/qa:<run id>`.
+
+**One check run for each head.** `qa_check_runs` stores the GitHub id of the one `loop/qa` check
+run of each head. `PostCheckRun` updates that check run when the table holds its id. When the table
+holds none, it lists the head's check runs named `loop/qa` from the loop App, and updates the newest
+one it finds. So a crash between a create and the row reuses the check run that the create made.
+It creates a check run only when GitHub holds none, and then stores the id. `RunCheckRunEffects`
+posts only the newest runnable or held-back `checkrun` effect of each head, by outbox id, and marks
+each older effect of that head done with no post.
 
 **The other heads.** `EnqueueEligibility` enqueues the `loop/eligible` effect of a head only when
-the outbox posted the `loop/qa` effect of that head. It enqueues a `neutral` `loop/qa` first on a reviewed
-head in a project with the stage off, and on a head that `base_merged` made. `settings.Land`'s
-`await` and the github-queue sweep enqueue a `neutral` `loop/qa` before `loop/eligible` on their
-heads. `RequiredChecks`, `Classify`, the job check in `internal/github/jobs.go:65` and the CI
+the newest `checkrun` effect of that head holds the state `done`. It enqueues a `neutral` `loop/qa` first on a
+reviewed head in a project with the stage off, with the key suffix `off`, and on a head that
+`base_merged` made, with the key suffix `carried`. It enqueues neither on a head that holds a
+stored report. `settings.Land`'s `await` and the github-queue sweep call `PostCheckRun` with a
+`neutral` conclusion before they post `loop/eligible` on their heads, as they post `loop/eligible`
+today, with no outbox row. `RequiredChecks`, `Classify`, the job check in `internal/github/jobs.go:65` and the CI
 discovery of `loop register` leave `loop/qa` out, as they leave `loop/eligible` out.
 
 **The verify skills.** `loop-verify-create` writes `.claude/skills/verify-<app>/SKILL.md` with
@@ -320,8 +357,8 @@ Finding             summary, severity (fail or note), evidence paths, steps
   invariant: a fail finding cites at least one evidence path.
 
 Conclusion          success, failure or neutral
-  invariant: failure when a check fails. neutral when verify is missing, or when every check is
-             unstartable. success otherwise.
+  invariant: failure when a check fails. Otherwise neutral when verify is missing, or when at
+             least one check is unstartable. success otherwise.
 
 Evidence            the files of one report, by relative path
   invariant: each file is cited by a finding, and each cited path is a file.
@@ -436,12 +473,20 @@ func (m *Machine) SetQAGate(fn func(ctx context.Context, project, item, run, hea
 
 // internal/github
 const QAContext = "loop/qa"
-const EffectCheckRun = "checkrun" // natural key "<project>:<sha>:loop/qa"
+const EffectCheckRun = "checkrun" // natural key checkRunKey(project, sha, post)
+// checkRunKey is "<project>:<sha>:loop/qa:<post>". post is the QA run id for a report,
+// "off" for a stage-off head, or "carried" for a head that base_merged made.
+func checkRunKey(project, sha, post string) string
 type CheckRunPayload struct {
 	Project, Item, SHA, Name, Conclusion, Title, Summary, Text string
 }
 const ScopeChecks Scope = "checks" // {"checks": "write", "metadata": "read"}
+// PostCheckRun updates the one loop/qa check run of c.SHA that qa_check_runs names, or that GitHub
+// lists from the loop App. It creates one only when neither holds one, and stores its id.
 func (s *Service) PostCheckRun(ctx context.Context, p config.Project, c CheckRunPayload) error
+// RunCheckRunEffects posts the newest due checkrun effect of each head, by outbox id, and marks
+// each older effect of that head done with no post.
+func (s *Service) RunCheckRunEffects(ctx context.Context) error
 // PushEvidence writes files into one commit with no parent and pushes it to evidenceRef.
 func (s *Service) PushEvidence(ctx context.Context, p config.Project, ticket, run string, files map[string][]byte) (commit string, err error)
 func evidenceRef(ticket, run string) string // "refs/loop/qa/<ticket>/<run>"
@@ -469,6 +514,8 @@ loop work create --kind bug --source qa --title <title> --body <body>
     a QA run only; takes no --request; at most 3 for each run
 loop work create --kind bug --request <words> --title <title> --body <body>
     the coordinator, as today; the source is operator; --source qa refuses
+--source <value>
+    operator or qa; any other value refuses with USAGE and rule source_unknown
 ```
 
 The rows that change in `ticketTable()`. A row that this list does not name stays as it is.
@@ -555,10 +602,19 @@ qa_reports (new)
   evidence_commit  TEXT NOT NULL DEFAULT ''   full sha, or '' with no evidence
   created_at       INTEGER NOT NULL
   INDEX qa_reports_head ON (project, item, head)
+qa_check_runs (new)
+  project          TEXT NOT NULL
+  sha              TEXT NOT NULL              full sha
+  check_run_id     INTEGER NOT NULL           GitHub's id of the head's one loop/qa check run
+  PRIMARY KEY (project, sha)
 ```
 
-- **Outbox.** One effect kind, `checkrun`, with the natural key `<project>:<sha>:loop/qa`. A repeat
-  of the same key updates the check run, so each head holds one.
+- **Outbox.** One effect kind, `checkrun`, with the natural key `<project>:<sha>:loop/qa:<post>`.
+  `<post>` is the QA run id for a report, `off` for a stage-off head, and `carried` for a head that
+  `base_merged` made. So each post to a head is a row of its own, and the unique index on
+  `(effect_kind, natural_key)` never refuses a later post to the same head. Each post updates the
+  head's one check run, so each head holds one `loop/qa` check run, and its conclusion is the
+  newest post's.
 - **GitHub.** One ref for each QA run with evidence, `refs/loop/qa/<ticket>/<run id>`, holding one
   commit with no parent. Nothing deletes it.
 
@@ -649,14 +705,15 @@ sequenceDiagram
     participant G as GitHub
     E->>E: a ready_to_merge or queued ticket at reviewed head S
     alt a stored report at S
-        E->>O: the report's checkrun effect, if missing
+        E->>O: the report's checkrun effect, key S:loop/qa:<run id>, if missing
     else the stage is off
-        E->>O: checkrun neutral at S: the QA stage is off
+        E->>O: checkrun neutral, key S:loop/qa:off: the QA stage is off
     else base_merged made S
-        E->>O: checkrun neutral at S: carried from qa_carried_from, with its link
+        E->>O: checkrun neutral, key S:loop/qa:carried, with the link of qa_carried_from's report
     end
-    O->>G: loop/qa at S
-    E->>E: the next tick: the loop/qa effect of S is done
+    O->>G: the newest effect of S: create or update the one loop/qa check run of S
+    O->>O: each older effect of S: done, with no post
+    E->>E: the next tick: the newest checkrun effect of S is done
     E->>O: status loop/eligible at S
     Note over E,G: settings.Land and the github-queue sweep post a neutral loop/qa before loop/eligible on their heads
     Note over E,G: an App with no checks write posts no loop/qa, so no loop/eligible, and loop doctor fails app_checks
@@ -675,6 +732,7 @@ sequenceDiagram
     D->>D: tick, the project turns the stage on, or entry 8 lands
     D->>M: qa_due for each ready_to_merge or queued ticket whose qa_head differs from reviewed_head
     H->>H: withdrawStale withdraws each pull request whose ticket left queued
+    Note over D,H: the QA run's report at S updates the neutral loop/qa of S to its own conclusion
 ```
 
 ## Work
@@ -728,22 +786,25 @@ sequenceDiagram
      `CAPABILITY_DENIED`.
 5. **The QA report, its evidence and its check run.** Add `Report`, `Validate`, `Conclusion` and
    `Render` to `internal/qa`. Add the verb `loop qa report` and its machine handler with
-   `SetQAGate`. Add `PushEvidence`, the `checkrun` effect, `PostCheckRun`, `EnqueueQAChecks`, the
-   scope `ScopeChecks` in the App manifest that `loop install` writes, the `loop doctor` line
-   `app_checks`, and the refusal code. Add migration `0022_qa_reports.sql`.
+   `SetQAGate`. Add `PushEvidence`, the `checkrun` effect with `checkRunKey`, `PostCheckRun`
+   over `qa_check_runs`, `RunCheckRunEffects`, `EnqueueQAChecks`, the scope `ScopeChecks` in the
+   App manifest that `loop install` writes, the `loop doctor` line `app_checks`, and the refusal
+   code. Add migration `0022_qa_reports.sql` with `qa_reports` and `qa_check_runs`. Teach the fake
+   GitHub to create, update and list check runs, and to record each call in order.
    - Files: `internal/qa/report.go`, `internal/qa/render.go`, `internal/machine/verbs.go`,
      `internal/github/checkrun.go`, `internal/github/evidence.go`, `internal/github/token.go`,
-     `internal/github/app.go`, `internal/github/rules.go`, `internal/cli/codes.go`,
-     `internal/store/migrations/0022_qa_reports.sql`, `internal/server/*.go` for the wiring, and
-     the tests of each package
+     `internal/github/app.go`, `internal/github/rules.go`, `internal/github/githubtest/**`,
+     `internal/cli/codes.go`, `internal/store/migrations/0022_qa_reports.sql`,
+     `internal/server/*.go` for the wiring, and the tests of each package
    - Needs: 2, 3 and 4
    - Proves: C18, C19, C20, C21, C22, C23, C24, C25, C26, C27, C28
    - Done when: a QA run's report with one screenshot moves the ticket to `ready_to_merge`, the fake
      GitHub holds the evidence commit and one `loop/qa` check run that links it, and the checkout's
      deletion leaves the link resolving.
 6. **`loop/qa` on every head that gets `loop/eligible`, and never as CI.** Gate the
-   `loop/eligible` effect on a done `loop/qa` effect at the same head. Enqueue the `neutral`
-   `loop/qa` of a stage-off head, a `base_merged` head, a settings head and a merge-group commit.
+   `loop/eligible` effect on the state `done` of the newest `checkrun` effect of the same head. Enqueue the
+   `neutral` `loop/qa` of a stage-off head and a `base_merged` head, each with its own key suffix.
+   Post the `neutral` `loop/qa` of a settings head and a merge-group commit through `PostCheckRun`.
    Leave `loop/qa` out of `RequiredChecks`, `Classify`, the job check and the CI discovery of
    `loop register`. Make `loop register` require `loop/qa` from the loop App, and `loop doctor`
    check it. Name it in the ruleset steps of `docs/operating.md`.
@@ -752,9 +813,10 @@ sequenceDiagram
      `internal/merge/ghqueue/group.go`, `cmd/loop/register.go`, `docs/operating.md`, and the tests
      of each package
    - Needs: 5
-   - Proves: C29, C30, C31
+   - Proves: C29, C30, C31, C38
    - Done when: the fake GitHub shows `loop/qa` before `loop/eligible` on each of the four kinds of
-     head, and a review pass at a head with green CI and no `loop/qa` is not refused.
+     head, a review pass at a head with green CI and no `loop/qa` is not refused, and a QA fail at a
+     head that got the stage-off `neutral` leaves that head's one `loop/qa` at `failure`.
 7. **The overwatch sweep reports a project with no verify skill.** Add the part `qa`, which reads
    each project with the stage on and no `.claude/skills/verify-*/SKILL.md` in its tracked tree.
    - Files: `internal/overwatch/qa.go`, `internal/overwatch/overwatch.go`, and the tests of
@@ -915,12 +977,17 @@ ticket's `reviewed_head`. A bug that the coordinator files holds `source: operat
 before entry 4 reads as `operator` in `loop work show`.
 *A pipeline test for each filer, and a read of a fixture bug with no fact.*
 
-**C17. Refusal: no other run files a bug, and a QA run files at most 3.** Proves A17, by ADR 0014
-decision 4. `loop work create --kind bug` from an implementer or a code-reviewer run refuses with
-`CAPABILITY_DENIED`. From the coordinator with `--source qa`, and from a QA run with no `--source`
-or with `--source operator`, it refuses with `USAGE` and rule `source_mismatch`. The fourth bug from
-one QA run refuses with `CAPABILITY_DENIED` and rule `qa_bug_cap`.
-*An example test for each refusal.*
+**C17. Refusal: no other run files a bug, a QA run files at most 3, and a bug's source is
+`operator` or `qa`.** Proves A17, by ADR 0014 decision 4, and the PRD requirement that "The QA
+fields that this epic adds to tickets and bugs name no product path of any project"
+(`docs/prd/qa-stage.md:151`). `loop work create --kind bug` from an implementer or a
+code-reviewer run refuses with `CAPABILITY_DENIED`. From the coordinator with `--source qa`, and
+from a QA run with no `--source` or with `--source operator`, it refuses with `USAGE` and rule
+`source_mismatch`. From any filer, `--source` with a value other than `operator` or `qa`, such as
+`qa-stagehand` or `apps/web`, refuses with `USAGE` and rule `source_unknown`, and writes no bug.
+The refusal comes before the filer check, so the coordinator and a QA run get the same answer. The
+fourth bug from one QA run refuses with `CAPABILITY_DENIED` and rule `qa_bug_cap`.
+*An example test for each refusal, with `source_unknown` from the coordinator and from a QA run.*
 
 **C18. Refusal: a report covers each planned app with fuzzy UAT.** Proves A6. With a plan that
 drives `web` and `api`, a report with no `fuzzy_uat` check for `api` refuses with rule
@@ -946,8 +1013,12 @@ rule `verify_skill_missing`.
 whose every check is `unstartable` and whose `bugs` names a bug of this run applies `qa_pass` with
 the conclusion `neutral`. The same report with an empty `bugs` refuses with rule
 `unstartable_without_bug`. A report with one check `unstartable` and one `fail` concludes
-`failure`.
-*Example tests over `Validate` and `Conclusion`.*
+`failure`. A report over a plan that drives `web` and `api`, whose `web` checks pass and whose
+`api` checks are `unstartable`, with `bugs` naming a bug of this run, applies `qa_pass` with the
+conclusion `neutral`, not `success`. Its check run's text names `api` as unstartable and names the
+bug.
+*Example tests over `Validate`, `Conclusion` and `Render`, and one through the verb for the mixed
+case.*
 
 **C22. Refusal: the report names each bug the run filed, and only those.** Proves A17. A report
 whose `bugs` names an item that is not a bug with `source: qa` and `qa_run` equal to this run
@@ -982,13 +1053,15 @@ accepted report, no fact or note of the ticket holds image data.
 facts after a report.*
 
 **C26. Behaviour: one check run for each head the run read.** Proves A12. An accepted report
-enqueues one `checkrun` effect with the natural key `<project>:<head>:loop/qa`, posted as the loop
-App with the conclusion `Report.Conclusion()`. Its text names each check with pass or fail, and
-each bug. A repeat of `loop qa report` after a lost answer replays, and the fake GitHub holds one
-check run. A crash after the row and before the effect leaves a report that `EnqueueQAChecks`
-enqueues at its next tick.
-*A test of the verb with a repeat, and a test of `EnqueueQAChecks` over a stored report with no
-effect.*
+enqueues one `checkrun` effect with the natural key `<project>:<head>:loop/qa:<run id>`, posted as
+the loop App with the conclusion `Report.Conclusion()`. Its text names each check with pass or
+fail, and each bug. A repeat of `loop qa report` after a lost answer replays, and the fake GitHub
+holds one check run. A crash after the row and before the effect leaves a report that
+`EnqueueQAChecks` enqueues at its next tick. A crash after GitHub created the check run and before
+`qa_check_runs` stored its id leaves one check run at the head after the retry, because
+`PostCheckRun` finds it by name and App and updates it.
+*A test of the verb with a repeat, a test of `EnqueueQAChecks` over a stored report with no
+effect, and a test of `PostCheckRun` with a kill point between the create and the row.*
 
 **C27. Equivalence: `loop qa plan` and the server agree.** Proves A11. For each fixture of C3, the
 plan that `loop qa plan` prints in the checkout at a head equals the plan that the report verb
@@ -1002,10 +1075,11 @@ that fails while the installation's permissions lack checks write, and passes on
 *A test of `Permissions`, a manifest test, and a doctor test over two fake installations.*
 
 **C29. Behaviour: `loop/eligible` follows `loop/qa` on each head.** Proves A1 and A16, by ADR 0014
-decision 3. `EnqueueEligibility` enqueues no `loop/eligible` effect for a head whose `loop/qa`
-effect is not done. It enqueues a `neutral` `loop/qa` first on a reviewed head with the stage off,
-with a text that says so, and on a head that `base_merged` made, with a text that links the report
-on `qa_carried_from`. `settings.Land`'s `await` and the github-queue sweep post a `neutral`
+decision 3. `EnqueueEligibility` enqueues no `loop/eligible` effect for a head whose newest
+`checkrun` effect is not done. It enqueues a `neutral` `loop/qa` first on a reviewed head with the
+stage off, with the key suffix `off` and a text that says so, and on a head that `base_merged` made,
+with the key suffix `carried` and a text that links the report on `qa_carried_from`. It enqueues
+neither on a head that holds a stored report. `settings.Land`'s `await` and the github-queue sweep post a `neutral`
 `loop/qa` before `loop/eligible` on a settings head and on a merge-group commit. On a fake GitHub
 that refuses check runs, no `loop/eligible` posts.
 *A test for each of the four kinds of head over the fake GitHub, which records the order of posts,
@@ -1060,6 +1134,23 @@ a round of stage `qa` is a rejection whose body is the QA report, and names `loo
 `git diff --quiet c42f690 <the last merge of this epic> -- docs/adr/0002-document-and-ticket-gates.md docs/adr/0005-work-item-fidelity.md`
 exits 0.
 *The command, run when entry 9 lands. Each entry lists both files under "Must not change".*
+
+**C38. Boundary: a QA report at a head replaces the `neutral` that the head got while the stage
+was off.** Proves A12 and A15, by ADR 0014 decision 3. In a project that does not list `qa`, a
+ticket at reviewed head S gets one `loop/qa` check run at S with the conclusion `neutral`, from the
+effect with the key `<project>:S:loop/qa:off`, then `loop/eligible` at S. The project then lists
+`qa`. The next tick of `dependency-advance` applies `qa_due`, and the server accepts a QA run's report
+at S with one `fail` finding. It applies `qa_fail`, and enqueues the effect with the key
+`<project>:S:loop/qa:<run id>`. The fake GitHub then holds one `loop/qa` check run at S, the same
+check run by id, with the conclusion `failure`, and `loop/eligible` at S posts no second time. The
+same path with a passing report leaves `success` at S. When the `off` effect and the report's
+effect of S are both due at one tick, only the report's effect posts, and the runner marks the
+`off` effect `done` with no post. When the project then stops listing `qa` and lists it again, the
+server enqueues no new effect at S, and the check run keeps the report's conclusion. A repeat of the `off` key at S
+refuses in `RecordIntent` with `ErrEffectExists`, as today.
+*A scenario test over the fake GitHub, which records each create and each update of a check run
+in order, with one case for a fail, one for a pass, one with both effects due, and one for the
+second turn-on.*
 
 ## Observable behaviour
 
