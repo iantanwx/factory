@@ -19,6 +19,7 @@ import (
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/frontend"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
@@ -88,12 +89,12 @@ var partDeadline = PartDeadline
 // PartNames is the order of every part that ports: of a report, of the ring
 // text and of the runbook's table.
 var PartNames = []string{"stalls", "questions", "decisions", "reminders", "bugs", "backlog", "claims", "pulls", "worktrees", "main",
-	"ci", "flaky", "audit", "timer-health", "inbox", "server", "rules"}
+	"ci", "flaky", "audit", "timer-health", "inbox", "server", "rules", "ui"}
 
 // Parts returns the shipped part list. Each part entry adds its part.
 func Parts() []Part {
 	return []Part{stallsPart, questionsPart(), decisionsPart(), remindersPart(), bugsPart(), backlogPart(), claimsPart(), pullsPart,
-		worktreesPart(), mainPart, ciPart, flakyPart, auditPart, timersPart(), inboxPart(), serverPart(), rulesPart()}
+		worktreesPart(), mainPart, ciPart, flakyPart, auditPart, timersPart(), inboxPart(), serverPart(), rulesPart(), uiPart()}
 }
 
 // Intervals are the scheduler's own, from sched.Config.
@@ -135,6 +136,9 @@ type World interface {
 	LastRing(ctx context.Context) (RingOutcome, bool, error)
 	// Inbox is every entry of the inbox, as `loop inbox list` prints it.
 	Inbox(ctx context.Context) ([]inbox.Entry, error)
+	// Tracked is the tracked files of the project's tree at
+	// origin/<its default branch>.
+	Tracked(ctx context.Context, project string) (frontend.Tree, error)
 }
 
 // GitHubReads are the GET reads of the GitHub parts, made with ScopeRead.

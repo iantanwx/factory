@@ -13,6 +13,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/frontend"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
@@ -366,6 +367,17 @@ func (w *serverWorld) Inbox(ctx context.Context) ([]inbox.Entry, error) {
 		return nil, errors.New("overwatch: the server holds no inbox")
 	}
 	return w.s.Inbox.Entries(ctx)
+}
+
+// Tracked reads the tracked files of the project's directory at
+// origin/<its registered default branch>, where the config loader reads
+// its config.
+func (w *serverWorld) Tracked(ctx context.Context, project string) (frontend.Tree, error) {
+	p, err := w.s.Projects.Show(project)
+	if err != nil {
+		return nil, err
+	}
+	return frontend.GitTree(ctx, p.Path, config.DefaultRef(p.BaseBranch()))
 }
 
 // githubReads are the GET reads of the GitHub parts, over the service.

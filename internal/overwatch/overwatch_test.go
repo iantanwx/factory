@@ -153,11 +153,11 @@ func TestSweepPrintsUnfiledThenFiledThenNotes(t *testing.T) {
 }
 
 // The fifteen parts of the spec, with reminders (C-bug-1) after decisions
-// and the retro's rules (factorio-1xq0) last, in the order of the
-// runbook's table.
-func TestPartNamesHoldTheSeventeenInTheRunbookOrder(t *testing.T) {
+// the retro's rules (factorio-1xq0), then the frontend report
+// (factorio-791i) last, in the order of the runbook's table.
+func TestPartNamesHoldTheEighteenInTheRunbookOrder(t *testing.T) {
 	want := []string{"stalls", "questions", "decisions", "reminders", "bugs", "backlog", "claims", "pulls", "worktrees", "main",
-		"ci", "flaky", "audit", "timer-health", "inbox", "server", "rules"}
+		"ci", "flaky", "audit", "timer-health", "inbox", "server", "rules", "ui"}
 	if !reflect.DeepEqual(PartNames, want) {
 		t.Fatalf("PartNames = %q", PartNames)
 	}
