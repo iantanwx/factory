@@ -900,7 +900,7 @@ func (r *Reactor) head(ctx context.Context, p config.Project, it machine.Item, p
 			}
 		}
 	}
-	if it.Kind != machine.KindTicket || !slices.Contains([]string{machine.ReadyToMerge, machine.Queued}, it.Status) ||
+	if it.Kind != machine.KindTicket || !slices.Contains([]string{machine.InQA, machine.ReadyToMerge, machine.Queued}, it.Status) ||
 		sha == it.Fact(machine.FactReviewedHead) {
 		return nil
 	}

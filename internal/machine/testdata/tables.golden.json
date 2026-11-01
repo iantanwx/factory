@@ -1658,12 +1658,16 @@
       {
         "verb": "head_changed",
         "from": [
+          "in_qa",
           "ready_to_merge",
           "queued"
         ],
         "to": "in_review",
+        "bumps_epoch": true,
+        "lease": "drop",
         "facts": [
           "reviewed_head",
+          "qa_head",
           "head"
         ]
       },
@@ -1682,6 +1686,8 @@
         "to": "@same",
         "facts": [
           "reviewed_head",
+          "qa_head",
+          "qa_carried_from",
           "head"
         ]
       },

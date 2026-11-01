@@ -32,6 +32,10 @@ Run `loop pr show` to learn whether a pull request exists. Run `loop review roun
 each earlier verdict. Each round holds the reviewer's comment in `body`. The last one is also the
 `review` fact in `loop work show <item>`.
 
+A round of stage `qa` is a rejection too. Its `body` is the QA report: what the QA run did in the
+app, what it saw, and the evidence. Repair each finding of the report as you repair a
+code-reviewer's finding.
+
 Read every handoff note and every earlier failure before you work. A note can hold an answer that
 a person already gave. Never escalate a question that a recorded answer settles.
 
@@ -120,8 +124,8 @@ test by `../loop-test-behavior-not-implementation/SKILL.md`.
 
 **Then write the code.** Put each guard and each piece of wiring by `../loop-boundaries/SKILL.md`.
 Model the domain by `../loop-domain-modeling/SKILL.md`. When the ticket asks for the
-`verify-<app>` skill of an app, write it by `../loop-verify-create/SKILL.md`. Keep an existing one
-true by `../loop-verify-maintain/SKILL.md`.
+`verify-<app>` skill of an app, write it by `../loop-verify-create/SKILL.md`. When your diff
+changes how the app starts, update its `verify-<app>` skill by `../loop-verify-maintain/SKILL.md`.
 
 ## 4. Finish the work
 
