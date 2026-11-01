@@ -74,6 +74,7 @@ const (
 	VerbQAOff              = "qa_off"  // ticket: in_qa -> ready_to_merge when the stage turns off (server)
 	VerbQAPass             = "qa_pass" // ticket: in_qa -> ready_to_merge by qa report
 	VerbSignoffHead        = "signoff_head"
+	VerbSkipDesign         = "skip_design"
 	VerbSupersede          = "supersede"
 	VerbUnblock            = "unblock"
 )

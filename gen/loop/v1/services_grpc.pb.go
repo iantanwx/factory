@@ -3551,9 +3551,10 @@ var PrdService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	EpicService_Create_FullMethodName    = "/loop.v1.EpicService/Create"
-	EpicService_Adr_FullMethodName       = "/loop.v1.EpicService/Adr"
-	EpicService_Decompose_FullMethodName = "/loop.v1.EpicService/Decompose"
+	EpicService_Create_FullMethodName     = "/loop.v1.EpicService/Create"
+	EpicService_Adr_FullMethodName        = "/loop.v1.EpicService/Adr"
+	EpicService_SkipDesign_FullMethodName = "/loop.v1.EpicService/SkipDesign"
+	EpicService_Decompose_FullMethodName  = "/loop.v1.EpicService/Decompose"
 )
 
 // EpicServiceClient is the client API for EpicService service.
@@ -3562,6 +3563,7 @@ const (
 type EpicServiceClient interface {
 	Create(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Adr(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	SkipDesign(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Decompose(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
@@ -3593,6 +3595,16 @@ func (c *epicServiceClient) Adr(ctx context.Context, in *VerbRequest, opts ...gr
 	return out, nil
 }
 
+func (c *epicServiceClient) SkipDesign(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, EpicService_SkipDesign_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *epicServiceClient) Decompose(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Envelope)
@@ -3609,6 +3621,7 @@ func (c *epicServiceClient) Decompose(ctx context.Context, in *VerbRequest, opts
 type EpicServiceServer interface {
 	Create(context.Context, *VerbRequest) (*Envelope, error)
 	Adr(context.Context, *VerbRequest) (*Envelope, error)
+	SkipDesign(context.Context, *VerbRequest) (*Envelope, error)
 	Decompose(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedEpicServiceServer()
 }
@@ -3625,6 +3638,9 @@ func (UnimplementedEpicServiceServer) Create(context.Context, *VerbRequest) (*En
 }
 func (UnimplementedEpicServiceServer) Adr(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Adr not implemented")
+}
+func (UnimplementedEpicServiceServer) SkipDesign(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method SkipDesign not implemented")
 }
 func (UnimplementedEpicServiceServer) Decompose(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Decompose not implemented")
@@ -3686,6 +3702,24 @@ func _EpicService_Adr_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EpicService_SkipDesign_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EpicServiceServer).SkipDesign(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EpicService_SkipDesign_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EpicServiceServer).SkipDesign(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _EpicService_Decompose_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(VerbRequest)
 	if err := dec(in); err != nil {
@@ -3718,6 +3752,10 @@ var EpicService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Adr",
 			Handler:    _EpicService_Adr_Handler,
+		},
+		{
+			MethodName: "SkipDesign",
+			Handler:    _EpicService_SkipDesign_Handler,
 		},
 		{
 			MethodName: "Decompose",

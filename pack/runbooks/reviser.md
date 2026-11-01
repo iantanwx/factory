@@ -74,6 +74,12 @@ Never build the mechanism in this run. This run changes your document only.
 
 ## 4. Land the revision
 
+Every change you agree with lands in one commit. A run that agrees with no finding commits nothing.
+The server counts the commits of your run that change your document, over all of its pushes. A
+merge of the base does not count. A second such commit gets `EDIT_SET_SPLIT`, and nothing is
+pushed. Before a push lands, run `loop branch sync`, then `git reset --soft` to the item head that
+it names, and commit once. After a push lands, reply on each thread whose change did not land.
+
 1. When you changed the document, commit, and run `loop gates --docs`. Write the message by
    `../loop-commit/SKILL.md`. Push with `loop branch push`.
 2. Run `loop pr open --title "<the document title>"`. It shows the open pull request, and the
