@@ -183,8 +183,8 @@ func TestEveryLaneTestDeclaresItsSessions(t *testing.T) {
 			t.Errorf("scenario %s declares %d sessions; the plan holds %d (present %v)", sc.name, sc.sessions, n, inPlan)
 		}
 	}
-	if total != 13 {
-		t.Fatalf("the lane plan totals %d sessions; want 13", total)
+	if total != 14 {
+		t.Fatalf("the lane plan totals %d sessions; want 14", total)
 	}
 }
 
@@ -270,6 +270,9 @@ func TestDeclaredReadsThePlan(t *testing.T) {
 	}
 	if got := Declared(t, f1Name); got != 2 {
 		t.Fatalf("Declared(%s) = %d; want 2", f1Name, got)
+	}
+	if got := Declared(t, "TestC14FalseReaderFindingsRejectNothing"); got != 1 {
+		t.Fatalf("Declared(TestC14FalseReaderFindingsRejectNothing) = %d; want 1", got)
 	}
 	rec := &recTB{TB: t}
 	Declared(rec, "TestNoSuchLaneTest")
