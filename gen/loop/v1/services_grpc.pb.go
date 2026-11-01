@@ -971,6 +971,108 @@ var ReviewService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	QaService_Report_FullMethodName = "/loop.v1.QaService/Report"
+)
+
+// QaServiceClient is the client API for QaService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type QaServiceClient interface {
+	Report(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+}
+
+type qaServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewQaServiceClient(cc grpc.ClientConnInterface) QaServiceClient {
+	return &qaServiceClient{cc}
+}
+
+func (c *qaServiceClient) Report(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, QaService_Report_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// QaServiceServer is the server API for QaService service.
+// All implementations must embed UnimplementedQaServiceServer
+// for forward compatibility.
+type QaServiceServer interface {
+	Report(context.Context, *VerbRequest) (*Envelope, error)
+	mustEmbedUnimplementedQaServiceServer()
+}
+
+// UnimplementedQaServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedQaServiceServer struct{}
+
+func (UnimplementedQaServiceServer) Report(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Report not implemented")
+}
+func (UnimplementedQaServiceServer) mustEmbedUnimplementedQaServiceServer() {}
+func (UnimplementedQaServiceServer) testEmbeddedByValue()                   {}
+
+// UnsafeQaServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to QaServiceServer will
+// result in compilation errors.
+type UnsafeQaServiceServer interface {
+	mustEmbedUnimplementedQaServiceServer()
+}
+
+func RegisterQaServiceServer(s grpc.ServiceRegistrar, srv QaServiceServer) {
+	// If the following call panics, it indicates UnimplementedQaServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&QaService_ServiceDesc, srv)
+}
+
+func _QaService_Report_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(QaServiceServer).Report(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: QaService_Report_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(QaServiceServer).Report(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// QaService_ServiceDesc is the grpc.ServiceDesc for QaService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var QaService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "loop.v1.QaService",
+	HandlerType: (*QaServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Report",
+			Handler:    _QaService_Report_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "loop/v1/services.proto",
+}
+
+const (
 	BranchService_Push_FullMethodName = "/loop.v1.BranchService/Push"
 	BranchService_Sync_FullMethodName = "/loop.v1.BranchService/Sync"
 )

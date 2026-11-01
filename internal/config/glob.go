@@ -47,6 +47,22 @@ func ParseGlob(s string) (Glob, error) {
 
 func (g Glob) String() string { return strings.Join(g.segs, "/") }
 
+// Meets reports whether the glob g meets one "May change" entry. A literal
+// path matches by g. A glob or a directory entry meets g when g reaches
+// its literal directory: the entry cut at the last / before its first
+// glob character.
+func Meets(g Glob, entry string) bool {
+	entry = strings.TrimPrefix(entry, "./")
+	i := strings.IndexAny(entry, "*?[")
+	if i < 0 && !strings.HasSuffix(entry, "/") {
+		return g.Match(entry)
+	}
+	if i < 0 {
+		i = len(entry)
+	}
+	return g.Reaches(entry[:max(strings.LastIndex(entry[:i], "/"), 0)])
+}
+
 // Match reports whether g matches the literal slash path p.
 func (g Glob) Match(p string) bool {
 	return slices.Contains(g.walk(strings.Split(p, "/")), len(g.segs))

@@ -41,6 +41,10 @@ service ReviewService {
   rpc Rounds(VerbRequest) returns (Envelope);
 }
 
+service QaService {
+  rpc Report(VerbRequest) returns (Envelope);
+}
+
 service BranchService {
   rpc Push(VerbRequest) returns (Envelope);
   rpc Sync(VerbRequest) returns (Envelope);

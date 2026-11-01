@@ -203,6 +203,18 @@ func (m *Machine) apply(ctx context.Context, req *Request) cli.Result {
 			return r.Result()
 		}
 	}
+	if req.Review != nil {
+		text, r := req.Review(ctx, c.item)
+		if r != nil {
+			return r.Result()
+		}
+		if r := m.cfg.Redactor.Refusal("secret_in_facts", "write", text); r != nil {
+			r.Item = c.item.ID
+			return r.Result()
+		}
+		c.setFact(FactReview, text)
+		c.unset = slices.DeleteFunc(c.unset, func(k string) bool { return k == factPrefix+FactReview })
+	}
 
 	in, err := m.record(ctx, c, epoch, fence(item.Epoch))
 	var lr *leaseError

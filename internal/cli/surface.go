@@ -367,6 +367,9 @@ var surface = []Verb{
 	client("design", "capture", "capture each state of the design record in the room's checkout from the prototype worktree at the record's pinned commit, with the capture command of the brief's design block, and write each state's picture; local, with no server call", []string{"room"}, nil,
 		Flag{Name: "prototype", Type: FlagString, Required: true, Description: "the path of the prototype worktree; its HEAD must be the pinned commit, with no uncommitted change"},
 		Flag{Name: "state", Type: FlagString, Description: "the one state to capture, S<n>.<m>; every state of the record when absent"}),
+	write(server("qa", "report", "hand in the report of a QA run at the reviewed head; the server checks it against the plan at that head, records qa_pass or qa_fail by its conclusion, and posts the loop/qa check run of the head", []string{"qa run"}, []Arg{itemArg},
+		Flag{Name: "head", Type: FlagString, Required: true, Description: "the reviewed head sha that the run drove; the report's head must be the same sha"},
+		Flag{Name: "file", Type: FlagString, Required: true, Description: "the report JSON, read from the caller's working directory"})),
 	client("qa", "plan", "print the plan of the QA run whose checkout holds the current directory: the apps to drive, whether visual QA runs, the design skill and the bounds", anyone, nil),
 
 	topLevel(server("meta", "schema", "print the CLI schema", anyone, nil)),
