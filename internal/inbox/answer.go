@@ -275,6 +275,16 @@ func (in *Inbox) answer(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Reject(cli.CodeTransitionNotAllowed, "room_entry", "a room is settled with `loop room apply` from the room, and `loop room close`")
 }
 
+// EndHoldDefer is part of the machine's Applied hook. A fire of a
+// decision ends the inbox defer of its hold, so the hold entry shows now
+// and the ended defer never fires the decision again at its old time.
+func EndHoldDefer(tx *store.Tx, ev machine.AppliedEvent) error {
+	if ev.Kind != machine.KindDecision || ev.Verb != machine.VerbFire {
+		return nil
+	}
+	return clearDefer(tx, itemEntry(KindHold, ev.Project, ev.Item))
+}
+
 func clearDefer(tx *store.Tx, entry string) error {
 	_, err := tx.Exec(`UPDATE schedule SET state = 'done', updated_at = ? WHERE kind = ? AND stage = ? AND state = 'active'`,
 		tx.Now().UnixMilli(), DeferKind, entry)
@@ -285,7 +295,8 @@ func clearDefer(tx *store.Tx, entry string) error {
 // inbox and returns at that time with the reason. The time lives in SQLite's schedule table, never
 // in beads' deferred status, so it holds across a restart. A deferred
 // decision also goes back to pending with the reason as the why of its
-// defer, and decision-timers fires it again at that time.
+// defer, and decision-timers fires it again at that time. Its answer
+// names that status, and a fire before that time ends the defer.
 func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 	id := call.Inv.Arg("entry")
 	until, err := time.Parse(time.RFC3339, call.Inv.Flags["until"])
@@ -324,12 +335,14 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 	if !found {
 		return cli.Reject(cli.CodeNotFound, "no_entry", fmt.Sprintf("the inbox holds no entry %s now", id))
 	}
+	out := map[string]any{"entry": id, "until": until.UTC().Format(time.RFC3339)}
 	if kind == KindHold {
 		res := in.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: item, Verb: machine.VerbDefer,
 			Params: map[string]string{"why": reason}, Actor: machine.Actor{Name: call.Principal.Actor(), RunID: call.Principal.RunID}, ExpectedStatus: machine.NeedsHuman})
 		if res.Refusal != nil {
 			return res
 		}
+		out["status"] = machine.DecisionPending
 	}
 	due := until.UnixMilli()
 	if err := in.cfg.Store.Write(ctx, func(tx *store.Tx) error {
@@ -344,7 +357,7 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Internal(err)
 	}
 	in.Changed()
-	return cli.Found(map[string]any{"entry": id, "until": until.UTC().Format(time.RFC3339)})
+	return cli.Found(out)
 }
 
 // prepare is `loop inbox prepare`: a question the coordinator wrote for the

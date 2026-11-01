@@ -163,3 +163,54 @@ func TestC16ADeferredDecisionReturnsWithItsReason(t *testing.T) {
 		t.Fatalf("the returned entry = %v", e)
 	}
 }
+
+// C-bug-2, F-73: the answer of `inbox defer` on a hold names the
+// decision's new status, pending, so the caller learns that the decision
+// left needs_human.
+func TestCBug2AnInboxDeferOfAHoldSaysTheDecisionMovedToPending(t *testing.T) {
+	w := newHumanWorld(t, "")
+	d := w.fileDecision("which store", "--waits-for-a-person", "the operator")
+	w.coordinator("decision", "fire", d, "--project", "alpha", "--why", "the first user paid")
+	until := w.clock.Now().Add(12 * time.Hour).UTC().Format(time.RFC3339)
+	env, code := w.coordinator("inbox", "defer", "hold/alpha/"+d, "--until", until, "--reason", "the grant is an act on GitHub")
+	if code != 0 {
+		t.Fatalf("defer = %d %v", code, env)
+	}
+	if data, _ := env["data"].(map[string]any); data["status"] != "pending" {
+		t.Fatalf("the defer answer does not say the decision moved to pending: %v", env["data"])
+	}
+}
+
+// C-bug-1, F-73: a hand fire of a decision ends the inbox defer of its
+// hold. The hold entry shows to the person at once, and the ended defer
+// does not fire the decision again at its old time.
+func TestCBug1AHandFireEndsTheInboxDeferOfItsHold(t *testing.T) {
+	w := newHumanWorld(t, "")
+	ctx := context.Background()
+	d := w.fileDecision("which store", "--waits-for-a-person", "the operator")
+	w.coordinator("decision", "fire", d, "--project", "alpha", "--why", "the first user paid")
+	id := "hold/alpha/" + d
+	until := w.clock.Now().Add(12 * time.Hour).UTC().Format(time.RFC3339)
+	if env, code := w.coordinator("inbox", "defer", id, "--until", until, "--reason", "the grant is an act on GitHub"); code != 0 {
+		t.Fatalf("defer = %d %v", code, env)
+	}
+	if env, code := w.coordinator("decision", "fire", d, "--project", "alpha", "--why", "the operator answered"); code != 0 {
+		t.Fatalf("fire = %d %v", code, env)
+	}
+	if it := w.show(d); it.Status != machine.NeedsHuman {
+		t.Fatalf("fired = %s", it.Status)
+	}
+	if entryByID(w.entries("person"), id) == nil {
+		t.Fatal("a fired decision in needs_human has no hold entry for the person")
+	}
+	if env, code := w.coordinator("decision", "defer", d, "--project", "alpha", "--why", "the grant is still open"); code != 0 {
+		t.Fatalf("decision defer = %d %v", code, env)
+	}
+	w.clock.Advance(13 * time.Hour)
+	if err := w.srv.Decisions.Tick(ctx, "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if it := w.show(d); it.Status != machine.DecisionPending {
+		t.Fatalf("the ended defer fired the decision again at its old time: %s %v", it.Status, it.Facts)
+	}
+}
