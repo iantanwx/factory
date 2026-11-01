@@ -167,7 +167,7 @@ var surface = []Verb{
 		Flag{Name: "run", Type: FlagString, Description: "the shell command that runs the tests, with the test paths in \"$@\"; the base config's test gate when absent"}),
 
 	write(server("branch", "push", "push the item's branch through the server", runOrRoom, nil,
-		Flag{Name: "prototype", Type: FlagBool, Description: "a design room only: push HEAD to loop/<epic>-prototype, the prototype's own branch, and not to the item's branch"})),
+		Flag{Name: "prototype", Type: FlagBool, Description: "a design room only: run it in the prototype worktree inside the checkout; it pushes that worktree's HEAD to loop/<epic>-prototype, the prototype's own branch, and not to the item's branch"})),
 	write(server("branch", "sync", "fetch the base and the item's branch into the mirror, and name the mirror path, each head sha and the refs a checkout fetches with no credential", runOrRoom, nil)),
 
 	write(server("pr", "open", "open the item's pull request, or update the title and body of the one open on its branch, and hand the item to review", runOrRoom, nil,
@@ -273,9 +273,9 @@ var surface = []Verb{
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the finding: the root cause, its evidence and the act that ends it"})),
 
 	write(server("room", "open", "open a room for a finding the triage rubric routes to a person, or reopen an idle or interrupted one", coordinator, nil,
-		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"brainstorm", "decision", "review", "architect"}, Description: "the kind of room; an architect room serves one architecture epic", Stage: true},
+		Flag{Name: "kind", Type: FlagString, Required: true, Enum: []string{"brainstorm", "decision", "review", "architect", "design"}, Description: "the kind of room; an architect room serves one architecture epic, and a design room one epic in design", Stage: true},
 		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project id"},
-		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; a brainstorm room may name none, and an architect room names an epic in architecture"},
+		Flag{Name: "item", Type: FlagString, Description: "the work item the room serves; a brainstorm room may name none, an architect room names an epic in architecture, and a design room an epic in design"},
 		Flag{Name: "reason", Type: FlagString, Required: true, Description: "why the room opens; the room agent tells the operator first"},
 		Flag{Name: "score", Type: FlagString, Required: true, Description: "the rubric level: 1 computed, 2 measured, 3 derived, 4 preference or 5 owner-only"},
 		Flag{Name: "choice", Type: FlagString, Enum: []string{"inside", "outside"}, Description: "outside when one answer acts outside the repository; inside when absent"})),

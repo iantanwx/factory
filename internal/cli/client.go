@@ -253,7 +253,7 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 	}
 
 	if pushesHead(inv.Verb.Path) && cc.checkout != "" {
-		head, err := CheckoutHead(ctx, cc.checkout)
+		head, err := CheckoutHead(ctx, headDir(inv, cc.checkout, cc.cwd))
 		if err != nil {
 			return *usage("head_unreadable", err.Error(), inv.Verb.Path)
 		}

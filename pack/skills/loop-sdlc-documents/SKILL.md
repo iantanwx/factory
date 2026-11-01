@@ -18,6 +18,11 @@ carries a design record. Each one has one place in the project, one template, an
 | ADR | `docs/adr/NNNN-<slug>.md` | `../loop-sdlc-documents/adr.md` |
 | Design record | `docs/design/<epic id>/record.md` | `../loop-sdlc-documents/design.md` |
 
+An epic's documents land in the order of its phases. The PRD comes first, with its doc review.
+The ADRs follow when the epic needs them. Then the design record and its doc review, in the
+design phase, when a story of the PRD reads `UI: yes`. The operator can skip the design phase. The
+spec comes last, with its doc review.
+
 The epic id is the work-item id that the server gave the epic. The slug is a few words of the
 title, in lower case, joined by dashes. An ADR takes the next free four-digit number. Never reuse
 a number, and never renumber an ADR.

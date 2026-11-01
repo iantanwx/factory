@@ -382,7 +382,7 @@ rubric routes to a person. Score the finding first. Pass the level with `--score
 `--choice outside` when one answer acts outside the repository:
 
 ```bash
-loop room open --kind brainstorm|decision|review|architect --project <project> --reason "<why>" --score <level> [--choice outside] [--item <item>]
+loop room open --kind brainstorm|decision|review|architect|design --project <project> --reason "<why>" --score <level> [--choice outside] [--item <item>]
 ```
 
 The server refuses an open with no score. It refuses levels 1 to 3 with `ROUTED_TO_LOOP`, opens no
@@ -527,9 +527,24 @@ either kind of epic:
 
   The entry returns at that time when the epic is still in `architecture`.
 
-An epic in `design` waits for its design record. The operator can skip that stage, and the epic
-then goes to its spec with no record. Skip it only when the operator asks for the skip. Quote the
-operator's own words:
+An epic in `design` waits for its design record. While no room serves it, the inbox shows the
+entry `design/<project>/<epic>`. It waits on you. Bring it to the operator: ask whether to design
+the epic's screens in a design room now, or to skip the design stage. An answer refuses with
+`USAGE` and rule `design_entry`.
+
+When the operator says yes to the room, open the design room on the epic, by section 7:
+
+```bash
+loop room open --kind design --item <epic> --project <project> --reason "<why>" --score <level>
+```
+
+The server refuses a design room with `TRANSITION_NOT_ALLOWED` and rule `not_in_design` on any
+item but an epic in `design`. The room builds the prototype with the operator, writes the design
+record and opens its pull request. A doc review that rejects the record returns the epic to
+`design`, and the entry returns. Open the room again on the operator's yes.
+
+The operator can skip the design stage, and the epic then goes to its spec with no record. Skip it
+only when the operator asks for the skip. Quote the operator's own words:
 
 ```bash
 loop epic skip-design <epic> --request "<the operator's words>"

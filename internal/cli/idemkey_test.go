@@ -318,3 +318,38 @@ func TestValidateChecksWireCalls(t *testing.T) {
 		t.Fatal("a global flag never travels on the wire")
 	}
 }
+
+// A design room's `branch push --prototype` runs in the prototype
+// worktree inside its checkout, and sends that worktree's HEAD (C26 of
+// spec factorio-a4yq: the room pushes the prototype it built in the
+// worktree). A push with no --prototype still sends the checkout's HEAD.
+func TestPrototypePushSendsTheWorktreesHead(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	ctx := context.Background()
+	repo := t.TempDir()
+	proto := filepath.Join(repo, "prototype")
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		out, err := gittest.Command(append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@example.com"}, args...)...).Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git(repo, "init", "-q")
+	git(repo, "commit", "-q", "--allow-empty", "-m", "record")
+	git(repo, "worktree", "add", "-q", "-b", "loop/ep-1-prototype", proto)
+	git(proto, "commit", "-q", "--allow-empty", "-m", "prototype")
+	push, _ := New().Verb("branch push")
+
+	got, err := ContentHash(ctx, Invocation{Verb: push, Flags: map[string]string{"prototype": "true"}}, repo, proto)
+	if want := HeadContentHash(git(proto, "rev-parse", "HEAD")); err != nil || got != want {
+		t.Fatalf("a prototype push from the worktree hashes %s %v, want the worktree's HEAD %s", got, err, want)
+	}
+	got, err = ContentHash(ctx, Invocation{Verb: push, Flags: map[string]string{}}, repo, proto)
+	if want := HeadContentHash(git(repo, "rev-parse", "HEAD")); err != nil || got != want {
+		t.Fatalf("a push with no --prototype hashes %s %v, want the checkout's HEAD %s", got, err, want)
+	}
+}
