@@ -40,6 +40,9 @@ Write the PRD at `docs/prd/<slug>.md`. Start from the template, `../loop-brainst
   two facts are the only source a story quotes.
 - Each requirement cites a story, the epic body or a file of the repository.
 - A requirement with no source goes under Open questions. Never guess a source.
+- When `.loop/config.yaml` holds a `ui` key, write a `**UI:**` line under each story heading, as
+  the template shows. Write `yes` when the `request` fact or the `amendment` fact asks for a change
+  to what a user sees, and `no` otherwise. The `prd` gate refuses a story with no UI line.
 
 ## 4. When no story can quote a source
 
