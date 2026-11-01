@@ -447,7 +447,9 @@ func fingerprint(runID string, inv cli.Invocation) store.Fingerprint {
 }
 
 // idempotent replays a stored answer for key, or runs the call and stores
-// its answer when the answer is definitive (R18, KTD13).
+// its answer when the answer is definitive (R18, KTD13). A NOTHING answer
+// wrote nothing, so it is not stored: the same call later gets a fresh
+// answer (factorio-t0kv).
 func (s *Server) idempotent(ctx context.Context, call *Call, key string) (cli.Result, *cli.Envelope) {
 	unlock := s.lockKey(key)
 	defer unlock()
@@ -479,7 +481,7 @@ func (s *Server) idempotent(ctx context.Context, call *Call, key string) (cli.Re
 	res := s.run(ctx, call)
 	res.ServerVersion = s.opts.Version
 	env := s.redact(s.reg.Seal(inv.Verb.Path, call.Request.GetRequestId(), res))
-	if env.Exit == cli.ExitDone || env.Exit == cli.ExitNothing || (env.Exit == cli.ExitRefused && !conditional(env.Refusal)) {
+	if env.Exit == cli.ExitDone || (env.Exit == cli.ExitRefused && !conditional(env.Refusal)) {
 		raw, err := json.Marshal(env)
 		if err == nil {
 			// The answer is stored even when the caller went away: its
