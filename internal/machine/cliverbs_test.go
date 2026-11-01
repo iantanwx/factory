@@ -54,7 +54,7 @@ func (w *world) inReview() (string, rpc.Principal) {
 	w.t.Helper()
 	id := w.create(KindTicket, "create", nil)
 	w.claimAs(id, StageImplementer, "impl")
-	w.must(id, "pr_open", map[string]string{"head": shaA})
+	w.opened(id, shaA)
 	return id, w.claimAs(id, StageCodeReviewer, "rev")
 }
 
@@ -103,7 +103,7 @@ func TestReviewSubmitCarriesItsBody(t *testing.T) {
 	}
 
 	w.claimAs(id, StageImplementer, "impl-2")
-	w.must(id, "pr_open", map[string]string{"head": shaA})
+	w.opened(id, shaA)
 	rev = w.claimAs(id, StageCodeReviewer, "rev-2")
 	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA}))
 	if it := w.show(id); it.Status != ReadyToMerge || it.Fact(FactReview) != "" {
@@ -612,7 +612,7 @@ func TestReviewRoundsListsEachVerdict(t *testing.T) {
 	}
 	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "reject", "head": shaA, "body": "Fix the test."}))
 	impl := w.claimAs(id, StageImplementer, "impl-2")
-	w.must(id, "pr_open", map[string]string{"head": shaA})
+	w.opened(id, shaA)
 	rev = w.claimAs(id, StageCodeReviewer, "rev-2")
 	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA, "body": "Good."}))
 

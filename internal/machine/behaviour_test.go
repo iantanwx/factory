@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/iantanwx/loop/internal/beadsx"
@@ -30,8 +31,16 @@ func (w *world) runWrite(id, run string, epoch int64, verb string, params map[st
 func (w *world) ticketInReview(head string) string {
 	id := w.create(KindTicket, "create", nil)
 	w.claim(id, StageImplementer, "r-impl")
-	w.must(id, "pr_open", map[string]string{"head": head})
+	w.opened(id, head)
 	return id
+}
+
+// opened applies the implementer's pr_open at head, then the pass of a
+// project that runs no simplify stage, so the ticket waits in in_review.
+func (w *world) opened(id, head string) {
+	w.t.Helper()
+	w.must(id, "pr_open", map[string]string{"head": head})
+	w.must(id, VerbSimplifyOff, nil)
 }
 
 func TestEscalateStoresTheResumeTargetAndAnswerReturnsToIt(t *testing.T) {
@@ -112,7 +121,7 @@ func TestSecondReviewRejectEscalatesTheModel(t *testing.T) {
 		t.Fatalf("after one reject: %+v", it)
 	}
 	w.claim(id, StageImplementer, "r-2")
-	w.must(id, "pr_open", map[string]string{"head": "h2"})
+	w.opened(id, "h2")
 	w.must(id, "review_reject", nil)
 	if it := w.show(id); it.Fact(FactModelTier) != ModelTierEscalated || it.Fact(FactRejects) != "2" {
 		t.Fatalf("a second reject must set model_tier escalated: %+v", it)
@@ -139,7 +148,7 @@ func TestHeadChangeAfterAPassReturnsToReview(t *testing.T) {
 	}
 	h := w.history(id)
 	last := h[len(h)-1]
-	if last.Verb != "head_changed" || last.To != InReview || len(last.Unset) != 1 || last.Unset[0] != factPrefix+FactReviewedHead {
+	if last.Verb != "head_changed" || last.To != InReview || !slices.Contains(last.Unset, factPrefix+FactReviewedHead) {
 		t.Fatalf("the status and the cleared head must be one write: %+v", last)
 	}
 	// No merge can start at B without a new pass.

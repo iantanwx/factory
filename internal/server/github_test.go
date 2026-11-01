@@ -166,7 +166,7 @@ func TestRunPushesAndOpensItsPRThroughTheServer(t *testing.T) {
 		t.Fatalf("pr open = %v", env)
 	}
 	it, _ := w.srv.Machine.Show(ctx, "alpha", id)
-	if it.Status != machine.InReview || it.Fact(machine.FactHead) != head {
+	if it.Status != machine.InSimplify || it.Fact(machine.FactHead) != head || it.Fact(machine.FactSimplifyFrom) != head {
 		t.Fatalf("after pr open: %s %v", it.Status, it.Facts)
 	}
 	if n := len(w.api.World.PRs()); n != 1 {
