@@ -86,17 +86,45 @@ func (s *Service) branchPush(ctx context.Context, call *rpc.Call) cli.Result {
 	if _, ref := s.fenced(ctx, call); ref != nil {
 		return ref.Result()
 	}
-	branch, ref := s.itemBranch(ctx, prj.ID, item)
+	p := call.Principal
+	prototype := call.Inv.Flags["prototype"] == "true"
+	var branch string
+	if prototype {
+		branch, ref = s.prototypeBranch(ctx, p)
+	} else {
+		branch, ref = s.itemBranch(ctx, prj.ID, item)
+	}
 	if ref != nil {
 		return ref.Result()
 	}
-	p := call.Principal
 	res, err := s.Push(ctx, PushRequest{Project: prj.ID, Item: item, Branch: branch, Checkout: p.Checkout,
-		Head: head, RunID: p.RunID, Caller: p.Kind})
+		Head: head, RunID: p.RunID, Caller: p.Kind, Prototype: prototype})
 	if err != nil {
 		return Refuse(err)
 	}
 	return cli.Result{Exit: cli.ExitDone, Data: res, Replayed: res.Replayed}
+}
+
+// designRoomStage is the stage of a design room's token, room.Stage of
+// the design kind.
+const designRoomStage = "design-room"
+
+// prototypeBranch is the branch of `branch push --prototype`: only a
+// design room pushes the prototype, and only while its epic is in design.
+func (s *Service) prototypeBranch(ctx context.Context, p rpc.Principal) (string, *cli.Refusal) {
+	if p.Kind != cli.PrincipalRoom || p.Stage != designRoomStage {
+		return "", &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "prototype_room_only",
+			Hint: "only a design room pushes the prototype; push the item's branch with `loop branch push`"}
+	}
+	it, ref := s.item(ctx, p.Project, p.Item)
+	if ref != nil {
+		return "", ref
+	}
+	if it.Kind != machine.KindEpic || it.Status != machine.Design {
+		return "", &cli.Refusal{Code: cli.CodeCapabilityDenied, Rule: "not_in_design", Item: it.ID, CurrentStatus: it.Status,
+			Hint: fmt.Sprintf("%s is in %s; a design room pushes the prototype only while its epic is in design", it.ID, it.Status)}
+	}
+	return PrototypeBranchFor(it.ID), nil
 }
 
 func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
@@ -108,7 +136,11 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 	if ref != nil {
 		return ref.Result()
 	}
-	res, err := s.Sync(ctx, prj, item, branch)
+	var prototype string
+	if DesignEpicOf(branch) == item {
+		prototype = PrototypeBranchFor(item)
+	}
+	res, err := s.Sync(ctx, prj, item, branch, prototype)
 	if err != nil {
 		return Refuse(err)
 	}
