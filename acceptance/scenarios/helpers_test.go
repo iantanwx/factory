@@ -3,12 +3,14 @@
 package scenarios
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/sched"
 )
 
 // observed collects every transition each world applied, for the row
@@ -34,6 +36,21 @@ func newWorld(t *testing.T, o acceptance.Options) *acceptance.World {
 	return w
 }
 
+// passSimplify passes a ticket that waits in in_simplify on to review, as
+// the dependency-advance job does in a project that runs no simplify
+// stage. A ticket in any other state stays as it is.
+func passSimplify(w *acceptance.World, item string) {
+	w.T.Helper()
+	if w.Status(item) != machine.InSimplify {
+		return
+	}
+	res := w.Srv.Machine.Apply(context.Background(), machine.Request{Project: acceptance.Project, Item: item,
+		Verb: machine.VerbSimplifyOff, Actor: machine.Server(sched.DependencyAdvanceJob)})
+	if res.Refusal != nil {
+		w.T.Fatalf("simplify_off %s: %+v", item, *res.Refusal)
+	}
+}
+
 // createTicket makes a PRD-less ticket as the coordinator, on the
 // operator's request, and returns its id.
 func createTicket(w *acceptance.World, title, body string) string {
@@ -54,6 +71,7 @@ func implement(w *acceptance.World, item string, files map[string]string) (accep
 	w.Must(w.In(run.Checkout, "branch", "push"))
 	w.Must(w.In(run.Checkout, "pr", "open", "--title", "Implement "+item, "--body", "Implements "+item+"."))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
+	passSimplify(w, item)
 	return run, head
 }
 

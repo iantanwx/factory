@@ -25,6 +25,7 @@ func rework(w *acceptance.World, item string, files map[string]string) string {
 	w.Must(w.In(run.Checkout, "branch", "push"))
 	w.Must(w.In(run.Checkout, "pr", "open", "--title", "Implement "+item))
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "done"))
+	passSimplify(w, item)
 	return head
 }
 

@@ -138,6 +138,7 @@ func (e *env) reviewed(head string, eligible bool) (string, *gt.PR) {
 	_, res = e.m.Claim(e.ctx, machine.ClaimRequest{Project: testProject, Item: id, Stage: machine.StageImplementer, RunID: "run-" + id})
 	e.mustOK(res)
 	e.apply(id, "pr_open", map[string]string{"head": head})
+	e.apply(id, machine.VerbSimplifyOff, nil) // the project runs no simplify stage
 	pr := e.world.Add(&gt.PR{Head: github.BranchFor(id), HeadSHA: head, Title: id})
 	// The review passed at green CI: the ruleset's ci check reported.
 	e.world.SetRuns(head, gt.CheckRun("ci", head, "completed", "success", time.Date(2026, 10, 21, 9, 0, 0, 0, time.UTC)))

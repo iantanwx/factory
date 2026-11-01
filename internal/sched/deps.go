@@ -9,6 +9,7 @@ import (
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 )
@@ -33,10 +34,12 @@ const DependencyAdvanceJob = "dependency-advance"
 // leaves it in backlog for the next tick: the cap bounds the PRD epics in
 // flight (D6). An item that another writer moved meanwhile is left alone.
 // It then routes each bug that waits for a build whose end it reads
-// (routeWaitingBugs), and completes each epic in execution whose children
-// are all terminal, because a child's terminal write and its epic's
-// complete write are two writes (machine.CompleteEpics). Any other refusal
-// or read error is reported, and the next tick tries again.
+// (routeWaitingBugs), passes each ticket that waits for a simplify run on
+// to review when the project disables that stage (passSimplify), and
+// completes each epic in execution whose children are all terminal,
+// because a child's terminal write and its epic's complete write are two
+// writes (machine.CompleteEpics). Any other refusal or read error is
+// reported, and the next tick tries again.
 func (s *Scheduler) advanceDependencies(ctx context.Context, project string) error {
 	bc, err := s.cfg.Beads(project)
 	if err != nil {
@@ -57,6 +60,7 @@ func (s *Scheduler) advanceDependencies(ctx context.Context, project string) err
 		}
 	}
 	errs = append(errs, s.routeWaitingBugs(ctx, project)...)
+	errs = append(errs, s.passSimplify(ctx, project)...)
 	if err := s.cfg.Machine.CompleteEpics(ctx, project); err != nil {
 		errs = append(errs, err)
 	}
@@ -130,6 +134,42 @@ func (s *Scheduler) routeWaitingBugs(ctx context.Context, project string) []erro
 			// Another writer routed the bug. Nothing waits.
 		default:
 			errs = append(errs, fmt.Errorf("sched: %s %s: %s: %s", verb, bug.ID, r.Code, r.Hint))
+		}
+	}
+	return errs
+}
+
+// passSimplify applies simplify_off to each ticket in in_simplify when the
+// project does not enable the simplify stage, so no ticket waits for a run
+// that never starts (spec factorio-1r94). A ticket that a run holds waits
+// for that run's settlement, which passes it on too. A config that cannot
+// be read moves nothing.
+func (s *Scheduler) passSimplify(ctx context.Context, project string) []error {
+	waiting, ref := s.cfg.Machine.List(ctx, project, machine.ListFilter{Kind: machine.KindTicket, Status: machine.InSimplify})
+	if ref != nil {
+		return []error{fmt.Errorf("sched: list the tickets of %s in %s: %s: %s", project, machine.InSimplify, ref.Code, ref.Hint)}
+	}
+	if len(waiting) == 0 {
+		return nil
+	}
+	snap, err := s.cfg.ProjectConfig(ctx, project)
+	if err != nil {
+		return []error{fmt.Errorf("sched: read the config of %s: %w", project, err)}
+	}
+	if snap != nil && snap.Config.StageEnabled(config.StageSimplify) {
+		return nil
+	}
+	var errs []error
+	for _, it := range waiting {
+		res := s.cfg.Machine.Apply(ctx, machine.Request{Project: project, Item: it.ID, Verb: machine.VerbSimplifyOff,
+			ExpectedStatus: machine.InSimplify, Actor: machine.Server(DependencyAdvanceJob)})
+		switch r := res.Refusal; {
+		case r == nil:
+			s.log.InfoContext(ctx, "simplify off", "project", project, "item", it.ID)
+		case r.Code == cli.CodeLeaseHeld || r.Code == cli.CodeStatusChanged || r.Code == cli.CodeTransitionNotAllowed || r.Code == cli.CodeNotFound:
+			// A run holds the ticket, or another writer moved it.
+		default:
+			errs = append(errs, fmt.Errorf("sched: %s %s: %s: %s", machine.VerbSimplifyOff, it.ID, r.Code, r.Hint))
 		}
 	}
 	return errs

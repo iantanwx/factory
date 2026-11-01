@@ -74,7 +74,7 @@ func sameEdges(t *testing.T, kind Kind, want []edge) {
 	}
 }
 
-var ticketLive = []string{Backlog, Todo, InProgress, InReview, Repair, ReadyToMerge, Queued, Escalated}
+var ticketLive = []string{Backlog, Todo, InProgress, InSimplify, InReview, Repair, ReadyToMerge, Queued, Escalated}
 
 // The ticket diagram of the plan, edge by edge, then the edges its text
 // adds, then the edges this unit adds with the reason for each.
@@ -101,10 +101,18 @@ func ticketEdges() []edge {
 		{InReview, "pr_closed", Escalated},
 		{Escalated, "answer", Todo},
 		{Escalated, "cancel", Canceled},
+		// Added (spec factorio-1r94): a new or rejected ticket waits in
+		// in_simplify for one simplify run, and every end of that run
+		// passes it to review. A simplify run cannot escalate.
+		{InProgress, "pr_open", InSimplify},
+		{InSimplify, "claim", InSimplify},
+		{InSimplify, "simplified", InReview}, {InSimplify, "simplify_off", InReview},
+		{InSimplify, "release", InReview}, {InSimplify, "reclaim", InReview},
+		{InSimplify, "pr_closed", Escalated},
 	}
 	// Text: escalate moves any non-terminal state to escalated, and an
 	// observed merge moves any non-terminal state to done.
-	e = append(e, each(except(ticketLive, Escalated), "escalate", Escalated)...)
+	e = append(e, each(except(ticketLive, Escalated, InSimplify), "escalate", Escalated)...)
 	e = append(e, each(ticketLive, "merged", Done)...)
 	// Added: a code reviewer and a repairing implementer hold a lease on a
 	// state they do not leave (KTD7 claims at dispatch), and settle it.
@@ -279,6 +287,11 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.When == "open_dependency" {
 		params["blocked"] = "true"
+	}
+	if r.When == "simplify_due" {
+		facts[FactSimplifyDue] = "true"
+	} else {
+		facts[FactSimplifyDue] = "" // a create sets it
 	}
 	if r.When == "open_blocker" {
 		params["open"] = "true"

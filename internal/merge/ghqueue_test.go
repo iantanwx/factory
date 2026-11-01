@@ -43,6 +43,7 @@ func TestGitHubQueuePostsEligibleOnlyOnAGroupOfEligiblePRs(t *testing.T) {
 	_, res = e.m.Claim(e.ctx, machine.ClaimRequest{Project: testProject, Item: c, Stage: machine.StageImplementer, RunID: "run-c"})
 	e.mustOK(res)
 	e.apply(c, "pr_open", map[string]string{"head": sha('3')})
+	e.apply(c, machine.VerbSimplifyOff, nil) // the project runs no simplify stage
 	e.world.Add(&gt.PR{Head: github.BranchFor(c), HeadSHA: sha('3')})
 	d, _ := e.reviewed(sha('4'), true)
 	e.tick()

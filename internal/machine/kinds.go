@@ -70,6 +70,8 @@ const (
 	VerbPRClosed           = "pr_closed"
 	VerbPRDSubmit          = "prd_submit"
 	VerbSignoffHead        = "signoff_head"
+	VerbSimplified         = "simplified"   // ticket: in_simplify -> in_review at the simplify run's pr open
+	VerbSimplifyOff        = "simplify_off" // ticket: in_simplify -> in_review when the project disables the stage (server)
 	VerbSupersede          = "supersede"
 	VerbUnblock            = "unblock"
 )
@@ -85,6 +87,7 @@ const (
 	StagePlanner              = config.StagePlanner
 	StageDecomposer           = config.StageDecomposer
 	StageReproducer           = config.StageReproducer
+	StageSimplify             = config.StageSimplify
 )
 
 // Lease effects of a row.

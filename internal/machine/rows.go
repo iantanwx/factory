@@ -65,6 +65,8 @@ const (
 	FactADRPR           = "adr_pr"           // the number of the ADR pull request under review
 	FactADRHead         = "adr_head"         // that pull request's head when adr_opened read it
 	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
+	FactSimplifyDue     = "simplify_due"     // "true" when the ticket's next pr_open enters in_simplify
+	FactSimplifyFrom    = "simplify_from"    // the implementer's head that the latest simplify round started from
 )
 
 // Entry values of a todo ticket (R6).
@@ -205,14 +207,23 @@ func factIs(name, value string) func(c *change) bool {
 	return func(c *change) bool { return c.fact(name) == value }
 }
 
+// freeGuard refuses a move while a run holds the item's lease. That run's
+// settlement moves the item instead.
+func freeGuard(c *change) *cli.Refusal {
+	if c.item.Owner == "" {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeLeaseHeld, Rule: "lease_held", Item: c.item.ID, CurrentStatus: c.item.Status,
+		Hint: fmt.Sprintf("%s belongs to run %s until that run settles", c.item.ID, c.item.Owner)}
+}
+
 // claimGuard refuses a claim on a held lease, then asks admission.
 func claimGuard(c *change) *cli.Refusal {
 	if r := c.needParam("run"); r != nil {
 		return r
 	}
-	if c.item.Owner != "" {
-		return &cli.Refusal{Code: cli.CodeLeaseHeld, Rule: "lease_held", Item: c.item.ID, CurrentStatus: c.item.Status,
-			Hint: fmt.Sprintf("%s belongs to run %s until that run settles", c.item.ID, c.item.Owner)}
+	if r := freeGuard(c); r != nil {
+		return r
 	}
 	if g := c.m.cfg.Claims; g != nil {
 		return g.AdmitClaim(c.ctx, ClaimCheck{

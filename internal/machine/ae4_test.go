@@ -196,7 +196,7 @@ func (m movingReader) ItemState(ctx context.Context, item string) (cli.ItemState
 func TestAE4AnotherActorWonFirst(t *testing.T) {
 	r := newRig(t)
 	id := r.implementing("run-1")
-	reader := movingReader{w: r.w, move: func() { r.w.must(id, "pr_open", map[string]string{"head": "h1"}) }}
+	reader := movingReader{w: r.w, move: func() { r.w.opened(id, "h1") }}
 	env, code := r.run(context.Background(), reader, "work", "note", id, "--body", "late")
 	if code != 3 || env["code"] != cli.CodeStatusChanged || env["current_status"] != InReview || env["expected_status"] != InProgress {
 		t.Fatalf("exit %d %v", code, env)
