@@ -73,6 +73,9 @@ type Brief struct {
 	// Skills lists each loop-* directory the run holds, sorted. Inject
 	// fills it from the pack.
 	Skills []string `json:"skills"`
+	// DesignSkill names the UI design skill the run holds. Inject fills it
+	// from the pack.
+	DesignSkill string `json:"design_skill,omitempty"`
 }
 
 // BriefSkill is one userspace skill pin as a brief names it.
@@ -374,6 +377,7 @@ func Inject(ctx context.Context, in Injection) (Result, error) {
 	if b.Skills == nil {
 		b.Skills = []string{}
 	}
+	b.DesignSkill = in.Pack.Design
 	b.UserSkills = nil
 	for _, u := range in.Pack.User {
 		b.UserSkills = append(b.UserSkills, BriefSkill{Name: u.Pin.Name, Repo: u.Pin.Repo, Commit: u.Pin.Commit, SHA256: u.Pin.SHA256})

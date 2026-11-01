@@ -61,6 +61,36 @@ func ProjectKeys() []string {
 	return out
 }
 
+// Declared is what a project config holds under one top-level key.
+type Declared struct {
+	// Paths is the paths list of the key's block, or nil when the block
+	// holds none.
+	Paths []Glob
+}
+
+// Declares reports whether c sets the top-level key to a value other than
+// its zero value, and what the key's block holds.
+func (c *ProjectConfig) Declares(key string) (Declared, bool) {
+	v := reflect.ValueOf(c).Elem()
+	for i := range v.NumField() {
+		if k, _, _ := strings.Cut(v.Type().Field(i).Tag.Get("yaml"), ","); k != key {
+			continue
+		}
+		f := v.Field(i)
+		if f.IsZero() {
+			return Declared{}, false
+		}
+		var d Declared
+		if f = reflect.Indirect(f); f.Kind() == reflect.Struct {
+			if p := f.FieldByName("Paths"); p.IsValid() {
+				d.Paths, _ = p.Interface().([]Glob)
+			}
+		}
+		return d, true
+	}
+	return Declared{}, false
+}
+
 // HealthConfig is the project's own health limits, which the overwatch
 // sweep reads (ADR 0009). Each field is optional, and none has a default:
 // a part whose limit is absent reports its reading and holds no work.

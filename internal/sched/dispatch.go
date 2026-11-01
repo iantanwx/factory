@@ -195,7 +195,13 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
 	b := s.brief(ctx, ad, snap, hc, prof)
-	p := s.cfg.Pack.WithUser(UserSkills(s.cfg.SkillStore, ad.Project, snap.Config.Skills))
+	// The snapshot admission read selects the skills, so a merge during
+	// the run changes none it holds.
+	var scope Scope
+	if b.Item != nil {
+		scope = ScopeOf(machine.Kind(b.Item.Kind), b.Item.Body)
+	}
+	p := Select(s.cfg.Pack, snap.Config, scope).WithUser(UserSkills(s.cfg.SkillStore, ad.Project, snap.Config.Skills))
 	res, err := brief.Inject(ctx, brief.Injection{Checkout: co.Path, Harness: prof.Harness, Pack: p, Brief: b, Env: brief.GroupEnv(manifest, env)})
 	var conflict *brief.ConflictError
 	if errors.As(err, &conflict) {
