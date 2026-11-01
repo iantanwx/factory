@@ -87,6 +87,10 @@ redesign.
 Never reject on style that no linter flagged. The linter holds the style rules. A style rule that
 matters belongs in the project's standards and in its linter.
 
+One exception holds. In a doc review, a reader's prose finding that you checked against the text
+may reject alone. A reader is a subagent of the doc-reviewer, and no linter reads a document's
+prose. A code review has no such exception.
+
 ## 7. Reject what the author can repair, and score the rest
 
 Reject when the author can repair the fault from your comment alone. Escalate only what nobody in
@@ -138,4 +142,6 @@ must not post a second review.
 - Never edit, push or merge the work.
 - Never pass a check you did not run, or a claim whose source you did not open.
 - Never write a verdict at a head you did not review.
-- Never start a subagent that reviews. The verdict needs one reader who read all of it.
+- Never let a subagent judge. A subagent may find. Only the reviewer judges each finding and
+  submits the verdict. The verdict needs one reader who read all of it, and that reader is the
+  reviewer.
