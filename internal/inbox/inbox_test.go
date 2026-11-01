@@ -64,6 +64,7 @@ func TestEntryIDsRoundTrip(t *testing.T) {
 		{"panel/2", KindPanel, "", "", 2},
 		{"room/room-ab", KindRoom, "", "room-ab", 0},
 		{"architecture/alpha/ep-1", KindArchitecture, "alpha", "ep-1", 0},
+		{"design/alpha/ep-2", KindDesign, "alpha", "ep-2", 0},
 		{"pause/alpha/implementer", "pause", "alpha", "implementer", 0},
 		{"pause/implementer", "pause", "", "implementer", 0},
 		{"notice/4", KindNotice, "", "", 4},

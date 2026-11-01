@@ -59,8 +59,9 @@ const (
 // Kinds are the room kinds. Each maps to its runbook: the pack's
 // loop-<kind>-room skill. An architect room serves one architecture epic:
 // the operator and the agent write its ADR, and the ADR's merge moves the
-// epic (parity 1.32).
-var Kinds = []string{"brainstorm", "decision", "review", "architect"}
+// epic (parity 1.32). A design room serves one epic in design: it builds
+// the prototype and writes the design record with the operator.
+var Kinds = []string{"brainstorm", "decision", "review", "architect", "design"}
 
 // Stage is the brief's stage of a room kind, so its runbook is
 // .claude/skills/loop-<kind>-room/SKILL.md.
@@ -322,6 +323,9 @@ func (s *Service) open(ctx context.Context, call *rpc.Call) cli.Result {
 		if ref := architectItem(kind, it); ref != nil {
 			return ref.Result()
 		}
+		if ref := designItem(kind, it); ref != nil {
+			return ref.Result()
+		}
 		purpose = it.Title
 	}
 	if ref := s.brainstormCap(ctx, kind, project, item); ref != nil {
@@ -403,6 +407,16 @@ func architectItem(kind string, it machine.Item) *cli.Refusal {
 	return &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "not_architecture_epic", Item: it.ID, CurrentStatus: it.Status,
 		Hint: fmt.Sprintf("an architect room writes the ADR of an epic in %s, and %s is a %s in %s; "+
 			"create the epic with `loop epic create --architecture` first", machine.Architecture, it.ID, it.Kind, it.Status)}
+}
+
+// designItem refuses a design room on any item but an epic in design: the
+// room writes the design record that epic waits for.
+func designItem(kind string, it machine.Item) *cli.Refusal {
+	if kind != "design" || it.Kind == machine.KindEpic && it.Status == machine.Design {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "not_in_design", Item: it.ID, CurrentStatus: it.Status,
+		Hint: fmt.Sprintf("a design room writes the design record of an epic in %s, and %s is a %s in %s", machine.Design, it.ID, it.Kind, it.Status)}
 }
 
 // brainstormCap applies the brainstorm cap to a new brainstorm room that names no
@@ -566,6 +580,9 @@ func (s *Service) start(ctx context.Context, r *Room) (ref *cli.Refusal) {
 	b := brief.Brief{RunID: run, Project: r.Project, Stage: Stage(r.Kind), Role: "room", Harness: string(s.cfg.Harness),
 		Model: s.cfg.Model, BaseBranch: snap.BaseBranch(),
 		Secrets: brief.Secrets{Present: manifest.Names(), Missing: []string{}}}
+	if r.Kind == "design" {
+		b.Design = snap.Config.Design
+	}
 	var kind machine.Kind
 	var body string
 	if r.Item != "" {

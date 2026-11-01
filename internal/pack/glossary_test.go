@@ -20,11 +20,13 @@ type phase struct {
 	optional bool
 }
 
-// wantPhases are the nine phases of the epic body, in order
-// (docs/prd/loop-vocabulary.md § US-01).
+// wantPhases are the phases of the epic body, in order
+// (docs/prd/loop-vocabulary.md § US-01). The design phase and its doc
+// review sit between the ADR and Plan phases (spec factorio-a4yq, C25 to
+// C28).
 var wantPhases = []phase{
-	{"Ideate", true}, {"Brainstorm", false}, {"Doc review", false}, {"ADR", true}, {"Plan", false},
-	{"Doc review", false}, {"Decompose", false}, {"Build", false}, {"Retro", false},
+	{"Ideate", true}, {"Brainstorm", false}, {"Doc review", false}, {"ADR", true}, {"Design", true},
+	{"Doc review", true}, {"Plan", false}, {"Doc review", false}, {"Decompose", false}, {"Build", false}, {"Retro", false},
 }
 
 // wantClosedBugRule is the operator's rule for a closed bug, one sentence
@@ -234,7 +236,7 @@ func glossaryFaults(text string) []string {
 	return faults
 }
 
-// C21: the glossary holds the nine phases, the units of work, the holds,
+// C21: the glossary holds the phases, the units of work, the holds,
 // the triage words, the retro, its two events and the rule for a closed
 // bug. C35: it names the qa stage, its state `in_qa` and the QA run of the
 // build phase.

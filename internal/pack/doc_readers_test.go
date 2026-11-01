@@ -516,7 +516,7 @@ func TestTheGlossaryDefinesAReader(t *testing.T) {
 			t.Errorf("the phase %q does not name the reader step", p)
 		}
 	}
-	if n != 3 {
-		t.Errorf("the glossary holds %d phases with a doc review, want 3", n)
+	if n != 4 {
+		t.Errorf("the glossary holds %d phases with a doc review, want 4", n)
 	}
 }

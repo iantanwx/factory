@@ -44,6 +44,7 @@ const (
 	KindQuestion     = "question"      // a question the coordinator prepared
 	KindAsk          = "ask"           // a bug report whose reproducer asks its reporter
 	KindArchitecture = "architecture"  // an architecture epic with no open child and no open room
+	KindDesign       = "design"        // an epic in design with no open room
 	KindRoom         = "room"          // a room that is not closed
 	KindAlert        = "alert"         // an open alert
 	KindFault        = "fault"         // an open or acknowledged loop fault

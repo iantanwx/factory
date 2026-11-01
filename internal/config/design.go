@@ -10,9 +10,9 @@ import (
 // serve the prototype and capture one state of it, and the canvas skill
 // that the design room holds. Skill is empty when the room holds none.
 type DesignConfig struct {
-	Run     string `yaml:"run"`
-	Capture string `yaml:"capture"`
-	Skill   string `yaml:"skill,omitempty"`
+	Run     string `yaml:"run" json:"run"`
+	Capture string `yaml:"capture" json:"capture"`
+	Skill   string `yaml:"skill,omitempty" json:"skill,omitempty"`
 }
 
 // RuleDesignWithoutUI is the rule of a design block in a config that holds
