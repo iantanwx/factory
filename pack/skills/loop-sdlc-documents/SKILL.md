@@ -13,12 +13,15 @@ template, and gates that `loop gates --docs` runs on each change.
 | Document | Path | Template |
 | --- | --- | --- |
 | PRD | `docs/prd/<slug>.md` | `../loop-brainstorm/prd.md` |
-| Spec | `docs/plans/<epic id>-<slug>-spec.md` | `../loop-sdlc-documents/spec.md` |
+| Spec | `docs/specs/<epic id>-<slug>-spec.md` | `../loop-sdlc-documents/spec.md` |
 | ADR | `docs/adr/NNNN-<slug>.md` | `../loop-sdlc-documents/adr.md` |
 
 The epic id is the work-item id that the server gave the epic. The slug is a few words of the
 title, in lower case, joined by dashes. An ADR takes the next free four-digit number. Never reuse
 a number, and never renumber an ADR.
+
+A spec that merged before `docs/specs/` existed stays under `docs/plans/`, and each reader of a
+spec reads both directories. Never move a spec, because the server records its path.
 
 Never move a PRD after its epic exists. The server records the PRD by its path, and reads its story
 labels there.
@@ -30,9 +33,10 @@ Run `loop gates --docs` before you commit a document. Each gate below names the 
 - **`prd`** reads each PRD. The scope check holds the five lines Stories, Estimated total, Lands
   independently?, Promises provable alone? and Verdict. No line holds a placeholder. The verdict
   starts with proceed.
-- **`spec`** reads each spec, `docs/plans/*-spec.md`. The 14 headings of the template are there,
-  once each and in their order. No section is empty. No line of the template's instruction block,
-  placeholders or example markers is left. The filename starts with the `**Epic:**` id and a dash.
+- **`spec`** reads each spec, `docs/specs/*-spec.md` and `docs/plans/*-spec.md`. The 14 headings
+  of the template are there, once each and in their order. No section is empty. No line of the
+  template's instruction block, placeholders or example markers is left. The filename starts with
+  the `**Epic:**` id and a dash.
 - **`citations`** reads each PRD. Each top-level bullet under `## Requirements` has a `→` citation
   on a line under it, and each citation resolves. The PRD names a story label US-n. No two
   headings define one label. A label that the PRD held on the base branch is still there.

@@ -29,7 +29,7 @@ var proseSets = []proseSet{
 		"docs/adr/*.md", "docs/agents/*.md", "docs/commands/*.md", "docs/rules/*.md", "docs/templates/*.md",
 		"skills/*/SKILL.md", ".claude/agents/*.md",
 	}},
-	{globs: []string{"docs/prd/*.md", "docs/plans/*-spec.md"}, steDisable: "synonym-rotation"},
+	{globs: append([]string{"docs/prd/*.md"}, specGlobs()...), steDisable: "synonym-rotation"},
 }
 
 // Prose runs the STE linter and the unslop linter, which the loop embeds,

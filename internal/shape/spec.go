@@ -18,7 +18,7 @@ var SpecSections = []string{"Source", "Scope check", "Decisions", "Assumptions",
 // holds a <...> placeholder, and the example markers. A test holds this list
 // equal to pack/skills/loop-sdlc-documents/spec.md.
 var TemplateLines = []string{
-	"> Copy this file to `docs/plans/<epic id>-<slug>-spec.md`. You write it from the epic's source: a",
+	"> Copy this file to `docs/specs/<epic id>-<slug>-spec.md`. You write it from the epic's source: a",
 	"# <Title of the epic>: technical spec",
 	"- **Epic:** <epic id>",
 	"- **Source:** `docs/prd/<slug>.md` for a feature epic. For an architecture epic, list",
@@ -106,7 +106,7 @@ func CheckSpec(file, text string) []SpecFinding {
 	case at == 0:
 		add(0, "name", "no **Epic:** line; the filename must start with the epic id and a dash")
 	case !strings.HasPrefix(name, epic+"-"):
-		add(at, "name", "%s does not start with %q; name the file docs/plans/<epic id>-<slug>-spec.md", name, epic+"-")
+		add(at, "name", "%s does not start with %q; name the file docs/specs/<epic id>-<slug>-spec.md", name, epic+"-")
 	}
 	slices.SortStableFunc(out, func(a, b SpecFinding) int { return a.Line - b.Line })
 	return out
