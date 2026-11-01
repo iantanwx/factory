@@ -87,6 +87,7 @@ type docGitHub struct {
 	pr    github.PR
 	files []github.File
 	text  map[string]string // by path, at pr.Head.SHA
+	ui    string            // the UI stories that DocMerge reads at the merge
 	calls []string
 }
 
@@ -116,6 +117,11 @@ func (g *docGitHub) MergePR(_ context.Context, _ config.Project, n int, sha stri
 
 func (g *docGitHub) DefaultBranch(context.Context, config.Project) (string, error) {
 	return "main", nil
+}
+
+func (g *docGitHub) DocMerge(_ context.Context, p config.Project, it machine.Item, sha string) (machine.MergeEvent, error) {
+	g.calls = append(g.calls, "DocMerge "+it.ID+" "+sha)
+	return machine.MergeEvent{Project: p.ID, Item: it.ID, SHA: sha, UIStories: g.ui}, nil
 }
 
 func (g *docGitHub) merged() bool {
