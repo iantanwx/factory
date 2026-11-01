@@ -103,6 +103,13 @@ func newWorld(t *testing.T) *world {
 	return w
 }
 
+// emptyBase is a base branch that holds no declared path.
+type emptyBase struct{}
+
+func (emptyBase) Files(context.Context, string, []string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
 func ensureKey(t *testing.T, dir string) string {
 	t.Helper()
 	p := filepath.Join(dir, "keys", "kek")
@@ -116,7 +123,7 @@ func ensureKey(t *testing.T, dir string) string {
 func (w *world) build() {
 	w.t.Helper()
 	resolver := func(string) (beadsx.Client, error) { return w.bx, nil }
-	a, err := admission.New(admission.Config{Store: w.st, Host: &config.HostLoader{Path: w.hostPath}, Beads: resolver, Release: "v1"})
+	a, err := admission.New(admission.Config{Store: w.st, Host: &config.HostLoader{Path: w.hostPath}, Beads: resolver, Base: emptyBase{}, Release: "v1"})
 	if err != nil {
 		w.t.Fatal(err)
 	}
