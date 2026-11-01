@@ -210,7 +210,8 @@ func TestThreadsFindAThreadWhoseRootIsGone(t *testing.T) {
 
 // Ported from land-queue.test.ts (alpha): no source of the GitHub actor
 // rebases a branch, force-pushes one without a lease, or asks GitHub to
-// update one. A conflict goes back to the implementer.
+// update one. A conflict goes back to the implementer. MergeBase adds a
+// merge commit through GitHub's merges API, and it rewrites nothing.
 func TestNoSourceRebasesOrForcePushes(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {

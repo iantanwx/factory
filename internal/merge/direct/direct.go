@@ -3,11 +3,11 @@
 // records the PR, and each poll merges it through GitHub's merge API with
 // a merge commit. The call carries the reviewed head sha, so GitHub
 // refuses the merge when the head moved. A PR whose head lacks the tip of
-// the base goes to rework before the call, because its CI ran on an older
-// base. A PR that GitHub refuses because it conflicts or is behind the
-// base goes to rework too. On a busy base this costs another review and
-// another CI run for each merge, and that cost is accepted for a
-// repository with no queue.
+// the base gets no merge call, because its CI ran on an older base. When
+// the base change touches no file of the PR, the mechanism merges the
+// base into the head with no conflict, and the PR stays with it until CI
+// passes on that merge commit (F-66). A PR that conflicts with the base,
+// or that shares a file with the base change, goes to rework.
 package direct
 
 import (
@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -74,10 +75,11 @@ func (d *Direct) lock(project string) func() {
 // project, once every required check passed there and the head holds the
 // tip of the base. A draft, or a PR whose base is not the project's
 // default branch, is dequeued under a reason that names it, with no merge
-// call. A PR that conflicts with its base, or whose head lacks the tip of
-// the base, goes to rework with no merge call. A head that moved is
-// refused by GitHub, and the PR stays pending until the hand-off job or
-// the reactor returns the ticket to review. Any other refusal is read
+// call. A PR that conflicts with its base goes to rework with no merge
+// call. A head that lacks the tip of the base gets no merge call either:
+// mergeBase merges the base into it, or sends it to rework. A head that
+// moved is refused by GitHub, and the PR stays pending until the hand-off
+// job or the reactor returns the ticket to review. Any other refusal is read
 // from what GitHub reports about the PR: a conflict, a branch behind the
 // base, or red CI. A refusal while GitHub still computes the mergeable
 // state stays pending, and the next poll tries again.
@@ -98,15 +100,14 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 		return res, nil
 	}
 	// No queue tests the PR on the current base here. A head that lacks
-	// the tip of the base has CI from an older base, so it goes to rework
-	// with no merge call, and the implementer merges the base.
+	// the tip of the base has CI from an older base, so it gets no merge
+	// call.
 	behind, err := d.gh.Behind(ctx, pr.Project, cur.Base.Ref, pr.Head)
 	if err != nil {
 		return merge.Result{}, err
 	}
 	if behind {
-		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Conflict,
-			Detail: "the reviewed head lacks the tip of " + cur.Base.Ref + ", so its CI ran on an older base"}, nil
+		return d.mergeBase(ctx, pr, cur.Base.Ref)
 	}
 	// A repository with no rulesets lets any merge through, so the loop
 	// reads CI on the reviewed head itself before it merges. Each
@@ -126,6 +127,14 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 	case github.CIPending:
 		return merge.Result{Outcome: merge.Pending,
 			Detail: "CI has not passed on the reviewed head: " + strings.Join(v.Waiting, ", ")}, nil
+	}
+	// A ticket's merge of a moved base takes loop/eligible on a later
+	// reactor tick than the hand-off, and a ruleset that requires it
+	// refuses the merge until then. A settings change posts its own.
+	if pr.Item != "" {
+		if ok, err := d.gh.EligiblePosted(ctx, pr.Project.ID, pr.Head); err != nil || !ok {
+			return merge.Result{Outcome: merge.Pending, Detail: github.EligibleContext + " is not posted on the reviewed head yet"}, err
+		}
 	}
 	sha, err := d.gh.MergePR(ctx, pr.Project, pr.Number, pr.Head)
 	if err == nil {
@@ -149,7 +158,7 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 		// The base's rules need an up-to-date branch. No queue tests
 		// the PR on the current base here, so only a merge of the base
 		// into the branch lands it.
-		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Conflict, Detail: api.Message}, nil
+		return d.mergeBase(ctx, pr, fresh.Base.Ref)
 	}
 	ci, err = d.gh.Checks(ctx, pr.Project, fresh.Head.SHA)
 	if err != nil {
@@ -160,6 +169,50 @@ func (d *Direct) Poll(ctx context.Context, pr merge.PR) (merge.Result, error) {
 		res.Detail = api.Message
 	}
 	return res, nil
+}
+
+// mergeBase merges base into the reviewed head of a PR that lacks its
+// tip. A base change that touches a file of the PR may change what the
+// review passed, so it goes to rework with no merge, as a conflict does.
+// GitHub's compare lists at most 300 files, and a list at that cap goes
+// to rework too.
+func (d *Direct) mergeBase(ctx context.Context, pr merge.PR, base string) (merge.Result, error) {
+	if pr.Item == "" {
+		// A settings change has no item branch to merge the base into.
+		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Conflict,
+			Detail: "the head lacks the tip of " + base + ", so its CI ran on an older base"}, nil
+	}
+	changed, complete, err := d.gh.BaseChanges(ctx, pr.Project, base, pr.Head)
+	if err != nil {
+		return merge.Result{}, err
+	}
+	if !complete {
+		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Conflict,
+			Detail: "the base changed more files since the reviewed head than GitHub's compare lists"}, nil
+	}
+	files, err := d.gh.PRFiles(ctx, pr.Project, pr.Number)
+	if err != nil {
+		return merge.Result{}, err
+	}
+	for _, f := range files {
+		if slices.Contains(changed, f.Path) || (f.Previous != "" && slices.Contains(changed, f.Previous)) {
+			return merge.Result{Outcome: merge.Dequeued, Reason: merge.Conflict,
+				Detail: "the base changed " + f.Path + ", a file of the PR, since the reviewed head"}, nil
+		}
+	}
+	sha, err := d.gh.MergeBase(ctx, pr.Project, pr.Item, base, pr.Head)
+	var api *github.APIError
+	switch {
+	case errors.As(err, &api) && api.Status == http.StatusConflict:
+		return merge.Result{Outcome: merge.Dequeued, Reason: merge.Conflict, Detail: "the base conflicts with the reviewed head"}, nil
+	case errors.Is(err, github.ErrHeadMoved):
+		return merge.Result{Outcome: merge.Pending, Detail: "the head moved after review"}, nil
+	case err != nil:
+		return merge.Result{}, err
+	case sha == pr.Head:
+		return merge.Result{Outcome: merge.Pending, Detail: "the reviewed head already holds the tip of " + base}, nil
+	}
+	return merge.Result{Outcome: merge.BaseMerged, SHA: sha, Detail: "merged " + base + " into the reviewed head"}, nil
 }
 
 // refused is the result of an open PR that the loop must not merge as it

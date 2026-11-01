@@ -148,7 +148,9 @@ func TestParityStalePREntersOnceAndWaitsWithoutABranchUpdate(t *testing.T) {
 // updates a branch. The mechanism merges onto the current base, and a
 // conflict goes back to the implementer, who merges the base into the
 // branch. New form: no source of the merge package or its mechanisms
-// names a rebase, a branch update, a force or a push.
+// names a rebase, a branch update, a force or a push. The direct
+// mechanism's merge of the base into a branch behind it goes through the
+// GitHub actor, and it adds a merge commit that rewrites nothing (F-66).
 func TestParityNoMergeSourceRewritesABranch(t *testing.T) {
 	banned := []*regexp.Regexp{
 		regexp.MustCompile(`(?i)rebase`), regexp.MustCompile(`update-branch`),

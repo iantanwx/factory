@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
@@ -167,6 +168,76 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	_, _ = s.git.run(ctx, gitRun{dir: m.Dir, args: []string{"update-ref", remoteRef(req.Branch), req.Head}})
 	res.Pushed = true
 	return res, nil
+}
+
+// baseMergeRun names a push intent of MergeBase in place of a run.
+const baseMergeRun = "server:merge-base"
+
+// ErrHeadMoved means that the branch held another commit than the head
+// MergeBase expected, so the merge commit holds that commit too.
+var ErrHeadMoved = errors.New("github: the branch moved from the expected head")
+
+// MergeBase merges the tip of base into the item's branch through
+// GitHub's merges API, with a merge commit, and returns that commit. The
+// branch must hold head: a merge of any other commit answers
+// ErrHeadMoved. A branch that already holds the tip answers head. A
+// conflict is the *APIError that GitHub answers, 409. The push intent
+// comes before the call, so the reactor reads the new head as the
+// server's own (KTD14). An unknown answer abandons it: a merge that
+// GitHub made all the same reads as a foreign head, and the ticket
+// returns to review. The branch lock keeps a reconcile from settling the
+// intent while GitHub has not answered.
+func (s *Service) MergeBase(ctx context.Context, p config.Project, item, base, head string) (string, error) {
+	branch := BranchFor(item)
+	unlock := s.lock(p.ID + "\x00" + branch)
+	defer unlock()
+	id, err := s.recordPush(ctx, p.ID, item, branch, head, "", baseMergeRun)
+	if err != nil {
+		return "", err
+	}
+	var out struct {
+		SHA     string `json:"sha"`
+		Parents []struct {
+			SHA string `json:"sha"`
+		} `json:"parents"`
+	}
+	_, err = s.repoDo(ctx, p, ScopePush, Call{Method: http.MethodPost, Path: repoPath(p, "/merges"),
+		Body: map[string]string{"base": branch, "head": base, "commit_message": fmt.Sprintf("Merge %s into %s", base, branch)}}, &out)
+	switch {
+	case err != nil:
+		return "", errors.Join(err, s.settlePush(ctx, id, "abandoned"))
+	case out.SHA == "":
+		return head, s.settlePush(ctx, id, "abandoned") // 204: nothing to merge
+	case !shaRe.MatchString(out.SHA) || len(out.Parents) == 0:
+		return "", errors.Join(&UnavailableError{Err: fmt.Errorf("the merge of %s into %s names no merge commit", base, branch)},
+			s.settlePush(ctx, id, "abandoned"))
+	}
+	from := out.Parents[0].SHA
+	err = s.cfg.Store.Write(context.WithoutCancel(ctx), func(tx *store.Tx) error {
+		_, err := tx.Exec(`UPDATE push_intents SET old_sha = ?, new_sha = ?, state = 'done', settled_at = ? WHERE id = ?`,
+			from, out.SHA, tx.Now().UnixMilli(), id)
+		return err
+	})
+	if err == nil && from != head {
+		err = ErrHeadMoved
+	}
+	return out.SHA, err
+}
+
+// BaseMerge reads the server's newest merge of the base into branch at
+// from: the merge commit, or pending while GitHub has not answered the
+// merge yet. sha is empty when no such merge stands.
+func (s *Service) BaseMerge(ctx context.Context, project, branch, from string) (sha string, pending bool, err error) {
+	var state string
+	err = s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT new_sha, state FROM push_intents
+			WHERE project = ? AND branch = ? AND old_sha = ? AND run_id = ? AND state IN ('pending', 'done')
+			ORDER BY id DESC LIMIT 1`, project, branch, from, baseMergeRun).Scan(&sha, &state)
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	return sha, state == "pending", err
 }
 
 // recordPush is the push intent of KTD14: the branch, the old sha and the
