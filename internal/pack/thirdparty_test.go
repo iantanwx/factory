@@ -108,6 +108,26 @@ func TestShippedThirdPartyPinsLoad(t *testing.T) {
 	}
 }
 
+// TestC12AsdSte100PinNames255631a proves C12: the shipped asd-ste100 pin
+// names upstream commit 255631a and the tree hash of that commit's tree.
+// The hash was computed outside Go from the GitHub tarball of the commit.
+func TestC12AsdSte100PinNames255631a(t *testing.T) {
+	want := pack.ThirdParty{
+		Name:   "asd-ste100",
+		Repo:   "danyuchn/asd-ste100-skill",
+		Commit: "255631a36dea63b427b6a454c1e59a53cdc0b14a",
+		Path:   "",
+		SHA256: "2f7052a83617e9b326d9f2b11ac265914b7b1e9bb8a3de50498cba5e11fe5173",
+	}
+	i := slices.IndexFunc(pack.ThirdPartyPins(), func(p pack.ThirdParty) bool { return p.Name == want.Name })
+	if i < 0 {
+		t.Fatalf("no pin named %s", want.Name)
+	}
+	if got := pack.ThirdPartyPins()[i]; got != want {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
 // TestC6TreeHashOfAFixedTree pins the encoding: the literal was computed
 // outside Go, as sha256 over
 // "SKILL.md\x00644\x0019\x00<bytes>scripts/run\x00755\x0018\x00<bytes>".
