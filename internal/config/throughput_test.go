@@ -466,3 +466,25 @@ func TestOldHostConfigLoadsWithNoRetroEntry(t *testing.T) {
 		t.Fatal("ThroughputFor wrote the retro entry into the config")
 	}
 }
+
+// A host config that an older release wrote holds no simplify entry. It
+// loads, and the simplify stage reads its default cap and schedule without
+// writing the entry. The stage runs right after the implementer
+// (docs/plans/factorio-1r94-simplify-stage-spec.md, Interfaces).
+func TestOldHostConfigLoadsWithNoSimplifyEntry(t *testing.T) {
+	stages := RunStages()
+	if i := slices.Index(stages, "implementer"); i < 0 || i+1 >= len(stages) || stages[i+1] != "simplify" {
+		t.Fatalf("RunStages = %v, want simplify right after implementer", stages)
+	}
+	cfg, err := LoadHost(filepath.Join("testdata", "host-v0.0.58.yaml"))
+	if err != nil {
+		t.Fatalf("the v0.0.58 host config does not load: %v", err)
+	}
+	want := Throughput{Cap: 8, Schedule: "1,6,11,16,21,26,31,36,41,46,51,56 * * * *"}
+	if got := cfg.ThroughputFor("simplify"); got != want {
+		t.Fatalf("ThroughputFor(simplify) = %+v, want %+v", got, want)
+	}
+	if _, ok := cfg.Throughput["simplify"]; ok {
+		t.Fatal("ThroughputFor wrote the simplify entry into the config")
+	}
+}
