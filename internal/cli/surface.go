@@ -155,7 +155,8 @@ var surface = []Verb{
 		Flag{Name: "verdict", Type: FlagString, Required: true, Enum: []string{"pass", "reject"}, Description: "pass or reject"},
 		Flag{Name: "head", Type: FlagString, Description: "the PR head sha the review read; every pass needs it"},
 		Flag{Name: "body", Type: FlagString, Description: "the review comment; the server posts it on the item's pull request and records it with the verdict"},
-		Flag{Name: "adr-needed", Type: FlagString, Description: "a PRD pass only: each requirement that passes the ADR test; the PRD merge then lands the epic on architecture, and a pass without it clears the list"})),
+		Flag{Name: "adr-needed", Type: FlagString, Description: "a PRD pass only: each requirement that passes the ADR test; the PRD merge then lands the epic on architecture, and a pass without it clears the list"},
+		Flag{Name: "readers", Type: FlagString, Description: "a doc review only: the readers that returned, comma-separated; the set must be the readers the run's brief names, and the round records it"})),
 	server("review", "threads", "list the pull request's comments, each review comment with its thread's resolved, outdated and awaiting-us state", []string{"reviewer run"}, []Arg{itemArg}),
 	server("review", "rounds", "list review rounds", []string{"reviewer run"}, []Arg{itemArg}),
 	client("review", "proof", "run the pull request's tests at the merge base in a throwaway worktree, remove the worktree whatever happens, and check that the reviewed checkout is still clean at its head", []string{"reviewer run"}, nil,
@@ -361,6 +362,7 @@ var surface = []Verb{
 		Flag{Name: "list", Type: FlagBool, Description: "name the selected gates and run none"},
 		Flag{Name: "base", Type: FlagString, Description: "the ref the change is compared with; the pull request's base in CI, else the remote's default branch"})),
 	client("ui", "detect", "find the frontend signals in the tracked paths of the checkout in the current directory at HEAD, and propose the ui block of .loop/config.yaml that covers them", anyone, nil),
+	client("qa", "plan", "print the plan of the QA run whose checkout holds the current directory: the apps to drive, whether visual QA runs, the design skill and the bounds", anyone, nil),
 
 	topLevel(server("meta", "schema", "print the CLI schema", anyone, nil)),
 	topLevel(server("meta", "status", "show the server's status", anyone, nil)),

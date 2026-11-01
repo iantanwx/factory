@@ -40,6 +40,7 @@ const (
 	FactStories      = "stories"       // the PRD story labels a ticket cites, comma-separated (R45)
 	FactRequest      = "request"       // the operator's request a PRD-less ticket cites (R48)
 	FactReview       = "review"        // the body of the last review verdict
+	FactReaders      = "readers"       // the doc readers the last review verdict named, comma-separated
 	FactTitle        = "title"         // the title work edit wrote; it replaces the bead's title
 	FactBody         = "body"          // the body work edit wrote; it replaces the bead's description
 	FactBug          = "bug"           // the bug a shaped ticket came from
@@ -144,12 +145,19 @@ func editRow(from []string) Row {
 }
 
 // recordReview stores the body of a verdict as the review fact, or clears
-// the fact of an earlier round when the verdict has no body.
+// the fact of an earlier round when the verdict has no body. It stores the
+// doc readers the verdict named the same way. The readers fact is left out
+// of the rows' facts, since the epic table must not change (factorio-kt4y).
 func recordReview(c *change) *cli.Refusal {
 	if b := c.param("body"); b != "" {
 		c.setFact(FactReview, b)
 	} else {
 		c.unsetFact(FactReview)
+	}
+	if r := c.param("readers"); r != "" {
+		c.setFact(FactReaders, r)
+	} else {
+		c.unsetFact(FactReaders)
 	}
 	return nil
 }
