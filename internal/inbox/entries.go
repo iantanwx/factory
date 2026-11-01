@@ -74,6 +74,7 @@ var itemSources = []itemSource{
 	{KindHold, machine.ListFilter{Kind: machine.KindDecision, Status: machine.NeedsHuman}},
 	{KindSignoff, machine.ListFilter{Kind: machine.KindEpic, Status: machine.PRDSignoff}},
 	{KindSignoff, machine.ListFilter{Kind: machine.KindEpic, Status: machine.SpecSignoff}},
+	{KindSignoff, machine.ListFilter{Kind: machine.KindEpic, Status: machine.DesignSignoff}},
 	{KindAsk, machine.ListFilter{Kind: machine.KindBug, Status: machine.Asked}},
 	// An epic here makes an entry only with no open child, and, read in
 	// the store, no open room on it.
@@ -342,8 +343,11 @@ const (
 )
 
 func docOf(status string) string {
-	if status == machine.SpecSignoff {
+	switch status {
+	case machine.SpecSignoff:
 		return "spec"
+	case machine.DesignSignoff:
+		return "design record"
 	}
 	return "PRD"
 }

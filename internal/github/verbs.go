@@ -150,12 +150,13 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 // openVerbs maps the status an item holds when its run opens or updates
 // its PR to the table verb that hands the item to review. The reviser
 // pushes its revision to the document's open PR, and its `pr open` returns
-// the epic to review, or to sign-off when it pushed nothing. A simplify
+// the epic to review, or to sign-off when it pushed nothing. The design
+// room's `pr open` hands the design record to its doc review. A simplify
 // run's `pr open` hands its ticket to code review.
 var openVerbs = map[machine.Kind]map[string]string{
 	machine.KindTicket: {machine.InProgress: "pr_open", machine.Repair: "fix_pushed", machine.InSimplify: machine.VerbSimplified},
 	machine.KindEpic: {machine.SpecDrafting: "pr_open", machine.PRDAmending: "prd_amended",
-		machine.SpecAmending: "spec_amended"},
+		machine.SpecAmending: "spec_amended", machine.Design: "pr_open"},
 }
 
 func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
@@ -196,9 +197,10 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 	if verb == "" {
 		return cli.Found(out)
 	}
-	if it.Kind == machine.KindEpic && it.Status == machine.SpecDrafting {
-		// A spec is a document a person merges. Ask the reader before the
-		// move, so a retry after a crash between the two asks again.
+	if it.Kind == machine.KindEpic && (it.Status == machine.SpecDrafting || it.Status == machine.Design) {
+		// A spec and a design record are documents a person merges. Ask
+		// the reader before the move, so a retry after a crash between the
+		// two asks again.
 		if req := s.RequestSignoff(ctx, prj, pr.Number); req != nil {
 			out["signoff"] = req
 		}
