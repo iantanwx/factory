@@ -55,8 +55,26 @@ func TestC5DocReadersLivesOnTheDocReviewerOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st, ok := settingRow(t, pc, "stages.doc-reviewer.doc_readers"); !ok || st.Value != "false" || st.Source != SourceDefault {
+	if st, ok := settingRow(t, pc, "stages.doc-reviewer.doc_readers"); !ok || st.Value != "true" || st.Source != SourceDefault {
 		t.Fatalf("doc_readers unset: row %+v, listed %v", st, ok)
+	}
+}
+
+// C1: with no doc_readers key and no doc-reviewer harness, or harness
+// claude, the readers are all three, and the settings row reads true by
+// default with no reason.
+func TestC1ReadersAreOnByDefault(t *testing.T) {
+	for _, doc := range []string{"  doc-reviewer: {}\n", "  doc-reviewer:\n    harness: claude\n", "  implementer: {}\n"} {
+		pc, err := ParseProjectConfig([]byte(docReadersBase + doc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := pc.DocReaders(); !slices.Equal(got.Readers, []string{"unslop", "asd-ste100", "content-lens"}) || got.Off != "" {
+			t.Fatalf("%q: readers = %+v, want all three", doc, got)
+		}
+		if st, _ := settingRow(t, pc, "stages.doc-reviewer.doc_readers"); st.Value != "true" || st.Source != SourceDefault || st.Reason != "" {
+			t.Fatalf("%q: settings row = %+v, want true by default with no reason", doc, st)
+		}
 	}
 }
 

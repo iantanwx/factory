@@ -89,12 +89,12 @@ var partDeadline = PartDeadline
 // PartNames is the order of every part that ports: of a report, of the ring
 // text and of the runbook's table.
 var PartNames = []string{"stalls", "questions", "decisions", "reminders", "bugs", "backlog", "claims", "pulls", "worktrees", "main",
-	"ci", "flaky", "audit", "timer-health", "inbox", "server", "rules", "ui"}
+	"ci", "flaky", "audit", "timer-health", "inbox", "server", "rules", "ui", "qa"}
 
 // Parts returns the shipped part list. Each part entry adds its part.
 func Parts() []Part {
 	return []Part{stallsPart, questionsPart(), decisionsPart(), remindersPart(), bugsPart(), backlogPart(), claimsPart(), pullsPart,
-		worktreesPart(), mainPart, ciPart, flakyPart, auditPart, timersPart(), inboxPart(), serverPart(), rulesPart(), uiPart()}
+		worktreesPart(), mainPart, ciPart, flakyPart, auditPart, timersPart(), inboxPart(), serverPart(), rulesPart(), uiPart(), qaPart()}
 }
 
 // Intervals are the scheduler's own, from sched.Config.
