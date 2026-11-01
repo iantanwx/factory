@@ -120,7 +120,11 @@ func propose(sigs []Signal) *config.UIConfig {
 			ui.Kind = config.UINative
 			dirs = append(dirs, s.Path)
 		case KindPackage:
-			dirs = append(dirs, strings.TrimSuffix(path.Dir(s.Path), "."))
+			d := path.Dir(s.Path)
+			if d == "." {
+				d = ""
+			}
+			dirs = append(dirs, d)
 		}
 	}
 	slices.Sort(dirs)

@@ -116,6 +116,10 @@ func TestC24DetectProposesABlockThatCoversEachSignal(t *testing.T) {
 			"apps/web/package.json": `{"dependencies": {"react": "1"}}`,
 			"apps/web/src/App.tsx":  "",
 		}, "web", []string{"apps/web/**"}},
+		{"a package directory whose name ends in a dot", memTree{
+			"apps/web./package.json": `{"dependencies": {"react": "1"}}`,
+			"apps/web./App.tsx":      "",
+		}, "web", []string{"apps/web./**"}},
 		{"the root package covers every other glob", memTree{
 			"package.json":          `{"dependencies": {"react": "1"}}`,
 			"apps/web/package.json": `{"dependencies": {"vue": "1"}}`,
