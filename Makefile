@@ -68,14 +68,14 @@ acceptance:
 orca-contract:
 	$(GO) test -tags orca -run TestOrcaContract -v -timeout 60m ./internal/agenthost/orca/
 
-# The real-orca lane (ADR 0008) runs the orca contract, then the F1
-# scenario, with real agents on this host. It spends harness quota, so it
+# The real-orca lane (ADR 0008) runs the orca contract, then the F1 and
+# C14 scenarios, with real agents on this host. It spends harness quota, so it
 # stays out of GATES and every workflow. Each lane binary's gate fails on a
 # missing LOOP_ORCA_ROOT, LOOP_ORCA_REPO or LOOP_ORCA_MODEL. -count=1 keeps
 # a cached pass from proving nothing, and 120m is the lane's deadline.
 orca-acceptance:
 	$(GO) test -count=1 -timeout 120m -tags orca ./internal/agenthost/orca/
-	$(GO) test -count=1 -timeout 120m -tags 'acceptance orca' -run '^TestF1RealAgentsTakeATicketFromClaimToMerge$$' ./acceptance/scenarios/
+	$(GO) test -count=1 -timeout 120m -tags 'acceptance orca' -run '^(TestF1RealAgentsTakeATicketFromClaimToMerge|TestC14FalseReaderFindingsRejectNothing)$$' ./acceptance/scenarios/
 
 proto:
 	$(BUF) lint

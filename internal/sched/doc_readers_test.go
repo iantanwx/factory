@@ -166,3 +166,29 @@ func TestC23DocReviewerWithReadersWaitsForClaude(t *testing.T) {
 		}
 	}
 }
+
+// C1: a project with no doc_readers key and no doc-reviewer harness gets
+// all three readers in the doc-reviewer brief of an epic in prd_review,
+// spec_review and adr_review, and a Readers line that names them. The
+// implementer brief holds no doc_readers field.
+func TestC1DocReviewerBriefHoldsThreeReadersByDefault(t *testing.T) {
+	for _, status := range []string{machine.PRDReview, machine.SpecReview, machine.ADRReview} {
+		t.Run(status, func(t *testing.T) {
+			w := newWorld(t)
+			w.project.set(snapshot(t, "stages:\n  doc-reviewer: {}\n  implementer: {}\nmerge:\n  mechanism: direct\n", ""))
+			w.epic(status, "")
+			b, md := briefFiles(t, w.dispatch(machine.StageDocReviewer))
+			if got, ok := b["doc_readers"].([]any); !ok || !slices.Equal(got, []any{"unslop", "asd-ste100", "content-lens"}) {
+				t.Fatalf("doc_readers = %#v, want the three readers", b["doc_readers"])
+			}
+			if line := "- Readers: unslop, asd-ste100, content-lens\n"; !strings.Contains(md, line) {
+				t.Fatalf("brief.md holds no line %q:\n%s", line, md)
+			}
+			w.ticket(machine.Todo)
+			b, md = briefFiles(t, w.dispatch(machine.StageImplementer))
+			if _, ok := b["doc_readers"]; ok || strings.Contains(md, "Readers:") {
+				t.Fatalf("the implementer brief holds doc_readers %v, or a Readers line:\n%s", b["doc_readers"], md)
+			}
+		})
+	}
+}
