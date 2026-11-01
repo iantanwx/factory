@@ -325,3 +325,24 @@ func TestC38ASecondTurnOnKeepsTheReportsConclusion(t *testing.T) {
 		t.Fatalf("%d %s posts at %s, want 1", n, EligibleContext, head)
 	}
 }
+
+// TestC29NoNeutralQAOnAReportedHeadOnceTheStageTurnsOff: a head that holds
+// a stored report gets no neutral loop/qa when the project then stops
+// running QA, so the report's conclusion stays on its check run.
+func TestC29NoNeutralQAOnAReportedHeadOnceTheStageTurnsOff(t *testing.T) {
+	e := qaEnv(t)
+	e.baseConfig(qaOn)
+	id, head := e.qaTicket(mayChange("apps/web/src/a.ts"), verifyWeb, "")
+	mustOK(t, e.qaReport(id, e.status(id).Epoch, "k1", present(head, nil, fuzzy("web", "pass"))))
+	e.wantQABeforeEligible(head, "success")
+	e.baseConfig("merge:\n  mechanism: direct\nstages:\n  qa: {enabled: false}\n")
+	e.eligibility()
+	e.eligibility()
+	if got, want := e.qaKeys(head), []string{checkRunKey(testProject, head, qaRun)}; !slices.Equal(got, want) {
+		t.Fatalf("checkrun keys after the stage turned off = %q, want %q", got, want)
+	}
+	e.wantCheckRun(head, "success")
+	if n := e.eligibleAt(head); n != 1 {
+		t.Fatalf("%d %s posts at %s, want 1", n, EligibleContext, head)
+	}
+}
