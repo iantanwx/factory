@@ -1,6 +1,7 @@
 package github
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -531,9 +532,10 @@ func (r *Reactor) readADRPull(ctx context.Context, p config.Project, pr PR) (adr
 //
 // An epic in adr_review joins the same way: the merge outran its review.
 //
-// It also returns to architecture each spec_needed epic whose adr fact
-// names an ADR on the base whose Ticket line names another epic, or none:
-// the reactor once joined an ADR to every epic its text named (F-10).
+// It also returns to architecture each epic in spec_needed or design whose
+// adr fact names an ADR on the base whose Ticket line names another epic,
+// or none: the reactor once joined an ADR to every epic its text named
+// (F-10).
 func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error {
 	epics, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: machine.Architecture})
 	if ref != nil {
@@ -548,7 +550,11 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 	if ref != nil {
 		return fmt.Errorf("list spec_needed epics: %s", ref.Hint)
 	}
-	landed = slices.DeleteFunc(landed, func(ep machine.Item) bool { return ep.Fact(machine.FactADR) == "" })
+	designing, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindEpic, Status: machine.Design})
+	if ref != nil {
+		return fmt.Errorf("list design epics: %s", ref.Hint)
+	}
+	landed = slices.DeleteFunc(append(landed, designing...), func(ep machine.Item) bool { return ep.Fact(machine.FactADR) == "" })
 	if len(epics) == 0 && len(landed) == 0 || sha == "" {
 		return nil
 	}
@@ -579,7 +585,7 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 		if id, ok := tickets[path]; !ok || id == ep.ID {
 			continue
 		}
-		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbADRMisjoined, ExpectedStatus: machine.SpecNeeded,
+		res := r.m.Apply(ctx, machine.Request{Project: p.ID, Item: ep.ID, Verb: machine.VerbADRMisjoined, ExpectedStatus: ep.Status,
 			Params: map[string]string{"path": path}, Actor: machine.Server("reactor")})
 		if err := machine.Settled(res); err != nil {
 			errs = append(errs, fmt.Errorf("%s adr_misjoined: %w", ep.ID, err))
@@ -742,8 +748,9 @@ func (r *Reactor) handle(ctx context.Context, p config.Project, base string, pr 
 	}
 	it, ref := r.m.Show(ctx, p.ID, item)
 	if ref != nil && ref.Code == cli.CodeNotFound {
-		// A spec branch names its epic with a suffix (SpecBranchFor).
-		if epic := SpecEpicOf(pr.Head.Ref); epic != "" {
+		// A spec or a design branch names its epic with a suffix
+		// (SpecBranchFor, DesignBranchFor).
+		if epic := cmp.Or(SpecEpicOf(pr.Head.Ref), DesignEpicOf(pr.Head.Ref)); epic != "" {
 			item = epic
 			it, ref = r.m.Show(ctx, p.ID, item)
 		}
@@ -768,7 +775,11 @@ func (r *Reactor) handle(ctx context.Context, p config.Project, base string, pr 
 		// A merge wins from any state (KTD16). MergeObserved retries a
 		// status miss and answers Nothing for a terminal item. Any other
 		// refusal keeps the cursor, so the merge is read again.
-		ev := machine.MergeEvent{Project: p.ID, Item: item, Base: base, Into: pr.Base.Ref, SHA: pr.MergeCommitSHA}
+		ev, err := r.s.DocMerge(ctx, p, it, pr.MergeCommitSHA)
+		if err != nil {
+			return fmt.Errorf("%s merged as #%d: %w", item, pr.Number, err)
+		}
+		ev.Base, ev.Into = base, pr.Base.Ref
 		if it.Kind == machine.KindEpic && SpecEpicOf(pr.Head.Ref) == item && slices.Contains(specDocStates, it.Status) {
 			path, err := r.specPath(ctx, p, item, pr.Number)
 			if err != nil {

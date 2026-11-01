@@ -31,29 +31,42 @@ const (
 	Execution    = "execution"
 )
 
+// The design stage of an epic whose PRD holds a UI story: the design room
+// writes the record, the doc-reviewer reviews it, and the operator signs
+// it off.
+const (
+	Design        = "design"
+	DesignReview  = "design_review"
+	DesignSignoff = "design_signoff"
+)
+
 // epicResume is where answer returns an epic. A state a stage polls
 // returns to itself. A state a run holds returns to the queue it was
 // claimed from. A review state returns to its author, except PRD review:
 // after the second reject a brainstorm room revises the PRD, and the answer
-// sends it back to review (AE7). Ported from escalationTargetFor in
+// sends it back to review (AE7). A design in review returns to the design
+// room, which revises the record. Ported from escalationTargetFor in
 // scripts/sdlc/handoff.ts (alpha).
 var epicResume = map[string]string{
-	Backlog:      Backlog,
-	PRDNeeded:    PRDNeeded,
-	PRDDrafting:  PRDNeeded,
-	PRDReview:    PRDReview,
-	PRDAmending:  PRDAmending,
-	PRDSignoff:   PRDSignoff,
-	Architecture: Architecture,
-	ADRReview:    Architecture,
-	SpecNeeded:   SpecNeeded,
-	SpecDrafting: SpecNeeded,
-	SpecReview:   SpecNeeded,
-	SpecSignoff:  SpecSignoff,
-	SpecAmending: SpecAmending,
-	SpecApproved: SpecApproved,
-	Decomposing:  SpecApproved,
-	Execution:    Execution,
+	Backlog:       Backlog,
+	PRDNeeded:     PRDNeeded,
+	PRDDrafting:   PRDNeeded,
+	PRDReview:     PRDReview,
+	PRDAmending:   PRDAmending,
+	PRDSignoff:    PRDSignoff,
+	Architecture:  Architecture,
+	ADRReview:     Architecture,
+	Design:        Design,
+	DesignReview:  Design,
+	DesignSignoff: DesignSignoff,
+	SpecNeeded:    SpecNeeded,
+	SpecDrafting:  SpecNeeded,
+	SpecReview:    SpecNeeded,
+	SpecSignoff:   SpecSignoff,
+	SpecAmending:  SpecAmending,
+	SpecApproved:  SpecApproved,
+	Decomposing:   SpecApproved,
+	Execution:     Execution,
 }
 
 func epicResumeFor(status string) (string, string) { return epicResume[status], "" }
@@ -155,7 +168,9 @@ func mark(fact, param string) setter {
 
 // specClaim refuses a planner on an epic whose PRD never merged and
 // whose ADR never landed (R46): the spec stage starts only after the
-// operator's sign-off.
+// operator's sign-off. It refuses an epic with a UI story that has no
+// design outcome too: answer and adr_misjoined can also land an epic on
+// spec_needed, and its spec starts only after its design (A8).
 func specClaim(r Row) Row {
 	next := r.guard
 	r.guard = func(c *change) *cli.Refusal {
@@ -163,10 +178,31 @@ func specClaim(r Row) Row {
 			return &cli.Refusal{Code: cli.CodePRDRequired, Rule: "no_signed_off_document", Item: c.item.ID, CurrentStatus: c.item.Status,
 				Hint: fmt.Sprintf("%s has no merged PRD and no landed ADR; the spec starts after the operator merges one", c.item.ID)}
 		}
+		if designDue(c) {
+			return &cli.Refusal{Code: cli.CodePRDRequired, Rule: "design_required", Item: c.item.ID, CurrentStatus: c.item.Status,
+				Hint: fmt.Sprintf("%s holds the UI stories %s, and neither a merged design record nor the operator's skip; "+
+					"the spec starts after one", c.item.ID, c.fact(FactUIStories))}
+		}
 		return next(c)
 	}
 	return r
 }
+
+// designDue holds when the epic's PRD holds a UI story, and the epic holds
+// no design outcome yet: its next document is the design record.
+func designDue(c *change) bool {
+	return c.fact(FactUIStories) != "" && c.fact(FactDesignMerged) == "" && c.fact(FactDesignSkipped) == ""
+}
+
+// uiRoute holds when the PRD merge carries a UI story.
+func uiRoute(c *change) bool { return c.param("ui_stories") != "" }
+
+// prdMerged records the PRD's merge commit and its UI stories, once, at
+// the PRD merge.
+var prdMerged = all(mark(FactPRDMerged, "sha"), copyParam("ui_stories", FactUIStories))
+
+// adrJoined records the ADR that landed and the commit that added it.
+var adrJoined = all(needCopy("path", FactADR), needCopy("added", FactADRMerged))
 
 // adrRequested holds when the PRD review found a requirement that needs
 // an ADR, or the operator sent the epic to the ADR stage: the PRD merge
@@ -319,6 +355,9 @@ func epicTable() *Table {
 		{Name: SpecAmending, Category: beadsx.CategoryActive},
 		{Name: Architecture, Category: beadsx.CategoryActive},
 		{Name: ADRReview, Category: beadsx.CategoryActive},
+		{Name: Design, Category: beadsx.CategoryActive},
+		{Name: DesignReview, Category: beadsx.CategoryActive},
+		{Name: DesignSignoff, Category: beadsx.CategoryActive},
 		{Name: SpecNeeded, Category: beadsx.CategoryActive},
 		{Name: SpecDrafting, Category: beadsx.CategoryWIP},
 		{Name: SpecReview, Category: beadsx.CategoryActive},
@@ -330,8 +369,8 @@ func epicTable() *Table {
 		{Name: Done, Category: beadsx.CategoryDone, Terminal: true},
 		{Name: Canceled, Category: beadsx.CategoryDone, Terminal: true},
 	}
-	live := []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, ADRReview, SpecNeeded, SpecDrafting,
-		SpecReview, SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
+	live := []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, ADRReview, Design, DesignReview,
+		DesignSignoff, SpecNeeded, SpecDrafting, SpecReview, SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution, Escalated}
 	claim := func(from, to, stage string) Row {
 		return Row{Verb: "claim", From: []string{from}, To: to, Stage: stage, when: stageIs(stage),
 			guard: claimGuard, BumpsEpoch: true, Lease: LeaseTake, Facts: []string{FactOwner, FactStage}}
@@ -385,9 +424,13 @@ func epicTable() *Table {
 			When: "unchanged", when: amendedUnchanged(SpecSignoff), set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
 		{Verb: "spec_amended", From: []string{SpecAmending}, To: SpecReview, Lease: LeaseDrop,
 			set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
+		// The PRD merge routes the epic: to the ADR stage when it asks for an
+		// ADR, then to the design stage when the PRD holds a UI story.
 		{Verb: "doc_merged", From: []string{PRDSignoff}, To: Architecture, When: "adr_requested", when: adrRequested,
-			set: mark(FactPRDMerged, "sha"), Facts: []string{FactPRDMerged}},
-		{Verb: "doc_merged", From: []string{PRDSignoff}, To: SpecNeeded, set: mark(FactPRDMerged, "sha"), Facts: []string{FactPRDMerged}},
+			set: prdMerged, Facts: []string{FactPRDMerged, FactUIStories}},
+		{Verb: "doc_merged", From: []string{PRDSignoff}, To: Design, When: "ui_stories", when: uiRoute,
+			set: prdMerged, Facts: []string{FactPRDMerged, FactUIStories}},
+		{Verb: "doc_merged", From: []string{PRDSignoff}, To: SpecNeeded, set: prdMerged, Facts: []string{FactPRDMerged, FactUIStories}},
 		// The operator sends a PRD epic to the ADR stage. Before the PRD
 		// merges, the send only marks the epic, and the merge routes it. In
 		// the spec stage it moves the epic at once, and doc_pr keeps the
@@ -401,13 +444,18 @@ func epicTable() *Table {
 		{Verb: VerbADROff, From: []string{PRDSignoff}, To: ToSame, Command: "epic adr",
 			set: adrOff, Facts: []string{FactADRNeeded, FactADRSent}},
 		// adr_merged is the first-parent commit that added the ADR, which the
-		// base audit passes (ADR 0012). The tick's head is not always it.
-		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded,
-			set: all(needCopy("path", FactADR), needCopy("added", FactADRMerged)), Facts: []string{FactADR, FactADRMerged}},
+		// base audit passes (ADR 0012). The tick's head is not always it. An
+		// epic with a UI story and no design outcome designs next. One that
+		// returns to architecture after its design goes on to its spec.
+		{Verb: VerbADRLanded, From: []string{Architecture}, To: Design, When: "design_due", when: designDue,
+			set: adrJoined, Facts: []string{FactADR, FactADRMerged}},
+		{Verb: VerbADRLanded, From: []string{Architecture}, To: SpecNeeded, set: adrJoined, Facts: []string{FactADR, FactADRMerged}},
 		// A merge that outran the ADR review ends it, as an outran document
 		// merge does, and revokes the review lease.
+		{Verb: VerbADRLanded, From: []string{ADRReview}, To: Design, When: "design_due", when: designDue, BumpsEpoch: true, Lease: LeaseDrop,
+			set: adrJoined, Facts: []string{FactADR, FactADRMerged}},
 		{Verb: VerbADRLanded, From: []string{ADRReview}, To: SpecNeeded, BumpsEpoch: true, Lease: LeaseDrop,
-			set: all(needCopy("path", FactADR), needCopy("added", FactADRMerged)), Facts: []string{FactADR, FactADRMerged}},
+			set: adrJoined, Facts: []string{FactADR, FactADRMerged}},
 		// The doc-reviewer reviews each ADR pull request of an epic in
 		// architecture once at each head. The review is advisory: a verdict
 		// returns the epic to architecture, and the merge stays the
@@ -424,7 +472,7 @@ func epicTable() *Table {
 		{Verb: VerbADRWithdrawn, From: []string{ADRReview}, To: Architecture, BumpsEpoch: true, Lease: LeaseDrop},
 		// An epic that an ADR named only in prose returns to wait for its
 		// own ADR (F-10). The server alone performs it.
-		{Verb: VerbADRMisjoined, From: []string{SpecNeeded}, To: Architecture, guard: adrIs, set: clearFacts(FactADR, FactADRMerged),
+		{Verb: VerbADRMisjoined, From: []string{SpecNeeded, Design}, To: Architecture, guard: adrIs, set: clearFacts(FactADR, FactADRMerged),
 			Facts: []string{FactADR, FactADRMerged}},
 		{Verb: "pr_open", From: []string{SpecDrafting}, To: SpecReview, Lease: LeaseDrop,
 			set: copyParam("pr", FactDocPR), Facts: []string{FactDocPR}},
@@ -494,6 +542,6 @@ func uniqueValues(m map[string]string) []string {
 }
 
 func epicStateOrder() []string {
-	return []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, ADRReview, SpecNeeded, SpecDrafting,
-		SpecReview, SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution}
+	return []string{Backlog, PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff, Architecture, ADRReview, Design, DesignReview,
+		DesignSignoff, SpecNeeded, SpecDrafting, SpecReview, SpecSignoff, SpecAmending, SpecApproved, Decomposing, Execution}
 }
