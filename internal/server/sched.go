@@ -126,7 +126,7 @@ func (c *configCaches) forget(project string) {
 // of a project.
 func (s *Server) projectLoader(refs RefSource) sched.ProjectSource {
 	loader := &config.Loader{LKG: config.StoreLKG(s.Store), Alerts: config.StoreAlerter(s.Store),
-		Check: config.StageCheck(&config.HostLoader{Path: s.HostPath})}
+		Check: config.StageCheck(&config.HostLoader{Path: s.HostPath}), Kernel: s.opts.Sched.Pack.Skills}
 	var mu sync.Mutex
 	cache := map[string]cachedSnap{}
 	// gen counts each project's forgets, so a load that started before a
