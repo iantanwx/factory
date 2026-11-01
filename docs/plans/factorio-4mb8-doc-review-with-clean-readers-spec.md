@@ -12,6 +12,11 @@ The PRD's criteria are A1 to A15. Each contract below names the criterion it pro
 contracts prove an answer that the operator gave at the PRD sign-off, and no criterion holds that
 answer. Those contracts name the answer under Decisions.
 
+Round 2 answers the four findings of the spec reject at `8799508`. Finding 1: the readers run on
+Claude Code only, and C23 proves it. Finding 2: C24 binds each lens to its skill. Finding 3: C25
+holds the merge and the rank. Finding 4: C26 holds a reader's open question. C21 no longer claims
+A15, and the stage-field note under Interfaces now names the refusal of C5.
+
 ## Scope check
 
 **Components:**
@@ -22,8 +27,8 @@ answer. Those contracts name the answer under Decisions.
    `pack/third-party.json`, and the pack gate in `internal/pack/gate.go` that checks them.
 2. **The server's record of the readers.** The setting that turns the readers off, the brief
    field that tells a run which readers to start, the `--readers` flag of `loop review submit`,
-   and two push refusals: a push from a doc-reviewer run, and a reviser push that splits its edit
-   set. Why not its own epic: the pack cannot know that a project turned the readers off unless
+   two push refusals, a push from a doc-reviewer run and a reviser push that splits its edit set,
+   and the profile rule that keeps a doc-reviewer run with readers on Claude Code. Why not its own epic: the pack cannot know that a project turned the readers off unless
    the brief says so. And without a record on the verdict, A1, A2, A3 and A12 have no
    observation that can fail them. Nothing else reads this record.
 
@@ -85,14 +90,37 @@ The brief leaves two questions to the planner. Each answer below follows from th
   that a prompt points at one lens. We rejected three agent files, because the three would hold
   one copy each of the start rules, the output shape and the tool list, and those copies would
   drift.
+- **The readers run on Claude Code only.** While `doc_readers` is in force, a doc-reviewer run
+  takes the Claude Code profile and no fallback harness, as an escalated run takes no fallback
+  today (`internal/sched/quota.go`, `escalatedProfiles`). When the Claude Code window is spent or
+  paused, the run waits for it. The config refuses `doc_readers: true` beside a doc-reviewer
+  harness other than `claude`. We rejected readers on Codex, because no mechanism there can fail a
+  test today. A Codex checkout receives no agent directory (`internal/brief/pack.go`,
+  `AgentRoot`), so a Codex subagent has no tool list. It holds a shell and the run's token, and
+  nothing stops it from running `loop review submit` or `loop escalation raise` (A7). We also
+  rejected a Codex doc-reviewer run that reviews alone while the readers are on, because A1 to A3
+  make a review with fewer readers false. So every doc review with readers on runs where C7's tool
+  list holds, and A1 to A3 stay true by C2 and C23. A project that turns the readers off keeps
+  today's Codex fallback.
+- **A doc-reviewer harness that a project names turns the readers off, unless the project also
+  sets `doc_readers: true`.** The readers are in force when `doc_readers` is true, or when it is
+  unset and neither `stages.doc-reviewer.harness` nor `stages.doc-reviewer.escalated.harness`
+  names a harness other than `claude`. We rejected a parse failure for an unset `doc_readers`
+  beside a Codex harness, because entry 7 would then break a project config that was valid the day
+  before, and the server would stop reading that project. The project chose its harness in its
+  config, and the brief and `loop settings show` name that choice as the reason the readers are
+  off. An explicit `doc_readers: true` beside a Codex harness asks for both, and the parse refuses
+  it.
 - **The reader's instructions live in the skill, and the agent file points to them.** The text
   is `pack/skills/loop-doc-readers/reader.md`. We rejected text in the agent file alone, because
-  a Codex checkout receives no agent directory (`internal/brief/pack.go`, `AgentRoot`). A Codex
-  run starts its own subagent with a prompt that names the same file.
-- **On Claude Code, the reader holds Read, Grep and Glob only.** We chose a tool list over a rule
-  in the prompt, because a reader with no Write, Edit or Bash cannot write a file or run a `loop`
-  verb (A6, A7). We rejected Bash for the ASD-STE100 reader's own scripts. The `prose` gate
-  already runs the forked STE linter, and the reader applies the rules by reading them.
+  the pack gate checks a `../loop-<name>/SKILL.md` path only in a skill file. It reads such a path
+  relative to the directory that receives the file (`internal/pack/gate.go`, `packPaths`), and an
+  agent file lands in `.claude/agents/`, apart from the skills. In `reader.md` each lens path is a
+  sibling, so the gate proves that each path resolves (C22, C24).
+- **The reader holds Read, Grep and Glob only.** We chose a tool list over a rule in the prompt,
+  because a reader with no Write, Edit or Bash cannot write a file or run a `loop` verb (A6, A7).
+  We rejected Bash for the ASD-STE100 reader's own scripts. The `prose` gate already runs the
+  forked STE linter, and the reader applies the rules by reading them.
 - **One content-lens reader runs every selected lens in one context.** We rejected one subagent
   for each persona, as ce-doc-review dispatches them, because the epic body names three readers.
   Each extra subagent is one more model run.
@@ -135,8 +163,9 @@ The brief leaves two questions to the planner. Each answer below follows from th
 The test of `pack/skills/loop-sdlc-documents/SKILL.md` § 6 finds no entry here that needs an ADR.
 The two route answers and the right to disagree keep today's rules, so they make no costly change
 (part 3 fails). Each choice inside this epic binds this epic's own build, and no other epic
-builds on it (part 1 fails). The setting and the `--readers` flag are public interfaces, so part 3
-holds for them. But only this epic reads them, so part 1 fails. The one-commit rule binds every
+builds on it (part 1 fails). The setting, the `--readers` flag and the harness rule of the
+doc-reviewer are public interfaces, so part 3 holds for them. But only this epic reads them, so
+part 1 fails. The one-commit rule binds every
 later reviser run. The rule itself is the PRD requirement, a "what", and only the check that
 enforces it is new here (part 4 fails).
 
@@ -144,9 +173,11 @@ enforces it is new here (part 4 fails).
 
 - Claude Code starts an agent of type `loop-doc-reader` with a fresh context that holds only its
   prompt. This is wrong if the reader's first turn can read the reviewer's earlier messages.
-- Codex starts a subagent with a fresh context through its `multi_agent` feature, which is stable
-  and on in codex-cli 0.166.0 on this host. This is wrong if a Codex doc-reviewer run has no
-  subagent tool, or its subagent inherits the parent thread.
+- A doc review that waits for the Claude Code window delays its epic by less than one quota
+  window, and no other stage waits with it. This is wrong if the plan shows a doc-reviewer run
+  that waits on the Claude Code window for longer than one window, or if an epic in
+  `prd_review` or `spec_review` stalls behind the wait. The operator then turns the readers off,
+  or a later epic gives Codex a reader mechanism.
 - Upstream commit 255631a36dea63b427b6a454c1e59a53cdc0b14a of `danyuchn/asd-ste100-skill`, from
   2026-10-31, keeps a `SKILL.md` at the repository root. It is 12 commits ahead of the pinned
   cd62d29, and it changes 5 files. This is wrong if `loop install` places no `loop-asd-ste100`
@@ -173,9 +204,17 @@ enforces it is new here (part 4 fails).
 read, the run reads the `doc_readers` line of its brief. When the line names readers, the run
 follows `loop-doc-readers`. It starts the three readers at once, each with a prompt that holds
 four facts and nothing else: the document's path at the head, its kind (`prd`, `spec` or `adr`),
-the lens name, and the path of `reader.md`. On Claude Code it starts each one as agent type
-`loop-doc-reader`. On Codex it starts the harness's subagent with the same prompt. No prompt holds
-the reviewer's notes, an earlier round, or another reader's output.
+the lens name, and the path of `reader.md`. It starts each one as agent type `loop-doc-reader`.
+No prompt holds the reviewer's notes, an earlier round, or another reader's output.
+
+**Each lens names one skill.** `reader.md` binds lens `unslop` to `../loop-unslop/SKILL.md`, lens
+`asd-ste100` to `../loop-asd-ste100/SKILL.md`, and lens `content-lens` to
+`../loop-content-lens/SKILL.md`. A reader reads the document by the skill of its lens and by no
+other skill.
+
+**The run is always on Claude Code.** While the readers are on, the scheduler gives a
+doc-reviewer run the Claude Code profile only, so the run never starts on Codex. When the Claude
+Code window is spent, the plan shows the doc-reviewer run as waiting, with the reason.
 
 **The reviewer reads the whole document while the readers run.** It reads as today, by the
 doc-reviewer runbook § 2, § 3 or § 4. The readers' findings come after the reviewer's own read.
@@ -183,13 +222,20 @@ The reviewer reads all of the document whatever they return.
 
 **A reader returns one JSON object.** It names the reader, a list of findings and a list of
 questions. Each finding holds a place, a rule and a proposed edit. A question holds a place and
-the question. A reader decides nothing, by `loop-sdlc-turn` § 8, so a question goes to the
-reviewer. The reviewer drops a finding that lacks a place, a rule or an edit, and counts each
-drop in its comment.
+the question. A reader decides nothing, by `loop-sdlc-turn` § 8, so it returns each question
+and never answers it in a finding. The reviewer drops a finding that lacks a place, a rule or an
+edit, and counts each drop in its comment.
+
+**The reviewer scores each question.** It scores each reader's question by
+`loop-sdlc-triage`. A question that the document or the repository answers, it answers itself.
+When the answer shows a fault, it judges that fault as a finding. A question at level 4 or 5 it
+escalates by the doc-reviewer runbook § 6. No question reaches the verdict unscored, and no
+reader raises one.
 
 **The reviewer judges each finding.** It opens the line and the rule that the finding names. It
-confirms the finding, or it drops it with a reason. It merges two findings on one place into one.
-It ranks the confirmed findings by `loop-sdlc-review` § 3. In a later round it keeps the findings
+confirms the finding, or it drops it with a reason. Two findings on one place become one finding,
+which names each reader that returned it. The reviewer ranks the confirmed findings by
+`loop-sdlc-review` § 3, the worst first. In a later round it keeps the findings
 inside the diff since the last reviewed head, and names the rest as outside this round. A
 confirmed prose finding may reject the document alone, by the new exception in
 `loop-sdlc-review` § 6. Each confirmed finding enters the one comment, with a permalink, the rule
@@ -214,7 +260,9 @@ not land, and finishes `done`.
 
 **The setting turns the readers off.** `stages.doc-reviewer.doc_readers: false` in a project's
 `.loop/config.yaml` empties the brief's `doc_readers`. The run then reviews alone, as today, and
-submits with no `--readers`. Only the coordinator changes the value, with `loop settings set`.
+submits with no `--readers`. A doc-reviewer harness other than `claude` that the project names,
+with `doc_readers` unset, turns the readers off the same way. Only the coordinator changes either
+value, with `loop settings set`.
 
 **The content lens.** `loop-content-lens/SKILL.md` holds one section for each lens. The two
 lenses that always run come first, then the five by signal, each with the signal that turns it on.
@@ -256,8 +304,8 @@ server (changed)
 DocReaders          the ordered set of Reader that one doc-reviewer run must start
   invariant: either all three readers or empty. Empty means the project turned the readers off.
              No other subset exists, so a run can never start two readers by design.
-  source: stages.doc-reviewer.doc_readers in force at the claim, true unless the project sets
-          false.
+  source: stages.doc-reviewer.doc_readers at the claim. True when set true, or when unset and
+          no doc-reviewer harness other than claude is named. Empty otherwise.
 ```
 
 The round record gains `readers`, a `DocReaders` value. A round recorded before this epic reads
@@ -269,12 +317,24 @@ as empty.
 # The setting (internal/config/project.go, StageConfig)
 stages:
   doc-reviewer:
-    doc_readers: false      # bool, optional. Unset means true once entry 7 lands.
+    doc_readers: false      # bool, optional. Unset means true once entry 7 lands, unless the
+                            # doc-reviewer's harness or escalated.harness names another harness.
 
 loop settings set stages.doc-reviewer.doc_readers false --reason "<why>"
 loop settings show          # lists stages.doc-reviewer.doc_readers with its value and source
 
-# A doc_readers value under any other stage is refused, as any unknown stage field is today.
+# The config parse refuses doc_readers under any stage other than doc-reviewer, with an error
+# that names the field (C5). `StageConfig` is one struct for every stage, so the check is a rule
+# of validate, not a missing field.
+# The parse refuses doc_readers: true beside a stages.doc-reviewer.harness or
+# stages.doc-reviewer.escalated.harness other than claude, and loop settings set refuses each
+# change that would make that pair (C23). An unset doc_readers beside such a harness means off.
+```
+
+```
+# The profiles of a doc-reviewer run (internal/sched/quota.go)
+doc_readers in force:  [claude]            # no fallback harness, as escalatedProfiles
+doc_readers false:     [claude, codex, ...] # each other harness with a login, as today
 ```
 
 ```
@@ -282,6 +342,7 @@ loop settings show          # lists stages.doc-reviewer.doc_readers with its val
 "doc_readers": ["unslop", "asd-ste100", "content-lens"]   # brief.json, doc-reviewer runs only
 - Readers: unslop, asd-ste100, content-lens                # brief.md
 - Readers: off (stages.doc-reviewer.doc_readers is false)  # brief.md, when the set is empty
+- Readers: off (stages.doc-reviewer.harness is codex)       # brief.md, off by the harness rule
 ```
 
 ```
@@ -305,8 +366,7 @@ EDIT_SET_SPLIT,    rule one_edit_set          # exit 3, a reviser run's second c
 
 ```
 # The reader start (pack/skills/loop-doc-readers/SKILL.md)
-Claude Code: an agent of type loop-doc-reader, with this prompt
-Codex:       a new subagent with no forked context, with this prompt
+An agent of type loop-doc-reader, with this prompt
 
   Lens: <unslop | asd-ste100 | content-lens>
   Document: <path> at <head sha>, kind <prd | spec | adr>
@@ -314,6 +374,11 @@ Codex:       a new subagent with no forked context, with this prompt
 
 # pack/agents/loop-doc-reader.md front matter
 tools: Read, Grep, Glob
+
+# The lens table (pack/skills/loop-doc-readers/reader.md)
+unslop        ../loop-unslop/SKILL.md
+asd-ste100    ../loop-asd-ste100/SKILL.md
+content-lens  ../loop-content-lens/SKILL.md
 ```
 
 ```
@@ -352,7 +417,8 @@ sequenceDiagram
         R->>S: loop fault report, finish blocked
     else report returned
         C-->>R: ReaderReport
-        R->>R: drop malformed, confirm or drop each, rank
+        R->>R: drop malformed, confirm or drop each, merge, rank
+        R->>R: score each question, answer or escalate
         R->>R: git status --porcelain
         alt tree not clean
             R->>S: loop fault report, finish blocked
@@ -421,14 +487,18 @@ sequenceDiagram
 3. **The readers in the server, default off.** Add `doc_readers` to the doc-reviewer stage
    config with the default false. Fill the brief's `doc_readers` and its Readers line. Add
    `--readers` to `review submit`, its two refusals, the record on the round, and the comment
-   line. Refuse a `branch push` from a doc-reviewer run.
+   line. Refuse a `branch push` from a doc-reviewer run. Give a doc-reviewer run the Claude Code
+   profile only while the readers are in force, and refuse a doc-reviewer harness other than
+   `claude` in the config parse and in `loop settings set`.
    - Files: `internal/config/project.go`, `internal/config/settings.go`, `internal/brief/brief.go`,
-     `internal/sched/dispatch.go`, `internal/cli/surface.go`, `internal/machine/verbs.go`,
-     `internal/machine/rows.go`, `internal/github/push.go`, and their tests
+     `internal/sched/dispatch.go`, `internal/sched/quota.go`, `internal/sched/plan.go`,
+     `internal/cli/surface.go`, `internal/machine/verbs.go`, `internal/machine/rows.go`,
+     `internal/github/push.go`, and their tests
    - Needs: nothing
-   - Proves: C2, C3, C4, C5, C6, C16
-   - Done when: a doc review with `doc_readers: true` and no `--readers` gets a refusal, and a review
-     with the setting unset still passes with no `--readers`.
+   - Proves: C2, C3, C4, C5, C6, C16, C23
+   - Done when: a doc review with `doc_readers: true` and no `--readers` gets a refusal, a review
+     with the setting unset still passes with no `--readers`, and a doc-reviewer run with
+     `doc_readers: true` never takes the Codex profile.
 4. **The subloop in the pack.** Write `loop-doc-readers/SKILL.md`, `reader.md` and
    `report.schema.json`, and the agent `loop-doc-reader.md`. Add the readers step and the
    `--readers` flag to the doc-reviewer runbook, § 1 to § 5. Change `loop-sdlc-review` § 6 and
@@ -441,9 +511,9 @@ sequenceDiagram
      `internal/pack/doc_readers_test.go`
    - Needs: entry 2, for the skill the content-lens prompt names. Entry 3, for the flag the
      runbook passes.
-   - Proves: C7, C8, C9, C10, C11, C19, C20, C22
-   - Done when: `make pack-check` passes, and the pack test reads each rule of C7 to C11, C19 and
-     C20.
+   - Proves: C7, C8, C9, C10, C11, C19, C20, C22, C24, C25, C26
+   - Done when: `make pack-check` passes, and the pack test reads each rule of C7 to C11, C19,
+     C20 and C24 to C26.
 5. **One edit set for the reviser.** Add the `one_edit_set` count to the push scan of a reviser
    run, and the `EDIT_SET_SPLIT` code. Write the one-commit rule and its recovery into the reviser
    runbook § 4, and the code into `loop-sdlc-turn` § 2.
@@ -480,13 +550,16 @@ sequenceDiagram
   the PRD.
 - A route from a spec reject or an ADR reject to the reviser. It belongs to no epic, by the
   decision above. A later epic that wants it starts from a PRD.
+- Readers on a Codex doc-reviewer run. It belongs to no epic. A later epic that gives a Codex
+  subagent a limit that a test can fail starts from a PRD, by the decision above.
 - A per-project choice of which reader runs. It belongs to no epic. The setting is all or none,
   by the domain model.
 
 ## Contracts
 
 **C1. Behaviour: three readers by default.** Proves A1, A2, A3. A doc-reviewer run on an epic in
-`prd_review`, `spec_review` or `adr_review` of a project with no `doc_readers` key gets a brief
+`prd_review`, `spec_review` or `adr_review` of a project with no `doc_readers` key, and no
+doc-reviewer harness other than `claude`, gets a brief
 whose `doc_readers` is `["unslop", "asd-ste100", "content-lens"]`, and a Readers line that names
 all three. Every other stage's brief holds no `doc_readers` field.
 *A brief test for each of the three states and for the implementer stage.*
@@ -523,7 +596,8 @@ stage run's push that changes the value gets `SETTINGS_CHANGE`.
 `--readers` behaves as today.
 *A machine test for each case.*
 
-**C7. Invariant: a reader on Claude Code cannot write.** Proves A6, A7. The front matter of
+**C7. Invariant: a reader cannot write.** Proves A6, A7, with C23, which keeps every reader on
+Claude Code. The front matter of
 `pack/agents/loop-doc-reader.md` names the tools Read, Grep and Glob, and no other tool. The agent
 text names no `loop` verb that the schema marks as a write.
 *A pack test parses the front matter. The pack gate's existing check of write verbs in an agent
@@ -531,8 +605,8 @@ file covers the second half.*
 
 **C8. Behaviour: each reader starts clean.** Proves A4. `loop-doc-readers/SKILL.md` states the
 four facts of a reader's prompt, and states that the prompt holds no reviewer note, no earlier
-round and no other reader's output. It names agent type `loop-doc-reader` for Claude Code, and a
-new subagent with no forked context for Codex. It names the three readers. The doc-reviewer
+round and no other reader's output. It names agent type `loop-doc-reader` as the one way to start
+a reader, and names no other subagent. It names the three readers. The doc-reviewer
 runbook starts the readers before its own read in each of § 2, § 3 and § 4.
 *A pack test reads each rule. C14 observes it with a real agent.*
 
@@ -622,7 +696,9 @@ reader failure and a dirty tree each send the run to `loop fault report` and `bl
 *`make pack-check`, and a pack test that compares the runbook's reader names with the server's
 list.*
 
-**C21. Behaviour: the glossary defines a reader.** Proves A15. `loop-sdlc-glossary/SKILL.md`
+**C21. Behaviour: the glossary defines a reader.** Proves no criterion alone. It keeps the
+glossary in step with C10, which proves A14 and A15, so a runbook that reads the word "reader"
+reads the rule of C10. `loop-sdlc-glossary/SKILL.md`
 defines "reader" as a subagent of the doc-reviewer that finds and never judges, and names the
 readers in each doc review phase.
 *A pack test reads the definition.*
@@ -632,6 +708,50 @@ entries 1 and 4. The pack gate accepts `../loop-asd-ste100/SKILL.md` in a pack f
 `pack/third-party.json` pins `asd-ste100`. It still refuses `../loop-nothing/SKILL.md`, a path to
 no pack skill and no pin, with a finding that names the path.
 *Gate tests for the two paths, over a fixture pack source.*
+
+**C23. Invariant: a doc review with readers runs on Claude Code only.** Proves A6 and A7 for
+every run that the decision "The readers run on Claude Code only" admits, and keeps A1, A2 and A3
+true when the Claude Code window is spent. With the readers in force and a host that lists a
+Codex login, `profiles` for the doc-reviewer returns the Claude Code profile and no other. With
+the Claude Code harness paused or over `QuotaLimit`, the chooser starts no doc-reviewer run, and
+the plan names the reason. With `doc_readers: false`, the Codex profile follows as today. A
+config with `doc_readers: true` and `stages.doc-reviewer.harness: codex`, or
+`stages.doc-reviewer.escalated.harness: codex`, fails the parse with an error that names both
+fields. `loop settings set` refuses each change that would make that pair, and changes nothing.
+With `doc_readers` unset and `stages.doc-reviewer.harness: codex`, the brief's `doc_readers` is
+empty, and its line and `loop settings show` name the harness as the reason. Each doc-reviewer
+brief whose `doc_readers` names readers names harness `claude`.
+*Quota tests for the profile list in each case, a dispatch test with the Claude Code harness
+paused and a Codex login present, config tests for the two refused pairs and the unset case, and
+a settings test.*
+
+**C24. Behaviour: each lens follows its own skill.** Proves the two PRD requirements that the
+unslop reader reads by `loop-unslop` and the ASD-STE100 reader by `loop-asd-ste100`, and the
+requirement that the content-lens reader reads by its pack skill. `reader.md` binds lens `unslop`
+to `../loop-unslop/SKILL.md`, lens `asd-ste100` to `../loop-asd-ste100/SKILL.md`, and lens
+`content-lens` to `../loop-content-lens/SKILL.md`, one path for each lens. It tells a reader to
+read the document by the skill of its lens only. A lens with no path, or a path bound to two
+lenses, makes this false.
+*A pack test parses the lens table of `reader.md` and asserts the three pairs. The pack gate
+proves that each path resolves, by C22.*
+
+**C25. Behaviour: the reviewer merges and ranks.** Proves the PRD requirement that the reviewer
+merges the readers' findings and ranks them. `loop-doc-readers/SKILL.md` tells the reviewer to
+make one finding of two findings on one place, naming each reader that returned it. It tells the
+reviewer to rank the confirmed findings by `loop-sdlc-review` § 3, the worst first, in the one
+comment. C3 covers the one verdict at the head.
+*A pack test reads both rules and the citation of `loop-sdlc-review` § 3.*
+
+**C26. Behaviour: a reader returns each question, and the reviewer scores it.** Proves the PRD
+requirement that a reader decides no question and returns each one to the reviewer, and A7 for a
+question. `report.schema.json` requires `questions`, a list whose items each require `where` and
+`question`, each a string of length one or more. A report with no `questions` field fails it. An
+empty list passes. `reader.md` tells a reader to return each question it cannot decide in
+`questions`, and never to answer one in a finding. `loop-doc-readers/SKILL.md` tells the reviewer
+to score each question by `loop-sdlc-triage`, to answer it from the document or the repository
+when it can, and to escalate it at level 4 or 5 by the doc-reviewer runbook § 6 when it cannot.
+*A pack test validates an example report with a question, and two mutated copies, one with no
+`questions` field and one with a question that lacks `where`. It reads the two rules.*
 
 ## Observable behaviour
 
