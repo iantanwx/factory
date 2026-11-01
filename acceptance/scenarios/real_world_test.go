@@ -22,6 +22,7 @@ import (
 	"github.com/iantanwx/loop/internal/agenthost/orca"
 	"github.com/iantanwx/loop/internal/cli"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 )
 
@@ -61,7 +62,7 @@ func (c *worktrees) CreateCheckout(ctx context.Context, spec agenthost.CheckoutS
 	if err != nil {
 		return co, err
 	}
-	out, err := exec.Command("git", "-C", c.clone, "worktree", "add", "-q", "-b", spec.Name, co.Path, "main").CombinedOutput()
+	out, err := gittest.Command("-C", c.clone, "worktree", "add", "-q", "-b", spec.Name, co.Path, "main").CombinedOutput()
 	if err != nil {
 		return co, fmt.Errorf("git worktree add: %w: %s", err, out)
 	}
@@ -72,7 +73,7 @@ func (c *worktrees) RemoveCheckout(ctx context.Context, path string) error {
 	if err := c.fake.RemoveCheckout(ctx, path); err != nil {
 		return err
 	}
-	if out, err := exec.Command("git", "-C", c.clone, "worktree", "remove", "--force", path).CombinedOutput(); err != nil {
+	if out, err := gittest.Command("-C", c.clone, "worktree", "remove", "--force", path).CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree remove: %w: %s", err, out)
 	}
 	return nil

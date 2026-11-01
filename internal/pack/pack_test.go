@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -19,6 +18,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/room"
@@ -313,7 +313,7 @@ func fixtureSource(t *testing.T, hashed fs.FS, names ...string) fstest.MapFS {
 func gitInit(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+	if out, err := gittest.Command("init", "-q", dir).CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
 	return dir
@@ -384,7 +384,7 @@ func TestARunReceivesEachVerifiedSkillRenamedAndOtherwiseUntouched(t *testing.T)
 		if line := "/" + brief.SkillRoot(h) + "/loop-impeccable/"; !slices.Contains(strings.Split(string(exclude), "\n"), line) {
 			t.Errorf("%s: info/exclude does not list %s:\n%s", h, line, exclude)
 		}
-		if out, err := exec.Command("git", "-C", dir, "status", "--porcelain", "--untracked-files=all").Output(); err != nil || len(out) != 0 {
+		if out, err := gittest.Command("-C", dir, "status", "--porcelain", "--untracked-files=all").Output(); err != nil || len(out) != 0 {
 			t.Fatalf("%s: git sees the skills: %q %v", h, out, err)
 		}
 	}

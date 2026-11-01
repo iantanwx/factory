@@ -20,6 +20,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -104,7 +105,7 @@ func (g gitInit) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec
 	if err != nil {
 		return co, err
 	}
-	if out, err := exec.Command("git", "init", "-q", co.Path).CombinedOutput(); err != nil {
+	if out, err := gittest.Command("init", "-q", co.Path).CombinedOutput(); err != nil {
 		g.t.Fatalf("git init: %v: %s", err, out)
 	}
 	return co, nil

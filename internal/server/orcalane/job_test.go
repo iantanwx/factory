@@ -9,7 +9,6 @@ import (
 	"io"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -23,6 +22,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/fault"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/release"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/server/orcalane"
@@ -499,7 +499,7 @@ func TestC19TheJobMakesAndRegistersTheFixtureOnce(t *testing.T) {
 
 func gitHead(t *testing.T, dir string) string {
 	t.Helper()
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "main").Output()
+	out, err := gittest.Command("-C", dir, "rev-parse", "main").Output()
 	if err != nil {
 		t.Fatalf("git rev-parse main in %s: %v", dir, err)
 	}

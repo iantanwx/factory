@@ -3,13 +3,14 @@ package ci
 import (
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 func TestIsDocCountsOnlyMarkdownThatNoBuildReads(t *testing.T) {
@@ -80,7 +81,7 @@ func TestFilesSinceListsBothSidesOfAMove(t *testing.T) {
 	dir := t.TempDir()
 	git := func(args ...string) string {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd := gittest.Command(append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
 		cmd.Dir = dir
 		out, err := cmd.CombinedOutput()
 		if err != nil {

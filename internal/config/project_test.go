@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 const validProjectConfig = `
@@ -266,7 +268,7 @@ type gitRepo struct {
 
 func (g gitRepo) git(args ...string) string {
 	g.t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main"}, args...)...)
+	cmd := gittest.Command(append([]string{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "init.defaultBranch=main"}, args...)...)
 	cmd.Dir = g.clone
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -312,7 +314,7 @@ func newGitRepo(t *testing.T) gitRepo {
 // reader over the bare mirror.
 func (g gitRepo) reader() RefReader {
 	return func(ctx context.Context, ref, path string) ([]byte, error) {
-		cmd := exec.CommandContext(ctx, "git", "show", ref+":"+path)
+		cmd := gittest.CommandContext(ctx, "show", ref+":"+path)
 		cmd.Dir = g.clone
 		out, err := cmd.Output()
 		if err != nil {

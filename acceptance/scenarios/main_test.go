@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // laneGate is the lane binary's gate. Only lane_orca_test.go, under the
@@ -53,7 +54,7 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 	binDir = dir
-	code := m.Run()
+	code := gittest.Main(m)
 	if code == 0 {
 		code = checkCatalogue()
 	}

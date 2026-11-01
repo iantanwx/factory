@@ -17,6 +17,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
@@ -159,7 +160,7 @@ func TestC12BothMergePathsRouteAUIPRDAlike(t *testing.T) {
 	}
 	svc, err := github.New(github.Config{
 		Apps: github.OneApp(gt.AppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
-		API:  api.URL(), GitURL: git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(),
+		API:  api.URL(), GitURL: git.URL, Protocols: []string{"http"}, MirrorRoot: t.TempDir(), GitConfig: gittest.Config,
 		Store: st, Projects: oneProject{p}, Machine: m, Logger: quiet,
 		Sleep: func(context.Context, time.Duration) error { return nil },
 	})
