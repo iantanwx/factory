@@ -719,3 +719,7 @@ prepares from it. C9, C24 and C26 assert each one.
   them (C18), so none holds `loop-impeccable`. One answer keeps that default. Another gives a bug
   the epic level, because the reproducer shapes the ticket that later touches the UI. The answer
   changes one case of `ScopeOf` and the table of C18. This blocks work entry 3.
+  **Answered (operator, 2026-11-01):** `No skill; approve (Recommended)`. The runs of a bug or a
+  decision item, and the stage runs that hold no item, hold no level. So none of them holds
+  `loop-impeccable`, which is the default of C18. `ScopeOf` and the table of C18 stay as written,
+  and work entry 3 is no longer blocked.
