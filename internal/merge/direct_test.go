@@ -56,18 +56,24 @@ func TestDirectRefusesAMovedHeadAndReturnsTheTicketToReview(t *testing.T) {
 	}
 }
 
-// A branch that GitHub refuses to merge because it is behind the base
-// moves the ticket to todo with entry rework: with no queue, only a
-// merge of the base into the branch lands it.
-func TestDirectSendsABranchBehindTheBaseToRework(t *testing.T) {
+// A branch behind the base, which GitHub would refuse to merge, gets the
+// base merged in by the server when the base change touches no file of
+// the PR (F-66). The ticket stays queued at the merge commit, with no new
+// review round, and no merge call reaches the old head.
+func TestDirectMergesTheBaseIntoABranchBehindIt(t *testing.T) {
 	e := newDirect(t)
 	id, pr := e.reviewed(sha('1'), true)
 	e.tick()
+	e.world.AdvanceMain("docs/other.md")
 	e.world.Update(pr, func(p *gt.PR) { p.MergeableState = merge.MergeableBehind })
 	e.tick()
-	it := e.wantStatus(id, machine.Todo)
-	if it.Fact(machine.FactEntry) != machine.EntryRework {
-		t.Fatalf("entry = %q; want rework", it.Fact(machine.FactEntry))
+	it := e.wantStatus(id, machine.Queued)
+	if it.Fact(machine.FactEntry) == machine.EntryRework || it.Fact(machine.FactReviewedHead) != gt.BaseMergeSHA(1) {
+		t.Fatalf("entry %q, reviewed_head %s; want no rework and the merge of the base",
+			it.Fact(machine.FactEntry), it.Fact(machine.FactReviewedHead))
+	}
+	if got := e.world.Merges(); len(got) != 0 {
+		t.Fatalf("merge calls = %+v; want none at a head behind the base", got)
 	}
 }
 
@@ -122,8 +128,9 @@ func (s *slowMerges) RoundTrip(r *http.Request) (*http.Response, error) {
 
 // Two eligible tickets on one project merge one at a time, even when two
 // polls overlap. The second poll reads the base after the first merge,
-// so it finds its head behind and sends it to rework with no merge call.
-// Two polls that overlapped would both read the old base and both merge.
+// so it finds its head behind, makes no merge call, and merges the base
+// into the head. Two polls that overlapped would both read the old base
+// and both merge.
 func TestDirectMergesOneAtATimeForEachProject(t *testing.T) {
 	rt := &slowMerges{}
 	e := newDirect(t, func(c *github.Config) { c.HTTP = &http.Client{Transport: rt} })
@@ -158,8 +165,8 @@ func TestDirectMergesOneAtATimeForEachProject(t *testing.T) {
 		merged, behind = b, a
 	}
 	e.wantStatus(merged, machine.Done)
-	if it := e.wantStatus(behind, machine.Todo); it.Fact(machine.FactEntry) != machine.EntryRework {
-		t.Fatalf("entry = %q; want rework", it.Fact(machine.FactEntry))
+	if it := e.wantStatus(behind, machine.Queued); it.Fact(machine.FactReviewedHead) != gt.BaseMergeSHA(1) {
+		t.Fatalf("reviewed_head = %s; want the merge of the base %s", it.Fact(machine.FactReviewedHead), gt.BaseMergeSHA(1))
 	}
 }
 

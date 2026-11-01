@@ -67,6 +67,20 @@ func enqueueGuard(c *change) *cli.Refusal {
 	return nil
 }
 
+// baseMergedGuard refuses a merge of the base into any head but the one
+// the review passed at.
+func baseMergedGuard(c *change) *cli.Refusal {
+	if r := c.needParam("from"); r != nil {
+		return r
+	}
+	if c.param("from") != c.fact(FactReviewedHead) {
+		return &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "head_not_reviewed", Item: c.item.ID,
+			CurrentStatus: c.item.Status, AllowedNext: c.table.AllowedNext(c.item.Status),
+			Hint: fmt.Sprintf("the base merged into %s, but the pass is at %q", c.param("from"), c.fact(FactReviewedHead))}
+	}
+	return nil
+}
+
 // endBlock clears pending_block when it names the blocker that work
 // unblock --by removed, because that call ends the block on it.
 func endBlock(c *change) *cli.Refusal {
@@ -189,6 +203,11 @@ func ticketTable() *Table {
 		{Verb: "head_changed", From: []string{ReadyToMerge, Queued}, To: InReview,
 			set: all(clearFacts(FactReviewedHead), copyParam("head", FactHead)), Facts: []string{FactReviewedHead, FactHead}},
 		{Verb: VerbEnqueue, From: []string{ReadyToMerge}, To: Queued, guard: enqueueGuard},
+		// The server merged a moved base into the reviewed head with no
+		// conflict and no shared file (F-66). The merge commit takes the
+		// review pass, so no new review round starts.
+		{Verb: VerbBaseMerged, From: []string{Queued}, To: ToSame, guard: baseMergedGuard,
+			set: all(needCopy("head", FactReviewedHead), copyParam("head", FactHead)), Facts: []string{FactReviewedHead, FactHead}},
 		{Verb: "dequeue_conflict", From: []string{Queued}, To: Todo,
 			set: all(setEntry(EntryRework), clearFacts(FactReviewedHead)), Facts: []string{FactEntry, FactReviewedHead}},
 		{Verb: "dequeue_red", From: []string{Queued}, To: Repair,

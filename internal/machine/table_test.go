@@ -92,6 +92,9 @@ func ticketEdges() []edge {
 		{ReadyToMerge, "head_changed", InReview},
 		{ReadyToMerge, "enqueue", Queued},
 		{Queued, "head_changed", InReview},
+		// Added (F-66): the server merged a moved base into the reviewed
+		// head, and the ticket stays queued at the merge commit.
+		{Queued, "base_merged", Queued},
 		{Queued, "dequeue_conflict", Todo},
 		{Queued, "dequeue_red", Repair},
 		{Queued, "merged", Done},
@@ -297,6 +300,9 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.Verb == VerbPRDSubmit {
 		params["pr"], params["path"] = "7", "docs/prd/x.md" // a run's submit records both
+	}
+	if r.Verb == VerbBaseMerged {
+		params["from"], params["head"] = "h1", "h2" // the server merged the base into the reviewed head
 	}
 	if r.Verb == "adr_opened" {
 		params["pr"] = "12" // the ADR pull request under review

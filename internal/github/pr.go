@@ -160,6 +160,32 @@ func (s *Service) Behind(ctx context.Context, p config.Project, base, head strin
 	return out.BehindBy > 0, err
 }
 
+// maxCompareFiles is the most changed files GitHub's compare lists. A
+// list at the cap may leave files out.
+const maxCompareFiles = 300
+
+// BaseChanges lists each path that the commits of base which head lacks
+// changed, as GitHub's compare of head with base reads it. complete is
+// false when the list reached GitHub's cap, so it may leave a path out.
+func (s *Service) BaseChanges(ctx context.Context, p config.Project, base, head string) (paths []string, complete bool, err error) {
+	var out struct {
+		Files []struct {
+			Filename         string `json:"filename"`
+			PreviousFilename string `json:"previous_filename"`
+		} `json:"files"`
+	}
+	if err := s.repoGet(ctx, p, ScopeRead, repoPath(p, "/compare/"+head+"..."+pathEscapeBranch(base)), &out); err != nil {
+		return nil, false, err
+	}
+	for _, f := range out.Files {
+		paths = append(paths, f.Filename)
+		if f.PreviousFilename != "" {
+			paths = append(paths, f.PreviousFilename)
+		}
+	}
+	return paths, len(out.Files) < maxCompareFiles, nil
+}
+
 // OpenPR opens the PR of an item's branch as the App, or returns the PR
 // already open on that head branch, so `pr open` twice on one branch opens
 // one PR (KTD6: a PR's natural key is its head branch). branch is the

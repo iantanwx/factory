@@ -17,11 +17,14 @@ import (
 type Outcome string
 
 // The outcomes. Pending means the mechanism still holds the PR.
+// BaseMerged means the mechanism merged a moved base into the reviewed
+// head with no conflict, and the merge commit is the head to hold.
 const (
-	Pending  Outcome = "pending"
-	Merged   Outcome = "merged"
-	Dequeued Outcome = "dequeued"
-	Closed   Outcome = "closed"
+	Pending    Outcome = "pending"
+	Merged     Outcome = "merged"
+	Dequeued   Outcome = "dequeued"
+	Closed     Outcome = "closed"
+	BaseMerged Outcome = "base_merged"
 )
 
 // Reason says why a mechanism dequeued a PR.
@@ -48,7 +51,7 @@ const (
 type Result struct {
 	Outcome Outcome
 	Reason  Reason // set when Outcome is Dequeued
-	SHA     string // the merge commit, when Outcome is Merged
+	SHA     string // the merge commit, when Outcome is Merged or BaseMerged
 	Detail  string
 }
 
