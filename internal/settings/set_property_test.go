@@ -25,6 +25,7 @@ var fieldValues = map[string][]string{
 	"escalated.model":   {"claude-opus-5-5", "gpt-5-codex"},
 	"escalated.harness": {"claude", "codex"},
 	"escalated.effort":  {"high", "max"},
+	"doc_readers":       {"true", "false", "maybe"},
 	"mechanism":         {"direct", "mergify", "github-queue", "nope"},
 	"required_checks":   {"gates", "gates,audit", "a,a"},
 }
@@ -148,6 +149,13 @@ func TestC23ProposedFileDiffersInExactlyTheNamedSetting(t *testing.T) {
 				if after[j].Value != capOf[key] {
 					t.Fatalf("case %d: set %s gives %+v, want the cap in force %s", i, key, after[j], capOf[key])
 				}
+				continue
+			}
+			// Doc readers that the file does not set follow the doc-reviewer's
+			// harness fields (spec factorio-4mb8, Decisions), so the reason
+			// they are off follows a change of either.
+			if before[j].Key == "stages.doc-reviewer.doc_readers" && strings.HasPrefix(key, "stages.doc-reviewer.") && strings.HasSuffix(key, "harness") &&
+				before[j].Source == config.SourceDefault && after[j].Source == config.SourceDefault {
 				continue
 			}
 			if before[j] != after[j] {
