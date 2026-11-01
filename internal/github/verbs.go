@@ -1,6 +1,7 @@
 package github
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -206,17 +207,26 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 	}
 	head := pr.Head.SHA
+	p := call.Principal
 	if it.Status == machine.InSimplify {
-		// The simplify run pushed nothing, so review starts at the head
-		// its round started from.
-		head = it.Fact(machine.FactSimplifyFrom)
+		// The held commit reaches GitHub here, after every other write
+		// and just before the row, so a run that ends earlier leaves the
+		// branch at simplify_from. GitHub moves a PR's head some time
+		// after a push, so the row takes the pushed head. A run that
+		// pushed nothing hands review the head its round started from.
+		from := it.Fact(machine.FactSimplifyFrom)
+		pushed, err := s.pushHeld(ctx, prj.ID, item, branch, p.RunID, from)
+		if err != nil {
+			return Refuse(err)
+		}
+		head = cmp.Or(pushed, from)
 	}
 	if it.Status == machine.PRDAmending || it.Status == machine.SpecAmending {
 		// GitHub moves a PR's head some time after a push. The amended
 		// row compares the head with the one a comment found, so it
 		// reads the server's own newest push first: a revision read as
 		// no change would skip the review.
-		pushed, err := s.lastPush(ctx, prj.ID, branch)
+		pushed, err := s.lastPush(ctx, prj.ID, branch, "")
 		if err != nil {
 			return Refuse(err)
 		}
@@ -224,7 +234,6 @@ func (s *Service) prOpen(ctx context.Context, call *rpc.Call) cli.Result {
 			head = pushed
 		}
 	}
-	p := call.Principal
 	res := s.cfg.Machine.Apply(ctx, machine.Request{
 		Project: prj.ID, Item: item, Verb: verb, ExpectedStatus: it.Status, RequestID: call.Inv.RequestID,
 		Params: map[string]string{"head": head, "pr": strconv.Itoa(pr.Number)},

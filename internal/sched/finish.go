@@ -164,6 +164,25 @@ func (s *Scheduler) alertHeld(ctx context.Context, r runRow, out admission.Outco
 		Subject: fmt.Sprintf("%s run %s on %s finished blocked", r.Stage, r.ID, r.Item), Body: body})
 }
 
+// HeldDropper deletes the commit that the server holds for a simplify
+// run until its hand-off. github.Service.DropHeld is the one in use.
+type HeldDropper func(ctx context.Context, project, run string) error
+
+// SetHeldDropper sets the dropper of a simplify run's held commit. The
+// GitHub setup sets it before the scheduler ticks.
+func (s *Scheduler) SetHeldDropper(f HeldDropper) { s.heldDropper = f }
+
+// dropHeld deletes the commit that simplify run r still holds, so a
+// commit that no hand-off pushed never reaches GitHub.
+func (s *Scheduler) dropHeld(ctx context.Context, r runRow) {
+	if r.Stage != config.StageSimplify || s.heldDropper == nil {
+		return
+	}
+	if err := s.heldDropper(ctx, r.Project, r.ID); err != nil {
+		s.log.ErrorContext(ctx, "drop the held commit of a simplify run", "run", r.ID, "err", err)
+	}
+}
+
 // releaseRetro returns the retro that run r still holds to pending, because
 // the run ended with no route. At admission.FailureLimit attempts the retro
 // fails, and one alert names its item.

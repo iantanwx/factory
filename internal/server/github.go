@@ -127,6 +127,9 @@ func (g *GitHub) Setup(s *Server) error {
 	if s.Sched != nil {
 		// A repair's brief carries the parsed log of its red build.
 		s.Sched.SetRedBuildReader(svc.RedBuild)
+		// The settlement of a simplify run drops the commit the server
+		// holds for it.
+		s.Sched.SetHeldDropper(svc.DropHeld)
 	}
 	if s.Admission != nil {
 		// The PR head enters a code review's retry identity, so a push

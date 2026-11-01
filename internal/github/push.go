@@ -35,7 +35,8 @@ type PushRequest struct {
 	// PrototypeBranchFor(Item), and no other.
 	Prototype bool
 	// Stage is the stage of the pusher's token. A doc-reviewer run only
-	// reads, and each of its readers shares its token.
+	// reads, and each of its readers shares its token. A simplify run's
+	// push takes the scope check, and the server holds its commit.
 	Stage string
 }
 
@@ -49,10 +50,17 @@ type PushResult struct {
 	// Replayed is true when the remote already holds the head from an
 	// earlier push of the same intent.
 	Replayed bool `json:"-"`
+	// Held is true when the server holds the commit in the mirror until
+	// the simplify run's hand-off, and pushed nothing to GitHub.
+	Held bool `json:"held"`
 }
 
 // incomingRef holds a commit fetched from a checkout before its push.
 func incomingRef(branch string) string { return "refs/loop/incoming/" + branch }
+
+// heldRef holds a simplify run's commit in the mirror until the run's
+// hand-off pushes it.
+func heldRef(run string) string { return "refs/loop/held/" + run }
 
 // remoteRef is the mirror's copy of a remote branch.
 func remoteRef(branch string) string { return "refs/remotes/origin/" + branch }
@@ -65,7 +73,8 @@ var errCrash = errors.New("github: stopped at a kill point")
 // intent, and pushes from the mirror over the explicit URL with the App
 // token, one refspec and a lease on the remote head it read. It never
 // pushes the base branch, and it refuses a remote branch that holds
-// commits the head lacks.
+// commits the head lacks. A simplify run's commit goes to heldRef, not to
+// GitHub, once it passes scopeCheck.
 func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error) {
 	res := PushResult{Branch: req.Branch, Head: req.Head}
 	if req.Stage == config.StageDocReviewer {
@@ -163,6 +172,9 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 			return res, err
 		}
 	}
+	if req.Stage == config.StageSimplify {
+		return s.hold(ctx, m, req, remoteRef(base), remote, res)
+	}
 
 	pushTok, err := s.Token(ctx, p, ScopePush)
 	if err != nil {
@@ -194,6 +206,109 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	_, _ = s.git.run(ctx, gitRun{dir: m.Dir, args: []string{"update-ref", remoteRef(req.Branch), req.Head}})
 	res.Pushed = true
 	return res, nil
+}
+
+// hold runs scopeCheck on a simplify run's push over the item's
+// simplify_from, or over remote when the item names none, and keeps the
+// head at heldRef. GitHub stays at simplify_from until the run's hand-off
+// (pushHeld), so a run that ends with no hand-off leaves no commit there.
+func (s *Service) hold(ctx context.Context, m *Mirror, req PushRequest, base, remote string, res PushResult) (PushResult, error) {
+	it, ref := s.item(ctx, req.Project, req.Item)
+	if ref != nil {
+		return res, &RefusedError{Code: ref.Code, Rule: ref.Rule, Hint: ref.Hint}
+	}
+	from := it.Fact(machine.FactSimplifyFrom)
+	if from == "" {
+		from = remote
+	}
+	if err := m.scopeCheck(ctx, from, base, req.Head); err != nil {
+		return res, err
+	}
+	if err := m.Keep(ctx, heldRef(req.RunID), req.Head); err != nil {
+		return res, err
+	}
+	res.Held = true
+	return res, nil
+}
+
+// pushHeld pushes the commit that run holds at heldRef to branch, with a
+// lease on from, records the push intent, and deletes the ref. It answers
+// the pushed head. With no held ref it answers the run's newest push to
+// branch, which a first call of the hand-off made, or "" when the run
+// pushed nothing. A branch that moved from from refuses with
+// REMOTE_AHEAD, and the ref stays until the run's settlement.
+func (s *Service) pushHeld(ctx context.Context, project, item, branch, run, from string) (string, error) {
+	p, err := s.project(project)
+	if err != nil {
+		return "", err
+	}
+	unlock := s.lock(p.ID + "\x00" + branch)
+	defer unlock()
+	m := s.Mirror(p)
+	if err := m.Init(ctx); err != nil {
+		return "", err
+	}
+	held := m.Resolve(ctx, heldRef(run))
+	if held == "" {
+		return s.lastPush(ctx, p.ID, branch, run)
+	}
+	readTok, err := s.Token(ctx, p, ScopeRead)
+	if err != nil {
+		return "", err
+	}
+	if err := m.Fetch(ctx, readTok, branch); err != nil {
+		return "", err
+	}
+	remote := m.Resolve(ctx, remoteRef(branch))
+	if err := s.settlePending(ctx, p.ID, branch, remote); err != nil {
+		return "", err
+	}
+	moved := &RefusedError{Code: cli.CodeRemoteAhead, Rule: "lease_lost",
+		Hint: fmt.Sprintf("%s moved from %s on the remote, so the simplify commit cannot land; finish the run failed", branch, short(from))}
+	switch remote {
+	case held:
+	case from:
+		pushTok, err := s.Token(ctx, p, ScopePush)
+		if err != nil {
+			return "", err
+		}
+		id, err := s.recordPush(ctx, p.ID, item, branch, from, held, run)
+		if err != nil {
+			return "", err
+		}
+		if err := m.Push(ctx, pushTok, held, branch, from); err != nil {
+			var ge *GitError
+			if errors.As(err, &ge) && (strings.Contains(ge.Stderr, "stale info") || strings.Contains(ge.Stderr, "rejected")) {
+				return "", errors.Join(moved, s.settlePush(ctx, id, "abandoned"))
+			}
+			return "", &UnavailableError{Err: err}
+		}
+		if s.crash != nil && s.crash("held_pushed") {
+			return "", errCrash
+		}
+		if err := s.settlePush(ctx, id, "done"); err != nil {
+			return "", err
+		}
+		_, _ = s.git.run(ctx, gitRun{dir: m.Dir, args: []string{"update-ref", remoteRef(branch), held}})
+	default:
+		return "", moved
+	}
+	return held, m.Keep(ctx, heldRef(run), "")
+}
+
+// DropHeld deletes the commit that run holds at heldRef, if any. The
+// settlement of a simplify run calls it, so a commit that no hand-off
+// pushed never reaches GitHub.
+func (s *Service) DropHeld(ctx context.Context, project, run string) error {
+	p, err := s.project(project)
+	if err != nil {
+		return err
+	}
+	m := s.Mirror(p)
+	if m.Resolve(ctx, heldRef(run)) == "" {
+		return nil
+	}
+	return m.Keep(ctx, heldRef(run), "")
 }
 
 // revisedDocument names the document of an epic that a reviser run
@@ -429,12 +544,14 @@ func (s *Service) ownPush(ctx context.Context, project, branch, sha string) (boo
 }
 
 // lastPush is the sha of the newest push the server made to the branch,
-// or "" when it made none.
-func (s *Service) lastPush(ctx context.Context, project, branch string) (string, error) {
+// or "" when it made none. A run other than "" limits it to the pushes of
+// that run.
+func (s *Service) lastPush(ctx context.Context, project, branch, run string) (string, error) {
 	var sha string
 	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx, `SELECT new_sha FROM push_intents
-			WHERE project = ? AND branch = ? AND state = 'done' ORDER BY id DESC LIMIT 1`, project, branch).Scan(&sha)
+			WHERE project = ? AND branch = ? AND state = 'done' AND (? = '' OR run_id = ?)
+			ORDER BY id DESC LIMIT 1`, project, branch, run, run).Scan(&sha)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
