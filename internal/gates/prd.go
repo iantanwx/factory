@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	docshape "github.com/iantanwx/loop/internal/shape"
 )
 
 // prdDir is where a project keeps its PRDs, <slug>.md. The epic id comes
@@ -28,6 +30,7 @@ func PRD(_ context.Context, r *Repo) ([]Finding, error) {
 	if err != nil {
 		return nil, err
 	}
+	ui := r.Config != nil && r.Config.DeclaresUI()
 	var out []Finding
 	for _, f := range files {
 		raw, err := os.ReadFile(filepath.Join(r.Root, f))
@@ -35,8 +38,30 @@ func PRD(_ context.Context, r *Repo) ([]Finding, error) {
 			return nil, err
 		}
 		out = append(out, checkPRD(f, string(raw))...)
+		if ui {
+			out = append(out, checkUILines(f, string(raw))...)
+		}
 	}
 	return out, nil
+}
+
+// checkUILines finds each story of one PRD whose UI line is missing, is
+// written twice, or reads neither yes nor no.
+func checkUILines(file, text string) []Finding {
+	var out []Finding
+	for _, s := range docshape.Stories(text) {
+		var why string
+		switch s.UI {
+		case docshape.UIMissing:
+			why = "holds no **UI:** line"
+		case docshape.UIBad:
+			why = "holds two **UI:** lines, or one that reads neither yes nor no"
+		default:
+			continue
+		}
+		out = append(out, Finding{File: file, Line: s.Line, Rule: "ui_line", Message: s.Label + " " + why + "; this project declares a UI, so write `**UI:** yes` or `**UI:** no` under the story heading"})
+	}
+	return out
 }
 
 // checkPRD is the sizing check of one PRD.

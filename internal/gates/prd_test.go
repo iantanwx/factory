@@ -133,3 +133,59 @@ func TestPRDGateReadsEachPRD(t *testing.T) {
 		t.Fatalf("no docs/prd = %v %v", got, err)
 	}
 }
+
+// uiConfig is a project config that declares a UI.
+const uiConfig = "merge:\n  mechanism: direct\nui:\n  kind: web\n  paths: [web/**]\n"
+
+// storyPRD is a PRD that passes the sizing check, with one story whose
+// lines under the heading are ui.
+func storyPRD(ui string) string {
+	return "## Stories\n\n### US-01 Run a backtest\n\n" + ui + "As a trader, I can run a backtest.\n\n## Scope check\n\n" + sizingBlock(nil)
+}
+
+// TestC9StoryWithNoUILineFailsInAUIProject proves C9: in a repository whose
+// config declares a UI, a story with no UI line, with two of them, or with
+// a value other than yes and no fails with rule ui_line, and the message
+// names the story.
+func TestC9StoryWithNoUILineFailsInAUIProject(t *testing.T) {
+	for _, c := range []struct{ name, ui string }{
+		{"no line", ""},
+		{"two lines", "**UI:** yes\n\n**UI:** no\n\n"},
+		{"other value", "**UI:** maybe\n\n"},
+	} {
+		r := testRepo(t, map[string]string{".loop/config.yaml": uiConfig, prdFile: storyPRD(c.ui)})
+		got, err := PRD(context.Background(), r)
+		if err != nil || !slices.Equal(rules(got), []string{"ui_line"}) {
+			t.Errorf("%s = %v %v", c.name, got, err)
+			continue
+		}
+		if !strings.Contains(got[0].Message, "US-01") || got[0].File != prdFile || got[0].Line != 3 {
+			t.Errorf("%s: finding %+v names no story", c.name, got[0])
+		}
+	}
+	for _, ui := range []string{"**UI:** yes\n\n", "**UI:** no\n\n"} {
+		r := testRepo(t, map[string]string{".loop/config.yaml": uiConfig, prdFile: storyPRD(ui)})
+		if got, err := PRD(context.Background(), r); err != nil || len(got) != 0 {
+			t.Errorf("%q = %v %v", ui, got, err)
+		}
+	}
+}
+
+// TestC10ProjectWithNoUIAsksForNoUILine proves C10: in a repository whose
+// config declares no UI, or that holds no config, a story with no UI line
+// passes the prd gate. The same PRD fails once the config gains a ui key,
+// so the key alone asks for the line.
+func TestC10ProjectWithNoUIAsksForNoUILine(t *testing.T) {
+	for name, files := range map[string]map[string]string{
+		"no ui key": {".loop/config.yaml": "merge:\n  mechanism: direct\n", prdFile: storyPRD("")},
+		"no config": {prdFile: storyPRD("")},
+	} {
+		if got, err := PRD(context.Background(), testRepo(t, files)); err != nil || len(got) != 0 {
+			t.Errorf("%s = %v %v", name, got, err)
+		}
+	}
+	r := testRepo(t, map[string]string{".loop/config.yaml": uiConfig, prdFile: storyPRD("")})
+	if got, err := PRD(context.Background(), r); err != nil || !slices.Equal(rules(got), []string{"ui_line"}) {
+		t.Fatalf("ui key = %v %v", got, err)
+	}
+}
