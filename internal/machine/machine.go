@@ -345,6 +345,9 @@ func view(project string, is beadsx.Issue) (Item, *Table, error) {
 			it.Facts[name] = v
 		}
 	}
+	if t.Kind == KindBug && it.Facts[FactSource] == "" {
+		it.Facts[FactSource] = SourceOperator
+	}
 	return it, t, nil
 }
 

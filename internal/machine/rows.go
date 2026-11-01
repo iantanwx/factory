@@ -66,10 +66,10 @@ const (
 	FactADRPR           = "adr_pr"           // the number of the ADR pull request under review
 	FactADRHead         = "adr_head"         // that pull request's head when adr_opened read it
 	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
-	FactQAHead          = "qa_head"          // the head of the latest QA pass
-	FactQACarriedFrom   = "qa_carried_from"  // the head whose QA pass base_merged carried
-	FactSimplifyDue     = "simplify_due"     // "true" when the next implementer hand-off enters the simplify run
-	FactSimplifyFrom    = "simplify_from"    // the implementer's head that the latest simplify round started from
+	// FactQAHead (bug.go) on a ticket: the head of the latest QA pass
+	FactQACarriedFrom = "qa_carried_from" // the head whose QA pass base_merged carried
+	FactSimplifyDue   = "simplify_due"    // "true" when the next implementer hand-off enters the simplify run
+	FactSimplifyFrom  = "simplify_from"   // the implementer's head that the latest simplify round started from
 )
 
 // Entry values of a todo ticket (R6).
