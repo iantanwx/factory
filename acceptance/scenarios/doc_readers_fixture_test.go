@@ -5,6 +5,9 @@ package scenarios
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -61,5 +64,32 @@ func TestC14FixturePRDPassesEveryDocumentGate(t *testing.T) {
 	}
 	if t.Failed() {
 		t.Log(out.String())
+	}
+}
+
+// A reply that holds no report of the schema's shape is a failed reader,
+// and a reader that fails twice blocks the review. So the C14 stub holds
+// one report for each lens, in start order, each with one finding whose
+// four fields hold text.
+func TestC14StubReaderHoldsOneFalseFindingForEachLens(t *testing.T) {
+	var lenses []string
+	for _, m := range regexp.MustCompile("(?s)```json\n(.*?)\n```").FindAllStringSubmatch(docReadersStub, -1) {
+		var r struct {
+			Reader   string `json:"reader"`
+			Findings []struct {
+				Where, Rule, Edit, Why string
+			} `json:"findings"`
+			Questions []any `json:"questions"`
+		}
+		if err := json.Unmarshal([]byte(m[1]), &r); err != nil {
+			t.Fatalf("a report of the stub does not parse: %v\n%s", err, m[1])
+		}
+		if len(r.Findings) != 1 || r.Questions == nil || slices.Contains([]string{r.Findings[0].Where, r.Findings[0].Rule, r.Findings[0].Edit, r.Findings[0].Why}, "") {
+			t.Fatalf("the %s report = %+v, want one finding with four fields and no question", r.Reader, r)
+		}
+		lenses = append(lenses, r.Reader)
+	}
+	if want := []string{"unslop", "asd-ste100", "content-lens"}; !slices.Equal(lenses, want) {
+		t.Fatalf("the stub reports for %q, want %q", lenses, want)
 	}
 }
