@@ -20,7 +20,7 @@ func (s *Server) settingsService() *settings.Service {
 	return &settings.Service{
 		Host: host.Load,
 		Loader: &config.Loader{LKG: config.StoreLKG(s.Store), Alerts: config.StoreAlerter(s.Store),
-			Check: config.StageCheck(host)},
+			Check: config.StageCheck(host), Kernel: s.opts.Sched.Pack.Skills},
 		Defaults: sched.Defaults,
 		Repo:     s.settingsRepo,
 		Store:    s.Store,
