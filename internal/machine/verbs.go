@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/qa"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/shape"
 	"github.com/iantanwx/loop/internal/store"
@@ -49,6 +51,7 @@ func (m *Machine) Handlers() map[string]rpc.Handler {
 		"work supersede":  m.workSupersede,
 		"review submit":   m.reviewSubmit,
 		"review rounds":   m.reviewRounds,
+		"qa report":       m.qaReport,
 		"decision fire":   m.decisionMove("fire", "why", "why"),
 		"decision defer":  m.decisionMove("defer", "why", "why"),
 		"decision moot":   m.decisionMove("moot", "note", "note"),
@@ -968,6 +971,80 @@ type QAEnabled func(ctx context.Context, project string) bool
 // a code review pass lands. The server sets it before the socket binds.
 // Nil reads the stage as off.
 func (m *Machine) SetQAEnabled(f QAEnabled) { m.qaEnabled = f }
+
+// QAGate checks the report r of QA run run at head against the plan of
+// that head, stores it, and returns the review text the ticket records.
+// files are the report's evidence files by path. A refusal records
+// nothing.
+type QAGate func(ctx context.Context, project, item, run, head string, r qa.Report, files map[string][]byte) (text string, ref *cli.Refusal)
+
+// SetQAGate sets the gate of qa report. The GitHub setup sets it before
+// the socket binds.
+func (m *Machine) SetQAGate(f QAGate) { m.qaGate = f }
+
+// QAReported enqueues the loop/qa check run of each stored report of a
+// project that holds none.
+type QAReported func(ctx context.Context, project string) error
+
+// SetQAReported sets what qa report calls once its verdict applied. The
+// GitHub setup sets it before the socket binds.
+func (m *Machine) SetQAReported(f QAReported) { m.qaReported = f }
+
+// qaReport records the verdict of a QA run's report at the reviewed head:
+// qa_fail when a check fails, and qa_pass otherwise (ADR 0014 decision 2).
+// The gate checks the report against the plan of the head, and stores it,
+// under the item's lock after every check of the write passed. So a run
+// whose lease ended stores no report. Once the verdict applied, the
+// check run of the report is enqueued. A failed enqueue leaves the
+// verdict standing, and the reactor's next tick enqueues the check run.
+func (m *Machine) qaReport(ctx context.Context, call *rpc.Call) cli.Result {
+	prj, r := call.Project(ownProject)
+	if r != nil {
+		return r.Result()
+	}
+	item := call.Inv.Arg("item")
+	if r := borrowed(call, item); r != nil {
+		return r.Result()
+	}
+	head := call.Inv.Flags["head"]
+	raw, ok := cli.FileContent(call.Inv)
+	if !ok {
+		return cli.Reject(cli.CodeUsage, "no_file", "qa report reads the report from --file; name the report JSON")
+	}
+	var rep qa.Report
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&rep); err != nil {
+		return cli.Reject(cli.CodeQAReportRefused, "bad_report", "the report is not the JSON of a QA report: "+err.Error())
+	}
+	if rep.Head != head {
+		return cli.Reject(cli.CodeQAReportRefused, "bad_report",
+			fmt.Sprintf("the report names the head %q, and --head names %s; send the report of the head you drove", rep.Head, head))
+	}
+	verb := VerbQAPass
+	if rep.Conclusion() == "failure" {
+		verb = VerbQAFail
+	}
+	req := request(call, prj, item, verb, map[string]string{"head": head})
+	req.Review = func(ctx context.Context, it Item) (string, *cli.Refusal) {
+		if m.qaGate == nil {
+			return "", refusedAt(cli.InternalRefusal(errors.New("machine: this server has no QA gate")), item, it)
+		}
+		text, r := m.qaGate(ctx, prj, item, call.Principal.RunID, head, rep, nil)
+		if r != nil {
+			return "", refusedAt(r, item, it)
+		}
+		return text, nil
+	}
+	res := m.Apply(ctx, req)
+	if res.Refusal == nil && m.qaReported != nil {
+		if err := m.qaReported(ctx, prj); err != nil {
+			m.log.WarnContext(ctx, "the loop/qa check run of a report was not enqueued; the next tick enqueues it",
+				"item", item, "err", err)
+		}
+	}
+	return res
+}
 
 // TaskText is the title and the body of an item's task: the text work
 // edit wrote, or the bead's own, and then an answer that amends the task.
