@@ -417,7 +417,7 @@ func (c *ProjectConfig) ManifestPath() string {
 
 // defaultOn lists the stages a project runs when its config does not list
 // them.
-var defaultOn = []string{StageSimplify}
+var defaultOn = []string{StageSimplify, StageQA}
 
 // StageEnabled reports whether the project enables stage. A listed stage
 // is enabled unless it sets enabled: false. An unlisted stage is enabled

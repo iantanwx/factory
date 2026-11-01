@@ -41,6 +41,8 @@ stages:
     schedule: "0 0 1 1 *"
   code-reviewer:
     schedule: "0 0 1 1 *"
+  qa:
+    enabled: false
 `
 )
 

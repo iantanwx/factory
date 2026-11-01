@@ -51,11 +51,12 @@ const (
 )
 
 // DefaultConfig enables every run stage the server starts an agent for,
-// and merges with the direct mechanism: the loop is the queue, and each
-// merge goes through GitHub's merge API (KTD29). It turns off the simplify
-// stage, which is on by default, so a scenario passes each ticket on to
-// review by itself. A scenario that drives a simplify run names its own
-// config.
+// except the simplify and qa stages, and merges with the direct mechanism:
+// the loop is the queue, and each merge goes through GitHub's merge API
+// (KTD29). Both stages are on by default, so the config turns them off. A
+// scenario then passes each ticket on to review by itself, and merges it
+// after a review pass. A scenario that drives a simplify run names its own
+// config, and a scenario that drives a QA run removes QAOff.
 const DefaultConfig = `merge:
   mechanism: direct
 stages:
@@ -68,7 +69,10 @@ stages:
   decomposer: {}
   triage: {}
   reproducer: {}
-`
+` + QAOff
+
+// QAOff is the line of DefaultConfig that turns the qa stage off.
+const QAOff = "  qa: {enabled: false}\n"
 
 // ShutdownTimeout bounds each world server's graceful stop. After it the
 // server closes every connection, as production does after its own.
