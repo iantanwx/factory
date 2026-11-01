@@ -362,6 +362,7 @@ var surface = []Verb{
 		Flag{Name: "list", Type: FlagBool, Description: "name the selected gates and run none"},
 		Flag{Name: "base", Type: FlagString, Description: "the ref the change is compared with; the pull request's base in CI, else the remote's default branch"})),
 	client("ui", "detect", "find the frontend signals in the tracked paths of the checkout in the current directory at HEAD, and propose the ui block of .loop/config.yaml that covers them", anyone, nil),
+	client("qa", "plan", "print the plan of the QA run whose checkout holds the current directory: the apps to drive, whether visual QA runs, the design skill and the bounds", anyone, nil),
 
 	topLevel(server("meta", "schema", "print the CLI schema", anyone, nil)),
 	topLevel(server("meta", "status", "show the server's status", anyone, nil)),
