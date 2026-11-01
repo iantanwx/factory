@@ -26,6 +26,9 @@ Read these first, in this order:
    again. Finish the run.
 4. Read the document at the head, the sources it cites, and `loop pr threads`.
 
+`../loop-content-lens/SKILL.md` holds the lenses of the content-lens reader. You do not apply them
+yourself.
+
 When a fact you need is missing, never guess it. Run `loop work note <item> --body "<note>"`, name
 the fact, and finish `blocked`. The server holds the item and raises an alert.
 
