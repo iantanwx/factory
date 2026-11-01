@@ -34,6 +34,8 @@ type Pack struct {
 	// Conditional maps each skill the manifest marks conditional to the
 	// project config key it reads.
 	Conditional map[string]string
+	// Design is the UI design skill the run holds, or "".
+	Design string
 	// withheld names each skill directory of FS that the run does not
 	// hold. Hash still reads it.
 	withheld []string

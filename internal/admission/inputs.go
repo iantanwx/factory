@@ -89,21 +89,29 @@ func DeclaredPaths(body string) []string {
 			out = append(out, p)
 		}
 	}
+	for _, p := range MayChangeEntries(body) {
+		add(p)
+	}
+	for _, m := range citedRe.FindAllStringSubmatch(body, -1) {
+		add(m[1])
+	}
+	sort.Strings(out)
+	return out
+}
+
+// MayChangeEntries returns each backtick path of the "May change" list of
+// the body's "## Files" section, braces expanded and globs whole.
+func MayChangeEntries(body string) []string {
+	var out []string
 	for _, line := range mayChange(body) {
 		for _, m := range backtickRe.FindAllStringSubmatch(line, -1) {
 			tok := m[1]
 			if strings.ContainsAny(tok, " \t") || !strings.ContainsAny(tok, "/.*") {
 				continue
 			}
-			for _, p := range expandBraces(tok) {
-				add(p)
-			}
+			out = append(out, expandBraces(tok)...)
 		}
 	}
-	for _, m := range citedRe.FindAllStringSubmatch(body, -1) {
-		add(m[1])
-	}
-	sort.Strings(out)
 	return out
 }
 
