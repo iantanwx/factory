@@ -512,3 +512,64 @@ func TestC17RegisterWritesItsProjectsPinsAndNoOther(t *testing.T) {
 		noDir(t, clone, "neon")
 	})
 }
+
+// C19: register gives the clone the skills of the epic level, from the
+// config at origin/<branch>. A clone of a project with no ui key holds no
+// loop-impeccable, and loses the untracked one an earlier register wrote.
+// A ui block gives it the skill. A config that does not load gives no
+// level, and the register still succeeds.
+func TestC19RegisterFollowsTheEpicLevel(t *testing.T) {
+	instance := t.TempDir()
+	skills := release.Layout{Dir: instance}.Skills(cli.Version)
+	writeSkill(t, skills, "impeccable")
+	src := pinnedSource(t, skills, "impeccable")
+	src["manifest.json"] = &fstest.MapFile{Data: []byte(`{"runbooks": {"implementer": {"skills": []}}, "skills": [],
+		"conditional": {"loop-impeccable": {"key": "ui"}}}`)}
+	build := func(fetched fs.FS) (brief.Pack, []pack.ThirdParty, error) { return pack.BriefOf(src, fetched) }
+	held := func(t *testing.T, clone string) []string {
+		t.Helper()
+		var out []string
+		for _, root := range []string{".claude/skills", ".agents/skills"} {
+			if _, err := os.Stat(filepath.Join(clone, root, "loop-impeccable", "SKILL.md")); err == nil {
+				out = append(out, root)
+			} else if !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+		}
+		return out
+	}
+
+	for name, tc := range map[string]struct {
+		config     string
+		want       []string
+		configFail bool
+	}{
+		"no ui key":                   {config: "merge:\n  mechanism: direct\n"},
+		"a ui block":                  {config: "merge:\n  mechanism: direct\nui:\n  kind: web\n  paths: [web/**]\n", want: []string{".claude/skills", ".agents/skills"}},
+		"a config that does not load": {config: "merge:\n  mechanism: direct\nui:\n  kind: desktop\n  paths: [web/**]\n", configFail: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			clone := originClone(t, map[string]string{".loop/config.yaml": tc.config})
+			// An earlier register wrote the skill, untracked.
+			for _, root := range []string{".claude/skills", ".agents/skills"} {
+				writeClone(t, clone, root+"/loop-impeccable/SKILL.md", "# an earlier register\n")
+			}
+			rep := RegisterReport{Project: "p1", Branch: "main", Path: clone}
+			if err := registerSkills(context.Background(), instance, &rep, pinSource{store: userspace.Store{Dir: t.TempDir()}}, build); err != nil {
+				t.Fatalf("the register failed: %v", err)
+			}
+			if got := held(t, clone); !slices.Equal(got, tc.want) {
+				t.Fatalf("loop-impeccable under %v; want %v", got, tc.want)
+			}
+			if slices.Contains(rep.Skills, "loop-impeccable") != (tc.want != nil) {
+				t.Fatalf("skills = %v", rep.Skills)
+			}
+			if (rep.UserSkillsConfig != "") != tc.configFail {
+				t.Fatalf("user_skills_config = %q", rep.UserSkillsConfig)
+			}
+			if !slices.Contains(rep.Skills, "loop-implementer") {
+				t.Fatalf("skills = %v; want the kernel", rep.Skills)
+			}
+		})
+	}
+}
