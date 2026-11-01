@@ -80,6 +80,7 @@ const (
 	CodeSettingsChange       = "SETTINGS_CHANGE"
 	CodeInvalidSetting       = "INVALID_SETTING"
 	CodeSettingsPending      = "SETTINGS_PENDING"
+	CodeEditSetSplit         = "EDIT_SET_SPLIT"
 	CodeQAReportRefused      = "QA_REPORT_REFUSED"
 )
 
@@ -136,6 +137,7 @@ var baseRefusals = []RefusalCode{
 	{CodeSettingsChange, ExitRefused, codes.FailedPrecondition, false, "the push changes a setting in .loop/config.yaml; only the coordinator changes settings, with loop settings set"},
 	{CodeInvalidSetting, ExitRefused, codes.FailedPrecondition, false, "the setting or its value does not validate; the hint names the setting and the rule"},
 	{CodeSettingsPending, ExitRefused, codes.FailedPrecondition, false, "the project already has an open settings change; the hint names its pull request"},
+	{CodeEditSetSplit, ExitRefused, codes.FailedPrecondition, false, "a reviser run's pushes add a second commit that changes its document; every agreed change lands in one commit"},
 	{CodeQAReportRefused, ExitRefused, codes.FailedPrecondition, false, "the QA report breaks a rule of the plan, the bounds, the evidence or the bugs; the rule and the hint name it, and the verb wrote nothing"},
 }
 

@@ -12,6 +12,8 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/shape"
 	"github.com/iantanwx/loop/internal/store"
 )
 
@@ -153,6 +155,9 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 		return res, err
 	}
 	res.Commits = len(commits)
+	if err := s.oneEditSet(ctx, m, req, remoteRef(base), commits); err != nil {
+		return res, err
+	}
 	if design {
 		if err := m.CheckDesignScope(ctx, req.Item, req.Head, remoteRef(base), remoteRef(PrototypeBranchFor(req.Item))); err != nil {
 			return res, err
@@ -189,6 +194,83 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	_, _ = s.git.run(ctx, gitRun{dir: m.Dir, args: []string{"update-ref", remoteRef(req.Branch), req.Head}})
 	res.Pushed = true
 	return res, nil
+}
+
+// revisedDocument names the document of an epic that a reviser run
+// revises, by the epic's state: the PRD in prd_amending, and the spec in
+// spec_amending. It is nil in any other state. An epic with no PRD path
+// on record names each PRD.
+func revisedDocument(it machine.Item) func(path string) bool {
+	switch {
+	case it.Kind != machine.KindEpic:
+		return nil
+	case it.Status == machine.PRDAmending:
+		if prd := it.Fact(machine.FactPRDPath); prd != "" {
+			return func(p string) bool { return p == prd }
+		}
+		return func(p string) bool { return strings.HasPrefix(p, "docs/prd/") }
+	case it.Status == machine.SpecAmending:
+		return func(p string) bool {
+			_, n := shape.SpecFile(it.ID, []shape.ChangedFile{{Path: p}})
+			return n == 1
+		}
+	}
+	return nil
+}
+
+// oneEditSet refuses a reviser run's push when the run's pushes, this one
+// and each earlier one, add a second commit that changes its document
+// (rule one_edit_set). Every change the reviser agrees with lands in one
+// commit, and a merge of the base is no such commit.
+func (s *Service) oneEditSet(ctx context.Context, m *Mirror, req PushRequest, base string, commits []string) error {
+	if req.Caller != cli.PrincipalRun || req.RunID == "" {
+		return nil
+	}
+	it, ref := s.item(ctx, req.Project, req.Item)
+	if ref != nil {
+		return &RefusedError{Code: ref.Code, Rule: ref.Rule, Hint: ref.Hint}
+	}
+	doc := revisedDocument(it)
+	if doc == nil {
+		return nil
+	}
+	type span struct{ old, new string }
+	var earlier []span
+	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT old_sha, new_sha FROM push_intents
+			WHERE project = ? AND branch = ? AND run_id = ? AND state = 'done'`, req.Project, req.Branch, req.RunID)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var sp span
+			if err := rows.Scan(&sp.old, &sp.new); err != nil {
+				return err
+			}
+			earlier = append(earlier, sp)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return err
+	}
+	// This push excludes the remote, which holds each earlier push, so no
+	// commit is read twice.
+	for _, sp := range earlier {
+		pushed, err := m.newCommits(ctx, sp.new, base, sp.old)
+		if err != nil {
+			return err
+		}
+		commits = append(pushed, commits...)
+	}
+	edits, err := m.EditCommits(ctx, doc, base, commits)
+	if err != nil || len(edits) < 2 {
+		return err
+	}
+	return &ScanError{Code: cli.CodeEditSetSplit, Rule: "one_edit_set", Commit: edits[1],
+		Reason: fmt.Sprintf("the run's pushes hold %d commits that change its document, and every agreed change lands in one commit; "+
+			"run `git reset --soft` to the item head that `loop branch sync` names, and commit once", len(edits))}
 }
 
 // pushBranches are the branches a push of item may write: its own, its
