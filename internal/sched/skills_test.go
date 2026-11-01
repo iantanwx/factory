@@ -108,6 +108,15 @@ func TestC16ASecondConditionalSkillNeedsOnlyAManifestLine(t *testing.T) {
 	}
 }
 
+// A design_skill that names no pin names a skill the default branch
+// tracks, which the checkout holds from git, so an epic run names it.
+func TestATrackedOverrideNamesItsDesignSkill(t *testing.T) {
+	p := Select(impeccablePack(), mustParse(t, uiConfig+"  design_skill: acme-design\n"), ScopeOf(machine.KindEpic, ""))
+	if holds(t, p, "loop-impeccable") || p.Design != "acme-design" {
+		t.Fatalf("holds loop-impeccable %v, design %q; want none and acme-design", holds(t, p, "loop-impeccable"), p.Design)
+	}
+}
+
 func mustParse(t *testing.T, cfg string) *config.ProjectConfig {
 	t.Helper()
 	c, err := config.ParseProjectConfig([]byte(cfg + "merge:\n  mechanism: direct\n"))
