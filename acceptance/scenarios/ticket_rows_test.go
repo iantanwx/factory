@@ -165,3 +165,20 @@ func TestTicketRowsEndToEnd(t *testing.T) {
 	w.Must(w.Coordinator("inbox", "answer", "escalation/"+acceptance.Project+"/"+b, "--body", "Reopen it as new work."))
 	wantStatus(w, b, machine.Todo)
 }
+
+// base_merged: the base moves under a queued PR with no shared file, so
+// the hand-off merges the base in, and the ticket stays queued with no new
+// review round (F-66). The fake makes that merge commit in its GitHub
+// only, not on the git remote, so the scenario ends before the next sync
+// of PR heads.
+func TestBaseMergedKeepsTheTicketQueued(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	id, head := readyToMerge(w, "Ticket D", "d.txt")
+	queue(w, id)
+	w.API.World.AdvanceMain("docs/other.md")
+	w.HandOff()
+	wantStatus(w, id, machine.Queued)
+	if got := w.PRFor(id).HeadSHA; got == head {
+		t.Fatalf("the queued head stayed at %s; want the merge of the base", got)
+	}
+}
