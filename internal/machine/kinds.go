@@ -76,6 +76,7 @@ const (
 	VerbSignoffHead        = "signoff_head"
 	VerbSimplified         = "simplified"   // ticket: in_simplify -> in_review at the simplify run's pr open
 	VerbSimplifyOff        = "simplify_off" // ticket: in_simplify -> in_review when the project disables the stage (server)
+	VerbSkipDesign         = "skip_design"
 	VerbSupersede          = "supersede"
 	VerbUnblock            = "unblock"
 )
