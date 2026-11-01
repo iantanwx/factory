@@ -1,0 +1,6 @@
+merge:
+  mechanism: mergify
+ui:
+  kind: web
+  paths:
+    - web/**

@@ -1,0 +1,7 @@
+merge:
+  mechanism: mergify
+ui:
+  kind: native
+  paths:
+    - ios/**
+    - android/app/src/**/*.kt
