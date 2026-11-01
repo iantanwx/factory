@@ -1,0 +1,6 @@
+# gitT's global git config. It turns off auto maintenance and auto gc, so no
+# detached git process outlives gitT and races t.TempDir cleanup.
+[maintenance]
+	auto = false
+[gc]
+	auto = 0
