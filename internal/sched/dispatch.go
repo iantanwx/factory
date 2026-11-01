@@ -17,6 +17,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/fault"
+	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
@@ -177,6 +178,12 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	s.checkoutMu.Unlock()
 	if err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
+	}
+	// Every checkout shares one repository, so the lock keeps another
+	// run's `git worktree remove --force` off this one (F-67). The cleanup
+	// pass unlocks it once the run settles.
+	if _, err := gitx.Run(ctx, co.Path, "worktree", "lock", "--reason", "loop run "+ad.RunID+" is live", co.Path); err != nil {
+		s.log.WarnContext(ctx, "lock the checkout", "run", ad.RunID, "path", co.Path, "err", err)
 	}
 	if setup := snap.Config.Setup; setup != "" {
 		if err := s.runSetup(ctx, co.Path, setup); err != nil {
