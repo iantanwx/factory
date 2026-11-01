@@ -156,9 +156,11 @@ A refused block refuses the whole file, so the last good config stays in force (
 `ui` key sits outside `stages`, `pools` and `merge`, so `config.SettingsChanged` ignores it and a
 stage run's push can add it.
 
-**The glob.** A glob is a slash path. Each segment is a `path.Match` pattern, or `**`, which
-matches zero or more whole segments. A glob holds no empty segment, no `.` or `..`, no leading
-`/` and no `{`. `Glob.Match(path)` answers for a literal path. `Glob.Reaches(dir)` answers whether
+**The glob.** A glob is a slash path. Each segment is exactly `**`, or a `path.Match` pattern
+that holds no `**`. A `**` segment matches zero or more whole segments, at any place in the glob,
+so `web/**` matches `web` and `**/*.tsx` matches `App.tsx`. A glob holds no empty segment, no `.`
+or `..`, no leading `/` and no `{`. The parse refuses a segment such as `**x` or `a**`, because
+`path.Match` reads it as one `*` and the author meant more than one segment. `Glob.Match(path)` answers for a literal path. `Glob.Reaches(dir)` answers whether
 the glob can match a path under a directory.
 
 **The mark.** `pack/manifest.json` gains `"conditional": {"loop-impeccable": {"key": "ui"}}`.
@@ -183,8 +185,8 @@ the key. At the ticket level, it holds when the key is declared and the key's bl
 
 Four callers call `Select` before they write a pack. `Scheduler.start` passes the scope of the
 admitted item and the snapshot it already holds. The start reads the config once, so a merge
-during the run changes no skill it holds. The room service reads a ticket's body through the
-project's beads client, as `Scheduler.brief` does. The coordinator passes no level. `loop register`
+during the run changes no skill it holds. The room service reads a ticket's body from the item
+that `Machine.Show` returns, which it already calls for the brief. The room adds no beads client. The coordinator passes no level. `loop register`
 passes the epic level and the config it reads at `origin/<default branch>`. A config that does not
 load passes no level.
 
@@ -218,7 +220,8 @@ UIKind                   "web" | "native"
 
 Glob                     one checked ui path glob
   invariant: slash segments, none empty, none "." or "..", no leading "/", no "{",
-             each segment a valid path.Match pattern or exactly "**".
+             each segment exactly "**", or a valid path.Match pattern that holds no "**".
+             A "**" segment matches zero or more whole segments, wherever it stands.
              Nothing constructs an unchecked Glob, so no matcher checks one again.
 
 UIConfig                 the ui block
@@ -274,13 +277,13 @@ func (g Glob) String() string
 type UIConfig struct {
 	Kind        UIKind `yaml:"kind"`
 	Paths       []Glob `yaml:"paths"`
-	DesignSkill string `yaml:"design_skill,omitempty"` // entry 9
+	DesignSkill string `yaml:"design_skill,omitempty"` // entry 5
 }
 // ProjectConfig gains: UI *UIConfig `yaml:"ui,omitempty"`
 
 func ProjectKeys() []string                                      // each top-level yaml key
 func (c *ProjectConfig) Declares(key string) (Declared, bool)
-func DesignSkill(ctx context.Context, cfg *ProjectConfig, tree TreeReader, ref string) error // entry 9
+func DesignSkill(ctx context.Context, cfg *ProjectConfig, tree TreeReader, ref string) error // entry 5
 
 // internal/admission
 func MayChangeEntries(body string) []string // each backtick path of "May change", braces expanded, uncut
@@ -332,7 +335,7 @@ func Detect(t Tree) Detection
   + ui                    optional mapping
       kind                "web" | "native", required
       paths               list of globs, at least one, required
-      design_skill        a project skill name, optional (entry 9)
+      design_skill        a project skill name, optional (entry 5)
 
 .loop/brief.json (changed)
   + skills                list of strings, sorted, always present
@@ -445,7 +448,7 @@ sequenceDiagram
    - Files: `pack/manifest.json`, `internal/pack/layout.go`, `internal/pack/embed.go`,
      `internal/pack/conditional_test.go` (new), `internal/brief/pack.go`,
      `internal/brief/brief.go`, `internal/config/project.go`
-   - Needs: nothing
+   - Needs: 1, because `ReadManifest` refuses the key `ui` until `ProjectConfig` holds it
    - Proves: C7, C8, C9, C10
    - Done when: an injection of a pack without `loop-impeccable` writes no such directory, and its
      brief lists every other directory and the same `pack_hash`.
@@ -534,7 +537,7 @@ field. Each of these fails and names `ui.paths`: an empty list, a missing list, 
 | Glob | Path | Match |
 | --- | --- | --- |
 | `web/**` | `web/src/App.tsx` | yes |
-| `web/**` | `web` | no |
+| `web/**` | `web` | yes |
 | `web/**` | `webapp/x.ts` | no |
 | `**/*.tsx` | `App.tsx` | yes |
 | `**/*.tsx` | `a/b/c/App.tsx` | yes |
