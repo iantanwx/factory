@@ -105,13 +105,14 @@ func (s *Scheduler) FinishFault(ctx context.Context, runID, outcome, faultID str
 // (admission.BlockedKey): changed inputs, a move of the item, or an answer
 // to the alert lifts it. A second blocked finish at the same inputs counts
 // up on the open alert. A retro run holds no item: its settlement
-// releases the retro it still holds (releaseRetro).
+// releases the retro it still holds (releaseRetro). A simplify run never
+// holds its ticket (admission.PassesThrough).
 func (s *Scheduler) alertHeld(ctx context.Context, r runRow, out admission.Outcome, faultID string) {
 	if r.Stage == retro.Stage {
 		s.releaseRetro(ctx, r)
 		return
 	}
-	if r.Item == "" || out.Inputs == "" {
+	if r.Item == "" || out.Inputs == "" || admission.PassesThrough(r.Stage) {
 		return
 	}
 	if out.Counted && len(out.Failures) >= admission.FailureLimit {

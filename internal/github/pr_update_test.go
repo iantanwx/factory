@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/config"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/machine"
 )
@@ -129,5 +130,32 @@ func TestPROpenRefusesABodyMarkupAndProseFaultOnAnOpenPR(t *testing.T) {
 	}
 	if got := w.PR(pr.Number).Body; got != "the body a reviewer read" {
 		t.Fatalf("PR #%d holds body %q after the refusal", pr.Number, got)
+	}
+}
+
+// A new ticket passes through in_simplify: the implementer's pr open
+// hands it to the simplify stage, and the simplify run's pr open, with
+// no title and no body, hands it to review at the head its round started
+// from. The pull request keeps its title and body.
+func TestSimplifyRunHandsTheTicketToReview(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	id := e.ticket(machine.InProgress, shaA)
+	pr := w.Add(&gt.PR{Head: BranchFor(id), HeadSHA: shaA, Title: "t", Body: "the implementer's red and green runs"})
+	mustOK(t, e.runCall("pr open", id, machine.StageImplementer, map[string]string{"title": "t"}, nil))
+	if it := e.status(id); it.Status != "in_simplify" || it.Fact("simplify_from") != shaA {
+		t.Fatalf("after the implementer's pr open: %s %v", it.Status, it.Facts)
+	}
+	if _, res := e.m.Claim(t.Context(), machine.ClaimRequest{Project: testProject, Item: id, Stage: config.StageSimplify,
+		RunID: "run-" + config.StageSimplify}); res.Refusal != nil {
+		t.Fatalf("simplify claim: %+v", *res.Refusal)
+	}
+
+	mustOK(t, e.runCall("pr open", id, config.StageSimplify, nil, nil))
+	if it := e.status(id); it.Status != machine.InReview || it.Fact(machine.FactHead) != shaA || it.Owner != "" {
+		t.Fatalf("after the simplify run's pr open: %s owner %q %v", it.Status, it.Owner, it.Facts)
+	}
+	if got := w.PR(pr.Number); got.Title != "t" || got.Body != "the implementer's red and green runs" {
+		t.Fatalf("PR #%d holds title %q body %q", pr.Number, got.Title, got.Body)
 	}
 }

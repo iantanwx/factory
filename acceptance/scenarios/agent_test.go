@@ -194,6 +194,7 @@ func (a *agent) implement() string {
 	}
 	a.w.Must(a.loop("pr", "open", "--title", a.brief.Item.Title, "--body", "Implements "+a.item()+"."))
 	a.w.Must(a.loop("run", "finish", "--outcome", "done"))
+	passSimplify(a.w, a.item())
 	return head
 }
 

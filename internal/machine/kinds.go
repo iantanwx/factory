@@ -74,6 +74,8 @@ const (
 	VerbQAOff              = "qa_off"  // ticket: in_qa -> ready_to_merge when the stage turns off (server)
 	VerbQAPass             = "qa_pass" // ticket: in_qa -> ready_to_merge by qa report
 	VerbSignoffHead        = "signoff_head"
+	VerbSimplified         = "simplified"   // ticket: in_simplify -> in_review at the simplify run's pr open
+	VerbSimplifyOff        = "simplify_off" // ticket: in_simplify -> in_review when the project disables the stage (server)
 	VerbSkipDesign         = "skip_design"
 	VerbSupersede          = "supersede"
 	VerbUnblock            = "unblock"
@@ -90,6 +92,7 @@ const (
 	StagePlanner              = config.StagePlanner
 	StageDecomposer           = config.StageDecomposer
 	StageReproducer           = config.StageReproducer
+	StageSimplify             = config.StageSimplify
 	StageQA                   = config.StageQA
 )
 
