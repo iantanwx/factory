@@ -2,12 +2,17 @@
   "runbooks": {
     "implementer": {
       "attended": false,
-      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-commit", "loop-verifiable-units", "loop-test-behavior-not-implementation", "loop-boundaries", "loop-domain-modeling", "loop-least-code", "loop-reader-load"],
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-commit", "loop-verifiable-units", "loop-test-behavior-not-implementation", "loop-boundaries", "loop-domain-modeling", "loop-least-code", "loop-reader-load", "loop-verify-create", "loop-verify-maintain"],
       "policy": "implementer"
     },
     "code-reviewer": {
       "attended": false,
       "skills": ["loop-sdlc-turn", "loop-sdlc-review", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-test-behavior-not-implementation", "loop-boundaries", "loop-least-code", "loop-reader-load"],
+      "policy": "code-reviewer"
+    },
+    "qa": {
+      "attended": false,
+      "skills": ["loop-sdlc-turn", "loop-sdlc-glossary", "loop-sdlc-triage", "loop-test-behavior-not-implementation"],
       "policy": "code-reviewer"
     },
     "doc-reviewer": {
@@ -87,7 +92,9 @@
     "loop-sdlc-turn",
     "loop-test-behavior-not-implementation",
     "loop-unslop",
-    "loop-verifiable-units"
+    "loop-verifiable-units",
+    "loop-verify-create",
+    "loop-verify-maintain"
   ],
   "agents": [
     "loop-alert-root-cause",

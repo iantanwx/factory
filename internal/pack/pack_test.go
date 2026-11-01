@@ -487,6 +487,7 @@ func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 		"loop-encode-lessons", "loop-fault", "loop-init", "loop-least-code", "loop-reader-load", "loop-reflect", "loop-retro-rubric",
 		"loop-sdlc-documents", "loop-sdlc-glossary", "loop-sdlc-review", "loop-sdlc-split", "loop-sdlc-triage",
 		"loop-sdlc-turn", "loop-test-behavior-not-implementation", "loop-unslop", "loop-verifiable-units",
+		"loop-verify-create", "loop-verify-maintain",
 	}
 	dirs, err := fs.ReadDir(pack.Source(), "skills")
 	if err != nil {
@@ -509,7 +510,7 @@ func TestPortedSkillsShipWithTheirReaders(t *testing.T) {
 		"loop-least-code":                       {"code-reviewer", "implementer"},
 		"loop-reader-load":                      {"code-reviewer", "implementer"},
 		"loop-verifiable-units":                 {"implementer"},
-		"loop-test-behavior-not-implementation": {"code-reviewer", "implementer", "reproducer"},
+		"loop-test-behavior-not-implementation": {"code-reviewer", "implementer", "qa", "reproducer"},
 		"loop-domain-modeling":                  {"doc-reviewer", "implementer", "planner"},
 	}
 	m, err := pack.ReadManifest(pack.Source())

@@ -43,11 +43,13 @@ var DefaultEscalatedModels = map[agenthost.Harness]string{
 // DefaultEfforts is the effort a stage runs at when project config names
 // none for it, ported from the effort column of ROW_PINS in alpha's
 // stage-models.ts. The doc-reviewer runs at medium to spare its quota, and
-// each author and the code-reviewer at high. A stage with no row, such as
+// each author and the code-reviewer at high. The qa stage runs at high too,
+// because a false fail costs a rework round. A stage with no row, such as
 // an agent job, runs at the harness's own default.
 var DefaultEfforts = map[string]string{
 	config.StageImplementer:          "high",
 	config.StageCodeReviewer:         "high",
+	config.StageQA:                   "high",
 	config.StageDocReviewer:          "medium",
 	config.StageUnattendedBrainstorm: "high",
 	config.StagePlanner:              "high",

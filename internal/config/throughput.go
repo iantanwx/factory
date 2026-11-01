@@ -37,6 +37,9 @@ const (
 	StageDecomposer           = "decomposer"
 	StageTriage               = "triage"
 	StageReproducer           = "reproducer"
+	// StageQA drives the app of a reviewed ticket before it merges
+	// (docs/adr/0014-qa-stage.md).
+	StageQA = "qa"
 	// StageRetro learns from a finished epic or bug.
 	StageRetro = "retro"
 	// StageBrainstorm is the stage whose cap counts epics, not runs (KTD30).
@@ -46,7 +49,7 @@ const (
 // The stage set (R13). The native jobs claim no item.
 var (
 	runStages = []string{
-		StageImplementer, StageCodeReviewer, StageDocReviewer, StageReviser, StageUnattendedBrainstorm,
+		StageImplementer, StageCodeReviewer, StageQA, StageDocReviewer, StageReviser, StageUnattendedBrainstorm,
 		StagePlanner, StageDecomposer, StageTriage, StageReproducer, StageRetro, StageBrainstorm,
 	}
 	nativeJobs = []string{"merge-handoff", "dependency-advance", "decision-timers", "github-reactor", "overwatch", "orca-acceptance"}
@@ -55,7 +58,7 @@ var (
 	// entry reads as its default and is never written to the file
 	// (docs/plans/factorio-a7r-overwatch-sweep-spec.md, Decisions). Every
 	// other key stays required.
-	optional = []string{"overwatch", "orca-acceptance", StageUnattendedBrainstorm, StageRetro}
+	optional = []string{"overwatch", "orca-acceptance", StageUnattendedBrainstorm, StageRetro, StageQA}
 	// pools bound several stages together. The reviewers pool is today's
 	// REVIEW_CAP over every reviewer stage (scripts/sdlc/review-cap.ts,
 	// alpha), next to each stage's own cap.
@@ -103,6 +106,7 @@ func DefaultThroughput() map[string]Throughput {
 	return map[string]Throughput{
 		StageImplementer:          {Cap: 8, Schedule: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"},
 		StageCodeReviewer:         {Cap: 8, Schedule: every5},
+		StageQA:                   {Cap: 3, Schedule: "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"},
 		StageDocReviewer:          {Cap: 10, Schedule: "26,56 * * * *"},
 		"reviewers":               {Cap: 10},
 		StageReviser:              {Cap: 2, Schedule: "16,46 * * * *"},
