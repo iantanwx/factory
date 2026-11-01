@@ -58,7 +58,10 @@ func RoomScope(roomKind string, kind machine.Kind, body string) Scope {
 
 // Select withholds from p each conditional skill whose condition fails for
 // the project config cfg and the scope s, and names the design skill when
-// the run holds it. A nil cfg holds no condition.
+// the run holds it. Where the run would hold loop-impeccable and
+// ui.design_skill is set, the override takes its place. A nil cfg holds no
+// condition. p holds the run's user skills, so the override is named only
+// when the run holds it.
 func Select(p brief.Pack, cfg *config.ProjectConfig, s Scope) brief.Pack {
 	var withheld []string
 	for skill, key := range p.Conditional {
@@ -67,10 +70,30 @@ func Select(p brief.Pack, cfg *config.ProjectConfig, s Scope) brief.Pack {
 		}
 	}
 	p = p.Without(withheld...)
-	if skills, err := p.Skills(); err == nil && slices.Contains(skills, designSkill) {
+	if skills, err := p.Skills(); err != nil || !slices.Contains(skills, designSkill) {
+		return p
+	}
+	if cfg == nil || cfg.UI == nil || cfg.UI.DesignSkill == "" {
 		p.Design = designSkill
+		return p
+	}
+	p = p.Without(designSkill)
+	if holdsOverride(p, cfg) {
+		p.Design = cfg.UI.DesignSkill
 	}
 	return p
+}
+
+// holdsOverride reports whether the run holds the skill ui.design_skill
+// names. A pin is held when the store gave the run its tree. A name that
+// is no pin is a skill root entry that the default branch tracks
+// (config.DesignSkill), so the checkout holds it from git.
+func holdsOverride(p brief.Pack, cfg *config.ProjectConfig) bool {
+	name := cfg.UI.DesignSkill
+	if !slices.ContainsFunc(cfg.Skills, func(pin config.SkillPin) bool { return pin.Name == name }) {
+		return true
+	}
+	return slices.ContainsFunc(p.User, func(u brief.UserSkill) bool { return u.Pin.Name == name })
 }
 
 // holdsCondition reports whether a skill conditional on key holds for the

@@ -140,3 +140,68 @@ func TestC3AUIBlockThatBreaksItsShapeDoesNotLoad(t *testing.T) {
 		})
 	}
 }
+
+// acmePin is a skills: list with one pin named acme-design.
+const acmePin = `skills:
+  - name: acme-design
+    repo: acme/skills
+    commit: 0123456789abcdef0123456789abcdef01234567
+    path: ""
+    sha256: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+`
+
+// TestC21AnOverrideThatNamesNoProjectSkillDoesNotLoad proves C21: a
+// design_skill in the loop- namespace, one that breaks the pin name rule,
+// and one that names neither a pin nor a tracked skill root entry keep the
+// last good config in force, and the problem names ui.design_skill. The
+// override loads when it names a pin, and when a skill root tracks it.
+func TestC21AnOverrideThatNamesNoProjectSkillDoesNotLoad(t *testing.T) {
+	override := func(name string) string {
+		return uiConfig("  kind: web\n  paths: [web/**]\n  design_skill: " + name + "\n")
+	}
+	for _, c := range []struct {
+		name    string
+		config  string
+		tracked string
+		loads   bool
+	}{
+		{"loop namespace", override("loop-x"), ".claude/skills/loop-x/SKILL.md", false},
+		{"breaks the pin name rule", override("Acme"), ".claude/skills/Acme/SKILL.md", false},
+		{"no pin and no tracked entry", override("acme-design"), ".claude/skills/acme/SKILL.md", false},
+		{"a pin", override("acme-design") + acmePin, "README.md", true},
+		{"tracked under .claude/skills", override("acme-design"), ".claude/skills/acme-design/SKILL.md", true},
+		{"tracked under .agents/skills", override("acme-design"), ".agents/skills/acme-design/SKILL.md", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := context.Background()
+			st := openStore(t)
+			if err := StoreProjectRow(st)(ctx, Project{ID: "alpha", Repo: "iantanwx/alpha", Path: "/srv/a"}); err != nil {
+				t.Fatal(err)
+			}
+			l := &Loader{LKG: StoreLKG(st), Alerts: StoreAlerter(st)}
+			origin := fakeOrigin{ProjectConfigPath: uiConfig("  kind: web\n  paths: [web/**]\n")}
+			refs := Refs{Read: origin.read, Tree: fakeTree{"README.md", c.tracked}.list}
+			if _, err := l.Load(ctx, "alpha", refs, "main"); err != nil {
+				t.Fatal(err)
+			}
+
+			origin[ProjectConfigPath] = c.config
+			got, err := l.Load(ctx, "alpha", refs, "main")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.loads {
+				if got.Stale || got.Config.UI.DesignSkill != "acme-design" {
+					t.Fatalf("load = %+v, problem %v; want design_skill acme-design in force", got.Config.UI, got.Problem)
+				}
+				return
+			}
+			if !got.Stale || !errors.Is(got.Problem, ErrInvalid) || !strings.Contains(got.Problem.Error(), "ui.design_skill") {
+				t.Fatalf("load stale %v, problem %v; want the last good config and a problem that names ui.design_skill", got.Stale, got.Problem)
+			}
+			if got.Config.UI.DesignSkill != "" {
+				t.Fatalf("design_skill %q in force, want the last good config's none", got.Config.UI.DesignSkill)
+			}
+		})
+	}
+}
