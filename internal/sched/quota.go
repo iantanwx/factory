@@ -47,6 +47,7 @@ var DefaultEscalatedModels = map[agenthost.Harness]string{
 // an agent job, runs at the harness's own default.
 var DefaultEfforts = map[string]string{
 	config.StageImplementer:          "high",
+	config.StageSimplify:             "high",
 	config.StageCodeReviewer:         "high",
 	config.StageDocReviewer:          "medium",
 	config.StageUnattendedBrainstorm: "high",
