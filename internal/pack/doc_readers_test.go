@@ -482,3 +482,41 @@ func TestAReaderReturnsEachQuestionAndTheReviewerScoresIt(t *testing.T) {
 		"At level 4 or 5, escalate it by `../loop-doc-reviewer/SKILL.md` § 6.",
 	})
 }
+
+// TestTheGlossaryDefinesAReader proves C21 of factorio-4mb8. A runbook that
+// reads the word "reader" reads the rule of C10: a reader finds, and only
+// the reviewer judges. Each doc review phase names the readers.
+func TestTheGlossaryDefinesAReader(t *testing.T) {
+	sections := glossarySections(read(t, glossarySkill))
+	reader := glossaryTerms(sections["People and agents"])["A reader"]
+	holdsAll(t, "the glossary's reader", reader, []string{
+		"a subagent of the doc-reviewer",
+		"A reader finds, and it never judges.",
+		"`../loop-doc-readers/SKILL.md`",
+	})
+	var reviews []string
+	for _, l := range sections["Phases"] {
+		switch m := phaseLine.FindStringSubmatch(l); {
+		case m != nil:
+			reviews = append(reviews, "")
+			if m[2] == "Doc review" || m[2] == "ADR" {
+				reviews[len(reviews)-1] = l
+			}
+		case len(reviews) > 0 && reviews[len(reviews)-1] != "" && strings.HasPrefix(l, "   "):
+			reviews[len(reviews)-1] += " " + strings.TrimSpace(l)
+		}
+	}
+	n := 0
+	for _, p := range reviews {
+		if p == "" {
+			continue
+		}
+		n++
+		if !strings.Contains(p, "the doc-reviewer starts its readers and reviews") {
+			t.Errorf("the phase %q does not name the reader step", p)
+		}
+	}
+	if n != 3 {
+		t.Errorf("the glossary holds %d phases with a doc review, want 3", n)
+	}
+}
