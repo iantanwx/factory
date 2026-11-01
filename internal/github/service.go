@@ -44,6 +44,10 @@ type Config struct {
 	// Protocols are the git transports the server may use besides file;
 	// https when empty.
 	Protocols []string
+	// GitConfig adds config entries to each git command of the service. A
+	// test sets gittest.Config, so no auto maintenance writes into a mirror
+	// while t.TempDir's cleanup removes it. The service's own entries win.
+	GitConfig [][2]string
 	// MirrorRoot holds one bare mirror for each project.
 	MirrorRoot string
 	Store      *store.Store
@@ -114,7 +118,7 @@ func New(cfg Config) (*Service, error) {
 		cfg:      cfg,
 		api:      &Client{Base: cfg.API, HTTP: cfg.HTTP, Cooldown: cool, Redactor: cfg.Redactor, Sleep: cfg.Sleep},
 		cool:     cool,
-		git:      &Git{Binary: cfg.GitBinary, Home: home, Protocols: cfg.Protocols},
+		git:      &Git{Binary: cfg.GitBinary, Home: home, Protocols: cfg.Protocols, Config: cfg.GitConfig},
 		log:      log,
 		apps:     map[string]*App{},
 		installs: map[string]int64{},

@@ -16,6 +16,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
@@ -55,7 +56,7 @@ func newDocWorld(t *testing.T) (*humanWorld, *GitHub, *gt.API) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	gh := &GitHub{API: api.URL(), GitURL: git.URL, Protocols: []string{"http"},
+	gh := &GitHub{API: api.URL(), GitURL: git.URL, Protocols: []string{"http"}, GitConfig: gittest.Config,
 		Sleep: func(context.Context, time.Duration) error { return nil }}
 	w.opts = Options{
 		Beads:  func(string) (beadsx.Client, error) { return w.bx, nil },

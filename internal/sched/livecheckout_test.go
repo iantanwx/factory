@@ -3,13 +3,13 @@ package sched
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 )
 
@@ -22,8 +22,7 @@ func TestALiveRunsCheckoutRefusesAWorktreeRemoveFromAnotherRun(t *testing.T) {
 	w.ticket(machine.Todo)
 	st := w.dispatch(machine.StageImplementer)
 
-	cmd := exec.Command("git", "-C", w.repo, "worktree", "remove", "--force", st.Checkout)
-	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+	cmd := gittest.Command("-C", w.repo, "worktree", "remove", "--force", st.Checkout)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("git worktree remove --force removed the checkout of live run %s, want a refusal\n%s", st.RunID, out)

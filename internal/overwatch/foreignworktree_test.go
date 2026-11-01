@@ -1,11 +1,11 @@
 package overwatch
 
 import (
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // A worktree under the checkout root whose repository no project
@@ -15,8 +15,7 @@ func TestWorktreesIgnoresAWorktreeOfAnUnregisteredRepository(t *testing.T) {
 	w := newSchedWorld(t)
 	git := func(dir string, args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		cmd := gittest.Command(append([]string{"-C", dir, "-c", "user.name=T", "-c", "user.email=t@example.com"}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}

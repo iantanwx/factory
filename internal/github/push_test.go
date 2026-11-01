@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 )
 
@@ -415,9 +415,9 @@ func TestATagIsNeverPushed(t *testing.T) {
 	if _, err := e.push("tk-1", head); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("git", "for-each-ref", "refs/tags")
+	cmd := gittest.Command("for-each-ref", "refs/tags")
 	cmd.Dir = e.git.RemoteDir()
-	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1"}
+	cmd.Env = gittest.Env([]string{"PATH=" + os.Getenv("PATH")})
 	out, _ := cmd.Output()
 	if strings.TrimSpace(string(out)) != "" {
 		t.Fatalf("the remote holds tags: %s", out)

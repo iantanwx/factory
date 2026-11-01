@@ -11,6 +11,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 )
 
 // The two projects of the GitHub parts' fixtures. alpha's repository is
@@ -83,7 +84,7 @@ func newGHWorld(t *testing.T, projects ...config.Project) *ghWorld {
 	api := gt.NewAPI(t)
 	svc, err := github.New(github.Config{
 		Apps: github.OneApp(gt.AppID, func(context.Context) ([]byte, error) { return gt.KeyPEM(), nil }),
-		API:  api.URL(), Store: fw.st, Projects: projectList(projects), MirrorRoot: t.TempDir(),
+		API:  api.URL(), Store: fw.st, Projects: projectList(projects), MirrorRoot: t.TempDir(), GitConfig: gittest.Config,
 		Sleep: func(context.Context, time.Duration) error { return nil },
 	})
 	if err != nil {

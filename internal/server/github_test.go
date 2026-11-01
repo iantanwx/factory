@@ -18,6 +18,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/github"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
+	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 )
@@ -55,7 +56,7 @@ func newGHWorld(t *testing.T) *ghWorld {
 	if err := w.bx.ConfigureStatuses(context.Background(), machine.Statuses()); err != nil {
 		t.Fatal(err)
 	}
-	w.gh = &GitHub{API: w.api.URL(), GitURL: w.git.URL, Protocols: []string{"http"},
+	w.gh = &GitHub{API: w.api.URL(), GitURL: w.git.URL, Protocols: []string{"http"}, GitConfig: gittest.Config,
 		Sleep: func(context.Context, time.Duration) error { return nil }, ProjectConfig: triageConfig(false)}
 	opts := Options{
 		Beads:     func(string) (beadsx.Client, error) { return w.bx, nil },
