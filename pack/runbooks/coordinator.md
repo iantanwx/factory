@@ -71,6 +71,7 @@ waits on that record and not on you.
 | `inbox` | 9 | Report the missing session or the refused ring as a loop fault |
 | `server` | 9 | Make the failed check pass, or report it as a loop fault |
 | `rules` | 9 | Compare the landed rule with the rules of each other project, and record the comparison |
+| `ui` | 5 | Ask the operator whether the project declares the user interface that its default branch shows |
 
 Each finding has a key, such as `overwatch:main:factorio:ci-yml@1a2b3c4d5e6f`. When you file a bug,
 report a fault, prepare a question or file a decision for a finding, quote the finding's key in its
@@ -320,6 +321,28 @@ Recommend the yes, because the planner found that the decision passes the test.
 - On the operator's no, open a review room on the spec pull request. The room removes the entry,
   and records the no under `## Decisions` with the operator's words. The head moves, so the entry
   is raised again at the new head.
+
+### The `ui` part
+
+The `ui` part names each project whose default branch shows a frontend while its last good config
+declares no `ui` block. Its key is `overwatch:ui:<project>`. Its line names the path of each
+signal and the block that `loop ui detect` would propose. A project that declares `ui` reads
+nothing. Never write the block yourself. Only `loop-init` writes it, on the operator's yes.
+
+Prepare one question for each finding, and quote the key in its body. Name each signal path and
+the proposed block, and what each option costs:
+
+- Yes: the operator runs `loop-init` in the project's clone. `loop-init` shows the proposal, and
+  it writes the block only on the operator's yes. A run whose work touches the block's paths then
+  holds the design skill. The finding ends when the block reaches the default branch.
+- No: no run of the project holds the design skill. Record the no as a decision that quotes the
+  key, so the sweep reads the finding as filed:
+
+  ```bash
+  loop decision file --project <project> --title "<project> declares no ui block (overwatch:ui:<project>)" --trigger "the project's frontend signals change, or it declares a ui block" --waits-for-a-person "the operator" --body "<the operator's words, and the signal paths>"
+  ```
+
+  The decision stays open until someone fires, settles or moots it by section 6.
 
 ## 6. Decisions that wait on an event
 

@@ -13,6 +13,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/frontend"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
@@ -118,9 +119,10 @@ func (w *fakeWorld) CheckoutDirs(context.Context) ([]string, error) {
 func (w *fakeWorld) Inventory(context.Context) (agenthost.Inventory, error) {
 	return agenthost.Inventory{}, errFake
 }
-func (w *fakeWorld) Coordinator() sched.CoordinatorState                { return sched.CoordinatorState{} }
-func (w *fakeWorld) GitHub() GitHubReads                                { return nil }
-func (w *fakeWorld) Doctor(context.Context) ([]github.CheckLine, error) { return nil, errFake }
+func (w *fakeWorld) Coordinator() sched.CoordinatorState                    { return sched.CoordinatorState{} }
+func (w *fakeWorld) GitHub() GitHubReads                                    { return nil }
+func (w *fakeWorld) Doctor(context.Context) ([]github.CheckLine, error)     { return nil, errFake }
+func (w *fakeWorld) Tracked(context.Context, string) (frontend.Tree, error) { return nil, errFake }
 func (w *fakeWorld) LastRing(ctx context.Context) (RingOutcome, bool, error) {
 	return LastRing(ctx, w.st)
 }
