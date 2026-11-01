@@ -1,6 +1,6 @@
 {
   "skills": [
-    {"name": "asd-ste100", "repo": "danyuchn/asd-ste100-skill", "commit": "cd62d297d5ef7cf9f59718cadc233ab2876ea013", "path": "", "sha256": "04db809a9dc27d79c7f959424cb22c71553d53137f8db915e1ac8b83a9a9caec"},
+    {"name": "asd-ste100", "repo": "danyuchn/asd-ste100-skill", "commit": "255631a36dea63b427b6a454c1e59a53cdc0b14a", "path": "", "sha256": "2f7052a83617e9b326d9f2b11ac265914b7b1e9bb8a3de50498cba5e11fe5173"},
     {"name": "impeccable", "repo": "pbakaus/impeccable", "commit": "936867543ac2576920d663cc9803597f6044f3ac", "path": ".agents/skills/impeccable", "sha256": "28c4ba56bc8c1377af6e1a3404f7ab3daa78f491486757f18a74e2d56cdef272"}
   ]
 }
