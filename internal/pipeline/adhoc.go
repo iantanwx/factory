@@ -3,11 +3,14 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
+	"time"
 
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/design"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -464,6 +467,70 @@ func (p *Pipeline) epicSkipDesign(ctx context.Context, call *rpc.Call) cli.Resul
 	return p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: epic.ID, Verb: machine.VerbSkipDesign,
 		Params: map[string]string{"request": request}, Command: inv.Verb.Path, ExpectedStatus: expected,
 		RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
+}
+
+// epicAcceptDifference is `loop epic accept-difference`, the coordinator's
+// record of the operator's acceptance of how a shipped screen differs from
+// one state of the epic's merged design record. The server checks the
+// state against the record at the base, and the epic table appends the
+// acceptance to accepted_differences. No file and no ref changes.
+func (p *Pipeline) epicAcceptDifference(ctx context.Context, call *rpc.Call) cli.Result {
+	pr, inv := call.Principal, call.Inv
+	if pr.Kind != cli.PrincipalCoordinator {
+		return cli.Reject(cli.CodeCapabilityDenied, "coordinator_only", "only the coordinator records an accepted difference, at the operator's word")
+	}
+	prj, ref := call.Project(ownProject)
+	if ref != nil {
+		return ref.Result()
+	}
+	request := inv.Flags["request"]
+	if strings.TrimSpace(request) == "" {
+		return cli.Reject(cli.CodeUsage, "no_operator_request",
+			"the acceptance needs the operator's request: quote the operator's own words with --request")
+	}
+	epic, ref := p.cfg.Machine.Read(ctx, prj, inv.Arg("item"))
+	if ref != nil {
+		return ref.Result()
+	}
+	state := inv.Flags["state"]
+	// The record read and the write are not one write, so the write
+	// expects the status the read saw. The epic table refuses any other
+	// status, and an epic with no merged record.
+	expected := inv.Extra[cli.ExtraExpectedStatus]
+	if epic.Status == machine.Execution && epic.Fact(machine.FactDesignMerged) != "" && epic.Fact(machine.FactDesignPath) != "" {
+		if ref := p.recordHolds(ctx, epic, state); ref != nil {
+			return ref.Result()
+		}
+		if expected == "" {
+			expected = machine.Execution
+		}
+	}
+	return p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: epic.ID, Verb: machine.VerbAcceptDifference,
+		Params:  map[string]string{"state": state, "request": request, "at": time.Now().UTC().Format(time.RFC3339)},
+		Command: inv.Verb.Path, ExpectedStatus: expected, RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
+}
+
+// recordHolds refuses a state that the epic's merged design record at the
+// base does not hold.
+func (p *Pipeline) recordHolds(ctx context.Context, epic machine.Item, state string) *cli.Refusal {
+	rec := epic.Fact(machine.FactDesignPath)
+	data, _, err := p.cfg.GitHub.ReadAtBase(ctx, epic.Project, rec)
+	if err != nil {
+		return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "no_design_record", Item: epic.ID, CurrentStatus: epic.Status,
+			Hint: fmt.Sprintf("the base branch holds no readable %s: %v; nothing was recorded", rec, err)}
+	}
+	parsed, _ := design.Parse(path.Dir(rec), string(data))
+	var ids []string
+	for _, s := range parsed.Screens {
+		for _, st := range s.States {
+			if st.ID == state {
+				return nil
+			}
+			ids = append(ids, st.ID)
+		}
+	}
+	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "state_unknown", Item: epic.ID, CurrentStatus: epic.Status,
+		Hint: fmt.Sprintf("%s holds no state %s at the base, and it holds %s; nothing was recorded", rec, state, strings.Join(ids, ", "))}
 }
 
 // brainstormStage is the run stage that writes a PRD epic's PRD. A project

@@ -2,6 +2,7 @@ package machine
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -192,6 +193,47 @@ func specClaim(r Row) Row {
 // no design outcome yet: its next document is the design record.
 func designDue(c *change) bool {
 	return c.fact(FactUIStories) != "" && c.fact(FactDesignMerged) == "" && c.fact(FactDesignSkipped) == ""
+}
+
+// Acceptance is one entry of an epic's accepted_differences fact: the
+// operator's words that accept how a shipped screen differs from one state
+// of the merged design record.
+type Acceptance struct {
+	State string `json:"state"` // a state id of the record at design_path, S<n>.<m>
+	Words string `json:"words"` // the operator's words, exactly as given
+	At    string `json:"at"`    // the time of the write
+}
+
+// designRecorded refuses an acceptance on an epic whose design record
+// never merged, since no state exists to accept a difference from.
+func designRecorded(c *change) *cli.Refusal {
+	if c.fact(FactDesignMerged) != "" && c.fact(FactDesignPath) != "" {
+		return nil
+	}
+	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "no_design_record", Item: c.item.ID, CurrentStatus: c.item.Status,
+		Hint: fmt.Sprintf("%s holds no merged design record, so it has no state to accept a difference from", c.item.ID)}
+}
+
+// acceptDifference appends one Acceptance to accepted_differences, and
+// keeps each earlier one. The server checked the state against the record.
+func acceptDifference(c *change) *cli.Refusal {
+	for _, p := range []string{"state", "request", "at"} {
+		if r := c.needParam(p); r != nil {
+			return r
+		}
+	}
+	var list []Acceptance
+	if raw := c.fact(FactAcceptedDifferences); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &list); err != nil {
+			return cli.InternalRefusal(fmt.Errorf("machine: %s holds no list in %s: %w", c.item.ID, FactAcceptedDifferences, err))
+		}
+	}
+	raw, err := json.Marshal(append(list, Acceptance{State: c.param("state"), Words: c.param("request"), At: c.param("at")}))
+	if err != nil {
+		return cli.InternalRefusal(err)
+	}
+	c.setFact(FactAcceptedDifferences, string(raw))
+	return nil
 }
 
 // uiRoute holds when the PRD merge carries a UI story.
@@ -449,6 +491,11 @@ func epicTable() *Table {
 		// the epic goes to its spec with no record.
 		{Verb: VerbSkipDesign, From: []string{Design}, To: SpecNeeded, Command: "epic skip-design",
 			set: needCopy("request", FactDesignSkipped), Facts: []string{FactDesignSkipped}},
+		// The operator accepts how a shipped screen differs from one state
+		// of the merged design record. The server checks the state against
+		// the record, and the epic and the record stay as they are.
+		{Verb: VerbAcceptDifference, From: []string{Execution}, To: ToSame, Command: "epic accept-difference",
+			guard: designRecorded, set: acceptDifference, Facts: []string{FactAcceptedDifferences}},
 		// adr_merged is the first-parent commit that added the ADR, which the
 		// base audit passes (ADR 0012). The tick's head is not always it. An
 		// epic with a UI story and no design outcome designs next. One that

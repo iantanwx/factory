@@ -70,6 +70,9 @@ const (
 	FactDesignPath      = "design_path"      // the merged design record's path
 	FactDesignMerged    = "design_merged"    // the merge commit of the design pull request
 	FactDesignSkipped   = "design_skipped"   // the operator's words that skipped the design stage
+	// FactAcceptedDifferences is a JSON array of Acceptance: each difference
+	// from the merged design record that the operator accepted.
+	FactAcceptedDifferences = "accepted_differences"
 	// FactQAHead (bug.go) on a ticket: the head of the latest QA pass
 	FactQACarriedFrom = "qa_carried_from" // the head whose QA pass base_merged carried
 	FactSimplifyDue   = "simplify_due"    // "true" when the next implementer hand-off enters the simplify run
