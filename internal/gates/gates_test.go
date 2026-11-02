@@ -19,7 +19,7 @@ func TestSelect(t *testing.T) {
 	all, _ := Select(nil, false, false, "")
 	fast, _ := Select(nil, false, true, "")
 	docs, _ := Select(nil, true, false, "")
-	if slices.Contains(names(fast), "test") || slices.Contains(names(fast), "build") || len(fast) != len(all)-2 {
+	if slices.Contains(names(fast), "test") || slices.Contains(names(fast), "build") || slices.Contains(names(fast), "pixel") || len(fast) != len(all)-3 {
 		t.Fatalf("fast = %v", names(fast))
 	}
 	if slices.Contains(names(docs), "lint") || !slices.Contains(names(docs), "prose") {
