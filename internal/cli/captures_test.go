@@ -77,6 +77,38 @@ func TestC10CapturesPushMakesAParentlessCommitOfTheFiles(t *testing.T) {
 	}
 }
 
+// C10: a checkout whose attributes filter PNG files still stores the
+// bytes of each capture, not the output of its clean filter.
+func TestC10CapturesPushKeepsTheBytesInACheckoutThatFiltersPNG(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	repo := t.TempDir()
+	for _, args := range [][]string{{"init", "-q"}, {"config", "filter.swap.clean", "sed s/PNG/XXX/"}} {
+		if out, err := gittest.Command(append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("*.png filter=swap\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	if err := os.WriteFile(filepath.Join(out, "S1.1.png"), []byte("\x89PNG one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sha, err := CaptureCommit(context.Background(), repo, out, strings.Repeat("a", 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := gittest.Command("-C", repo, "cat-file", "blob", sha+":S1.1.png").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "\x89PNG one" {
+		t.Fatalf("S1.1.png holds %q, want the captured bytes", got)
+	}
+}
+
 // A directory inside the captures directory is no capture, and the CLI
 // sends nothing.
 func TestCapturesPushRefusesADirectoryInTheSet(t *testing.T) {

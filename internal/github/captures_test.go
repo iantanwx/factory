@@ -12,6 +12,8 @@ import (
 
 	"github.com/iantanwx/loop/internal/captures"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
+	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/gitx/gittest"
 	"github.com/iantanwx/loop/internal/machine"
 )
@@ -37,6 +39,12 @@ func (e *env) citingTicket(screens string) string {
 // A nil files sends no --captures.
 func (e *env) capturesPush(item string, files map[string][]byte) cli.Result {
 	e.t.Helper()
+	return e.capturesPushAs(item, machine.StageImplementer, files)
+}
+
+// capturesPushAs is capturesPush from the run of stage.
+func (e *env) capturesPushAs(item, stage string, files map[string][]byte) cli.Result {
+	e.t.Helper()
 	head := gitT(e.t, e.checkout, "rev-parse", "HEAD")
 	extra := map[string]string{cli.ExtraHead: head}
 	flags := map[string]string{}
@@ -54,7 +62,7 @@ func (e *env) capturesPush(item string, files map[string][]byte) cli.Result {
 		flags["captures"] = dir
 		extra[cli.ExtraCaptures] = sha
 	}
-	return e.runCall("branch push", item, machine.StageImplementer, flags, extra)
+	return e.runCall("branch push", item, stage, flags, extra)
 }
 
 // remoteBlob reads path on a branch of the bare remote, or "" when the
@@ -225,6 +233,36 @@ func TestC11PushWithAnIncompleteOrWrongSetPushesNothing(t *testing.T) {
 	}
 }
 
+// C12: a simplify run's push runs every check of the head before it
+// pushes the captures. A commit outside the pull request's paths with a
+// valid set refuses with SIMPLIFY_SCOPE, and neither the capture branch
+// nor the ticket branch moves.
+func TestC12RefusedSimplifyPushLeavesTheCaptureBranch(t *testing.T) {
+	e := newEnv(t)
+	e.withWorld()
+	e.onBase(t, map[string]string{".loop/config.yaml": configBase})
+	tk := e.citingTicket("S1.1")
+	from := commit(t, e.checkout, "work", prFiles)
+	set := map[string][]byte{"S1.1.png": screenshot}
+	mustOK(t, e.capturesPush(tk, set))
+	tip := e.remoteSHA(captures.Branch(tk))
+	e.api.World.Add(&gt.PR{Head: BranchFor(tk), HeadSHA: from, Title: "t", Body: "the implementer's red and green runs"})
+	mustOK(t, e.runCall("pr open", tk, machine.StageImplementer, map[string]string{"title": "t"}, nil))
+	if _, res := e.m.Claim(context.Background(), machine.ClaimRequest{Project: testProject, Item: tk,
+		Stage: config.StageSimplify, RunID: simplifyRun}); res.Refusal != nil {
+		t.Fatalf("simplify claim: %+v", *res.Refusal)
+	}
+
+	commit(t, e.checkout, "outside", map[string]string{"README.md": "hello, simpler\n"})
+	wantScope(t, e.capturesPushAs(tk, config.StageSimplify, set), "path_outside_pr")
+	if got := e.remoteSHA(captures.Branch(tk)); got != tip {
+		t.Fatalf("remote %s = %q after the refusal, want %s", captures.Branch(tk), got, tip)
+	}
+	if got := e.remoteSHA(BranchFor(tk)); got != from {
+		t.Fatalf("remote %s = %q after the refusal, want %s", BranchFor(tk), got, from)
+	}
+}
+
 // C12: the capture branch push completes before the ticket branch push
 // starts. A crash between the two leaves the captures on the remote and
 // the head off it, and the same push run again pushes the head.
@@ -337,26 +375,69 @@ func TestC14LoopNeverDeletesACaptureBranch(t *testing.T) {
 		t.Fatalf("remote %s = %q, want %s", branch, got, tip)
 	}
 
+	// The search reads each file as one text, so it finds a Call whose
+	// Method and Path sit on two lines, as this repository writes them.
+	planted := "s.repoDo(ctx, p, ScopePush, Call{Method: http.MethodDelete,\n" +
+		"\tPath: repoPath(p, \"/git/refs/heads/\"+captures.Branch(ticket))}, nil)"
+	if !deletesARef(planted) {
+		t.Errorf("the search misses a planted delete: %s", planted)
+	}
 	err = filepath.WalkDir("..", func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
 			strings.Contains(path, "githubtest") {
 			return err
 		}
-		raw, err := os.ReadFile(path)
+		src, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		for _, line := range strings.Split(string(raw), "\n") {
-			deletes := strings.Contains(line, `"--delete"`) || strings.Contains(line, `"--mirror"`) ||
-				strings.Contains(line, "MethodDelete") && strings.Contains(line, "git/refs")
-			if deletes {
-				t.Errorf("%s deletes a remote ref: %s", path, strings.TrimSpace(line))
-			}
+		if deletesARef(string(src)) {
+			t.Errorf("%s deletes a remote ref", path)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// C14: through a citing ticket's merge and its epic's done, the loop sends
+// GitHub no ref delete, and the capture branch stays at its tip.
+func TestC14CaptureBranchOutlivesTheMergeAndTheEpicsDone(t *testing.T) {
+	e := newEnv(t)
+	w := e.withWorld()
+	ep := e.prdEpicIn(machine.Execution, nil)
+	tk := e.citingTicket("S1.1")
+	e.put(tk, machine.InProgress, map[string]string{machine.FactEpic: ep})
+	head := commit(t, e.checkout, "one", map[string]string{"a.txt": "a\n"})
+	mustOK(t, e.capturesPush(tk, map[string][]byte{"S1.1.png": screenshot}))
+	branch := captures.Branch(tk)
+	tip := e.remoteSHA(branch)
+	if tip == "" {
+		t.Fatalf("the push left no %s", branch)
+	}
+	mustOK(t, e.runCall("pr open", tk, machine.StageImplementer, map[string]string{"title": "t", "body": "b"}, nil))
+	r := e.reactor()
+	for _, pr := range w.PRs() {
+		if pr.Head == BranchFor(tk) {
+			w.Update(w.PR(pr.Number), func(p *gt.PR) { p.HeadSHA, p.State, p.Merged, p.MergeSHA = head, "closed", true, shaM })
+		}
+	}
+	e.tick(r)
+	e.tick(r)
+	if got := e.status(tk).Status; got != machine.Done {
+		t.Fatalf("the merged ticket is %s", got)
+	}
+	if got := e.status(ep).Status; got != machine.Done {
+		t.Fatalf("the epic of its one merged ticket is %s", got)
+	}
+	for _, c := range e.api.Calls() {
+		if strings.HasPrefix(c, "DELETE ") && strings.Contains(c, "/git/refs") {
+			t.Errorf("the loop sent %s", c)
+		}
+	}
+	if got := e.remoteSHA(branch); got != tip {
+		t.Fatalf("remote %s = %q after the merge and the epic's done, want %s", branch, got, tip)
 	}
 }
 

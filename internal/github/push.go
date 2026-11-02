@@ -183,7 +183,7 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 		return res, nil
 	}
 	if req.Stage == config.StageSimplify {
-		return s.hold(ctx, m, req, remoteRef(base), remote, res)
+		return s.hold(ctx, m, req, res)
 	}
 
 	if err := s.pushBranch(ctx, p, m, req.Item, req.Branch, remote, req.Head, req.RunID, "pushed"); err != nil {
@@ -230,8 +230,9 @@ func (s *Service) pushBranch(ctx context.Context, p config.Project, m *Mirror, i
 
 // checkHead runs every check of a head that the remote lacks: the remote
 // holds no commit the head lacks, each new commit passes the scan, a
-// reviser's edits stay in one commit, and a design branch stays in its
-// directory. It answers the count of new commits.
+// reviser's edits stay in one commit, a design branch stays in its
+// directory, and a simplify run's commit stays in its scope. It answers
+// the count of new commits.
 func (s *Service) checkHead(ctx context.Context, m *Mirror, p config.Project, req PushRequest, base, remote string, design bool) (int, error) {
 	if remote != "" {
 		lacking, err := m.Lacking(ctx, req.Head, remote)
@@ -259,6 +260,11 @@ func (s *Service) checkHead(ctx context.Context, m *Mirror, p config.Project, re
 	}
 	if design {
 		if err := m.CheckDesignScope(ctx, req.Item, req.Head, remoteRef(base), remoteRef(PrototypeBranchFor(req.Item))); err != nil {
+			return 0, err
+		}
+	}
+	if req.Stage == config.StageSimplify {
+		if err := s.simplifyScope(ctx, m, req, remoteRef(base), remote); err != nil {
 			return 0, err
 		}
 	}
@@ -388,22 +394,24 @@ func (s *Service) pushCaptures(ctx context.Context, p config.Project, m *Mirror,
 	return out, nil
 }
 
-// hold runs scopeCheck on a simplify run's push over the item's
-// simplify_from, or over remote when the item names none, and keeps the
-// head at heldRef. GitHub stays at simplify_from until the run's hand-off
-// (pushHeld), so a run that ends with no hand-off leaves no commit there.
-func (s *Service) hold(ctx context.Context, m *Mirror, req PushRequest, base, remote string, res PushResult) (PushResult, error) {
+// simplifyScope runs scopeCheck on a simplify run's push over the item's
+// simplify_from, or over remote when the item names none.
+func (s *Service) simplifyScope(ctx context.Context, m *Mirror, req PushRequest, base, remote string) error {
 	it, ref := s.item(ctx, req.Project, req.Item)
 	if ref != nil {
-		return res, &RefusedError{Code: ref.Code, Rule: ref.Rule, Hint: ref.Hint}
+		return &RefusedError{Code: ref.Code, Rule: ref.Rule, Hint: ref.Hint}
 	}
 	from := it.Fact(machine.FactSimplifyFrom)
 	if from == "" {
 		from = remote
 	}
-	if err := m.scopeCheck(ctx, from, base, req.Head); err != nil {
-		return res, err
-	}
+	return m.scopeCheck(ctx, from, base, req.Head)
+}
+
+// hold keeps a simplify run's head at heldRef, after checkHead ran its
+// scope check. GitHub stays at simplify_from until the run's hand-off
+// (pushHeld), so a run that ends with no hand-off leaves no commit there.
+func (s *Service) hold(ctx context.Context, m *Mirror, req PushRequest, res PushResult) (PushResult, error) {
 	if err := m.Keep(ctx, heldRef(req.RunID), req.Head); err != nil {
 		return res, err
 	}

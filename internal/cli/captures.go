@@ -33,7 +33,7 @@ func CaptureCommit(ctx context.Context, checkout, dir, head string) (string, err
 		if !e.Type().IsRegular() {
 			return "", fmt.Errorf("--captures %s holds %s, which is not a file", dir, e.Name())
 		}
-		blob, err := checkoutGit(ctx, checkout, nil, "hash-object", "-w", "--", filepath.Join(dir, e.Name()))
+		blob, err := checkoutGit(ctx, checkout, nil, "hash-object", "-w", "--no-filters", "--", filepath.Join(dir, e.Name()))
 		if err != nil {
 			return "", err
 		}
