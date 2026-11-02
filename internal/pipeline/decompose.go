@@ -10,6 +10,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/design"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/shape"
@@ -134,6 +135,10 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeShapeRefused, Rule: "ticket_shape", Item: epic.ID,
 			Hint: "the batch is refused, and no ticket was created. Each body needs the ticket shape: " + strings.Join(misshaped, ". ")})
 	}
+	screens, ref := p.screens(ctx, epic, d.Tickets)
+	if ref != nil {
+		return ref.Result()
+	}
 	if ref := p.cfg.Redactor.Refusal("secret_in_text", "text", texts...); ref != nil {
 		return ref.Result()
 	}
@@ -154,11 +159,15 @@ func (p *Pipeline) decompose(ctx context.Context, call *rpc.Call) cli.Result {
 
 	ids := map[string]machine.Item{}
 	for _, t := range order {
+		facts := map[string]string{
+			machine.FactCreateKey: epic.ID + "/" + t.Key, machine.FactEpic: epic.ID,
+			machine.FactStories: strings.Join(t.Stories, ","), machine.FactShape: shape.Ticket.Name,
+		}
+		if cited := screens[t.Key]; len(cited) > 0 {
+			facts[machine.FactScreens] = strings.Join(cited, ",")
+		}
 		it, ref := p.findOrCreate(ctx, machine.CreateRequest{Project: epic.Project, Kind: machine.KindTicket, Title: t.Title,
-			Description: t.Body, Facts: map[string]string{
-				machine.FactCreateKey: epic.ID + "/" + t.Key, machine.FactEpic: epic.ID,
-				machine.FactStories: strings.Join(t.Stories, ","), machine.FactShape: shape.Ticket.Name,
-			}})
+			Description: t.Body, Facts: facts})
 		if ref != nil {
 			return ref.Result()
 		}
@@ -250,6 +259,58 @@ func (p *Pipeline) specDecided(ctx context.Context, epic machine.Item) *cli.Refu
 		Hint: fmt.Sprintf("%s holds %d undecided open questions, so no ticket was created: %s. An entry is decided "+
 			"by a bold **Answered or **Deferred run under it. Escalate each one, and never answer it yourself",
 			path, len(qs), strings.Join(each, "; "))}
+}
+
+// screens checks the **Screens:** line of each ticket, and returns the
+// state ids each ticket cites, by key. In an epic that holds
+// design_merged, a ticket of a ui_stories story holds the line, and each
+// id it cites is a state of the record at design_path on the base. An
+// epic with no design_merged has no record, so it refuses any citation.
+func (p *Pipeline) screens(ctx context.Context, epic machine.Item, ts []TicketSpec) (map[string][]string, *cli.Refusal) {
+	merged := epic.Fact(machine.FactDesignMerged) != ""
+	var states []string // the states of the record
+	if path := epic.Fact(machine.FactDesignPath); merged && path != "" {
+		data, _, err := p.cfg.GitHub.ReadAtBase(ctx, epic.Project, path)
+		if err != nil {
+			return nil, &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "ticket_screens", Item: epic.ID,
+				Hint: fmt.Sprintf("the base branch holds no readable design record %s, so no ticket was created: %v", path, err)}
+		}
+		rec, _ := design.Parse(design.Dir(epic.ID), string(data))
+		for _, sc := range rec.Screens {
+			for _, st := range sc.States {
+				states = append(states, st.ID)
+			}
+		}
+	}
+	ui := strings.Split(epic.Fact(machine.FactUIStories), ",")
+	out := map[string][]string{}
+	var faults []string
+	for _, t := range ts {
+		s, present, fs := shape.ScreensOf(t.Body)
+		for _, f := range fs {
+			faults = append(faults, fmt.Sprintf("ticket %s: %s", t.Key, f.Msg))
+		}
+		switch {
+		case !merged && len(s.States) > 0:
+			faults = append(faults, fmt.Sprintf("ticket %s cites %s, and %s holds no merged design record, so no state exists to cite",
+				t.Key, strings.Join(s.States, ", "), epic.ID))
+		case merged && !present && slices.ContainsFunc(t.Stories, func(st string) bool { return slices.Contains(ui, st) }):
+			faults = append(faults, fmt.Sprintf("ticket %s serves a UI story and its ## Source holds no **Screens:** line; "+
+				"cite its states, or write **Screens:** none. <reason>", t.Key))
+		case merged:
+			for _, id := range s.States {
+				if !slices.Contains(states, id) {
+					faults = append(faults, fmt.Sprintf("ticket %s cites %s, which the design record does not hold", t.Key, id))
+				}
+			}
+		}
+		out[t.Key] = s.States
+	}
+	if len(faults) > 0 {
+		return nil, &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "ticket_screens", Item: epic.ID,
+			Hint: "the batch is refused, and no ticket was created: " + strings.Join(faults, "; ")}
+	}
+	return out, nil
 }
 
 // landed answers a batch whose every ticket exists.
