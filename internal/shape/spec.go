@@ -33,6 +33,7 @@ var TemplateLines = []string{
 	"- Files: <paths or globs>",
 	"- Needs: <an earlier entry, or nothing>",
 	"- Proves: <the contracts, by number>",
+	"- Screens: <the state ids it builds>, or none. <why the entry draws no screen>",
 	"- Done when: <an outcome that someone can observe>",
 	"- <Thing>. It belongs to <an epic, a story, or never>.",
 	"**C1. <Kind>: <short name>.** Proves <A-n>. <The promise, stated so that it is true or false.>",

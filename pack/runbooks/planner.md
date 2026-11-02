@@ -62,7 +62,11 @@ The spec holds these sections, in this order:
 13. **Observable behaviour**, or "None", with the reason.
 14. **Open questions**: an empty section is normal. Never invent a question.
 
-Each work entry that draws a screen names its design references, when the project keeps them.
+In an epic that holds `design_merged`, write a `- Screens:` line in each work entry. The brief
+lists the epic's facts, and `design_path` names the design record. The line names the state ids of
+the record that the entry builds, such as `- Screens: S1.1, S2.3`. An entry that draws no screen
+writes `- Screens: none.` and a reason that shows why. An entry that serves only `UI: no` stories
+names those stories in its reason. In an epic with no `design_merged`, write no `- Screens:` line.
 
 Run the test of `../loop-sdlc-documents/SKILL.md` § 6, When a decision needs an ADR, on each
 Decisions entry. For each entry that passes all four parts, write an open question that starts
