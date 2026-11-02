@@ -103,14 +103,12 @@ func Pixel(ctx context.Context, r *Repo) ([]Finding, error) {
 		case res.SizeMismatch:
 			add(st.Line, "pixel_size", "%s: the capture is %s and its picture is %s; a crop or a scale would hide a change of layout", id, size(capture), size(want))
 		case pixel.Over(res, limit):
-			add(st.Line, "pixel_over", "%s differs from its picture in %s of its pixels, over its bound of %s%%", id, share(res), bound)
+			add(st.Line, "pixel_over", "%s differs from its picture in %s of its pixels, over its bound of %s%%", id, shareRoundedUp(res), bound)
 		}
 	}
 	return out, nil
 }
 
-// pixelHead is the head whose captures the gate reads, and its branch.
-// Both are empty when the gate reads nothing.
 func pixelHead(ctx context.Context, r *Repo) (head, branch string, err error) {
 	if p := os.Getenv("GITHUB_EVENT_PATH"); p != "" {
 		raw, err := os.ReadFile(p)
@@ -224,9 +222,7 @@ func size(img image.Image) string {
 	return fmt.Sprintf("%dx%d", b.Dx(), b.Dy())
 }
 
-// share is the percent of differing pixels with two decimals, rounded up,
-// so that a failing share never prints as its bound.
-func share(r pixel.Result) string {
+func shareRoundedUp(r pixel.Result) string {
 	h := (int64(r.Differing)*10000 + int64(r.Total) - 1) / int64(r.Total)
 	return fmt.Sprintf("%d.%02d%%", h/100, h%100)
 }
