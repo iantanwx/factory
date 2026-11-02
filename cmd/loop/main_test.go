@@ -147,6 +147,7 @@ func TestBinary(t *testing.T) {
 
 	// No server: a server verb waits out its budget, then exits 4.
 	cmd := exec.Command(bin, "work", "list")
+	cmd.Dir = t.TempDir()
 	cmd.Env = append(os.Environ(), cli.InstanceEnv+"="+instance, cli.WaitBudgetEnv+"=500ms")
 	start := time.Now()
 	out, _ := cmd.Output()
