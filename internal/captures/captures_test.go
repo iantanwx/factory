@@ -57,3 +57,18 @@ func TestC10ManifestNamesTheTicketTheRecordAndTheStates(t *testing.T) {
 		t.Fatalf("manifest %s, want %s", raw, want)
 	}
 }
+
+// C27: a share is a percent from 0% to 100% with its % sign and at most
+// two decimals, read as hundredths of a percent.
+func TestC27ShareReadsHundredthsOfAPercent(t *testing.T) {
+	for share, want := range map[string]int{"1.20%": 120, "0.8%": 80, "0%": 0, "100%": 10000, "100.00%": 10000, "0.05%": 5} {
+		if got, ok := Hundredths(share); !ok || got != want {
+			t.Errorf("Hundredths(%q) = %d, %v, want %d", share, got, ok, want)
+		}
+	}
+	for _, share := range []string{"1.205%", "1.2", "-1%", "101%", "100.01%", "", "%", ".5%", "1.%", "1,20%", " 1%", "99999999999999999999%"} {
+		if got, ok := Hundredths(share); ok {
+			t.Errorf("Hundredths(%q) = %d, want a refusal", share, got)
+		}
+	}
+}

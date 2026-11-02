@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -164,6 +165,43 @@ func TestC5PushReadsOnlyTheScreensFact(t *testing.T) {
 	}
 	if !slices.Equal(m.States, []string{"S1.2", "S1.1"}) {
 		t.Fatalf("the manifest lists %v, want [S1.2 S1.1]", m.States)
+	}
+}
+
+// C27: each capture push writes into screens.json the largest accepted
+// share of each cited state, in hundredths of a percent. Shares of 1.20%
+// and then 0.80% on S1.1 write 120. An acceptance with no share writes no
+// entry, and an acceptance of a state the ticket does not cite is absent.
+func TestC27PushWritesTheLargestAcceptedShareOfEachState(t *testing.T) {
+	e := newEnv(t)
+	e.withWorld()
+	epic := e.prdEpicIn(machine.Execution, nil)
+	tk := e.ticket(machine.InProgress, "")
+	e.put(tk, machine.InProgress, map[string]string{machine.FactEpic: epic, machine.FactScreens: "S1.1,S1.2,S1.3"})
+	commit(t, e.checkout, "one", map[string]string{"a.txt": "a\n"})
+	set := map[string][]byte{"S1.1.png": screenshot, "S1.2.png": screenshot, "S1.3.png": screenshot}
+	steps := []struct {
+		accepted string
+		want     map[string]int
+	}{
+		{`[{"state":"S1.1","words":"w","at":"t","share":"1.20%"},{"state":"S1.2","words":"w","at":"t"}]`, map[string]int{"S1.1": 120}},
+		{`[{"state":"S1.1","words":"w","at":"t","share":"1.20%"},{"state":"S1.2","words":"w","at":"t"},` +
+			`{"state":"S1.1","words":"w","at":"t","share":"0.80%"},{"state":"S1.3","words":"w","at":"t","share":"0.40%"},` +
+			`{"state":"S2.1","words":"w","at":"t","share":"5%"}]`, map[string]int{"S1.1": 120, "S1.3": 40}},
+	}
+	for i, st := range steps {
+		e.put(epic, machine.Execution, map[string]string{machine.FactAcceptedDifferences: st.accepted})
+		mustOK(t, e.capturesPush(tk, set))
+		raw := e.remoteBlob(captures.Branch(tk), captures.ManifestFile)
+		var got struct {
+			Accepted map[string]int `json:"accepted"`
+		}
+		if err := json.Unmarshal([]byte(raw), &got); err != nil {
+			t.Fatalf("screens.json: %v", err)
+		}
+		if !maps.Equal(got.Accepted, st.want) {
+			t.Fatalf("push %d: screens.json %s, want accepted %v", i+1, raw, st.want)
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/beadsx"
+	"github.com/iantanwx/loop/internal/captures"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/design"
@@ -491,13 +492,17 @@ func (p *Pipeline) epicAcceptDifference(ctx context.Context, call *rpc.Call) cli
 	if ref != nil {
 		return ref.Result()
 	}
-	state := inv.Flags["state"]
+	state, share := inv.Flags["state"], inv.Flags["share"]
+	if _, ok := captures.Hundredths(share); share != "" && !ok {
+		return (&cli.Refusal{Code: cli.CodeShapeRefused, Rule: "bad_share", Item: epic.ID, CurrentStatus: epic.Status,
+			Hint: fmt.Sprintf("--share %s is no percent from 0%% to 100%% with its %% sign and at most two decimals, such as 1.20%%; nothing was recorded", share)}).Result()
+	}
 	// The record read and the write are not one write, so the write
 	// expects the status the read saw. The epic table refuses any other
 	// status, and an epic with no merged record.
 	expected := inv.Extra[cli.ExtraExpectedStatus]
 	if epic.Status == machine.Execution && epic.Fact(machine.FactDesignMerged) != "" && epic.Fact(machine.FactDesignPath) != "" {
-		if ref := p.recordHolds(ctx, epic, state); ref != nil {
+		if ref := p.recordHolds(ctx, epic, state, share); ref != nil {
 			return ref.Result()
 		}
 		if expected == "" {
@@ -505,13 +510,13 @@ func (p *Pipeline) epicAcceptDifference(ctx context.Context, call *rpc.Call) cli
 		}
 	}
 	return p.cfg.Machine.Apply(ctx, machine.Request{Project: prj, Item: epic.ID, Verb: machine.VerbAcceptDifference,
-		Params:  map[string]string{"state": state, "request": request, "at": time.Now().UTC().Format(time.RFC3339)},
+		Params:  map[string]string{"state": state, "request": request, "share": share, "at": time.Now().UTC().Format(time.RFC3339)},
 		Command: inv.Verb.Path, ExpectedStatus: expected, RequestID: inv.RequestID, Actor: machine.Actor{Name: pr.Actor(), RunID: pr.RunID}})
 }
 
 // recordHolds refuses a state that the epic's merged design record at the
-// base does not hold.
-func (p *Pipeline) recordHolds(ctx context.Context, epic machine.Item, state string) *cli.Refusal {
+// base does not hold, and a share of a state that holds no pixel mark.
+func (p *Pipeline) recordHolds(ctx context.Context, epic machine.Item, state, share string) *cli.Refusal {
 	rec := epic.Fact(machine.FactDesignPath)
 	data, _, err := p.cfg.GitHub.ReadAtBase(ctx, epic.Project, rec)
 	if err != nil {
@@ -522,10 +527,15 @@ func (p *Pipeline) recordHolds(ctx context.Context, epic machine.Item, state str
 	var ids []string
 	for _, s := range parsed.Screens {
 		for _, st := range s.States {
-			if st.ID == state {
-				return nil
+			if st.ID != state {
+				ids = append(ids, st.ID)
+				continue
 			}
-			ids = append(ids, st.ID)
+			if share != "" && st.Pixel == nil {
+				return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "share_unmarked", Item: epic.ID, CurrentStatus: epic.Status,
+					Hint: fmt.Sprintf("%s holds no pixel mark on %s, so no share applies; accept it with no --share. Nothing was recorded", rec, state)}
+			}
+			return nil
 		}
 	}
 	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "state_unknown", Item: epic.ID, CurrentStatus: epic.Status,
