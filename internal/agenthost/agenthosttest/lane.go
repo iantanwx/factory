@@ -36,9 +36,9 @@ type LaneEntry struct {
 // because its sessions are its scenarios' entries.
 var laneTests = []LaneEntry{
 	{Name: "TestOrcaAgentRunsShellCommands", Sessions: 1},
-	// One implementer and one code-reviewer. A repair round would make
-	// the flow branch on a model's answer.
-	{Name: "TestF1RealAgentsTakeATicketFromClaimToMerge", Sessions: 2},
+	// One implementer, one simplify run and one code-reviewer. A repair
+	// round would make the flow branch on a model's answer.
+	{Name: "TestF1RealAgentsTakeATicketFromClaimToMerge", Sessions: 3},
 	// One doc-reviewer. Its three readers are subagents of its session.
 	{Name: "TestC14FalseReaderFindingsRejectNothing", Sessions: 1},
 }

@@ -165,8 +165,9 @@ this spec, or one where the code shows that the ADR's stated mechanism cannot ru
 - **`make orca-acceptance` runs each `go test` with `-count=1 -timeout 120m`.** We chose
   `-count=1` over the test cache, because a cached pass starts no session and proves nothing
   (`go help test`). We chose `120m`, the job's `LaneDeadline`, over the default of 10 minutes,
-  which ends F1 inside its own 60 minutes of waits (`go help testflag`).
-- **F1 on real orca declares 2 sessions: one implementer and one code-reviewer.** We rejected a
+  which ends F1 inside its own 90 minutes of waits (`go help testflag`).
+- **F1 on real orca declares 3 sessions: one implementer, one simplify run and one code-reviewer.**
+  Simplify is on by default, so F1 runs it (factorio-t9i2, loop fault F-74). We rejected a
   budget that allows a repair round, because the flow then branches on a model's answer, and the
   test proves less. A reject fails the lane, and the coordinator triages the fault. ADR 0008 accepts
   this ("A flaky model answer can fail the lane").
@@ -304,10 +305,12 @@ clone's `main`, as orca does.
 
 **The F1 scenario on real orca.** The fixture project holds `check.sh` and a config whose one gate
 is `test: sh check.sh`. The scenario creates the ticket "Add a greeting". It dispatches the
-implementer, ticks the scheduler each 15 seconds, and waits up to 30 minutes for `in_review`. It
-then sets green CI at the head, reacts, dispatches the code-reviewer, and waits up to 30 minutes
-for `ready_to_merge`. It then reacts, hands off twice, reacts, and asserts `done`. It asserts one
-merge at the reviewed head, two sessions started, and none of kind coordinator.
+implementer, ticks the scheduler each 15 seconds, and waits up to 30 minutes for `in_simplify`. It
+dispatches the simplify stage, and waits up to 30 minutes for `in_review`. It then sets green CI at
+the head, reacts, dispatches the code-reviewer, and waits up to 30 minutes for `ready_to_merge`. It
+then reacts, hands off twice, reacts, and asserts `done`. It asserts one merge at the reviewed head,
+three sessions started, and none of kind coordinator. `TestF1PathRunsEveryStageOfItsFixtureConfig`
+runs the same path with the fake host and scripted runs, so CI proves it.
 
 **Checkout routing.** `cli.TokenFile` gains `Instance` and `Binary`. The token issuer writes both at
 each issue: the server's instance directory, and `server.Options.LoopBinary`. `compose`, which `server.Run` calls,
