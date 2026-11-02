@@ -288,6 +288,7 @@ type gitCheckouts struct {
 	host    *fake.Host
 	repo    string
 	fail    atomic.Bool
+	gitMu   sync.Mutex // one git worktree add or remove at a time
 	mu      sync.Mutex
 	removed []string // each path RemoveCheckout was asked for
 }
@@ -300,11 +301,16 @@ func (g *gitCheckouts) CreateCheckout(ctx context.Context, spec agenthost.Checko
 	if err != nil {
 		return co, err
 	}
+	g.gitMu.Lock()
+	defer g.gitMu.Unlock()
 	gitIn(g.t, g.repo, "worktree", "add", "-q", "-B", spec.Name, co.Path, "origin/main")
 	return co, nil
 }
 
-// RemoveCheckout forgets the checkout in the fake and removes the worktree.
+// RemoveCheckout forgets the checkout in the fake and deletes the worktree
+// and its entry under .git/worktrees, as git worktree remove --force does.
+// It runs no git: git reads each sibling entry first, and dies on one whose
+// add has not yet written its commondir.
 func (g *gitCheckouts) RemoveCheckout(ctx context.Context, path string) error {
 	g.mu.Lock()
 	g.removed = append(g.removed, path)
@@ -312,8 +318,20 @@ func (g *gitCheckouts) RemoveCheckout(ctx context.Context, path string) error {
 	if err := g.host.RemoveCheckout(ctx, path); err != nil {
 		return err
 	}
-	gitIn(g.t, g.repo, "worktree", "remove", "--force", path)
-	return nil
+	g.gitMu.Lock()
+	defer g.gitMu.Unlock()
+	link, err := os.ReadFile(filepath.Join(path, ".git"))
+	if err != nil {
+		return err
+	}
+	entry := strings.TrimSpace(strings.TrimPrefix(string(link), "gitdir:"))
+	if !filepath.IsAbs(entry) {
+		entry = filepath.Join(path, entry)
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return err
+	}
+	return os.RemoveAll(entry)
 }
 
 func (g *gitCheckouts) removedPaths() []string {
