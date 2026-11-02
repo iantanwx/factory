@@ -515,7 +515,7 @@ func (s *Scheduler) screens(ctx context.Context, checkout string, it machine.Ite
 	}
 	for _, a := range accepted {
 		if slices.Contains(ids, a.State) {
-			out.Accepted = append(out.Accepted, brief.Acceptance{State: a.State, Words: a.Words, At: a.At})
+			out.Accepted = append(out.Accepted, brief.Acceptance(a))
 		}
 	}
 	return out
