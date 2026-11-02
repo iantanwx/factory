@@ -1,0 +1,10 @@
+tracker:
+  adapter: beads
+merge:
+  mechanism: mergify
+ui:
+  kind: web
+  paths: [web/**]
+design:
+  run: "true"
+  capture: CAPTURE

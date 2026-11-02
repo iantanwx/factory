@@ -63,7 +63,10 @@ lands green and reverts alone.
 Each ticket body holds these sections. Write each one as a `## ` heading with this name. The order
 is free, and the server reads no other heading.
 
-1. `## Source`: the spec entry, the epic, and the design references of a screen.
+1. `## Source`: the spec entry and the epic. In an epic that holds `design_merged`, copy the
+   entry's `- Screens:` line into `## Source` as a `**Screens:**` line, such as
+   `**Screens:** S1.1, S1.3` or `**Screens:** none. <reason>`. A ticket cut from two entries cites
+   the states of both. In an epic with no `design_merged`, write no `**Screens:**` line.
 2. `## Change`: the behaviour after the change, not the implementation. At most 150 words.
 3. `## Contracts to prove`: one list item for each contract, with its id and title. Each one needs a
    proof that fails before the change. At most 8 contracts, at most 80 words each, and at least one
@@ -107,13 +110,16 @@ The server creates every ticket and every dependency, or none. It refuses a tick
 labels the merged PRD does not hold, with `STORY_UNKNOWN`. It also refuses a ticket of an
 architecture epic that cites a story label. Read the hint, repair the batch, and run it again.
 
-The server reads the spec at the base before it writes. It refuses with `SHAPE_REFUSED` in three
+The server reads the spec at the base before it writes. It refuses with `SHAPE_REFUSED` in four
 cases. Each refusal creates no ticket.
 
 - `no_spec`: the base holds no one spec of the epic. Report a loop fault, and finish `blocked`.
 - `open_questions`: the spec holds an undecided entry. The hint names its line. Escalate it.
 - `ticket_shape`: a body misses a section of section 3, or a count is over its limit. The hint
   names each fault of each ticket, by key. Repair each body, and run the batch again.
+- `ticket_screens`: a `**Screens:**` line is missing from a ticket of a UI story, holds no reason,
+  or cites a state that the design record at the base does not hold. The hint names each fault by
+  ticket key. Repair each line from its spec entry, and run the batch again.
 
 The server refuses a batch of more than 25 tickets with the rule `runaway_batch`. That is a runaway
 limit and no sizing rule. Never merge slices to fit under it. Escalate, and name how many slices
@@ -131,7 +137,7 @@ Score each case by `../loop-sdlc-triage/SKILL.md`, and escalate at level 4 or 5.
 - Two slices must land together.
 - A work entry names no files, and you cannot infer them.
 - The spec contradicts its own Out of scope. Name both lines.
-- A screen has no design reference that matches it, when the project keeps them.
+- A work entry of an epic that holds `design_merged` holds no `- Screens:` line.
 
 ## 7. Never
 
