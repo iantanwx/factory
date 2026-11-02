@@ -108,6 +108,22 @@ merge base, and the new text at the head. Record both. The same result at both c
 7. A rule of `../loop-boundaries/SKILL.md`, `../loop-least-code/SKILL.md` or
    `../loop-reader-load/SKILL.md` that the change breaks.
 
+When the brief holds `screens`, check each cited state at the head you review. The brief names
+each state with its picture, its target and its pixel mark, and each acceptance of it.
+
+1. Run the `fetch` command of the `captures` part of `loop branch sync`. `screens.branch` names
+   the capture branch.
+2. For each state, read its capture into a directory from `mktemp -d` with
+   `git show origin/<capture branch>:<head>/<state id>.png`, at the head you review. Open it beside
+   the record's picture of the state, as a PNG.
+3. Reject a cited state with no capture at the reviewed head, and name the state.
+4. Compare the elements, the copy, the flow and the states that exist. Never compare pixels. The
+   `pixel` gate compares the pixels of each state with a pixel mark.
+5. Reject a difference that no acceptance of the state in `screens.accepted` describes, and name
+   the state and the difference. Pass a difference that an acceptance of the state describes.
+6. Reject a head whose `pixel` gate failed, and name each state and its share. The `pixel_over`
+   message of the gate names both.
+
 ## 6. Write the comment
 
 Put the findings first, the worst first. Write one line for each contract, each done line and each

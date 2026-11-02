@@ -146,7 +146,12 @@ Before you commit, read your diff by `../loop-least-code/SKILL.md` and
    it, so repair it.
 5. Write the pull request body. Name each contract, the test that proves it, and the red and the
    green run of that test.
-6. Push with `loop branch push`.
+6. Push. When the brief holds no `screens`, push with `loop branch push`. When the brief holds
+   `screens`, take the captures of the head you committed. Make a directory with `mktemp -d`, and
+   run `loop captures take --out <dir>`. The verb refuses a checkout with an uncommitted change.
+   Push with `loop branch push --captures <dir>`. Take the captures again at each head you push, in
+   every kind of work. A push with no complete set gets `captures_missing`, and its hint names each
+   state that the set lacks.
 7. On rework, write one reply at the head you pushed: `loop pr reply --body "<reply>"`. Name what
    changed for each finding, and each finding you answered with no change. A round with no reply
    leaves the reviewer at the head it rejected.

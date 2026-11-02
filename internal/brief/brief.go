@@ -83,6 +83,36 @@ type Brief struct {
 	// Design is the project's design block. Only a design room's brief
 	// holds it, and `loop design capture` reads its capture command.
 	Design *config.DesignConfig `json:"design,omitempty"`
+	// Screens is what an implementer or code-reviewer run reads of the
+	// states its ticket cites (factorio-4lso). Nil for a ticket that holds
+	// no screens fact, and on every other stage.
+	Screens *Screens `json:"screens,omitempty"`
+}
+
+// Screens is the design record's view of the states one ticket cites, and
+// the epic's acceptances of them.
+type Screens struct {
+	Record   string        `json:"record"` // the record's repository path
+	Branch   string        `json:"branch"` // the ticket's capture branch
+	States   []ScreenState `json:"states"`
+	Accepted []Acceptance  `json:"accepted,omitempty"`
+}
+
+// ScreenState is one cited state as the record at the base holds it. A
+// state the record lacks holds its id alone.
+type ScreenState struct {
+	ID      string `json:"id"`
+	Picture string `json:"picture"` // the record's picture, a repository path
+	Target  string `json:"target"`
+	Pixel   string `json:"pixel,omitempty"` // "0.5%" for a mark, empty for none
+}
+
+// Acceptance is one acceptance of a cited state on the epic: the
+// operator's words that accept how the shipped screen differs from it.
+type Acceptance struct {
+	State string `json:"state"`
+	Words string `json:"words"`
+	At    string `json:"at"`
 }
 
 // BriefSkill is one userspace skill pin as a brief names it.
@@ -205,6 +235,26 @@ func (b Brief) Markdown() string {
 		if b.Item.Body != "" {
 			line("")
 			line("%s", b.Item.Body)
+		}
+	}
+	if sc := b.Screens; sc != nil {
+		line("")
+		line("## Screens")
+		line("")
+		line("The ticket cites these states of the design record `%s`. Their captures go on `%s`.", sc.Record, sc.Branch)
+		line("")
+		for _, st := range sc.States {
+			switch {
+			case st.Picture == "":
+				line("- %s: the record at the base holds no such state", st.ID)
+			case st.Pixel != "":
+				line("- %s: picture `%s`, target `%s`, pixel %s", st.ID, st.Picture, st.Target, st.Pixel)
+			default:
+				line("- %s: picture `%s`, target `%s`", st.ID, st.Picture, st.Target)
+			}
+		}
+		for _, a := range sc.Accepted {
+			line("- Accepted difference of %s, at %s: %s", a.State, a.At, a.Words)
 		}
 	}
 	if b.Attempt > 0 {

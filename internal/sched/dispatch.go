@@ -3,19 +3,24 @@ package sched
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/brief"
+	"github.com/iantanwx/loop/internal/captures"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/design"
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/machine"
@@ -201,7 +206,7 @@ func (s *Scheduler) start(ctx context.Context, ad admission.Admitted, snap *conf
 	if err != nil {
 		return fail(cli.InternalRefusal(err), false, AlertStartFailed, err)
 	}
-	b := s.brief(ctx, ad, snap, hc, prof)
+	b := s.brief(ctx, ad, snap, hc, prof, co.Path)
 	// The snapshot admission read selects the skills, so a merge during
 	// the run changes none it holds.
 	var scope Scope
@@ -408,8 +413,9 @@ func (s *Scheduler) runSetup(ctx context.Context, dir, setup string) error {
 
 // brief builds the run's brief. It names the manifest secrets the stage
 // receives and holds no value. An agent job's run follows the runbook its
-// host config entry names in the repository, not one of the pack.
-func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, hc *config.HostConfig, prof Profile) brief.Brief {
+// host config entry names in the repository, not one of the pack. checkout
+// is the run's checkout at the base.
+func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *config.ProjectSnapshot, hc *config.HostConfig, prof Profile, checkout string) brief.Brief {
 	b := brief.Brief{
 		RunID: ad.RunID, Project: ad.Project, Stage: ad.Stage, Role: ad.Stage, Harness: string(prof.Harness), Model: prof.Model,
 		BaseBranch: snap.BaseBranch(), Attempt: ad.Attempt,
@@ -455,7 +461,64 @@ func (s *Scheduler) brief(ctx context.Context, ad admission.Admitted, snap *conf
 	if it.Status == machine.Repair {
 		b.RedBuild = s.readRedBuild(ctx, ad)
 	}
+	if ad.Stage == machine.StageImplementer || ad.Stage == machine.StageCodeReviewer {
+		b.Screens = s.screens(ctx, checkout, it)
+	}
 	return b
+}
+
+// screens builds the brief's screens of a ticket that cites states
+// (factorio-4lso): each cited state as the design record in the checkout
+// at the base holds it, and the epic's acceptances of those states. A
+// state the record lacks holds its id alone. Nil for a ticket that cites
+// nothing.
+func (s *Scheduler) screens(ctx context.Context, checkout string, it machine.Item) *brief.Screens {
+	cited := it.Fact(machine.FactScreens)
+	if cited == "" {
+		return nil
+	}
+	ids := strings.Split(cited, ",")
+	epic := it.Fact(machine.FactEpic)
+	dir := design.Dir(epic)
+	out := &brief.Screens{Record: dir + design.RecordFile, Branch: captures.Branch(it.ID)}
+	held := map[string]design.State{}
+	if text, err := os.ReadFile(filepath.Join(checkout, out.Record)); err != nil {
+		s.log.WarnContext(ctx, "brief: read the design record", "item", it.ID, "err", err)
+	} else {
+		rec, _ := design.Parse(dir, string(text))
+		for _, sc := range rec.Screens {
+			for _, st := range sc.States {
+				held[st.ID] = st
+			}
+		}
+	}
+	for _, id := range ids {
+		state := brief.ScreenState{ID: id}
+		if st, ok := held[id]; ok {
+			state.Picture, state.Target = dir+st.Picture, st.Target
+			if st.Pixel != nil {
+				state.Pixel = strconv.FormatFloat(st.Pixel.Percent, 'f', -1, 64) + "%"
+			}
+		}
+		out.States = append(out.States, state)
+	}
+	ep, ref := s.cfg.Machine.Show(ctx, it.Project, epic)
+	if ref != nil {
+		s.log.WarnContext(ctx, "brief: read the epic", "item", it.ID, "epic", epic, "hint", ref.Hint)
+		return out
+	}
+	var accepted []machine.Acceptance
+	if raw := ep.Fact(machine.FactAcceptedDifferences); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &accepted); err != nil {
+			s.log.WarnContext(ctx, "brief: read the accepted differences", "epic", epic, "err", err)
+		}
+	}
+	for _, a := range accepted {
+		if slices.Contains(ids, a.State) {
+			out.Accepted = append(out.Accepted, brief.Acceptance{State: a.State, Words: a.Words, At: a.At})
+		}
+	}
+	return out
 }
 
 // RedBuildReader reads the failed CI of an item's open pull request. It

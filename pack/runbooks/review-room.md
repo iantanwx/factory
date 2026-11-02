@@ -34,6 +34,12 @@ owns, what you doubt and its evidence, and what you could not read.
 Make each edit the operator asks for, and only that edit. Commit, with a message by
 `../loop-commit/SKILL.md`. Run `loop gates --fast`, and push at once with `loop branch push`. The checkout may not survive the review.
 
+When the item facts in `.loop/brief.json` hold `screens`, take the captures of the new head before
+each push. Make a directory with `mktemp -d`, and run `loop captures take --out <dir>`. Push with
+`loop branch push --captures <dir>`. A push with no complete set gets `captures_missing`, and its
+hint names each state that the set lacks. A `loop-reflect` change in this room is a push of the
+same ticket, so it takes the same step.
+
 A push from this room is a new head. The server returns the item to review, so a reviewer reads
 the change again.
 
