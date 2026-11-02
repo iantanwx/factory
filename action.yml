@@ -14,10 +14,18 @@ inputs:
 runs:
   using: composite
   steps:
+    # A job that runs this action as `uses: ./` gets an action path that
+    # ends in "/./", and setup-go refuses a cache pattern with a "."
+    # segment. So it restores no module cache. Give setup-go the real path.
+    - id: action
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: echo "path=$(realpath "$ACTION_PATH")" >> "$GITHUB_OUTPUT"
     - uses: actions/setup-go@v6
       with:
         go-version-file: ${{ github.action_path }}/go.mod
-        cache-dependency-path: ${{ github.action_path }}/go.sum
+        cache-dependency-path: ${{ steps.action.outputs.path }}/go.sum
     - name: Build loop and install gitleaks
       shell: bash
       env:
