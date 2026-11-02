@@ -102,6 +102,11 @@ Check in this order:
    nothing to say holds None.
 10. A rule of the project that the document breaks.
 
+When the epic holds `design_merged`, read the `- Screens:` line of each work entry. The brief lists
+the epic's facts. Reject when a work entry holds no `- Screens:` line, and name the entry in the
+comment. Reject when a `none` reason does not show that the entry draws no screen, and name the
+entry in the comment.
+
 Never reject a spec for an empty Open questions section. When the source is a set of decision
 records that a person wrote, trace those decisions, and do not argue them again.
 
