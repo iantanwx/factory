@@ -101,10 +101,9 @@ func Pixel(ctx context.Context, r *Repo) ([]Finding, error) {
 		bound := strconv.FormatFloat(st.Pixel.Percent, 'f', -1, 64)
 		limit, _ := new(big.Rat).SetString(bound)
 		over := "its bound of " + bound + "%"
-		if h, ok := m.Accepted[id]; ok {
-			if share := big.NewRat(int64(h), 100); share.Cmp(limit) > 0 {
-				limit, over = share, fmt.Sprintf("its accepted share of %d.%02d%%", h/100, h%100)
-			}
+		h := int64(m.Accepted[id])
+		if share := big.NewRat(h, 100); share.Cmp(limit) > 0 {
+			limit, over = share, "its accepted share of "+hundredths(h)
 		}
 		switch {
 		case res.SizeMismatch:
@@ -230,6 +229,9 @@ func size(img image.Image) string {
 }
 
 func shareRoundedUp(r pixel.Result) string {
-	h := (int64(r.Differing)*10000 + int64(r.Total) - 1) / int64(r.Total)
+	return hundredths((int64(r.Differing)*10000 + int64(r.Total) - 1) / int64(r.Total))
+}
+
+func hundredths(h int64) string {
 	return fmt.Sprintf("%d.%02d%%", h/100, h%100)
 }
