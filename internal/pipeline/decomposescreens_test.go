@@ -64,8 +64,8 @@ func TestC1DecomposeRefusesAUITicketWithNoScreensLine(t *testing.T) {
 
 // C2: a none line with a reason passes with no screens fact, a ticket of
 // a UI: no story needs no line, and an epic with no design_merged needs no
-// line. The same batch with no line on the UI ticket refuses first, so the
-// pass is the none line's.
+// line though it holds ui_stories. The same batch with no line on the UI
+// ticket refuses first, so the pass is the none line's.
 func TestC2DecomposePassesANoneLineAndANonUITicket(t *testing.T) {
 	w := newWorld(t)
 	epic := w.designed()
@@ -85,6 +85,7 @@ func TestC2DecomposePassesANoneLineAndANonUITicket(t *testing.T) {
 
 	w2 := newWorld(t)
 	plain := w2.decomposing()
+	w2.put(plain, machine.Decomposing, map[string]string{"ui_stories": "US-01"})
 	ok(t, w2.call(w2.run("run-dec", plain, machine.StageDecomposer), "k-dec", "epic decompose", fileFlag(uiBatch(shapedBody))))
 	if got := w2.show(plain).Status; got != machine.Execution {
 		t.Fatalf("an epic with no design record stayed %s", got)
