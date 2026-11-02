@@ -183,8 +183,8 @@ func TestEveryLaneTestDeclaresItsSessions(t *testing.T) {
 			t.Errorf("scenario %s declares %d sessions; the plan holds %d (present %v)", sc.name, sc.sessions, n, inPlan)
 		}
 	}
-	if total != 14 {
-		t.Fatalf("the lane plan totals %d sessions; want 14", total)
+	if total != 15 {
+		t.Fatalf("the lane plan totals %d sessions; want 15", total)
 	}
 }
 
@@ -268,8 +268,8 @@ func TestDeclaredReadsThePlan(t *testing.T) {
 	if got := Declared(t, "TestOrcaAgentRunsShellCommands"); got != 1 {
 		t.Fatalf("Declared(TestOrcaAgentRunsShellCommands) = %d; want 1", got)
 	}
-	if got := Declared(t, f1Name); got != 2 {
-		t.Fatalf("Declared(%s) = %d; want 2", f1Name, got)
+	if got := Declared(t, f1Name); got != 3 {
+		t.Fatalf("Declared(%s) = %d; want 3", f1Name, got)
 	}
 	if got := Declared(t, "TestC14FalseReaderFindingsRejectNothing"); got != 1 {
 		t.Fatalf("Declared(TestC14FalseReaderFindingsRejectNothing) = %d; want 1", got)
@@ -289,7 +289,7 @@ const (
 
 // C28: F1 runs only under the lane's tags, and builds its world with
 // OrcaHost(Declared(t, <its own name>)), so the world's Counting refuses a
-// third start.
+// fourth start.
 func TestF1IsBoundedByThePlan(t *testing.T) {
 	src, err := os.ReadFile(f1File)
 	if err != nil {

@@ -60,3 +60,7 @@ swept the worktree /home/operator/orca/workspaces/fixture/loop-demo-implementer-
   v0.0.185). That ticket gives the F1 fixture config every stack gate, and adds an acceptance test
   of it. F1 passed on v0.0.177 without it. The coordinator named this log as the record in a note
   on factorio-z6wg.
+- F1 has run a third session since factorio-t9i2. PR #368 turned the simplify stage on by default,
+  and the lane log of 2026-11-02T17:32Z on v0.0.325 showed F1 stop with its ticket in
+  `in_simplify` (loop fault F-74). F1 now dispatches a real simplify run after the implementer, and
+  the lane plan declares 3 sessions for it. This record of v0.0.177 still holds for that release.
