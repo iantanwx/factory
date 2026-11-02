@@ -199,9 +199,10 @@ func designDue(c *change) bool {
 // operator's words that accept how a shipped screen differs from one state
 // of the merged design record.
 type Acceptance struct {
-	State string `json:"state"` // a state id of the record at design_path, S<n>.<m>
-	Words string `json:"words"` // the operator's words, exactly as given
-	At    string `json:"at"`    // the time of the write
+	State string `json:"state"`           // a state id of the record at design_path, S<n>.<m>
+	Words string `json:"words"`           // the operator's words, exactly as given
+	At    string `json:"at"`              // the time of the write
+	Share string `json:"share,omitempty"` // the accepted pixel share, such as 1.20%, or "" for none
 }
 
 // designRecorded refuses an acceptance on an epic whose design record
@@ -228,7 +229,7 @@ func acceptDifference(c *change) *cli.Refusal {
 			return cli.InternalRefusal(fmt.Errorf("machine: %s holds no list in %s: %w", c.item.ID, FactAcceptedDifferences, err))
 		}
 	}
-	raw, err := json.Marshal(append(list, Acceptance{State: c.param("state"), Words: c.param("request"), At: c.param("at")}))
+	raw, err := json.Marshal(append(list, Acceptance{State: c.param("state"), Words: c.param("request"), At: c.param("at"), Share: c.param("share")}))
 	if err != nil {
 		return cli.InternalRefusal(err)
 	}

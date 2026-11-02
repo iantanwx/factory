@@ -347,7 +347,13 @@ func (s *Service) pushCaptures(ctx context.Context, p config.Project, m *Mirror,
 	if err := s.settlePending(ctx, p.ID, branch, tip); err != nil {
 		return nil, err
 	}
-	manifest, err := json.MarshalIndent(captures.ManifestOf(req.Item, epic, states), "", "  ")
+	mf := captures.ManifestOf(req.Item, epic, states)
+	accepted, err := s.acceptedShares(ctx, req.Project, epic, states)
+	if err != nil {
+		return nil, err
+	}
+	mf.Accepted = accepted
+	manifest, err := json.MarshalIndent(mf, "", "  ")
 	if err != nil {
 		return nil, err
 	}
@@ -391,6 +397,32 @@ func (s *Service) pushCaptures(ctx context.Context, p config.Project, m *Mirror,
 		return nil, err
 	}
 	out.Tip = next
+	return out, nil
+}
+
+// acceptedShares reads the largest share among the epic's acceptances of
+// each of states, in hundredths of a percent. An acceptance with no share
+// adds no entry. A ticket with no epic has no acceptance.
+func (s *Service) acceptedShares(ctx context.Context, project, epic string, states []string) (map[string]int, error) {
+	if epic == "" {
+		return nil, nil
+	}
+	it, ref := s.item(ctx, project, epic)
+	if ref != nil {
+		return nil, &RefusedError{Code: ref.Code, Rule: ref.Rule, Hint: ref.Hint}
+	}
+	var list []machine.Acceptance
+	if raw := it.Fact(machine.FactAcceptedDifferences); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &list); err != nil {
+			return nil, fmt.Errorf("github: %s holds no list in %s: %w", epic, machine.FactAcceptedDifferences, err)
+		}
+	}
+	out := map[string]int{}
+	for _, a := range list {
+		if h, ok := captures.Hundredths(a.Share); ok && slices.Contains(states, a.State) {
+			out[a.State] = max(out[a.State], h)
+		}
+	}
 	return out, nil
 }
 

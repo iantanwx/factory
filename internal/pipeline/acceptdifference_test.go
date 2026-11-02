@@ -180,3 +180,58 @@ func TestC17EpicAcceptDifferenceChangesNoFile(t *testing.T) {
 		t.Errorf("the record at the base is %q (%v), want it unchanged", data, err)
 	}
 }
+
+// C27: an acceptance with --share records the share as given. A second
+// acceptance of the same state keeps the first share, and an acceptance
+// with no share records none.
+func TestC27EpicAcceptDifferenceRecordsTheShare(t *testing.T) {
+	w := newWorld(t)
+	epic := w.designedIn("execution")
+	for _, share := range []string{"1.20%", "0.80%", ""} {
+		flags := acceptFlags("S1.2", acceptWords)
+		if share != "" {
+			flags["share"] = share
+		}
+		ok(t, w.call(w.coordinator(), "", "epic accept-difference", flags, epic))
+	}
+	var got []struct {
+		State string  `json:"state"`
+		Share *string `json:"share"`
+	}
+	if err := json.Unmarshal([]byte(w.show(epic).Fact("accepted_differences")), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].Share == nil || *got[0].Share != "1.20%" || got[1].Share == nil || *got[1].Share != "0.80%" || got[2].Share != nil {
+		t.Fatalf("accepted_differences holds %+v, want the shares 1.20%%, 0.80%% and none", got)
+	}
+}
+
+// C27: the verb refuses --share on a state with no pixel mark with rule
+// share_unmarked, and a share that is not a percent from 0% to 100% with
+// at most two decimals with rule bad_share. After each refusal the epic's
+// facts are as before.
+func TestC27EpicAcceptDifferenceRefusesABadShare(t *testing.T) {
+	w := newWorld(t)
+	cases := []struct{ state, share, rule string }{
+		{"S1.1", "1.20%", "share_unmarked"},
+		{"S1.2", "1.205%", "bad_share"},
+		{"S1.2", "1.2", "bad_share"},
+		{"S1.2", "-1%", "bad_share"},
+		{"S1.2", "101%", "bad_share"},
+	}
+	for _, c := range cases {
+		epic := w.designedIn("execution")
+		ok(t, w.call(w.coordinator(), "", "epic accept-difference", acceptFlags("S1.2", acceptWords), epic))
+		flags := acceptFlags(c.state, acceptWords)
+		flags["share"] = c.share
+		before := w.show(epic)
+		r := wantCode(t, w.call(w.coordinator(), "", "epic accept-difference", flags, epic), cli.CodeShapeRefused)
+		if r.Rule != c.rule {
+			t.Errorf("--share %s on %s: rule %q, want %q", c.share, c.state, r.Rule, c.rule)
+		}
+		after := w.show(epic)
+		if after.Status != before.Status || after.Seq != before.Seq || !sameFacts(before.Facts, after.Facts) {
+			t.Fatalf("--share %s on %s: the refusal changed the epic:\nbefore %+v\nafter  %+v", c.share, c.state, before, after)
+		}
+	}
+}
