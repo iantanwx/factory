@@ -24,10 +24,8 @@ func recordOf(epic string) string {
 		"- **S1.2 Full.** Picture `s1-2.png`, target `/widgets`, pixel.\n"
 }
 
-func recordPath(epic string) string { return "docs/design/" + epic + "/record.md" }
-
-// designed makes an epic in status whose design record merged to the base.
-func (w *world) designed(status string) string {
+// designedIn makes an epic in status whose design record merged to the base.
+func (w *world) designedIn(status string) string {
 	w.t.Helper()
 	epic, res := w.m.Create(w.ctx, machine.CreateRequest{Project: testProject, Kind: machine.KindEpic, Title: "Widgets",
 		Verb: machine.VerbCreatePRD, Actor: machine.Server("test")})
@@ -67,7 +65,7 @@ func (w *world) acceptances(epic string) []acceptance {
 // The epic stays in execution.
 func TestC15EpicAcceptDifferenceRecordsTheWordsAgainstTheState(t *testing.T) {
 	w := newWorld(t)
-	epic := w.designed("execution")
+	epic := w.designedIn("execution")
 	before := time.Now().UTC().Add(-time.Second)
 	out := ok(t, w.call(w.coordinator(), "", "epic accept-difference", acceptFlags("S1.2", acceptWords), epic))
 	if out["status"] != "execution" {
@@ -111,7 +109,7 @@ func TestC16EpicAcceptDifferenceRefusalsChangeNothing(t *testing.T) {
 		{name: "spec_signoff", status: "spec_signoff", state: "S1.2", request: acceptWords, code: cli.CodeTransitionNotAllowed},
 	}
 	for _, c := range cases {
-		epic := w.designed(c.status)
+		epic := w.designedIn(c.status)
 		if c.noRecord {
 			w.put(epic, c.status, map[string]string{"design_path": "", "design_merged": ""})
 		}
@@ -159,7 +157,7 @@ func sameFacts(a, b map[string]string) bool {
 // or the mirror, and leaves the record at the base byte for byte the same.
 func TestC17EpicAcceptDifferenceChangesNoFile(t *testing.T) {
 	w := newWorld(t)
-	epic := w.designed("execution")
+	epic := w.designedIn("execution")
 	mirror := w.svc.Mirror(w.projects[0]).Dir
 	remoteRefs := gt.Git(t, w.git.RemoteDir(), "for-each-ref")
 	mirrorRefs := gt.Git(t, mirror, "for-each-ref")

@@ -70,6 +70,7 @@ const (
 	FactDesignPath      = "design_path"      // the merged design record's path
 	FactDesignMerged    = "design_merged"    // the merge commit of the design pull request
 	FactDesignSkipped   = "design_skipped"   // the operator's words that skipped the design stage
+	FactScreens         = "screens"          // the state ids a ticket's **Screens:** line cites, comma-separated, in line order
 	// FactAcceptedDifferences is a JSON array of Acceptance: each difference
 	// from the merged design record that the operator accepted.
 	FactAcceptedDifferences = "accepted_differences"

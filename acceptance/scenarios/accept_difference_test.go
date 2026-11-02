@@ -4,6 +4,7 @@ package scenarios
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
@@ -40,8 +41,11 @@ func TestC15CoordinatorAcceptsADifferenceEndToEnd(t *testing.T) {
 	// reads it on the base.
 	w.PushMain("PRD: Widgets", map[string]string{prdPath: uiPRD}, "")
 	dec := w.Dispatch(machine.StageDecomposer)
+	// The ticket serves the UI story US-01, so its ## Source cites its states.
+	body := strings.Replace(ticketBody("Create `widgets/list.txt` holding the line `list`."),
+		"The widgets spec.\n\n", "The widgets spec.\n\n**Screens:** S1.1, S1.2\n\n", 1)
 	batch, _ := json.Marshal(map[string]any{"tickets": []map[string]any{
-		{"key": "list", "title": "List widgets", "body": ticketBody("Create `widgets/list.txt` holding the line `list`."), "stories": []string{"US-01"}},
+		{"key": "list", "title": "List widgets", "body": body, "stories": []string{"US-01"}},
 	}})
 	w.Must(w.In(dec.Checkout, "epic", "decompose", "--file", w.WriteFile("decomposition.json", string(batch))))
 	w.Must(w.In(dec.Checkout, "run", "finish", "--outcome", "done"))
