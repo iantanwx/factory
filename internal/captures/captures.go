@@ -8,7 +8,9 @@ package captures
 import (
 	"bytes"
 	"maps"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/design"
@@ -27,11 +29,30 @@ type Manifest struct {
 	Epic   string   `json:"epic"`
 	Record string   `json:"record"`
 	States []string `json:"states"`
+	// Accepted maps a cited state to the largest share that the epic's
+	// acceptances of it hold, in hundredths of a percent.
+	Accepted map[string]int `json:"accepted,omitempty"`
 }
 
 // ManifestOf is the manifest of ticket, of epic, that cites states.
 func ManifestOf(ticket, epic string, states []string) Manifest {
 	return Manifest{Ticket: ticket, Epic: epic, Record: design.Dir(epic) + design.RecordFile, States: states}
+}
+
+var shareRe = regexp.MustCompile(`^([0-9]{1,3})(?:\.([0-9]{1,2}))?%$`)
+
+// Hundredths reads share, a percent from 0% to 100% with its % sign and
+// at most two decimals, as hundredths of a percent. It answers false for
+// any other text.
+func Hundredths(share string) (int, bool) {
+	m := shareRe.FindStringSubmatch(share)
+	if m == nil {
+		return 0, false
+	}
+	whole, _ := strconv.Atoi(m[1])
+	frac, _ := strconv.Atoi((m[2] + "00")[:2])
+	h := whole*100 + frac
+	return h, h <= 10000
 }
 
 // The rules of a capture set that Check refuses.

@@ -309,6 +309,7 @@ var surface = []Verb{
 		[]Arg{arg("item", "the epic id")},
 		Flag{Name: "state", Type: FlagString, Required: true, Description: "the state id of the merged design record, such as S1.2"},
 		Flag{Name: "request", Type: FlagString, Description: "required: the operator's own words that accept the difference, kept verbatim"},
+		Flag{Name: "share", Type: FlagString, Description: "the accepted share of differing pixels of a state with a pixel mark, a percent from 0% to 100% with at most two decimals, such as 1.20%"},
 		projectFlag)),
 	write(server("epic", "decompose", "create an epic's tickets in one batch", []string{"decomposer"}, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the decomposition file: a JSON object whose tickets each hold key, title, body, stories and blocked_by"})),
