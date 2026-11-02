@@ -27,9 +27,6 @@ type Manifest struct {
 	Epic   string   `json:"epic"`
 	Record string   `json:"record"`
 	States []string `json:"states"`
-	// Accepted maps a state id to hundredths of a percent. Work entry 8
-	// writes it, entry 9 reads it.
-	Accepted map[string]int `json:"accepted,omitempty"`
 }
 
 // ManifestOf is the manifest of ticket, of epic, that cites states.

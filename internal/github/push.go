@@ -299,17 +299,16 @@ func (s *Service) citedStates(ctx context.Context, req PushRequest) (epic string
 // checks its files against the cited states. It answers the entries of
 // its tree. A push with no capture commit holds no capture.
 func (m *Mirror) captureSet(ctx context.Context, req PushRequest, states []string) (map[string]string, error) {
-	entries := map[string]string{}
 	if req.Captures != "" {
 		in := incomingRef(captures.Branch(req.Item))
 		if err := m.FetchCheckout(ctx, req.Checkout, req.Captures, in); err != nil {
 			return nil, &RefusedError{Code: cli.CodeUsage, Rule: "captures_unreadable",
 				Hint: "the server could not read the capture commit from the checkout; push with --captures again"}
 		}
-		var err error
-		if entries, err = m.rawTree(ctx, req.Captures); err != nil {
-			return nil, err
-		}
+	}
+	entries, err := m.rawTree(ctx, req.Captures)
+	if err != nil {
+		return nil, err
 	}
 	files := map[string][]byte{}
 	for name, meta := range entries {
@@ -367,8 +366,11 @@ func (s *Service) pushCaptures(ctx context.Context, p config.Project, m *Mirror,
 	parent := ""
 	if tip != "" {
 		cur, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"rev-parse", tip + "^{tree}"}})
-		if err != nil || cur == tree {
-			return out, err
+		if err != nil {
+			return nil, err
+		}
+		if cur == tree {
+			return out, nil
 		}
 		parent = "parent " + tip + "\n"
 	}
@@ -834,9 +836,9 @@ type SyncItem struct {
 // branch into the mirror with the token, then points the refs the server
 // keeps at the heads it read. With prototype, the branch of an epic's
 // prototype, or capture, the capture branch of a ticket, it does the same
-// for that branch. It lets a fetch from the
-// mirror path ask for any object by sha, so a checkout can fetch a head
-// by its sha. The checkout itself is never touched.
+// for that branch. It lets a fetch from the mirror path ask for any object
+// by sha, so a checkout can fetch a head by its sha. The checkout itself
+// is never touched.
 func (s *Service) Sync(ctx context.Context, p config.Project, item, branch, prototype, capture string) (SyncResult, error) {
 	base, err := s.DefaultBranch(ctx, p)
 	if err != nil {
