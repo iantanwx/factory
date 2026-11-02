@@ -44,6 +44,7 @@ const (
 
 // Verbs that callers outside the machine apply.
 const (
+	VerbAcceptDifference   = "accept_difference" // epic: execution -> execution, the operator's acceptance of a design difference
 	VerbADRLanded          = "adr_landed"
 	VerbADRMisjoined       = "adr_misjoined"
 	VerbADROff             = "adr_off"

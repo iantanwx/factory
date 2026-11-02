@@ -3551,10 +3551,11 @@ var PrdService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	EpicService_Create_FullMethodName     = "/loop.v1.EpicService/Create"
-	EpicService_Adr_FullMethodName        = "/loop.v1.EpicService/Adr"
-	EpicService_SkipDesign_FullMethodName = "/loop.v1.EpicService/SkipDesign"
-	EpicService_Decompose_FullMethodName  = "/loop.v1.EpicService/Decompose"
+	EpicService_Create_FullMethodName           = "/loop.v1.EpicService/Create"
+	EpicService_Adr_FullMethodName              = "/loop.v1.EpicService/Adr"
+	EpicService_SkipDesign_FullMethodName       = "/loop.v1.EpicService/SkipDesign"
+	EpicService_AcceptDifference_FullMethodName = "/loop.v1.EpicService/AcceptDifference"
+	EpicService_Decompose_FullMethodName        = "/loop.v1.EpicService/Decompose"
 )
 
 // EpicServiceClient is the client API for EpicService service.
@@ -3564,6 +3565,7 @@ type EpicServiceClient interface {
 	Create(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Adr(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	SkipDesign(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	AcceptDifference(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Decompose(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
@@ -3605,6 +3607,16 @@ func (c *epicServiceClient) SkipDesign(ctx context.Context, in *VerbRequest, opt
 	return out, nil
 }
 
+func (c *epicServiceClient) AcceptDifference(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, EpicService_AcceptDifference_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *epicServiceClient) Decompose(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Envelope)
@@ -3622,6 +3634,7 @@ type EpicServiceServer interface {
 	Create(context.Context, *VerbRequest) (*Envelope, error)
 	Adr(context.Context, *VerbRequest) (*Envelope, error)
 	SkipDesign(context.Context, *VerbRequest) (*Envelope, error)
+	AcceptDifference(context.Context, *VerbRequest) (*Envelope, error)
 	Decompose(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedEpicServiceServer()
 }
@@ -3641,6 +3654,9 @@ func (UnimplementedEpicServiceServer) Adr(context.Context, *VerbRequest) (*Envel
 }
 func (UnimplementedEpicServiceServer) SkipDesign(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method SkipDesign not implemented")
+}
+func (UnimplementedEpicServiceServer) AcceptDifference(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method AcceptDifference not implemented")
 }
 func (UnimplementedEpicServiceServer) Decompose(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Decompose not implemented")
@@ -3720,6 +3736,24 @@ func _EpicService_SkipDesign_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EpicService_AcceptDifference_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EpicServiceServer).AcceptDifference(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EpicService_AcceptDifference_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EpicServiceServer).AcceptDifference(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _EpicService_Decompose_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(VerbRequest)
 	if err := dec(in); err != nil {
@@ -3756,6 +3790,10 @@ var EpicService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SkipDesign",
 			Handler:    _EpicService_SkipDesign_Handler,
+		},
+		{
+			MethodName: "AcceptDifference",
+			Handler:    _EpicService_AcceptDifference_Handler,
 		},
 		{
 			MethodName: "Decompose",

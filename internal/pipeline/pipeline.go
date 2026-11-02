@@ -14,8 +14,10 @@
 // The moves themselves are rows of the epic table in internal/machine.
 // This package serves the four verbs that create items: prd submit, epic
 // create, epic decompose and work create. It also serves epic adr, the
-// coordinator's send of a PRD epic to the ADR stage, and epic skip-design,
-// the coordinator's skip of an epic's design stage.
+// coordinator's send of a PRD epic to the ADR stage, epic skip-design,
+// the coordinator's skip of an epic's design stage, and epic
+// accept-difference, the coordinator's record of the operator's acceptance
+// of a difference from the design record.
 package pipeline
 
 import (
@@ -61,7 +63,7 @@ type Config struct {
 }
 
 // Pipeline serves prd submit, epic create, epic adr, epic skip-design,
-// epic decompose and work create.
+// epic accept-difference, epic decompose and work create.
 type Pipeline struct {
 	cfg Config
 	log *slog.Logger
@@ -91,12 +93,13 @@ func New(cfg Config) (*Pipeline, error) {
 // Handlers returns the handlers of the pipeline's verbs, keyed by path.
 func (p *Pipeline) Handlers() map[string]rpc.Handler {
 	return map[string]rpc.Handler{
-		"prd submit":       p.prdSubmit,
-		"epic decompose":   p.decompose,
-		"epic create":      p.epicCreate,
-		"epic adr":         p.epicADR,
-		"epic skip-design": p.epicSkipDesign,
-		"work create":      p.workCreate,
+		"prd submit":             p.prdSubmit,
+		"epic decompose":         p.decompose,
+		"epic create":            p.epicCreate,
+		"epic adr":               p.epicADR,
+		"epic skip-design":       p.epicSkipDesign,
+		"epic accept-difference": p.epicAcceptDifference,
+		"work create":            p.workCreate,
 	}
 }
 
