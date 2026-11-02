@@ -136,6 +136,19 @@ func TestC19ImplementerCapturesAndPushesAtEachHead(t *testing.T) {
 	})
 }
 
+// TestC29ImplementerPushesTheSameHeadAgainForAnAcceptedState proves C29
+// of spec factorio-4lso on the pack side. Section 3 of the implementer
+// runbook tells a run whose red build is a pixel_over on an accepted state
+// to push the captures of the same head again, then run loop pr rerun.
+func TestC29ImplementerPushesTheSameHeadAgainForAnAcceptedState(t *testing.T) {
+	s := numbered(t, implementerRB, "3")
+	inOrder(t, "section 3 of "+implementerRB, s, []string{
+		"When the red build is a `pixel_over` on a state that `screens.accepted` in the brief holds, change no code.",
+		"Take the captures of the same head into a directory from `mktemp -d`, and push them again with `loop branch push --captures <dir>`.",
+		"Then run `loop pr rerun`.",
+	})
+}
+
 // TestC20CodeReviewerComparesStructureAndRejectsAnUnacceptedDifference
 // proves C20 of spec factorio-4lso. The code-reviewer runbook fetches the
 // capture branch with the captures part of loop branch sync, reads each

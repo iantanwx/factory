@@ -24,7 +24,8 @@ import (
 // of the pull request's head from <branch>-captures on origin, and the
 // cited states from that branch's screens.json. A state with no mark is
 // never read. A state fails when the share of its differing pixels is
-// over its mark, exactly.
+// over its bound, exactly. The bound is the larger of its mark and the
+// share that the manifest's Accepted holds for it.
 //
 // In CI the head and the branch come from the pull request of the event
 // at GITHUB_EVENT_PATH, since HEAD is GitHub's merge commit there.
@@ -99,11 +100,16 @@ func Pixel(ctx context.Context, r *Repo) ([]Finding, error) {
 		res := pixel.Compare(want, capture)
 		bound := strconv.FormatFloat(st.Pixel.Percent, 'f', -1, 64)
 		limit, _ := new(big.Rat).SetString(bound)
+		over := "its bound of " + bound + "%"
+		h := int64(m.Accepted[id])
+		if share := big.NewRat(h, 100); share.Cmp(limit) > 0 {
+			limit, over = share, "its accepted share of "+hundredths(h)
+		}
 		switch {
 		case res.SizeMismatch:
 			add(st.Line, "pixel_size", "%s: the capture is %s and its picture is %s; a crop or a scale would hide a change of layout", id, size(capture), size(want))
 		case pixel.Over(res, limit):
-			add(st.Line, "pixel_over", "%s differs from its picture in %s of its pixels, over its bound of %s%%", id, shareRoundedUp(res), bound)
+			add(st.Line, "pixel_over", "%s differs from its picture in %s of its pixels, over %s", id, shareRoundedUp(res), over)
 		}
 	}
 	return out, nil
@@ -223,6 +229,9 @@ func size(img image.Image) string {
 }
 
 func shareRoundedUp(r pixel.Result) string {
-	h := (int64(r.Differing)*10000 + int64(r.Total) - 1) / int64(r.Total)
+	return hundredths((int64(r.Differing)*10000 + int64(r.Total) - 1) / int64(r.Total))
+}
+
+func hundredths(h int64) string {
 	return fmt.Sprintf("%d.%02d%%", h/100, h%100)
 }

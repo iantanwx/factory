@@ -101,6 +101,12 @@ a commit that landed on the base since. So a rerun repairs only a flaky failure.
 the failure when the base failed the same test when the check ran, and the current base passes it.
 In that case merge the base by section 2, push, and let CI run on the new base.
 
+When the red build is a `pixel_over` on a state that `screens.accepted` in the brief holds, change
+no code. The gate read `screens.json` before the acceptance reached it, and the server writes the
+accepted share into that file at each capture push. Take the captures of the same head into a
+directory from `mktemp -d`, and push them again with `loop branch push --captures <dir>`. Then run
+`loop pr rerun`.
+
 **Rework: read the rejection before the contracts.** Read the latest round, and run
 `loop pr threads`. Repair every finding before you add any work.
 
