@@ -119,7 +119,6 @@ type stallRows struct {
 	panels []panelRow
 	items  []itemRow
 	lost   []lostRow
-	unread []string // the UNREAD lines of the CI reads that failed
 }
 
 // readStalls reads the rows of the stalls part, and classifies them.
@@ -141,6 +140,7 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 		return Reading{}, fmt.Errorf("read the drains: %w", err)
 	}
 	var rows stallRows
+	var unread []string
 	configs := map[string]*config.ProjectConfig{}
 	for _, p := range projects {
 		snap, err := w.ProjectConfig(ctx, p.ID)
@@ -159,7 +159,7 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 			items[i].pause = pauseOf(pauses, p.ID, items[i].stage)
 		}
 		if cfg := configs[p.ID]; cfg != nil {
-			rows.unread = append(rows.unread, readSimplifyCI(ctx, w, p, cfg.Health.CIBudget, items)...)
+			unread = append(unread, readSimplifyCI(ctx, w, p, cfg.Health.CIBudget, items)...)
 		}
 		rows.items = append(rows.items, items...)
 		lost, err := w.Items(ctx, p.ID, machine.ListFilter{Kind: machine.KindTicket, Status: machine.InProgress})
@@ -198,7 +198,7 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 		return Reading{}, fmt.Errorf("read escalations and runs: %w", err)
 	}
 	r := classifyStalls(rows, w.Now(), drains)
-	r.Notes = append(r.Notes, rows.unread...)
+	r.Notes = append(r.Notes, unread...)
 	return r, nil
 }
 
@@ -208,25 +208,23 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 // runs inside budget, the row's ci says so. A read that fails leaves the
 // row as it is, and returns its UNREAD line.
 func readSimplifyCI(ctx context.Context, w World, p config.Project, budget time.Duration, rows []itemRow) []string {
-	if w.GitHub() == nil {
+	waits := func(row itemRow) bool {
+		return row.stage == config.StageCodeReviewer && row.item.Fact(machine.FactSimplifyFrom) != "" && row.off == ""
+	}
+	if w.GitHub() == nil || !slices.ContainsFunc(rows, waits) {
 		return nil
 	}
-	var pulls []github.PR
-	read := false
+	pulls, err := w.GitHub().OpenPulls(ctx, p)
+	if err != nil {
+		return []string{unreadLine(p, "the open pull requests", err)}
+	}
 	var unread []string
 	for i := range rows {
 		row := &rows[i]
-		from := row.item.Fact(machine.FactSimplifyFrom)
-		if row.stage != config.StageCodeReviewer || from == "" || row.off != "" {
+		if !waits(*row) {
 			continue
 		}
-		if !read {
-			var err error
-			if pulls, err = w.GitHub().OpenPulls(ctx, p); err != nil {
-				return []string{unreadLine(p, "the open pull requests", err)}
-			}
-			read = true
-		}
+		from := row.item.Fact(machine.FactSimplifyFrom)
 		j := slices.IndexFunc(pulls, func(pr github.PR) bool { return pr.Head.Ref == github.BranchFor(row.item.ID) })
 		if j < 0 || pulls[j].Head.SHA == from {
 			continue
