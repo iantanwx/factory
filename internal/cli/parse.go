@@ -284,6 +284,10 @@ const (
 	// checkout into its mirror, and it checks the sha against the content
 	// hash.
 	ExtraHead = ReservedPrefix + "head"
+	// ExtraCaptures is the sha of the capture commit with no parent that
+	// `branch push --captures` keeps in the checkout. The server fetches it
+	// as it fetches the head.
+	ExtraCaptures = ReservedPrefix + "captures"
 	// ExtraFile is the base64 of the file a verb's --file flag names. The
 	// CLI reads it from the caller's working directory, so the server reads
 	// no path an agent chose.

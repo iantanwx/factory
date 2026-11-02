@@ -253,11 +253,14 @@ func (c *Client) Remote(ctx context.Context, inv Invocation) Result {
 	}
 
 	if pushesHead(inv.Verb.Path) && cc.checkout != "" {
-		head, err := CheckoutHead(ctx, headDir(inv, cc.checkout, cc.cwd))
+		head, captures, err := capturesOf(ctx, inv, cc.checkout, cc.cwd)
 		if err != nil {
 			return *usage("head_unreadable", err.Error(), inv.Verb.Path)
 		}
 		req.Flags[ExtraHead] = head
+		if captures != "" {
+			req.Flags[ExtraCaptures] = captures
+		}
 	}
 
 	if path := inv.Flags["file"]; path != "" {

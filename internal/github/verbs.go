@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/iantanwx/loop/internal/bodygate"
+	"github.com/iantanwx/loop/internal/captures"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
@@ -81,7 +82,7 @@ func (s *Service) branchPush(ctx context.Context, call *rpc.Call) cli.Result {
 	if head == "" {
 		return cli.Reject(cli.CodeUsage, "no_head", "the CLI sent no HEAD; push from inside the checkout")
 	}
-	if c := call.Inv.Extra[cli.ExtraContentHash]; c != "" && c != cli.HeadContentHash(head) {
+	if c := call.Inv.Extra[cli.ExtraContentHash]; c != "" && c != cli.PushContentHash(head, call.Inv.Extra[cli.ExtraCaptures]) {
 		return cli.Reject(cli.CodeUsage, "head_moved", "HEAD moved while the CLI read it; push again")
 	}
 	if _, ref := s.fenced(ctx, call); ref != nil {
@@ -99,7 +100,7 @@ func (s *Service) branchPush(ctx context.Context, call *rpc.Call) cli.Result {
 		return ref.Result()
 	}
 	res, err := s.Push(ctx, PushRequest{Project: prj.ID, Item: item, Branch: branch, Checkout: p.Checkout,
-		Head: head, RunID: p.RunID, Caller: p.Kind, Stage: p.Stage, Prototype: prototype})
+		Head: head, RunID: p.RunID, Caller: p.Kind, Stage: p.Stage, Prototype: prototype, Captures: call.Inv.Extra[cli.ExtraCaptures]})
 	if err != nil {
 		return Refuse(err)
 	}
@@ -137,11 +138,14 @@ func (s *Service) branchSync(ctx context.Context, call *rpc.Call) cli.Result {
 	if ref != nil {
 		return ref.Result()
 	}
-	var prototype string
+	var prototype, capture string
 	if DesignEpicOf(branch) == item {
 		prototype = PrototypeBranchFor(item)
 	}
-	res, err := s.Sync(ctx, prj, item, branch, prototype)
+	if it, ref := s.item(ctx, prj.ID, item); ref == nil && it.Kind == machine.KindTicket && it.Fact(machine.FactScreens) != "" {
+		capture = captures.Branch(item)
+	}
+	res, err := s.Sync(ctx, prj, item, branch, prototype, capture)
 	if err != nil {
 		return Refuse(err)
 	}

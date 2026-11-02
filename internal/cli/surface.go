@@ -167,8 +167,9 @@ var surface = []Verb{
 		Flag{Name: "run", Type: FlagString, Description: "the shell command that runs the tests, with the test paths in \"$@\"; the base config's test gate when absent"}),
 
 	write(server("branch", "push", "push the item's branch through the server", runOrRoom, nil,
-		Flag{Name: "prototype", Type: FlagBool, Description: "a design room only: run it in the prototype worktree inside the checkout; it pushes that worktree's HEAD to loop/<epic>-prototype, the prototype's own branch, and not to the item's branch"})),
-	write(server("branch", "sync", "fetch the base and the item's branch into the mirror, and name the mirror path, each head sha and the refs a checkout fetches with no credential", runOrRoom, nil)),
+		Flag{Name: "prototype", Type: FlagBool, Description: "a design room only: run it in the prototype worktree inside the checkout; it pushes that worktree's HEAD to loop/<epic>-prototype, the prototype's own branch, and not to the item's branch"},
+		Flag{Name: "captures", Type: FlagString, Description: "a ticket that cites states only: the directory of one <state id>.png for each state; the server checks the set, writes it to <head>/ on loop/<ticket>-captures and pushes that branch before the item's branch, and a wrong or missing set pushes neither"})),
+	write(server("branch", "sync", "fetch the base and the item's branch into the mirror, and name the mirror path, each head sha and the refs a checkout fetches with no credential; a ticket that cites states also gets its capture branch in a captures part", runOrRoom, nil)),
 
 	write(server("pr", "open", "open the item's pull request, or update the title and body of the one open on its branch, and hand the item to review", runOrRoom, nil,
 		Flag{Name: "title", Type: FlagString, Required: true, Description: "the pull request title"},
