@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/escalation"
+	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/sched"
 )
@@ -26,7 +27,9 @@ import (
 // a run on an older item of the queue held the stage mutex. A fire while
 // the server drained admitted no run, and does not count either, also
 // after the restart that ended the drain. Nor does a fire that started no
-// run while a limit of the stage was full. An item at a stage that a
+// run while a limit of the stage was full, nor a code review that admission
+// refuses while CI at the head a simplify run left runs inside the CI
+// budget (rule simplify_head_ci). An item at a stage that a
 // pause holds, in its project or in every project, waits for the resume
 // (C25). A ticket in
 // in_progress that no lease holds and no live run names is lost, and work
@@ -85,6 +88,7 @@ type itemRow struct {
 	pause   string // the pause that holds the stage and the verb that ends it, such as `implementer is paused in factorio ("the queue is red"), and ...`
 	hold    string // the room or escalation that holds the item, such as "room room-r7"
 	alert   string // an open retry_limit or run_blocked alert that names the item, such as "alert/7 retry_limit"
+	ci      string // the CI run at the simplify head that admission waits for, inside the CI budget
 }
 
 // queueRun is one run of a stage on an item of its queue.
@@ -136,6 +140,7 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 		return Reading{}, fmt.Errorf("read the drains: %w", err)
 	}
 	var rows stallRows
+	var unread []string
 	configs := map[string]*config.ProjectConfig{}
 	for _, p := range projects {
 		snap, err := w.ProjectConfig(ctx, p.ID)
@@ -152,6 +157,9 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 		}
 		for i := range items {
 			items[i].pause = pauseOf(pauses, p.ID, items[i].stage)
+		}
+		if cfg := configs[p.ID]; cfg != nil {
+			unread = append(unread, readSimplifyCI(ctx, w, p, cfg.Health.CIBudget, items)...)
 		}
 		rows.items = append(rows.items, items...)
 		lost, err := w.Items(ctx, p.ID, machine.ListFilter{Kind: machine.KindTicket, Status: machine.InProgress})
@@ -189,7 +197,77 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("read escalations and runs: %w", err)
 	}
-	return classifyStalls(rows, w.Now(), drains), nil
+	r := classifyStalls(rows, w.Now(), drains)
+	r.Notes = append(r.Notes, unread...)
+	return r, nil
+}
+
+// readSimplifyCI reads CI at the open pull request's head of each code
+// review row whose item holds a simplify_from that the head differs from.
+// When admission's rule simplify_head_ci refuses the review while that CI
+// runs inside budget, the row's ci says so. A read that fails leaves the
+// row as it is, and returns its UNREAD line.
+func readSimplifyCI(ctx context.Context, w World, p config.Project, budget time.Duration, rows []itemRow) []string {
+	waits := func(row itemRow) bool {
+		return row.stage == config.StageCodeReviewer && row.item.Fact(machine.FactSimplifyFrom) != "" && row.off == ""
+	}
+	if w.GitHub() == nil || !slices.ContainsFunc(rows, waits) {
+		return nil
+	}
+	pulls, err := w.GitHub().OpenPulls(ctx, p)
+	if err != nil {
+		return []string{unreadLine(p, "the open pull requests", err)}
+	}
+	var unread []string
+	for i := range rows {
+		row := &rows[i]
+		if !waits(*row) {
+			continue
+		}
+		from := row.item.Fact(machine.FactSimplifyFrom)
+		j := slices.IndexFunc(pulls, func(pr github.PR) bool { return pr.Head.Ref == github.BranchFor(row.item.ID) })
+		if j < 0 || pulls[j].Head.SHA == from {
+			continue
+		}
+		head := pulls[j].Head.SHA
+		runs, err := w.GitHub().WorkflowRuns(ctx, p, github.RunQuery{HeadSHA: head})
+		if err != nil {
+			unread = append(unread, unreadLine(p, fmt.Sprintf("CI at %s, the head of %s", head, row.item.ID), err))
+			continue
+		}
+		row.ci = ciWait(head, runs, budget, w.Now())
+	}
+	return unread
+}
+
+// ciWait says which run admission waits for at head: the oldest that has
+// not completed, while it runs inside budget and no run there is red. A
+// project with no budget sets no limit. Empty when no run waits so: CI at
+// head is red, green, past budget, or not started.
+func ciWait(head string, runs []github.RunView, budget time.Duration, now time.Time) string {
+	var wait *github.RunView
+	for i, run := range runs {
+		switch {
+		case run.Status != "completed":
+			if wait == nil || run.StartedAt.Before(wait.StartedAt) {
+				wait = &runs[i]
+			}
+		case !slices.Contains([]string{"success", "neutral", "skipped", "cancelled"}, run.Conclusion):
+			return ""
+		}
+	}
+	if wait == nil {
+		return ""
+	}
+	inside := "no health.ci_budget limits it"
+	if budget > 0 {
+		if now.Sub(wait.StartedAt) > budget {
+			return ""
+		}
+		inside = fmt.Sprintf("inside the CI budget of %s", budget)
+	}
+	return fmt.Sprintf("admission refuses its code review with rule simplify_head_ci until CI is green at %s, the head its simplify run left: run %s %d there runs since %s, %s",
+		head, wait.Workflow, wait.ID, stamp(wait.StartedAt), inside)
 }
 
 // scheduleOf parses a stage's schedule in force in a project.
@@ -491,6 +569,8 @@ func classifyStalls(rows stallRows, now time.Time, drains []sched.Drain) Reading
 			why = row.alert + " is open on it"
 		case row.run != "":
 			why = fmt.Sprintf("run %s started at %s, after it entered at %s", row.run, stamp(row.runAt), stamp(row.entered))
+		case row.ci != "":
+			why = row.ci
 		default:
 			c := queueFires(row, now, drains)
 			if len(c.drained) > 0 {
