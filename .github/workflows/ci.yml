@@ -52,6 +52,11 @@ jobs:
       # no gitleaks. The local action put it on PATH here.
       - if: steps.scope.outputs.docs == 'true'
         run: loop gates --only secrets
+      # --docs also leaves out the pixel gate, which fetches from origin.
+      # A documents change to a ticket that cites states still owes the
+      # comparison of the captures at its new head.
+      - if: steps.scope.outputs.docs == 'true'
+        run: loop gates --only pixel
 
   # The beads contract and the parity suite (U17) on the real server and
   # real beads. The job provisions the bd and dolt that
