@@ -152,6 +152,50 @@ func TestC22PixelBoundIsExactAtEachEdge(t *testing.T) {
 	}
 }
 
+// TestC29AcceptedShareRaisesTheBoundOfItsState proves C29 of spec
+// factorio-4lso. The bound of a state is the larger of its mark and the
+// share that the manifest accepts for it, and a state with no accepted
+// entry keeps its mark.
+func TestC29AcceptedShareRaisesTheBoundOfItsState(t *testing.T) {
+	for _, tc := range []struct {
+		mark      string
+		accepted  map[string]int
+		differing int
+		want      string // the pixel_over message, or "" for a pass
+	}{
+		{"pixel 0.5%", map[string]int{"S1.1": 120}, 240, ""},
+		{"pixel 0.5%", map[string]int{"S1.1": 120}, 241, "S1.1 differs from its picture in 1.21% of its pixels, over its accepted share of 1.20%"},
+		{"pixel 1%", map[string]int{"S1.1": 40}, 200, ""},
+		{"pixel 1%", map[string]int{"S1.1": 40}, 201, "S1.1 differs from its picture in 1.01% of its pixels, over its bound of 1%"},
+		{"pixel 0.5%", map[string]int{"S1.2": 120}, 100, ""},
+		{"pixel 0.5%", map[string]int{"S1.2": 120}, 101, "S1.1 differs from its picture in 0.51% of its pixels, over its bound of 0.5%"},
+	} {
+		src, head := pixelOrigin(t, 200, 100, pixelState{"S1.1", tc.mark}, pixelState{"S1.2", ""})
+		m := captures.ManifestOf("t-1", pixelEpic, []string{"S1.1", "S1.2"})
+		m.Accepted = tc.accepted
+		raw, err := json.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pushCaptures(t, src, nil, map[string]string{
+			captures.ManifestFile: string(raw),
+			head + "/S1.1.png":    picture(t, 200, 100, tc.differing),
+			head + "/S1.2.png":    picture(t, 200, 100, 0),
+		})
+		var got []string
+		for _, f := range runPixel(t, pixelClone(t, src)) {
+			got = append(got, f.Rule+": "+f.Message)
+		}
+		var want []string
+		if tc.want != "" {
+			want = []string{"pixel_over: " + tc.want}
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s, accepted %v, at %d of 20000: %q, want %q", tc.mark, tc.accepted, tc.differing, got, want)
+		}
+	}
+}
+
 func TestC24PixelMarkedStateWithNoCaptureAtTheHeadFails(t *testing.T) {
 	src, head := pixelOrigin(t, 20, 10, pixelState{"S1.1", "pixel"})
 	older := strings.TrimSpace(git(t, src, "rev-parse", "HEAD~1"))
