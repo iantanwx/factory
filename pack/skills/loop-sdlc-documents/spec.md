@@ -271,7 +271,11 @@ person reads the code to notice.
 first, and that test must fail before the code changes. When an entry's contracts cannot be proven
 on their own, the cut is wrong. Merge the entry into the one it depends on, or move the contract.
 
-An entry that draws a screen names its design references, when the project keeps them.
+In an epic that holds `design_merged`, each work entry holds a `- Screens:` line. It names the
+state ids of the design record that the entry builds, such as `S1.1, S2.3`. An entry that draws no
+screen writes `none.` and a reason that shows why. An entry that serves only `UI: no` stories names
+those stories in its reason. An epic with no `design_merged` has no record, so its entries hold no
+`- Screens:` line.
 
 > **Good**
 >
@@ -297,6 +301,7 @@ An entry that draws a screen names its design references, when the project keeps
    - Files: <paths or globs>
    - Needs: <an earlier entry, or nothing>
    - Proves: <the contracts, by number>
+   - Screens: <the state ids it builds>, or none. <why the entry draws no screen>
    - Done when: <an outcome that someone can observe>
 
 ## Out of scope
