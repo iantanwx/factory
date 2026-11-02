@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/iantanwx/loop/internal/captures"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
@@ -38,6 +40,9 @@ type PushRequest struct {
 	// reads, and each of its readers shares its token. A simplify run's
 	// push takes the scope check, and the server holds its commit.
 	Stage string
+	// Captures is the sha of the capture commit with no parent in the
+	// checkout, or "". A ticket that cites states pushes one at each head.
+	Captures string
 }
 
 // PushResult is what `branch push` answers.
@@ -53,6 +58,17 @@ type PushResult struct {
 	// Held is true when the server holds the commit in the mirror until
 	// the simplify run's hand-off, and pushed nothing to GitHub.
 	Held bool `json:"held"`
+	// Captures is the capture branch that holds the head's captures, for
+	// a ticket that cites states.
+	Captures *CapturePush `json:"captures,omitempty"`
+}
+
+// CapturePush is the capture branch after a push: its tip, and the states
+// whose captures it holds under the head.
+type CapturePush struct {
+	Branch string   `json:"branch"`
+	Tip    string   `json:"tip"`
+	States []string `json:"states"`
 }
 
 // incomingRef holds a commit fetched from a checkout before its push.
@@ -74,7 +90,9 @@ var errCrash = errors.New("github: stopped at a kill point")
 // token, one refspec and a lease on the remote head it read. It never
 // pushes the base branch, and it refuses a remote branch that holds
 // commits the head lacks. A simplify run's commit goes to heldRef, not to
-// GitHub, once it passes scopeCheck.
+// GitHub, once it passes scopeCheck. A ticket that cites states pushes
+// the captures of the head to its capture branch first, so the remote
+// holds them before CI reads the head (factorio-4lso).
 func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error) {
 	res := PushResult{Branch: req.Branch, Head: req.Head}
 	if req.Stage == config.StageDocReviewer {
@@ -101,6 +119,10 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	case req.Checkout == "":
 		return res, &RefusedError{Code: cli.CodeUsage, Rule: "no_checkout", Hint: "push from inside the run's checkout"}
 	}
+	epic, states, err := s.citedStates(ctx, req)
+	if err != nil {
+		return res, err
+	}
 	unlock := s.lock(p.ID + "\x00" + req.Branch)
 	defer unlock()
 
@@ -117,6 +139,9 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	if design {
 		fetch = append(fetch, PrototypeBranchFor(req.Item))
 	}
+	if states != nil {
+		fetch = append(fetch, captures.Branch(req.Item))
+	}
 	if err := m.Fetch(ctx, readTok, fetch...); err != nil {
 		return res, err
 	}
@@ -132,6 +157,20 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 	if err := s.settlePending(ctx, p.ID, req.Branch, remote); err != nil {
 		return res, err
 	}
+	if remote != req.Head {
+		if res.Commits, err = s.checkHead(ctx, m, p, req, base, remote, design); err != nil {
+			return res, err
+		}
+	}
+	if states != nil {
+		set, err := m.captureSet(ctx, req, states)
+		if err != nil {
+			return res, err
+		}
+		if res.Captures, err = s.pushCaptures(ctx, p, m, req, epic, states, set); err != nil {
+			return res, err
+		}
+	}
 	if remote == req.Head {
 		own, err := s.ownPush(ctx, p.ID, req.Branch, req.Head)
 		if err != nil {
@@ -143,87 +182,236 @@ func (s *Service) Push(ctx context.Context, req PushRequest) (PushResult, error)
 		res.Pushed = own
 		return res, nil
 	}
+	if req.Stage == config.StageSimplify {
+		return s.hold(ctx, m, req, res)
+	}
+
+	if err := s.pushBranch(ctx, p, m, req.Item, req.Branch, remote, req.Head, req.RunID, "pushed"); err != nil {
+		return res, err
+	}
+	res.Pushed = true
+	return res, nil
+}
+
+// pushBranch records the push intent of sha to branch, pushes it with a
+// lease on old, and settles the intent. A crash test stops it at the kill
+// point kill, after the push.
+func (s *Service) pushBranch(ctx context.Context, p config.Project, m *Mirror, item, branch, old, sha, run, kill string) error {
+	tok, err := s.Token(ctx, p, ScopePush)
+	if err != nil {
+		return err
+	}
+	id, err := s.recordPush(ctx, p.ID, item, branch, old, sha, run)
+	if err != nil {
+		return err
+	}
+	if err := m.Push(ctx, tok, sha, branch, old); err != nil {
+		var ge *GitError
+		if errors.As(err, &ge) && (strings.Contains(ge.Stderr, "stale info") || strings.Contains(ge.Stderr, "rejected")) {
+			if serr := s.settlePush(ctx, id, "abandoned"); serr != nil {
+				return serr
+			}
+			return &RefusedError{Code: cli.CodeRemoteAhead, Rule: "lease_lost", AllowedNext: []string{verbBranchSync},
+				Hint: fmt.Sprintf("%s moved on the remote during the push; run `loop branch sync` and push again", branch)}
+		}
+		// The result is unknown: the intent stays pending, and the next
+		// push or the reconcile reads the remote to settle it.
+		return &UnavailableError{Err: err}
+	}
+	if s.crash != nil && s.crash(kill) {
+		return errCrash
+	}
+	if err := s.settlePush(ctx, id, "done"); err != nil {
+		return err
+	}
+	_, _ = s.git.run(ctx, gitRun{dir: m.Dir, args: []string{"update-ref", remoteRef(branch), sha}})
+	return nil
+}
+
+// checkHead runs every check of a head that the remote lacks: the remote
+// holds no commit the head lacks, each new commit passes the scan, a
+// reviser's edits stay in one commit, a design branch stays in its
+// directory, and a simplify run's commit stays in its scope. It answers
+// the count of new commits.
+func (s *Service) checkHead(ctx context.Context, m *Mirror, p config.Project, req PushRequest, base, remote string, design bool) (int, error) {
 	if remote != "" {
 		lacking, err := m.Lacking(ctx, req.Head, remote)
 		if err != nil {
-			return res, err
+			return 0, err
 		}
 		if len(lacking) > 0 {
-			return res, &RefusedError{Code: cli.CodeRemoteAhead, Rule: "remote_holds_more", AllowedNext: []string{verbBranchSync},
+			return 0, &RefusedError{Code: cli.CodeRemoteAhead, Rule: "remote_holds_more", AllowedNext: []string{verbBranchSync},
 				Hint: fmt.Sprintf("%s holds %d commit(s) that HEAD lacks; run `loop branch sync`, merge, and push again", req.Branch, len(lacking))}
 		}
 	}
 	var pins []string
 	if s.cfg.UserSkills != nil {
+		var err error
 		if pins, err = s.cfg.UserSkills(ctx, p.ID); err != nil {
-			return res, err
+			return 0, err
 		}
 	}
 	commits, err := m.Scan(ctx, s.cfg.Redactor, req.Caller == cli.PrincipalRun, pins, req.Head, remoteRef(base), remote)
 	if err != nil {
-		return res, err
+		return 0, err
 	}
-	res.Commits = len(commits)
 	if err := s.oneEditSet(ctx, m, req, remoteRef(base), commits); err != nil {
-		return res, err
+		return 0, err
 	}
 	if design {
 		if err := m.CheckDesignScope(ctx, req.Item, req.Head, remoteRef(base), remoteRef(PrototypeBranchFor(req.Item))); err != nil {
-			return res, err
+			return 0, err
 		}
 	}
 	if req.Stage == config.StageSimplify {
-		return s.hold(ctx, m, req, remoteRef(base), remote, res)
-	}
-
-	pushTok, err := s.Token(ctx, p, ScopePush)
-	if err != nil {
-		return res, err
-	}
-	id, err := s.recordPush(ctx, p.ID, req.Item, req.Branch, remote, req.Head, req.RunID)
-	if err != nil {
-		return res, err
-	}
-	if err := m.Push(ctx, pushTok, req.Head, req.Branch, remote); err != nil {
-		var ge *GitError
-		if errors.As(err, &ge) && (strings.Contains(ge.Stderr, "stale info") || strings.Contains(ge.Stderr, "rejected")) {
-			if serr := s.settlePush(ctx, id, "abandoned"); serr != nil {
-				return res, serr
-			}
-			return res, &RefusedError{Code: cli.CodeRemoteAhead, Rule: "lease_lost", AllowedNext: []string{verbBranchSync},
-				Hint: fmt.Sprintf("%s moved on the remote during the push; run `loop branch sync` and push again", req.Branch)}
+		if err := s.simplifyScope(ctx, m, req, remoteRef(base), remote); err != nil {
+			return 0, err
 		}
-		// The result is unknown: the intent stays pending, and the next
-		// push or the reconcile reads the remote to settle it.
-		return res, &UnavailableError{Err: err}
 	}
-	if s.crash != nil && s.crash("pushed") {
-		return res, errCrash
-	}
-	if err := s.settlePush(ctx, id, "done"); err != nil {
-		return res, err
-	}
-	_, _ = s.git.run(ctx, gitRun{dir: m.Dir, args: []string{"update-ref", remoteRef(req.Branch), req.Head}})
-	res.Pushed = true
-	return res, nil
+	return len(commits), nil
 }
 
-// hold runs scopeCheck on a simplify run's push over the item's
-// simplify_from, or over remote when the item names none, and keeps the
-// head at heldRef. GitHub stays at simplify_from until the run's hand-off
-// (pushHeld), so a run that ends with no hand-off leaves no commit there.
-func (s *Service) hold(ctx context.Context, m *Mirror, req PushRequest, base, remote string, res PushResult) (PushResult, error) {
+// citedStates reads the states that the ticket of a push cites, from its
+// screens fact, and its epic. The states are nil when the push takes no
+// captures. It refuses captures on any branch but a ticket's own, and on
+// a ticket that cites no state.
+func (s *Service) citedStates(ctx context.Context, req PushRequest) (epic string, states []string, err error) {
 	it, ref := s.item(ctx, req.Project, req.Item)
 	if ref != nil {
-		return res, &RefusedError{Code: ref.Code, Rule: ref.Rule, Hint: ref.Hint}
+		return "", nil, &RefusedError{Code: ref.Code, Rule: ref.Rule, Hint: ref.Hint}
+	}
+	if it.Kind != machine.KindTicket || req.Prototype || req.Branch != BranchFor(req.Item) {
+		if req.Captures != "" {
+			return "", nil, &RefusedError{Code: cli.CodeUsage, Rule: "captures_ticket_only",
+				Hint: fmt.Sprintf("%s is no ticket's branch; only a ticket that cites states pushes captures", req.Branch)}
+		}
+		return "", nil, nil
+	}
+	screens := it.Fact(machine.FactScreens)
+	if screens == "" {
+		if req.Captures != "" {
+			return "", nil, &RefusedError{Code: cli.CodeShapeRefused, Rule: "captures_not_cited",
+				Hint: fmt.Sprintf("%s cites no state, so it has no captures; push with no --captures", req.Item)}
+		}
+		return "", nil, nil
+	}
+	if req.Captures != "" && !shaRe.MatchString(req.Captures) {
+		return "", nil, &RefusedError{Code: cli.CodeUsage, Rule: "bad_captures", Hint: "the capture commit is not a full sha"}
+	}
+	return it.Fact(machine.FactEpic), strings.Split(screens, ","), nil
+}
+
+// captureSet fetches the capture commit of a push from the checkout, and
+// checks its files against the cited states. It answers the entries of
+// its tree. A push with no capture commit holds no capture.
+func (m *Mirror) captureSet(ctx context.Context, req PushRequest, states []string) (map[string]string, error) {
+	if req.Captures != "" {
+		in := incomingRef(captures.Branch(req.Item))
+		if err := m.FetchCheckout(ctx, req.Checkout, req.Captures, in); err != nil {
+			return nil, &RefusedError{Code: cli.CodeUsage, Rule: "captures_unreadable",
+				Hint: "the server could not read the capture commit from the checkout; push with --captures again"}
+		}
+	}
+	entries, err := m.rawTree(ctx, req.Captures)
+	if err != nil {
+		return nil, err
+	}
+	files := map[string][]byte{}
+	for name, meta := range entries {
+		data, err := m.blob(ctx, meta)
+		if err != nil {
+			return nil, err
+		}
+		files[name] = data
+	}
+	if f := captures.Check(states, files); f != nil {
+		hint := map[string]string{
+			captures.RuleMissing: "the captures lack %s; run `loop captures take --out <dir>` at the head, and push with --captures <dir>",
+			captures.RuleUnknown: "%s names no state the ticket cites; push one <state id>.png for each cited state and nothing else",
+			captures.RuleNotPNG:  "%s is not a PNG; capture the state again",
+		}[f.Rule]
+		return nil, &RefusedError{Code: cli.CodeShapeRefused, Rule: f.Rule, Hint: fmt.Sprintf(hint, strings.Join(f.Names, ", "))}
+	}
+	return entries, nil
+}
+
+// pushCaptures writes set under <head>/ on the next commit of the
+// ticket's capture branch, with the manifest at its root, and pushes that
+// branch with a lease on the tip it read. A second push at one head
+// replaces that head's captures. A tree that already holds them pushes
+// nothing.
+func (s *Service) pushCaptures(ctx context.Context, p config.Project, m *Mirror, req PushRequest, epic string, states []string, set map[string]string) (*CapturePush, error) {
+	branch := captures.Branch(req.Item)
+	tip := m.Resolve(ctx, remoteRef(branch))
+	out := &CapturePush{Branch: branch, Tip: tip, States: states}
+	if err := s.settlePending(ctx, p.ID, branch, tip); err != nil {
+		return nil, err
+	}
+	manifest, err := json.MarshalIndent(captures.ManifestOf(req.Item, epic, states), "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	blob, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"hash-object", "-w", "--stdin"}, stdin: append(manifest, '\n')})
+	if err != nil {
+		return nil, err
+	}
+	head, err := m.mkTree(ctx, set)
+	if err != nil {
+		return nil, err
+	}
+	root, err := m.rawTree(ctx, tip)
+	if err != nil {
+		return nil, err
+	}
+	root[req.Head] = "040000 tree " + head
+	root[captures.ManifestFile] = "100644 blob " + blob
+	tree, err := m.mkTree(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	parent := ""
+	if tip != "" {
+		cur, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"rev-parse", tip + "^{tree}"}})
+		if err != nil {
+			return nil, err
+		}
+		if cur == tree {
+			return out, nil
+		}
+		parent = "parent " + tip + "\n"
+	}
+	at := s.cfg.Now().Unix()
+	obj := fmt.Sprintf("tree %s\n%sauthor %s %d +0000\ncommitter %s %d +0000\n\nCaptures of %s at %s\n",
+		tree, parent, evidenceIdent, at, evidenceIdent, at, req.Item, req.Head)
+	next, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"hash-object", "-t", "commit", "-w", "--stdin"}, stdin: []byte(obj)})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.pushBranch(ctx, p, m, req.Item, branch, tip, next, req.RunID, "captures_pushed"); err != nil {
+		return nil, err
+	}
+	out.Tip = next
+	return out, nil
+}
+
+// simplifyScope runs scopeCheck on a simplify run's push over the item's
+// simplify_from, or over remote when the item names none.
+func (s *Service) simplifyScope(ctx context.Context, m *Mirror, req PushRequest, base, remote string) error {
+	it, ref := s.item(ctx, req.Project, req.Item)
+	if ref != nil {
+		return &RefusedError{Code: ref.Code, Rule: ref.Rule, Hint: ref.Hint}
 	}
 	from := it.Fact(machine.FactSimplifyFrom)
 	if from == "" {
 		from = remote
 	}
-	if err := m.scopeCheck(ctx, from, base, req.Head); err != nil {
-		return res, err
-	}
+	return m.scopeCheck(ctx, from, base, req.Head)
+}
+
+// hold keeps a simplify run's head at heldRef, after checkHead ran its
+// scope check. GitHub stays at simplify_from until the run's hand-off
+// (pushHeld), so a run that ends with no hand-off leaves no commit there.
+func (s *Service) hold(ctx context.Context, m *Mirror, req PushRequest, res PushResult) (PushResult, error) {
 	if err := m.Keep(ctx, heldRef(req.RunID), req.Head); err != nil {
 		return res, err
 	}
@@ -616,6 +804,10 @@ func itemSyncRef(item string) string { return "refs/loop/items/" + item }
 // prototype branch that the last `branch sync` read.
 func prototypeSyncRef(epic string) string { return "refs/loop/prototypes/" + epic }
 
+// capturesSyncRef is the ref the mirror keeps for the tip of a ticket's
+// capture branch that the last `branch sync` read.
+func capturesSyncRef(ticket string) string { return "refs/loop/captures/" + ticket }
+
 // SyncResult is what `branch sync` answers: a contract a checkout uses
 // with no credential and no knowledge of the mirror's layout. Mirror is a
 // path, and a fetch from it needs no token. The server keeps Ref for the
@@ -632,6 +824,9 @@ type SyncResult struct {
 	// Prototype is the head of the prototype's branch, for an epic in a
 	// design state. Nil for any other item.
 	Prototype *SyncItem `json:"prototype,omitempty"`
+	// Captures is the tip of the capture branch, for a ticket that cites
+	// states. Nil for any other item.
+	Captures *SyncItem `json:"captures,omitempty"`
 }
 
 // SyncItem is the head of the item's branch. SHA is "" and Fetch is
@@ -648,10 +843,11 @@ type SyncItem struct {
 // Sync runs `branch sync` (KTD14). It fetches the base and the item's
 // branch into the mirror with the token, then points the refs the server
 // keeps at the heads it read. With prototype, the branch of an epic's
-// prototype, it does the same for that branch. It lets a fetch from the
-// mirror path ask for any object by sha, so a checkout can fetch a head
-// by its sha. The checkout itself is never touched.
-func (s *Service) Sync(ctx context.Context, p config.Project, item, branch, prototype string) (SyncResult, error) {
+// prototype, or capture, the capture branch of a ticket, it does the same
+// for that branch. It lets a fetch from the mirror path ask for any object
+// by sha, so a checkout can fetch a head by its sha. The checkout itself
+// is never touched.
+func (s *Service) Sync(ctx context.Context, p config.Project, item, branch, prototype, capture string) (SyncResult, error) {
 	base, err := s.DefaultBranch(ctx, p)
 	if err != nil {
 		return SyncResult{}, err
@@ -667,8 +863,10 @@ func (s *Service) Sync(ctx context.Context, p config.Project, item, branch, prot
 		return SyncResult{}, err
 	}
 	fetch := []string{base, branch}
-	if prototype != "" {
-		fetch = append(fetch, prototype)
+	for _, b := range []string{prototype, capture} {
+		if b != "" {
+			fetch = append(fetch, b)
+		}
 	}
 	if err := m.Fetch(ctx, tok, fetch...); err != nil {
 		return SyncResult{}, err
@@ -688,6 +886,12 @@ func (s *Service) Sync(ctx context.Context, p config.Project, item, branch, prot
 	if prototype != "" {
 		res.Prototype = &SyncItem{ID: item, Branch: prototype, Ref: prototypeSyncRef(item)}
 		if err := m.keepHead(ctx, res.Prototype); err != nil {
+			return SyncResult{}, err
+		}
+	}
+	if capture != "" {
+		res.Captures = &SyncItem{ID: item, Branch: capture, Ref: capturesSyncRef(item)}
+		if err := m.keepHead(ctx, res.Captures); err != nil {
 			return SyncResult{}, err
 		}
 	}

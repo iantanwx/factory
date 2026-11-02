@@ -317,8 +317,12 @@ func (m *Mirror) Lacking(ctx context.Context, head, remote string) ([]string, er
 
 // Push sends sha to refs/heads/<branch> over the explicit URL with the
 // token. It pushes one refspec and no tag, and it leases on old: "" means
-// the branch must not exist yet.
+// the branch must not exist yet. sha must name a commit: a push of no
+// commit would delete the branch, and the loop never deletes one.
 func (m *Mirror) Push(ctx context.Context, token, sha, branch, old string) error {
+	if !shaRe.MatchString(sha) {
+		return fmt.Errorf("github: a push to %s names %q and no commit; the loop never deletes a branch", branch, sha)
+	}
 	ref := "refs/heads/" + branch
 	_, err := m.git.run(ctx, gitRun{dir: m.Dir, url: m.URL, token: token, args: []string{
 		"push", "--quiet", "--porcelain", "--no-follow-tags", "--no-recurse-submodules", "--no-verify",
@@ -417,4 +421,42 @@ func (m *Mirror) Commit(ctx context.Context, sha string) (Commit, error) {
 		return Commit{}, fmt.Errorf("github: commit %s reads %q", sha, out)
 	}
 	return Commit{SHA: f[0], Parents: strings.Fields(f[1]), Author: f[2], Subject: f[3]}, nil
+}
+
+// rawTree lists the entries directly in the tree of rev, each name to its
+// "<mode> <type> <object>". An empty rev lists none.
+func (m *Mirror) rawTree(ctx context.Context, rev string) (map[string]string, error) {
+	entries := map[string]string{}
+	if rev == "" {
+		return entries, nil
+	}
+	out, err := m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"ls-tree", "-z", rev}})
+	if err != nil {
+		return nil, err
+	}
+	for _, rec := range strings.Split(string(out), "\x00") {
+		if meta, name, ok := strings.Cut(rec, "\t"); ok {
+			entries[name] = meta
+		}
+	}
+	return entries, nil
+}
+
+// mkTree writes a tree of entries, as rawTree lists them, and returns it.
+func (m *Mirror) mkTree(ctx context.Context, entries map[string]string) (string, error) {
+	var b strings.Builder
+	for name, meta := range entries {
+		fmt.Fprintf(&b, "%s\t%s\x00", meta, name)
+	}
+	return m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"mktree", "-z"}, stdin: []byte(b.String())})
+}
+
+// blob reads the object of one tree entry, as rawTree lists it, or nil
+// when the entry is no blob.
+func (m *Mirror) blob(ctx context.Context, meta string) ([]byte, error) {
+	f := strings.Fields(meta)
+	if len(f) != 3 || f[1] != "blob" {
+		return nil, nil
+	}
+	return m.git.run(ctx, gitRun{dir: m.Dir, args: []string{"cat-file", "blob", f[2]}})
 }
