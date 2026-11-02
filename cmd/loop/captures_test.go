@@ -208,3 +208,24 @@ func TestC9CapturesTakeRefusalsLeaveOutEmpty(t *testing.T) {
 		})
 	}
 }
+
+// C28: in a room checkout, whose brief holds role room and the ticket's
+// item facts with screens S1.1, the verb writes <out>/S1.1.png.
+func TestC28CapturesTakeInAReviewRoomCheckout(t *testing.T) {
+	f := newTakeFixture(t, "S1.1", true, "", "")
+	room, err := json.Marshal(map[string]any{"run_id": "room-1", "role": "room", "stage": "review-room",
+		"item": map[string]any{"id": "factorio-y", "kind": "ticket", "facts": map[string]string{"epic": "factorio-x", "screens": "S1.1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.checkout, ".loop/brief.json"), room, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if exit, env := f.take(t); exit != 0 {
+		t.Fatalf("exit %d, want 0\n%v", exit, env)
+	}
+	got := f.files(t)
+	if len(got) != 1 || !bytes.Equal(got["S1.1.png"], f.png) {
+		t.Fatalf("--out holds %v, want S1.1.png with the fixed PNG alone", keys(got))
+	}
+}

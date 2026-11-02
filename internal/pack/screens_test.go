@@ -86,3 +86,91 @@ func TestC15CoordinatorRecordsAnAcceptanceWithTheOperatorsWords(t *testing.T) {
 		}
 	}
 }
+
+const (
+	implementerRB  = "runbooks/implementer.md"
+	codeReviewerRB = "runbooks/code-reviewer.md"
+	reviewRoomRB   = "runbooks/review-room.md"
+)
+
+// numbered returns section n of the runbook name, flattened.
+func numbered(t *testing.T, name, n string) string {
+	t.Helper()
+	s := flat(pack.Section(read(t, name), 2, func(title string) bool { return strings.HasPrefix(title, n+". ") }))
+	if s == "" {
+		t.Fatalf("%s holds no section %s", name, n)
+	}
+	return s
+}
+
+// inOrder fails the test unless text holds each of wants, each after the
+// one before it.
+func inOrder(t *testing.T, where, text string, wants []string) {
+	t.Helper()
+	at := 0
+	for _, w := range wants {
+		i := strings.Index(text[at:], w)
+		if i < 0 {
+			t.Fatalf("%s holds no %q after %q", where, w, text[:at])
+		}
+		at += i + len(w)
+	}
+}
+
+// TestC19ImplementerCapturesAndPushesAtEachHead proves C19 of spec
+// factorio-4lso. Section 4 of the implementer runbook tells a run whose
+// brief holds screens to commit, take the captures into a directory from
+// mktemp -d, and push them with the head, at each head in every kind of
+// work. It names the captures_missing refusal.
+func TestC19ImplementerCapturesAndPushesAtEachHead(t *testing.T) {
+	s := numbered(t, implementerRB, "4")
+	inOrder(t, "section 4 of "+implementerRB, s, []string{
+		"Commit.",
+		"When the brief holds `screens`, take the captures of the head you committed.",
+		"Make a directory with `mktemp -d`, and run `loop captures take --out <dir>`.",
+		"Push with `loop branch push --captures <dir>`.",
+	})
+	holdsAll(t, "section 4 of "+implementerRB, s, []string{
+		"Take the captures again at each head you push, in every kind of work.",
+		"`captures_missing`",
+	})
+}
+
+// TestC20CodeReviewerComparesStructureAndRejectsAnUnacceptedDifference
+// proves C20 of spec factorio-4lso. The code-reviewer runbook fetches the
+// capture branch with the captures part of loop branch sync, reads each
+// capture of the reviewed head beside the record's picture, compares
+// structure and no pixels, and rejects a missing capture, an unaccepted
+// difference and a failed pixel gate.
+func TestC20CodeReviewerComparesStructureAndRejectsAnUnacceptedDifference(t *testing.T) {
+	s := numbered(t, codeReviewerRB, "5")
+	inOrder(t, "section 5 of "+codeReviewerRB, s, []string{
+		"When the brief holds `screens`, check each cited state at the head you review.",
+		"Run the `fetch` command of the `captures` part of `loop branch sync`.",
+		"`git show origin/<capture branch>:<head>/<state id>.png`",
+		"Open it beside the record's picture of the state, as a PNG.",
+	})
+	holdsAll(t, "section 5 of "+codeReviewerRB, s, []string{
+		"Reject a cited state with no capture at the reviewed head, and name the state.",
+		"Compare the elements, the copy, the flow and the states that exist. Never compare pixels.",
+		"Reject a difference that no acceptance of the state in `screens.accepted` describes, and name the state and the difference.",
+		"Pass a difference that an acceptance of the state describes.",
+		"Reject a head whose `pixel` gate failed, and name each state and its share.",
+	})
+}
+
+// TestC28ReviewRoomCapturesAndPushesACitingTicket proves C28 of spec
+// factorio-4lso on the pack side. Section 2 of the review room runbook
+// tells a room whose ticket's item facts hold screens to commit, take the
+// captures into a directory from mktemp -d, and push them, before each
+// push.
+func TestC28ReviewRoomCapturesAndPushesACitingTicket(t *testing.T) {
+	s := numbered(t, reviewRoomRB, "2")
+	inOrder(t, "section 2 of "+reviewRoomRB, s, []string{
+		"Commit,",
+		"When the item facts in `.loop/brief.json` hold `screens`, take the captures of the new head before each push.",
+		"Make a directory with `mktemp -d`, and run `loop captures take --out <dir>`.",
+		"Push with `loop branch push --captures <dir>`.",
+	})
+	holdsAll(t, "section 2 of "+reviewRoomRB, s, []string{"`captures_missing`"})
+}
