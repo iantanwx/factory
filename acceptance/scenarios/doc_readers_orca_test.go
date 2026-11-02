@@ -40,7 +40,7 @@ func TestC14FalseReaderFindingsRejectNothing(t *testing.T) {
 	if run := w.Dispatch(machine.StageDocReviewer); run.Item != epic {
 		t.Fatalf("the doc-reviewer took %s, want %s", run.Item, epic)
 	}
-	waitFor(w, epic, machine.PRDSignoff, machine.PRDReview, f1Wait)
+	waitFor(w, epic, machine.PRDSignoff, machine.PRDReview)
 
 	hist, err := w.Srv.Machine.History(context.Background(), acceptance.Project, epic)
 	if err != nil {

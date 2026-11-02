@@ -35,6 +35,12 @@ func TestF1RealAgentsTakeATicketFromClaimToMerge(t *testing.T) {
 	}
 }
 
+// waitFor waits for item to reach want on real orca, for up to f1Wait.
+func waitFor(w *acceptance.World, item, want, from string) {
+	w.T.Helper()
+	waitWithin(w, item, want, from, f1Wait)
+}
+
 // kinds records the kind of each session start that reaches the host,
 // whether the host accepts it or not.
 type kinds struct {

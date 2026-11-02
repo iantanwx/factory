@@ -105,7 +105,7 @@ func f1Path(w *acceptance.World, item string, wait time.Duration, act func(accep
 			w.T.Fatalf("the %s took %s, want %s", stage, run.Item, item)
 		}
 		act(run)
-		waitFor(w, item, want, from, wait)
+		waitWithin(w, item, want, from, wait)
 	}
 	step(machine.StageImplementer, machine.InSimplify, machine.InProgress)
 	step(machine.StageSimplify, machine.InReview, machine.InSimplify)
@@ -135,10 +135,10 @@ func f1Path(w *acceptance.World, item string, wait time.Duration, act func(accep
 	return head
 }
 
-// waitFor ticks the scheduler until item reaches want, each f1Poll for up
-// to wait. A status other than want or from fails at once, because a
+// waitWithin ticks the scheduler until item reaches want, each f1Poll for
+// up to wait. A status other than want or from fails at once, because a
 // reject or a red build would need a session that F1 does not declare.
-func waitFor(w *acceptance.World, item, want, from string, wait time.Duration) {
+func waitWithin(w *acceptance.World, item, want, from string, wait time.Duration) {
 	w.T.Helper()
 	for end := time.Now().Add(wait); ; time.Sleep(f1Poll) {
 		w.Tick()
