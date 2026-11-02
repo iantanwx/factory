@@ -826,6 +826,17 @@
         ]
       },
       {
+        "verb": "accept_difference",
+        "from": [
+          "execution"
+        ],
+        "to": "@same",
+        "command": "epic accept-difference",
+        "facts": [
+          "accepted_differences"
+        ]
+      },
+      {
         "verb": "adr_landed",
         "from": [
           "architecture"

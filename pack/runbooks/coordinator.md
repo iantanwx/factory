@@ -555,6 +555,25 @@ moves. The skip refuses with `SHAPE_REFUSED` and rule `design_pr_open` while the
 branch heads an open pull request. Tell the operator to close that pull request first, then run the
 skip again.
 
+A shipped screen of an epic in `execution` can differ from a state of its merged design record.
+The operator can accept that difference, and the record stays as it is. Record the acceptance only
+when the operator accepts the difference. Name the state of the record, and quote the operator's
+own words:
+
+```bash
+loop epic accept-difference <epic> --state <id> --request "<the operator's words>"
+```
+
+The server appends one entry to the epic's `accepted_differences` fact. The entry holds the state,
+the words and the time. The epic stays in `execution`, and no file or ref changes. A refusal
+records nothing:
+
+- **`USAGE` with rule `no_operator_request`.** The request is empty. Quote the operator's words.
+- **`SHAPE_REFUSED` with rule `state_unknown`.** The merged record holds no such state. The hint
+  names each state that it holds. Ask the operator which state differs.
+- **`SHAPE_REFUSED` with rule `no_design_record`.** The epic has no merged design record, so no
+  state exists to accept.
+
 Never file work at level 4 or 5 with no PRD on your own.
 
 ## 9. Loop faults

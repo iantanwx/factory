@@ -237,6 +237,9 @@ func epicEdges() []edge {
 		{"design_signoff", "signoff_head", "design_signoff"},
 		// The operator's skip of the design stage.
 		{"design", "skip_design", SpecNeeded},
+		// factorio-4lso: the operator's acceptance of a difference from the
+		// merged design record.
+		{Execution, "accept_difference", Execution},
 	}
 	e = append(e, each([]string{PRDNeeded, PRDDrafting, PRDReview, PRDAmending, PRDSignoff}, "adr_send", ToSame)...)
 	e = append(e, each([]string{SpecNeeded, SpecReview, SpecSignoff, SpecAmending}, "adr_send", Architecture)...)
@@ -346,8 +349,12 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	if r.When == "design_due" {
 		facts[FactUIStories] = "US-01" // the PRD merge recorded a UI story
 	}
-	if r.Verb == VerbADRSend || r.Verb == VerbADROff || r.Verb == VerbSkipDesign {
+	if r.Verb == VerbADRSend || r.Verb == VerbADROff || r.Verb == VerbSkipDesign || r.Verb == VerbAcceptDifference {
 		params["request"] = "the operator's words"
+	}
+	if r.Verb == VerbAcceptDifference {
+		params["state"], params["at"] = "S1.1", "2026-11-02T12:00:00Z"
+		facts[FactDesignPath], facts[FactDesignMerged] = "docs/design/ep/record.md", "d1" // the design record merged
 	}
 	if r.When == "second_reject" {
 		facts[FactPRDRejects] = "1"
