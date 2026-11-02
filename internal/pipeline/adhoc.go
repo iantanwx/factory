@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"fmt"
-	"path"
 	"strings"
 	"time"
 
@@ -519,7 +518,7 @@ func (p *Pipeline) recordHolds(ctx context.Context, epic machine.Item, state str
 		return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "no_design_record", Item: epic.ID, CurrentStatus: epic.Status,
 			Hint: fmt.Sprintf("the base branch holds no readable %s: %v; nothing was recorded", rec, err)}
 	}
-	parsed, _ := design.Parse(path.Dir(rec), string(data))
+	parsed, _ := design.Parse(design.Dir(epic.ID), string(data))
 	var ids []string
 	for _, s := range parsed.Screens {
 		for _, st := range s.States {
