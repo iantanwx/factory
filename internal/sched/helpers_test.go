@@ -308,9 +308,10 @@ func (g *gitCheckouts) CreateCheckout(ctx context.Context, spec agenthost.Checko
 }
 
 // RemoveCheckout forgets the checkout in the fake and deletes the worktree
-// and its entry under .git/worktrees, as git worktree remove --force does.
-// It runs no git: git reads each sibling entry first, and dies on one whose
-// add has not yet written its commondir.
+// and its entry under .git/worktrees, as git worktree remove --force does,
+// and it refuses a locked worktree as git does. It runs no git: git reads
+// each sibling entry first, and dies on one whose add has not yet written
+// its commondir.
 func (g *gitCheckouts) RemoveCheckout(ctx context.Context, path string) error {
 	g.mu.Lock()
 	g.removed = append(g.removed, path)
@@ -327,6 +328,9 @@ func (g *gitCheckouts) RemoveCheckout(ctx context.Context, path string) error {
 	entry := strings.TrimSpace(strings.TrimPrefix(string(link), "gitdir:"))
 	if !filepath.IsAbs(entry) {
 		entry = filepath.Join(path, entry)
+	}
+	if _, err := os.Stat(filepath.Join(entry, "locked")); err == nil {
+		return fmt.Errorf("cannot remove a locked working tree: %s", path)
 	}
 	if err := os.RemoveAll(path); err != nil {
 		return err

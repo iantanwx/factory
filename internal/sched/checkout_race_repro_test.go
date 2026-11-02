@@ -42,3 +42,22 @@ func TestGitCheckoutsRemoveOneWhileASiblingIsHalfMade(t *testing.T) {
 		t.Fatalf("the checkout of r-1 still stands: %v", err)
 	}
 }
+
+// Dispatch locks each run's checkout, and the cleanup pass unlocks it before
+// it removes it. The test checkouts refuse a locked worktree, as git worktree
+// remove --force does, so a pass that forgets the unlock fails its test.
+func TestGitCheckoutsRefuseALockedWorktree(t *testing.T) {
+	w := newWorld(t)
+	ctx := context.Background()
+	co, err := w.co.CreateCheckout(ctx, agenthost.CheckoutSpec{Name: "loop-alpha-nightly-qa-r-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, co.Path, "worktree", "lock", co.Path)
+	if err := w.co.RemoveCheckout(ctx, co.Path); err == nil {
+		t.Fatal("the test checkouts removed a locked worktree")
+	}
+	if _, err := os.Stat(co.Path); err != nil {
+		t.Fatalf("the locked checkout of r-1 is gone: %v", err)
+	}
+}
