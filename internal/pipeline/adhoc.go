@@ -527,15 +527,14 @@ func (p *Pipeline) recordHolds(ctx context.Context, epic machine.Item, state, sh
 	var ids []string
 	for _, s := range parsed.Screens {
 		for _, st := range s.States {
-			if st.ID != state {
-				ids = append(ids, st.ID)
-				continue
+			if st.ID == state {
+				if share != "" && st.Pixel == nil {
+					return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "share_unmarked", Item: epic.ID, CurrentStatus: epic.Status,
+						Hint: fmt.Sprintf("%s holds no pixel mark on %s, so no share applies; accept it with no --share. Nothing was recorded", rec, state)}
+				}
+				return nil
 			}
-			if share != "" && st.Pixel == nil {
-				return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "share_unmarked", Item: epic.ID, CurrentStatus: epic.Status,
-					Hint: fmt.Sprintf("%s holds no pixel mark on %s, so no share applies; accept it with no --share. Nothing was recorded", rec, state)}
-			}
-			return nil
+			ids = append(ids, st.ID)
 		}
 	}
 	return &cli.Refusal{Code: cli.CodeShapeRefused, Rule: "state_unknown", Item: epic.ID, CurrentStatus: epic.Status,

@@ -417,17 +417,10 @@ func (s *Service) acceptedShares(ctx context.Context, project, epic string, stat
 			return nil, fmt.Errorf("github: %s holds no list in %s: %w", epic, machine.FactAcceptedDifferences, err)
 		}
 	}
-	var out map[string]int
+	out := map[string]int{}
 	for _, a := range list {
-		h, ok := captures.Hundredths(a.Share)
-		if !ok || !slices.Contains(states, a.State) {
-			continue
-		}
-		if cur, seen := out[a.State]; !seen || h > cur {
-			if out == nil {
-				out = map[string]int{}
-			}
-			out[a.State] = h
+		if h, ok := captures.Hundredths(a.Share); ok && slices.Contains(states, a.State) {
+			out[a.State] = max(out[a.State], h)
 		}
 	}
 	return out, nil
