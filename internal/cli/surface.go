@@ -304,6 +304,11 @@ var surface = []Verb{
 		[]Arg{arg("item", "the epic id")},
 		Flag{Name: "request", Type: FlagString, Description: "required: the operator's own words that skip the design stage, kept verbatim"},
 		projectFlag)),
+	write(server("epic", "accept-difference", "record the operator's acceptance of how a shipped screen differs from one state of an epic in execution's merged design record; the epic, the record and every ref stay as they are", coordinator,
+		[]Arg{arg("item", "the epic id")},
+		Flag{Name: "state", Type: FlagString, Required: true, Description: "the state id of the merged design record, such as S1.2"},
+		Flag{Name: "request", Type: FlagString, Description: "required: the operator's own words that accept the difference, kept verbatim"},
+		projectFlag)),
 	write(server("epic", "decompose", "create an epic's tickets in one batch", []string{"decomposer"}, nil,
 		Flag{Name: "file", Type: FlagString, Required: true, Description: "the decomposition file: a JSON object whose tickets each hold key, title, body, stories and blocked_by"})),
 
