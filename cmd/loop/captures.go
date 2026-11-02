@@ -15,6 +15,7 @@ import (
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/design"
 	"github.com/iantanwx/loop/internal/gitx"
+	"github.com/iantanwx/loop/internal/machine"
 )
 
 func registerCaptures(r *cli.Registry) error {
@@ -35,11 +36,6 @@ type Capture struct {
 	File   string `json:"file"` // <out>/<state id>.png
 }
 
-// capturesTakeVerb captures each state that the ticket of the checkout's
-// brief cites, at the checkout's head. It runs the capture command of the
-// checkout's design block once for each state, with the state's target in
-// LOOP_DESIGN_TARGET and <out>/<id>.png in LOOP_DESIGN_OUT. A refusal
-// removes each file it handed to the command, so --out holds none of them.
 func capturesTakeVerb(ctx context.Context, inv cli.Invocation) cli.Result {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -59,7 +55,7 @@ func capturesTakeVerb(ctx context.Context, inv cli.Invocation) cli.Result {
 		return cli.Reject(cli.CodeUsage, "no_brief", "the checkout holds no "+brief.BriefJSON+" that names an item; run loop captures take inside the checkout of a ticket's run or room")
 	}
 	var cited []string
-	for _, id := range strings.Split(b.Item.Facts["screens"], ",") {
+	for _, id := range strings.Split(b.Item.Facts[machine.FactScreens], ",") {
 		if id = strings.TrimSpace(id); id != "" {
 			cited = append(cited, id)
 		}
@@ -78,7 +74,7 @@ func capturesTakeVerb(ctx context.Context, inv cli.Invocation) cli.Result {
 	if cfg.Design == nil {
 		return cli.Reject(cli.CodeShapeRefused, "no_design_config", "the checkout's "+config.ProjectConfigPath+" holds no design block, so it names no capture command")
 	}
-	dir := design.Dir(b.Item.Facts["epic"])
+	dir := design.Dir(b.Item.Facts[machine.FactEpic])
 	record := dir + design.RecordFile
 	text, err := os.ReadFile(filepath.Join(root, record))
 	if err != nil {
