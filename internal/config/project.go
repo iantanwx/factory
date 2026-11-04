@@ -366,7 +366,6 @@ func checkDocReaders(ck *checker, name string, s StageConfig) {
 	}
 }
 
-// proseRegionRe matches a region name that a marker comment can hold.
 var proseRegionRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 func checkProse(ck *checker, p ProseConfig) {
