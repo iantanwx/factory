@@ -159,13 +159,14 @@ func TestReviewSkillLetsSubagentsFindAndOnlyTheReviewerJudge(t *testing.T) {
 // TestReviewSkillLetsAConfirmedProseFindingRejectADocument proves C11 of
 // factorio-4mb8, the operator's "Yes, may reject" answer at the PRD
 // sign-off. A doc review has prose readers and no prose linter, so a prose
-// finding that the reviewer confirmed may reject alone. The exception names
-// the doc review, so the code-reviewer keeps the rule as it was.
+// finding that the reviewer confirmed may reject alone. factorio-a26c limits
+// it to round 1. The exception names the doc review, so the code-reviewer
+// keeps the rule as it was.
 func TestReviewSkillLetsAConfirmedProseFindingRejectADocument(t *testing.T) {
 	judge := reviewSection(t, "6. Judge the work")
 	holdsAll(t, "§ 6 of loop-sdlc-review", judge, []string{
 		"Never reject on style that no linter flagged.",
-		"In a doc review, a reader's prose finding may reject alone when you check it against the text and it holds.",
+		"In round 1 of a doc review, a reader's prose finding may reject alone when you check it against the text and it holds.",
 		"A code review has no such exception.",
 	})
 }
