@@ -1108,7 +1108,8 @@
           "resume",
           "escalation",
           "answer",
-          "amendment"
+          "amendment",
+          "prd_rejects"
         ]
       },
       {
