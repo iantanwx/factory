@@ -58,7 +58,7 @@ func TestC13TicketReviewNamesEachContractID(t *testing.T) {
 	w.wantUnnamed(w.call("review submit", rev, []string{id}, map[string]string{"verdict": "reject", "body": "C10 fail: no test."}), id, log, "C1")
 	w.wantUnnamed(w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA}), id, log, "C1", "C10")
 
-	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA, "body": "C1 pass. C10 pass."}))
+	mustOK(t, w.call("review submit", rev, []string{id}, map[string]string{"verdict": "pass", "head": shaA, "body": "- C1 pass: red at the base.\n- C10 pass: red at the base."}))
 	if it := w.show(id); it.Status != ReadyToMerge || len(log.calls) != 1 {
 		t.Fatalf("a pass that names each id: %s %v", it.Status, log.calls)
 	}

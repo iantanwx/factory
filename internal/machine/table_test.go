@@ -89,6 +89,7 @@ func ticketEdges() []edge {
 		{Repair, "fix_pushed", InReview},
 		{InReview, "review_pass", ReadyToMerge},
 		{InReview, "review_reject", Todo},
+		{InReview, "review_reject", Escalated},
 		{ReadyToMerge, "head_changed", InReview},
 		{ReadyToMerge, "enqueue", Queued},
 		{Queued, "head_changed", InReview},
@@ -358,6 +359,10 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	if r.Verb == VerbAcceptDifference {
 		params["state"], params["at"] = "S1.1", "2026-11-02T12:00:00Z"
 		facts[FactDesignPath], facts[FactDesignMerged] = "docs/design/ep/record.md", "d1" // the design record merged
+	}
+	if r.When == "stop_fired" {
+		facts[FactShape], facts[FactBody] = "ticket", "## Stop conditions\n\n- The change spends money.\n"
+		params["body"] = "- stop1 fail: it spends money."
 	}
 	if r.When == "second_reject" {
 		facts[FactPRDRejects] = "1"
