@@ -490,15 +490,13 @@ func readFiles(ctx context.Context, w World, rows []itemRow) []string {
 		if len(row.files) == 0 {
 			continue
 		}
-		mine := read(row.item.Project, row.item.ID)
 		var kept []fileRun
-		for _, f := range row.files {
-			if len(mine) == 0 {
-				break
-			}
-			var ok bool
-			if f.mine, f.theirs, ok = admission.MeetingEntries(mine, read(row.item.Project, f.item)); ok {
-				kept = append(kept, f)
+		if mine := read(row.item.Project, row.item.ID); len(mine) > 0 {
+			for _, f := range row.files {
+				var ok bool
+				if f.mine, f.theirs, ok = admission.MeetingEntries(mine, read(row.item.Project, f.item)); ok {
+					kept = append(kept, f)
+				}
 			}
 		}
 		row.files = kept

@@ -71,7 +71,10 @@ func (a *Admission) filesRefusal(ctx context.Context, it machine.Item, flights [
 	}
 	entries := MayChangeEntries(t.Body)
 	for _, f := range flights {
-		if mine, theirs, ok := MeetingEntries(entries, f.entries); ok && f.item != it.ID {
+		if f.item == it.ID {
+			continue
+		}
+		if mine, theirs, ok := MeetingEntries(entries, f.entries); ok {
 			return &cli.Refusal{Code: cli.CodeCapFull, Rule: "files_in_flight", Item: it.ID, CurrentStatus: it.Status,
 				Hint: fmt.Sprintf("%s may change `%s`, which meets `%s` of %s, and implementer run %s holds %s until it settles",
 					it.ID, mine, theirs, f.item, f.run, f.item)}, nil
