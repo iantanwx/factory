@@ -94,7 +94,7 @@ func TestOnlyAnOpenPullInDependsOnHolds(t *testing.T) {
 	if w.pulls.calls != 0 {
 		t.Fatalf("a body that names no pull request read the pull requests %d times", w.pulls.calls)
 	}
-	w.mustAdmit(machine.StageImplementer, w.put(machine.KindTicket, machine.Todo, declaredBody+"\n## Depends on\n\n- #8\n"))
+	w.mustAdmit(machine.StageImplementer, w.put(machine.KindTicket, machine.Todo, "Fix the other thing.\n\n## Depends on\n\n- #8\n"))
 }
 
 // A failed read of the open pull requests refuses the ticket that needs

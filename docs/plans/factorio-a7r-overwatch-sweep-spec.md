@@ -871,7 +871,7 @@ with a fault that names one escalation's key.*
 "Which parts port", row `stalls`. An item in a state that its stage takes is work when two fires of
 that stage's schedule (the project's override, else host config) passed after it entered the
 state, and no run on the item started since then. Its key is `overwatch:stalls:<item>@<state>`.
-These seven are not work:
+These eight are not work:
 
 - Only one fire passed.
 - A run started after the item entered the state.
@@ -883,6 +883,10 @@ These seven are not work:
   was full (F-46). The part counts the runs live at the fire on the whole instance, over each
   stage of each limit, as admission counts them for `cap_full`. The line says
   "<stage> holds its cap (<live> of <cap> live)".
+- Fewer than two fires count because admission refused the implementer ticket at each other fire
+  with rule `files_in_flight` (factorio-29yx): an implementer run on another ticket was live at the
+  fire, and an entry of that ticket's `May change` list meets an entry of the item's list. The line
+  names both entries, the other ticket and its run.
 
 Each of these prints a line that says why the item waits, with code 0.
 *Example tests at zero, one and two fires, and one test for each exclusion.*
