@@ -232,7 +232,7 @@ func TestC28WorldHoldsNoMethodThatWrites(t *testing.T) {
 	}
 	query := reflect.TypeFor[WorkQuery]()
 	for i := range query.NumMethod() {
-		if m := query.Method(i).Name; m != "Admissible" && m != "Peek" && m != "Room" {
+		if m := query.Method(i).Name; m != "Admissible" && m != "FilesWait" && m != "Peek" && m != "Room" {
 			t.Fatalf("WorkQuery holds %s, which is no read", m)
 		}
 	}

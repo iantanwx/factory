@@ -97,3 +97,22 @@ func MeetingEntries(mine, theirs []string) (string, string, bool) {
 	}
 	return "", "", false
 }
+
+// FilesWait returns the files_in_flight refusal of an implementer ticket
+// that only that rule keeps out: Admissible passes it once no ticket is in
+// flight. So the ticket moves when the run on its files settles. Nil
+// otherwise.
+func (a *Admission) FilesWait(ctx context.Context, it machine.Item) (*cli.Refusal, error) {
+	flights, err := a.flights(ctx, it.Project)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := a.filesRefusal(ctx, it, flights)
+	if err != nil || ref == nil {
+		return nil, err
+	}
+	if ok, err := a.admissible(ctx, config.StageImplementer, it, nil); err != nil || !ok {
+		return nil, err
+	}
+	return ref, nil
+}
