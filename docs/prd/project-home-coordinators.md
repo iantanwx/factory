@@ -112,9 +112,10 @@ US-01 starts. US-04 names the coordinator that keeps the work no project owns.
 **Estimated total:** 2,300 lines
 **Lands independently?** Yes.
 
-- US-01 merges with the four transition requirements under it, and with no other story. The first
-  words of these requirements are "On the first start of this release", "Until that session ends",
-  "Each other project with a project config" and "The project whose repository holds the old".
+- US-01 merges with the four transition requirements under it and with US-03, and with no other
+  story. The first words of these requirements are "On the first start of this release", "Until
+  that session ends", "Each other project with a project config" and "The project whose repository
+  holds the old".
 - Each project gets a session. Until US-02 merges, the doorbell rings one coordinator with every entry, as it does today. That
   coordinator serves the project whose repository holds the old `loop-coordinator` checkout.
   First, that coordinator is the session that ran before this change. After that session ends, it
@@ -122,7 +123,7 @@ US-01 starts. US-04 names the coordinator that keeps the work no project owns.
   project's coordinator. When the old checkout's project has no project config, every entry rings
   the loop project's coordinator until US-02 merges.
 - US-02 needs US-01 and merges alone after it.
-- US-03 needs US-01 and merges alone.
+- US-03 merges together with US-01. Each session that starts under this release is then scoped.
 - US-04 merges together with US-02 or after it. The instance-wide work needs a ring that a project
   filter does not drop.
 - US-05 needs US-01 and merges alone.
@@ -297,7 +298,7 @@ holds six kinds:
 - The server starts no session for a project when all of these hold:
   1. the server made the project's `loop-coordinator` checkout
   2. the project has stayed registered since then
-  3. the checkout is missing
+  3. the checkout is missing, and the server did not remove it
 
   The alert of the failed start names the verb `loop coordinator restart`.
   → § US-07
@@ -361,7 +362,9 @@ holds six kinds:
   longer works. When the project that holds the old checkout has a project config, it then gets its
   own coordinator in that checkout. Otherwise the checkout is gone. The first session that starts in the old checkout after the old
   session ends does not resume the old conversation. Its first message names the work of its own
-  project that the old session left open.
+  project that the old session left open. When that project's project config later reaches its
+  default branch, its coordinator starts in a new `loop-coordinator` checkout, and no alert names
+  `loop coordinator restart`.
 - **A19.** An entry of project A that arrives while A's coordinator has no running session rings no
   coordinator. When A's next session starts, its first ring names that entry.
 - **A20.** When A's coordinator fails to start, an alert that names A rings the loop project's
@@ -377,8 +380,8 @@ holds six kinds:
 - **A25.** When A's coordinator session ends and the harness cannot resume its conversation, the
   first message of A's next session names each question that the previous session prepared, each room
   it opened that is still open, and each entry that arrived while no session ran.
-- **A26.** When the server made A's `loop-coordinator` checkout and the checkout is then deleted
-  while A stays registered, the server starts no session for A, and an alert names
+- **A26.** The server made A's `loop-coordinator` checkout. While A stays registered, the operator
+  deletes the checkout. Then the server starts no session for A, and an alert names
   `loop coordinator restart`. Then `loop coordinator restart --project A` from the operator's
   shell creates the checkout again and starts A's coordinator in it. B's coordinator
   session keeps the same session id.
@@ -389,9 +392,9 @@ holds six kinds:
   coordinator changes.
 - **A29.** `loop coordinator restart` that names a project with no project config on its default
   branch refuses, and starts no session.
-- **A30.** When the server made the loop project's `loop-coordinator` checkout and the checkout is
-  then deleted, the operator can read an alert that names the loop project and
-  `loop coordinator restart`, from a shell that is no coordinator's session.
+- **A30.** The server made the loop project's `loop-coordinator` checkout, and the operator deletes
+  it. From a shell that is no coordinator's session, the operator can read an alert. The alert names
+  the loop project and `loop coordinator restart`.
 
 ## Boundaries with other epics
 
