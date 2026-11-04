@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -188,7 +187,8 @@ func TestBrainstormRoomSubmitsAPRDThroughTheServer(t *testing.T) {
 	if e == nil || e["link"] != wantLink {
 		t.Fatalf("the sign-off entry = %v", e)
 	}
-	if n, _ := strconv.Atoi(w.show(epic).Fact(machine.FactPRDRejects)); n != 2 {
-		t.Fatalf("prd_rejects = %d", n)
+	// The answer started the count again (factorio-5iq9).
+	if n := w.show(epic).Fact(machine.FactPRDRejects); n != "" {
+		t.Fatalf("prd_rejects = %q after the answer, want no count", n)
 	}
 }

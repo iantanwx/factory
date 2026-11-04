@@ -184,7 +184,9 @@ design record.
    reader that fails twice stops the review. Submit nothing. Report a loop fault with
    `loop fault report`, and finish `blocked`.
 2. Write the whole review as one comment, by `../loop-sdlc-review/SKILL.md`. It holds each
-   reader finding that you did not drop.
+   reader finding that you did not drop. In round 2 and later, no prose finding rejects alone, and
+   no finding rejects the text of an earlier round's proposed edit below level 4. § 6 of that skill
+   states both rules.
 3. When the readers ran, run `git status --porcelain`. When the tree is not clean, a reader wrote
    a file. Submit nothing. Report a loop fault with `loop fault report`, and finish `blocked`.
 4. Run `loop pr show` again. When the head moved, submit nothing. Start again at section 1 with

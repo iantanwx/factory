@@ -363,17 +363,23 @@ func orNone(xs []string) string {
 	return strings.Join(xs, ", ")
 }
 
+// ManneredProse is Anthropic's definition of mannered prose, word for word
+// from the writing-density guidance for Claude Fable 5.1. The guidance
+// puts it in a user message, so every prompt holds it. Each agent of the
+// pack and rule 32 of loop-unslop quote it too.
+const ManneredProse = `Mannered prose substitutes metaphor and flourish for direct statement. Instead of "a parameter worth varying," the mannered writer produces "a dial worth turning." Instead of "this point still matters," they write "this point earns its keep." The phrases exist to display the writer, not to convey the idea, and readers can tell. That is why mannered prose irritates: it makes the reader work harder so the writer can perform. It is also imprecise. Metaphors drag in connotations the writer did not choose and cannot control. The fix is to say what you mean. When a literal phrase is available, use it.`
+
 // Prompt is the whole prompt text: it names only the brief and the
-// runbook (KTD18). The coordinator holds no item and never finishes, so its
-// prompt names no finish.
+// runbook (KTD18), then gives ManneredProse. The coordinator holds no item
+// and never finishes, so its prompt names no finish.
 func Prompt(b Brief) string {
 	finish := " When you are done, run `loop run finish --outcome done|failed|blocked`."
 	if b.Role == "coordinator" {
 		finish = ""
 	}
 	return fmt.Sprintf("You are a loop %s run. Read %s and %s in this checkout first. "+
-		"Then follow the runbook at %s.%s\n",
-		b.Role, BriefMD, BriefJSON, b.Runbook, finish)
+		"Then follow the runbook at %s.%s\n\n%s\n",
+		b.Role, BriefMD, BriefJSON, b.Runbook, finish, ManneredProse)
 }
 
 // Injection is everything one run start writes into a checkout.
