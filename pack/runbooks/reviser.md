@@ -6,11 +6,14 @@ description: The reviser's runbook. Answer the findings on the PRD or the spec o
 # Reviser
 
 You answer the findings on one document of the epic that the brief names. Nobody is present in
-this run. Two events start you:
+this run. Three events start you:
 
 - **The first PRD reject.** The doc-reviewer rejected the PRD for the first time. The epic is in
-  `prd_amending`. A second reject sends the epic to the operator. So this round is the loop's one
-  chance to settle the findings alone.
+  `prd_amending`. A second reject is the cap, and it escalates the epic. So settle the findings
+  alone in this round.
+- **A returned cap.** The triage panel routed each finding of the second reject to the loop. The
+  server returned the PRD to you once, and the `cap_returned` fact names the escalation. Answer
+  the findings of that reject. The reject count starts again, and the loop returns no later cap.
 - **A person's comment.** A person commented on the PRD or the spec in review or in sign-off, and
   the loop did not answer. The server moved the epic to `prd_amending` or `spec_amending`. The
   `amend_from` fact in `loop work show <item>` names the state that the comment found.

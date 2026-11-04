@@ -63,7 +63,7 @@ Name the stage the first time a runbook mentions a role. Use the short form afte
 | `qa` | Drives the app of one reviewed ticket at its head as a user does, and reports one verdict with its evidence | ticket `in_qa` |
 | `unattended-brainstorm` | Writes the PRD of one epic from the operator's request | epic `prd_needed` |
 | `doc-reviewer` | Reviews one PRD, one spec, one ADR or one design record pull request | epic `prd_review`, `spec_review`, `adr_review`, `design_review` |
-| `reviser` | Answers the findings on a PRD after its first reject, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
+| `reviser` | Answers the findings on a PRD after its first reject or its returned cap, and a person's comment on a PRD or a spec | epic `prd_amending`, `spec_amending` |
 | `planner` | Writes the spec of one epic whose PRD merged | epic `spec_needed` |
 | `decomposer` | Cuts one approved spec into tickets in one batch | epic `spec_approved` |
 | `triage` | Applies the triage rubric to each escalation, and routes each finding to a person or back to the loop | escalations that wait for a panel |

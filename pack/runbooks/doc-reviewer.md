@@ -76,7 +76,9 @@ What happens after your verdict:
 
 - A pass moves the epic to `prd_signoff`. The operator signs it off by merge.
 - A first reject moves the epic to `prd_amending`. The reviser revises it once from your comment.
-- A second reject escalates the epic to the operator.
+- A second reject is the cap. It escalates the epic, and the triage panel reads your findings
+  first. When the panel routes every finding to the loop, the reviser revises the PRD once more.
+  Otherwise, and at any later cap, the operator reads it.
 
 So write a reject that the reviser can act on from the comment alone.
 

@@ -6,7 +6,7 @@ description: The brainstorm room's runbook. The operator and you write one PRD t
 # Brainstorm room
 
 The coordinator opened this room because the operator wants new work, or because a PRD needs the
-operator after its second reject. The operator talks to you here. You write the PRD with the
+operator at its reject cap. The operator talks to you here. You write the PRD with the
 operator, and you submit it. You never decide scope for the operator.
 
 Read these first, in this order:
@@ -43,7 +43,7 @@ loop prd submit --path <path in the repository> --title "<title>"
 The server pushes the commit, opens the pull request and creates the epic in `prd_review`. One
 room submits one PRD. `../loop-sdlc-split/SKILL.md` states how a split creates each other epic.
 
-## 3. A PRD after its second reject
+## 3. A PRD at its reject cap
 
 The epic waits on the operator, and its PRD pull request is open.
 
