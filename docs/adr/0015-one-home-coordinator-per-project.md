@@ -10,13 +10,13 @@
 Epic factorio-1edo gives each project its own home coordinator. Its PRD is
 `docs/prd/project-home-coordinators.md`, merged at `27b95a8`. The operator asked for it in these
 words: "every project should have its own "home" coordinator." The operator decided three things in
-the brainstorm of this epic, and the epic body records each one:
+the brainstorm of this epic, and the PRD § Requirements records each one:
 
-1. Every registered project gets one long-running home coordinator session. All projects share one
-   loop server.
+1. Every registered project with a project config gets one long-running home coordinator session.
+   All projects share one loop server.
 2. A project's coordinator owns that project's inbox, and acts only on its own project.
 3. The loop project's coordinator, factorio on this host, also serves the instance-wide work: loop
-   faults, upgrades, the host doctor and the `rules` part of overwatch.
+   faults, upgrades, the host doctor and the `rules` part of the sweep.
 
 This run read the loop at `27b95a8` on 2026-11-04. It measured each fact below.
 
@@ -35,8 +35,8 @@ This run read the loop at `27b95a8` on 2026-11-04. It measured each fact below.
 - `coordinatorPack` gives the coordinator no conditional skill. Its comment says: "A condition
   reads one project's config, and the coordinator serves every project."
 - When the home project is no longer registered, `ensureCoordinator` closes the session, revokes
-  its token, removes its checkout and starts a new coordinator in another project. The operator's
-  conversation ends with it.
+  its token, removes its checkout and starts a new coordinator in another project. The close of
+  the session ends the operator's conversation.
 - The doorbell (`internal/inbox/notify.go`, type `Doorbell`) rings one session with one text. Each
   inbox entry of every project rings that session.
 - `pack/runbooks/coordinator.md` opens with "You are the one resident agent of this loop
@@ -64,21 +64,41 @@ project. The coordinator of the loop project also serves the work that names no 
 2. **A coordinator acts on its own project.** Its token names its project. The server refuses a
    coordinator verb that names a record of another project, and the refusal names the owner. A
    record is an item, a room, an inbox entry, a decision, an alert or a setting. Each inbox entry
-   of a project rings that project's coordinator only.
+   of a project rings that project's coordinator only. This rule has three exceptions, from the
+   PRD § Requirements under US-02 and US-03. Three kinds of entry ring the loop project's
+   coordinator:
+   - the alert of a coordinator that failed to start
+   - an entry of a registered project with no coordinator, because its default branch holds no
+     project config
+   - a loop fault of any project
+
+   The loop project's coordinator may run a coordinator verb on each entry that rings it. It may
+   also file a loop fault as a bug in the project that the fault names, when a policy of that
+   project authorizes it.
 3. **The loop project's coordinator serves the instance-wide work.** Instance-wide work is the six
-   kinds that the PRD names under `## Requirements`: loop faults, upgrades and rollbacks, the host
-   doctor, the alerts and findings of instance jobs that name no project, the `rules` part of the
-   sweep, and a stage pause or resume in every project. The server admits each one only from the
-   loop project's coordinator, or from the operator's shell when the verb is a host verb.
+   kinds that the PRD names under `## Requirements`:
+   1. loop faults
+   2. upgrades and rollbacks
+   3. the host doctor
+   4. the alerts and findings of instance jobs that name no project
+   5. the `rules` part of the sweep
+   6. a stage pause or resume in every project
+
+   The server admits each one only from the loop project's coordinator, or from the operator's
+   shell when the verb is a host verb.
 4. **Each later coordinator verb names its scope.** An epic that adds a coordinator verb states in
    its spec whether the verb is project-scoped or instance-wide. A project-scoped verb acts on the
    caller's project only. The server admits an instance-wide verb only from the loop project's
    coordinator and, for a host verb, from the operator's shell.
-5. **The spec names the loop project.** This ADR does not choose how the server names the loop
-   project. The PRD § Open questions names two answers: the host config, or the repository that the
-   loop releases from. The spec of factorio-1edo chooses one. Either answer must name exactly one
+5. **The spec chooses how the server names the loop project.** This ADR does not choose it. The
+   PRD § Open questions names two answers: the host config, or the repository that the loop
+   releases from. The spec of factorio-1edo chooses one. Either answer must name exactly one
    registered project, and the server names it, never a coordinator. The spec also decides what
    serves the instance-wide work when the loop project is not registered.
+6. **Only the operator's shell restarts a coordinator.** The host verb
+   `loop coordinator restart --project <project>` runs only from a shell that is no coordinator's
+   session. The server refuses it from every coordinator, the loop project's coordinator too. This
+   is the US-07 requirement of the PRD.
 
 What I rejected:
 
@@ -86,8 +106,8 @@ What I rejected:
   conversation. The operator's request names this as the fault: "that isn't consistent with the
   way tickertown works". Its token names no project, so a mistake in one project's conversation
   can change another project. It cannot get a project's conditional skills, because it serves
-  every project. And the removal of its home project ends the operator's conversation and moves
-  the coordinator to another project.
+  every project. And when the operator removes its home project, the server ends the operator's
+  conversation and moves the coordinator to another project.
 - **One coordinator for each project, plus one more for the instance.** The extra session has no
   project, so it has no repository and no default branch for its checkout. It also costs one more
   long-running session on each host. The operator chose the loop project's coordinator, because
@@ -99,7 +119,8 @@ What I rejected:
 ## Why an ADR
 
 - **More than one epic:** it binds every later epic that adds a coordinator verb, by decision 4.
-  It also binds the epics of ADR 0004, ADR 0007, ADR 0009 and ADR 0011. So `Binds:` reads `all`.
+  It also binds the epics of ADR 0004, ADR 0007, ADR 0009, ADR 0010 and ADR 0011. So `Binds:`
+  reads `all`.
 - **Rejected alternative:** one coordinator for the whole instance, which
   `internal/sched/coordinator.go` runs today.
 - **Costly to undo:** it changes the process topology, from one coordinator session for the
@@ -115,21 +136,28 @@ What I rejected:
 - One coordinator session, terminal and `loop-coordinator` checkout run for each project whose
   default branch holds `.loop/config.yaml`. A host with three such projects runs three
   coordinators. Each terminal title names its project.
-- `CoordinatorConfig.Project` and the one `coordinator` row of `schedule` give way to one state for
-  each project. The spec names the stored shape and its migration.
-- The doorbell rings one session for each project. A ring names only that project's entries,
-  except on the loop project's coordinator.
+- The server replaces `CoordinatorConfig.Project` and the one `coordinator` row of `schedule` with
+  one stored state for each project. The spec names the stored shape and its migration.
+- The doorbell rings one session for each project. A ring to a project's coordinator names only
+  that project's entries. A ring to the loop project's coordinator also names the entries of the
+  three exceptions of decision 2.
 - A project removal ends that project's coordinator only. No coordinator moves to another project.
 
 ### The trust boundary changes
 
 - `startCoordinator` issues each coordinator token with its project. Today the token names none.
+- The one coordinator that ran before this release keeps its token, which names no project, until
+  its session ends. The server then revokes that token. Until then, that session is the
+  coordinator of the project whose repository holds the old `loop-coordinator` checkout, as the
+  PRD § Requirements under US-01 states.
 - The capability check reads that project on every coordinator verb, and refuses a record of
   another project. A coordinator that names `--project` of another project gets the same refusal.
+  The exceptions of decision 2 apply to the loop project's coordinator: it may act on each entry
+  that rings it, and it may file a loop fault as a bug in the project that the fault names.
 - The loop project's token also admits the instance-wide work. The spec states how the server
-  tells the loop project's token from the others.
+  tells the loop project's token from each other coordinator's token.
 
-### How three earlier ADRs read after this decision
+### How four earlier ADRs read after this decision
 
 - **ADR 0004, `docs/adr/0004-operator-visibility.md`, decision 3.** It says that `stage pause`
   with no `--project` holds the stage in every project. After this ADR, that holds only when the
@@ -142,13 +170,18 @@ What I rejected:
   resident agent of this loop instance". It names which sections only the loop project's
   coordinator follows, such as § 9 Loop faults. The step of § 9 that files a loop fault as a bug
   in another project stays, and only the loop project's coordinator takes it.
+- **ADR 0010, `docs/adr/0010-approval-is-enough.md`, decision 4.** It says that
+  `loop coordinator upgrade` is a server verb that only the coordinator principal may call. After
+  this ADR, only the loop project's coordinator may call it, by decision 3. The server refuses it
+  from each other project's coordinator. This ADR wins that conflict by `loop-sdlc-documents` § 5.
+  Each other decision of ADR 0010 still holds.
 - **ADR 0011, `docs/adr/0011-coordinator-recovers-twice-failed-item.md`.** "The coordinator" now
   reads as the coordinator of the item's project. The `retry_limit` alert names the item's
   project, so it rings that coordinator. The bound of one recovery for each item still holds. The
   record of the recovery stays on the item, so a new session of the same coordinator does not
   reset it.
 
-ADR 0009 keeps its sweep and its parts. A finding that names a project rings that project's
+Each decision of ADR 0009 still holds, and the sweep keeps its parts. A finding that names a project rings that project's
 coordinator. A finding of the `rules` part rings the loop project's coordinator.
 
 ### Files and commands that change, for the spec of epic factorio-1edo
@@ -159,6 +192,7 @@ coordinator. A finding of the `rules` part rings the loop project's coordinator.
 - `internal/inbox/notify.go`, `internal/server/inbox.go` and `internal/overwatch/ring.go`: each
   ring reaches one project's coordinator.
 - `loop coordinator send` names the project of the coordinator that gets the message.
+- `loop coordinator restart --project <project>` is a new host verb, by decision 6.
 - `pack/runbooks/coordinator.md` and `docs/operating.md` § Talk to the coordinator.
 
 What this makes easy: the operator talks about one project with one coordinator. A mistake in that
@@ -168,7 +202,7 @@ conditional skills. The conditional-kernel-skills epic decides that.
 What this makes hard:
 
 - Each project costs one more long-running session.
-- A question that spans two projects has no one coordinator. The operator brings it to each
+- No single coordinator owns a question that spans two projects. The operator brings it to each
   coordinator, or to the loop project's coordinator when it is instance-wide work.
 - The loop project's coordinator carries the loop's own work and its project's work in one
   conversation.
@@ -176,9 +210,10 @@ What this makes hard:
 A later reader must not:
 
 - Add a coordinator verb whose spec does not name its scope as project-scoped or instance-wide.
-- Issue a coordinator token that names no project.
-- Ring two coordinators for one entry, or let a coordinator other than the loop project's admit an
-  instance-wide verb.
+- Issue a new coordinator token that names no project.
+- Ring two coordinators for one entry.
+- Admit an instance-wide verb from a coordinator other than the loop project's coordinator.
+- Admit `loop coordinator restart` from any coordinator.
 - Move a coordinator to another project when the operator removes its own project.
 
 ## Acceptance criteria
@@ -188,13 +223,13 @@ Each line runs from the repository root, and each one can fail on the day this A
 - `grep -c '^\*\*Ticket:\*\* factorio-1edo$' docs/adr/0015-one-home-coordinator-per-project.md`
   prints `1`.
 - `ls docs/adr | grep -c '^0015-'` prints `1`.
-- `grep -c 'docs/adr/000[47]-\|docs/adr/0011-' docs/adr/0015-one-home-coordinator-per-project.md`
-  prints a count of at least `3`.
+- `grep -c '^- \*\*ADR 00\(04\|07\|10\|11\), ' docs/adr/0015-one-home-coordinator-per-project.md`
+  prints `4`.
 - `loop gates --docs` passes.
 
-These criteria wait on later work, and epic factorio-1edo owns each one:
+These criteria depend on later work, and epic factorio-1edo owns each one:
 
-- `grep -n 'serves every project' internal/sched/coordinator.go` prints nothing.
+- `grep -n 'serves every' internal/sched/coordinator.go` prints nothing.
 - `grep -n 'one resident agent of this loop instance' pack/runbooks/coordinator.md` prints nothing.
 - A test proves that a coordinator token of project A gets a refusal on an item of project B, and
   that the item does not change.
