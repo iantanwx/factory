@@ -112,14 +112,14 @@ US-01 starts. US-04 names the coordinator that keeps the work no project owns.
 **Estimated total:** 2,300 lines
 **Lands independently?** Yes.
 
-- US-01 merges with the four transition requirements under it, with US-02 and with US-03, and
-  with no other story. The first words of these requirements are "On the first start of this
-  release", "Until that session ends", "Each other project with a project config" and "The project
-  whose repository holds the old".
+- US-01 merges with the four transition requirements under it, with US-02, with US-03 and with
+  US-04, and with no other story. The first words of these requirements are "On the first start of
+  this release", "Until that session ends", "Each other project with a project config" and "The
+  project whose repository holds the old".
 - US-02 merges together with US-01.
 - US-03 merges together with US-01. Each session that starts under this release is then scoped.
-- US-04 merges together with US-02 or after it. The instance-wide work needs a ring that a project
-  filter does not drop.
+- US-04 merges together with US-01. The instance-wide work needs a ring that a project filter does
+  not drop.
 - US-05 needs US-01 and merges alone.
 - US-06 needs US-01 and merges alone.
 - US-07 needs US-01 and merges alone.
