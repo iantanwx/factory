@@ -95,14 +95,15 @@ func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal)
 	}
 	for i, cwd := range cwds {
 		for _, dir := range dirs {
-			if !within(cwd, dir) || ownCheckout(p, cwd, dir) {
+			if !within(cwd, dir) || (p.Kind == cli.PrincipalCoordinator && ownCheckout(p, cwd, dir)) {
 				continue
 			}
 			who := "the caller"
 			if i > 0 {
 				who = fmt.Sprintf("ancestor %d of the caller", i)
 			}
-			quiet := quietHostRead(path, p, cwd, dir)
+			quiet := slices.Contains(hostReads, path) && (p.Kind == cli.PrincipalRun || p.Kind == cli.PrincipalRoom) &&
+				ownCheckout(p, cwd, dir)
 			s.alert(ctx, AuditAlert{
 				Actor: p.Actor(), Project: p.Project, Kind: AlertHostVerbFromCheckout, Subject: dir,
 				Body:    fmt.Sprintf("%s ran %s from inside the checkout %s", who, path, dir),
@@ -120,22 +121,15 @@ func (s *Server) checkHostCaller(ctx context.Context, path string, p *Principal)
 }
 
 // ownCheckout reports whether cwd and the registered dir both lie inside
-// the coordinator's own checkout, where the coordinator calls host verbs.
+// the token's own checkout.
 func ownCheckout(p *Principal, cwd, dir string) bool {
-	return p.Kind == cli.PrincipalCoordinator && p.Checkout != "" && within(cwd, p.Checkout) && within(dir, p.Checkout)
+	return p.Checkout != "" && within(cwd, p.Checkout) && within(dir, p.Checkout)
 }
 
 // hostReads are the host verbs that only read. A run or a room that calls
 // one from its own checkout is refused without an alert (factorio-kq28):
 // the refusal already answers it, and nothing rings the coordinator.
 var hostReads = []string{"project list", "project show"}
-
-// quietHostRead reports whether a run's or a room's token reads a host
-// verb from inside its own checkout.
-func quietHostRead(path string, p *Principal, cwd, dir string) bool {
-	return slices.Contains(hostReads, path) && (p.Kind == cli.PrincipalRun || p.Kind == cli.PrincipalRoom) &&
-		p.Checkout != "" && within(cwd, p.Checkout) && within(dir, p.Checkout)
-}
 
 // checkTokenCaller refuses a run token used from outside its own checkout.
 func (s *Server) checkTokenCaller(ctx context.Context, path string, p *Principal) *cli.Result {
