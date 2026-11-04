@@ -87,6 +87,20 @@ func TestCodeVerdictOwesEveryChecklistLine(t *testing.T) {
 	w.m.SetReviewCommenter(log.post)
 	id, rev := w.shapedInReview(stopBody, map[string]string{FactShape: "ticket"})
 
+	w.refused(id, rev, "pass", "- C1 pass: red at the base.\n- D1 pass: green.\n- stop1 pass: no spend.", "checklist_incomplete", log, "D2")
+	w.refused(id, rev, "reject", "- C1 fail: no test.\n- D1 pass: green.\n- D2 pass\n- stop1 pass: no spend.", "checklist_incomplete", log, "D2")
+
+	mustOK(t, w.verdict(id, rev, "pass", "- C1 pass: red at the base.\n- D1 pass: green.\n- D2 pass: red.\n- stop1 pass: no spend."))
+	if it := w.show(id); it.Status != ReadyToMerge || len(log.calls) != 1 {
+		t.Fatalf("a full checklist: %s %v", it.Status, log.calls)
+	}
+}
+
+// review checklist names each line a code verdict on the ticket owes, and
+// a ticket with no shape fact owes none.
+func TestReviewChecklistListsEachOwedLine(t *testing.T) {
+	w := newWorld(t)
+	id, rev := w.shapedInReview(stopBody, map[string]string{FactShape: "ticket"})
 	res := w.call("review checklist", rev, []string{id}, nil)
 	mustOK(t, res)
 	raw, _ := json.Marshal(res.Data)
@@ -95,12 +109,9 @@ func TestCodeVerdictOwesEveryChecklistLine(t *testing.T) {
 		t.Fatalf("review checklist = %s, want %s", raw, want)
 	}
 
-	w.refused(id, rev, "pass", "- C1 pass: red at the base.\n- D1 pass: green.\n- stop1 pass: no spend.", "checklist_incomplete", log, "D2")
-	w.refused(id, rev, "reject", "- C1 fail: no test.\n- D1 pass: green.\n- D2 pass\n- stop1 pass: no spend.", "checklist_incomplete", log, "D2")
-
-	mustOK(t, w.verdict(id, rev, "pass", "- C1 pass: red at the base.\n- D1 pass: green.\n- D2 pass: red.\n- stop1 pass: no spend."))
-	if it := w.show(id); it.Status != ReadyToMerge || len(log.calls) != 1 {
-		t.Fatalf("a full checklist: %s %v", it.Status, log.calls)
+	plain, rev := w.shapedInReview(stopBody, nil)
+	if res := w.call("review checklist", rev, []string{plain}, nil); res.Exit != cli.ExitNothing {
+		t.Fatalf("review checklist on a ticket with no shape fact: %+v", res)
 	}
 }
 
