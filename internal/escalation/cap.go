@@ -28,19 +28,7 @@ func OpenCap(tx *store.Tx, ev machine.AppliedEvent) error {
 	}
 	finding := "The doc-reviewer rejected the PRD a second time, which is its reject cap. " +
 		"The findings are the numbered findings of the reject:\n\n" + review
-	now := tx.Now().UnixMilli()
-	res, err := tx.Exec(`INSERT INTO escalations (project, item, run_id, stage, level, choice, finding, state, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ev.Project, ev.Item, ev.RunID, machine.StageDocReviewer, capTriage.Level.Ordinal, capTriage.Choice, finding, StateAwaitingPanel, now, now)
-	if err != nil {
-		return err
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return err
-	}
-	_, err = tx.Exec(`INSERT OR IGNORE INTO holds (project, item, holder, kind, created_at) VALUES (?, ?, ?, ?, ?)`,
-		ev.Project, ev.Item, HolderOf(id), HoldKind, now)
+	_, err := insert(tx, ev.Project, ev.Item, ev.RunID, machine.StageDocReviewer, capTriage, finding, tx.Now().UnixMilli())
 	return err
 }
 

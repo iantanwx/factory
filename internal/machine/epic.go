@@ -160,15 +160,15 @@ func bumpPRDRejects(c *change) *cli.Refusal {
 
 // secondRejectSays is what the history, and so the inbox, records for the
 // second PRD reject: a person revises the PRD in a brainstorm room (AE7).
-const secondRejectSays = "The doc-reviewer rejected the PRD a second time, so no unattended stage revises it again. " +
-	"Open a brainstorm room on this epic, and revise the PRD there with the operator. The answer returns it to review."
+const secondRejectSays = "The doc-reviewer rejected the PRD a second time, so no unattended stage revises it again. " + brainstormRoomSays
+
+const brainstormRoomSays = "Open a brainstorm room on this epic, and revise the PRD there with the operator. The answer returns it to review."
 
 // returnedRejectSays is secondRejectSays for a PRD that the triage panel
 // already returned to the reviser once: that cap reaches a person with no
 // panel.
 const returnedRejectSays = "The doc-reviewer rejected the PRD a second time, after the loop already returned it to the reviser once. " +
-	"So no unattended stage revises it again. " +
-	"Open a brainstorm room on this epic, and revise the PRD there with the operator. The answer returns it to review."
+	"So no unattended stage revises it again. " + brainstormRoomSays
 
 // capReturn is the triage panel's loop route of the PRD reject cap: the
 // reviser revises the PRD from the reject's findings, once for each epic.
