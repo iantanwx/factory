@@ -243,8 +243,7 @@ func readDefers(ctx context.Context, tx *sql.Tx) (map[string]deferRow, error) {
 }
 
 // enteredAt is when the item last entered its status, what that move
-// says, and who made it: the run, or the actor when no run made it. A note or
-// an edit writes facts only, so it is no entry into the status.
+// says, and who made it: the run, or the actor when no run made it.
 func enteredAt(ctx context.Context, tx *sql.Tx, it machine.Item) (at int64, says, by string, err error) {
 	var a sql.NullInt64
 	var s, b sql.NullString
