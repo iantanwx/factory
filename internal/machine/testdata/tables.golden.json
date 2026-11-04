@@ -689,6 +689,38 @@
         "says": "The doc-reviewer rejected the PRD a second time, so no unattended stage revises it again. Open an intake room on this epic, and revise the PRD there with the operator. The answer returns it to review."
       },
       {
+        "verb": "review_reject",
+        "from": [
+          "prd_review"
+        ],
+        "to": "escalated",
+        "when": "returned_reject",
+        "command": "review submit",
+        "facts": [
+          "prd_rejects",
+          "resume",
+          "escalation",
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop",
+        "says": "The doc-reviewer rejected the PRD a second time, after the loop already returned it to the reviser once."
+      },
+      {
+        "verb": "cap_return",
+        "from": [
+          "escalated"
+        ],
+        "to": "prd_amending",
+        "facts": [
+          "cap_returned",
+          "prd_rejects",
+          "resume",
+          "resume_entry",
+          "escalation"
+        ]
+      },
+      {
         "verb": "prd_amended",
         "from": [
           "prd_amending"

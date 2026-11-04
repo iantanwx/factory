@@ -40,6 +40,20 @@ Leave out these four, and say in your report that you left them out:
 
 The escalating run's own score is evidence, not a judge. Never pass it off as a panel.
 
+### A capped PRD reject
+
+The server raises one escalation itself. The doc-reviewer's second reject of a PRD is the PRD's
+reject cap. The server moves the epic to `escalated`, and the escalation waits for its panel. Its
+stage is `doc-reviewer`, and its finding quotes the reject. The reject's numbered findings are the
+findings. Write F1 from the reject's first finding, F2 from its second, and so on. The cap itself
+is a count of review rounds, so leave it out by the list above.
+
+When every finding routes to the loop, the server returns the PRD to the reviser once. The epic
+moves to `prd_amending`, and its reject count starts again. When one finding reaches a person, the
+epic stays `escalated`, and the operator revises the PRD in a brainstorm room. The loop returns a
+PRD once. So a later cap of the same epic raises no escalation, and it reaches the operator
+directly.
+
 ## 3. Ask the panel about each finding
 
 Make one directory with `mktemp -d`. Ask the panel once for each finding, each into its own file:

@@ -174,6 +174,9 @@ func epicEdges() []edge {
 		{PRDReview, "review_reject", PRDAmending},
 		{PRDAmending, "prd_amended", PRDReview},
 		{PRDReview, "review_reject", Escalated},
+		// factorio-bqbv: the triage panel's loop route returns the capped PRD
+		// to the reviser once.
+		{Escalated, "cap_return", PRDAmending},
 		{PRDSignoff, "doc_merged", SpecNeeded},
 		{Architecture, "adr_landed", SpecNeeded},
 		{SpecNeeded, "adr_misjoined", Architecture},
@@ -363,6 +366,12 @@ func setupFor(r Row, to string) (map[string]string, map[string]string) {
 	}
 	if r.When == "second_reject" {
 		facts[FactPRDRejects] = "1"
+	}
+	if r.When == "returned_reject" {
+		facts[FactPRDRejects], facts[FactCapReturned] = "1", "7" // the panel returned the cap once
+	}
+	if r.Verb == VerbCapReturn {
+		params["escalation"], facts[FactResume] = "7", PRDReview // the cap's escalation, and the cap's resume target
 	}
 	if r.Verb == "pr_open" && slices.Contains(r.From, Design) {
 		params["pr"] = "7" // the design room's pull request

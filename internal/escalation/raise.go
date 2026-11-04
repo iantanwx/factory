@@ -147,18 +147,8 @@ func (s *Service) raise(ctx context.Context, call *rpc.Call) cli.Result {
 			return nil
 		}
 		now := tx.Now().UnixMilli()
-		res, err := tx.Exec(`INSERT INTO escalations (project, item, run_id, stage, level, choice, finding, state, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			p.Project, p.Item, p.RunID, p.Stage, tr.Level.Ordinal, tr.Choice, body, StateAwaitingPanel, now, now)
+		id, err := insert(tx, p.Project, p.Item, p.RunID, p.Stage, tr, body, now)
 		if err != nil {
-			return err
-		}
-		id, err := res.LastInsertId()
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO holds (project, item, holder, kind, created_at) VALUES (?, ?, ?, ?, ?)`,
-			p.Project, p.Item, HolderOf(id), HoldKind, now); err != nil {
 			return err
 		}
 		rec = Record{ID: id, Project: p.Project, Item: p.Item, RunID: p.RunID, Stage: p.Stage, Level: tr.Level.Ordinal,
@@ -176,6 +166,24 @@ func (s *Service) raise(ctx context.Context, call *rpc.Call) cli.Result {
 	s.changed()
 	return cli.Found(map[string]any{"escalation": rec,
 		"next": "the triage panel routes it; no stage takes the item until then, and your lease is untouched"})
+}
+
+// insert opens an escalation that waits for its panel, and holds its item
+// so no stage takes it first.
+func insert(tx *store.Tx, project, item, runID, stage string, tr Triage, finding string, now int64) (int64, error) {
+	res, err := tx.Exec(`INSERT INTO escalations (project, item, run_id, stage, level, choice, finding, state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		project, item, runID, stage, tr.Level.Ordinal, tr.Choice, finding, StateAwaitingPanel, now, now)
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	_, err = tx.Exec(`INSERT OR IGNORE INTO holds (project, item, holder, kind, created_at) VALUES (?, ?, ?, ?, ?)`,
+		project, item, HolderOf(id), HoldKind, now)
+	return id, err
 }
 
 // route is `loop escalation route`: the triage run submits the panel file
@@ -225,6 +233,14 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "already_routed", Item: rec.Item,
 			Hint: fmt.Sprintf("escalation %d is already routed: %s", id, rec.State)})
 	}
+	var capped bool
+	if err := s.Store.Read(ctx, func(tx *sql.Tx) error {
+		var err error
+		capped, err = isCap(tx, rec)
+		return err
+	}); err != nil {
+		return cli.Internal(err)
+	}
 	d := DecideAll(panels, DefaultThresholds)
 	body := ""
 	if rel != nil && d.Route == RouteLoop {
@@ -244,6 +260,13 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Internal(err)
 	}
 	if d.Route == RouteLoop {
+		if capped {
+			res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: machine.VerbCapReturn,
+				Params: map[string]string{"escalation": strconv.FormatInt(id, 10)}, Actor: machine.Server("escalation")})
+			if res.Refusal != nil {
+				return res
+			}
+		}
 		if body != "" {
 			res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: "edit",
 				Params: map[string]string{"body": body}, Actor: machine.Server("escalation")})
@@ -263,7 +286,8 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 		if res.Refusal != nil {
 			s.log().WarnContext(ctx, "the triaged note was not written", "item", rec.Item, "code", res.Refusal.Code)
 		}
-	} else {
+	} else if !capped {
+		// A capped PRD is already escalated, and waits for a person.
 		res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: machine.VerbEscalate,
 			Params: map[string]string{"escalation": strconv.FormatInt(id, 10)}, Actor: machine.Server("escalation")})
 		if res.Refusal != nil {

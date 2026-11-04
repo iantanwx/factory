@@ -151,6 +151,17 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			return err
 		}
 		for _, it := range items {
+			// A PRD reject cap escalates its epic and waits for the triage
+			// panel. Its panel entry stands for it until the panel routes it.
+			if it.kind == KindEscalation {
+				rec, err := escalation.Latest(ctx, tx, it.item.Project, it.item.ID, escalation.StateAwaitingPanel)
+				if err != nil {
+					return err
+				}
+				if rec != nil {
+					continue
+				}
+			}
 			if it.kind == KindArchitecture || it.kind == KindDesign {
 				roomed, err := openRoom(ctx, tx, it.item)
 				if err != nil {
@@ -237,7 +248,8 @@ func enteredAt(ctx context.Context, tx *sql.Tx, it machine.Item) (at int64, says
 	var a sql.NullInt64
 	var s, b sql.NullString
 	err = tx.QueryRowContext(ctx, `SELECT at, says, coalesce(nullif(run_id, ''), actor) FROM transitions
-		WHERE project = ? AND item = ? AND to_status = ? ORDER BY seq DESC LIMIT 1`, it.Project, it.ID, it.Status).Scan(&a, &s, &b)
+		WHERE project = ? AND item = ? AND to_status = ? AND verb NOT IN (?, ?) ORDER BY seq DESC LIMIT 1`,
+		it.Project, it.ID, it.Status, machine.VerbNote, "edit").Scan(&a, &s, &b)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, "", "", nil
 	}
@@ -277,6 +289,11 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 		if rec != nil {
 			text = append(text, fmt.Sprintf("Escalated at level %d %s, choice %s, and the triage panel routed it to a person. The finding:",
 				rec.Level, rec.LevelName, rec.Choice), AgentText(rec.RunID, rec.Finding))
+			// The move that escalated a PRD reject cap names the room that
+			// answers it.
+			if says != "" {
+				text = append(text, says)
+			}
 		} else {
 			text = append(text, "Escalated: "+orDefault(says, "the item reached escalated"))
 		}

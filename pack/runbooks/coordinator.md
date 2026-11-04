@@ -397,6 +397,14 @@ A new brainstorm room with no `--item` adds an epic. The server refuses it with 
 project's epics in counted document states fill the brainstorm cap in host config. Tell the operator
 which epics hold the cap. Open the room when the count drops, or when the operator raises the cap.
 
+A capped PRD reject reaches the operator only after triage, or at its second cap. The doc-reviewer's
+second reject of a PRD escalates the epic, and its escalation waits for the triage panel. The inbox
+shows the `panel/<id>` entry of the escalation, and no escalation entry for the epic. When the panel
+routes it to the loop, the server returns the PRD to the reviser once, and no room opens. When the
+panel routes it to a person, or the loop already returned that PRD once, the escalation entry of
+the epic asks for a brainstorm room. Open it with `--item <epic>`. The room's answer returns the PRD
+to review.
+
 When a brainstorm room's decision splits an epic, do the steps that `../loop-sdlc-split/SKILL.md`
 gives the coordinator. Retitle the epic that the split keeps, and open one brainstorm room for each
 other part.

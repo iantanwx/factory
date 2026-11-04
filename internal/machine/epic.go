@@ -139,10 +139,19 @@ func amendedUnchanged(signoff string) func(c *change) bool {
 
 var clearAmend = clearFacts(FactAmendFrom, FactAmendHead)
 
-// prdReject is the first reject (the reviser revises once) or the second
-// (a person decides, and no unattended stage revises again: AE7).
-func firstPRDReject(c *change) bool  { return count(c, FactPRDRejects) == 0 }
-func secondPRDReject(c *change) bool { return count(c, FactPRDRejects) > 0 }
+// prdReject is the first reject (the reviser revises once) or the second,
+// the cap (AE7). The first cap waits for the triage panel, which may
+// return the PRD to the reviser once. After that return, the cap reaches a
+// person directly. Ported from fixer-author-gap.ts (alpha, TIC-263).
+func firstPRDReject(c *change) bool { return count(c, FactPRDRejects) == 0 }
+func prdCap(c *change) bool         { return count(c, FactPRDRejects) > 0 && c.fact(FactCapReturned) == "" }
+func returnedPRDReject(c *change) bool {
+	return count(c, FactPRDRejects) > 0 && c.fact(FactCapReturned) != ""
+}
+
+// WhenPRDCap selects the row of the PRD reject cap that waits for the
+// triage panel. The server's Applied hook opens its escalation.
+const WhenPRDCap = "second_reject"
 
 func bumpPRDRejects(c *change) *cli.Refusal {
 	c.setFact(FactPRDRejects, fmt.Sprint(count(c, FactPRDRejects)+1))
@@ -161,8 +170,33 @@ func resetPRDRejects(c *change) *cli.Refusal {
 
 // secondRejectSays is what the history, and so the inbox, records for the
 // second PRD reject: a person revises the PRD in a brainstorm room (AE7).
-const secondRejectSays = "The doc-reviewer rejected the PRD a second time, so no unattended stage revises it again. " +
-	"Open a brainstorm room on this epic, and revise the PRD there with the operator. The answer returns it to review."
+const secondRejectSays = "The doc-reviewer rejected the PRD a second time, so no unattended stage revises it again. " + brainstormRoomSays
+
+const brainstormRoomSays = "Open a brainstorm room on this epic, and revise the PRD there with the operator. The answer returns it to review."
+
+// returnedRejectSays is secondRejectSays for a PRD that the triage panel
+// already returned to the reviser once: that cap reaches a person with no
+// panel.
+const returnedRejectSays = "The doc-reviewer rejected the PRD a second time, after the loop already returned it to the reviser once. " +
+	"So no unattended stage revises it again. " + brainstormRoomSays
+
+// capReturn is the triage panel's loop route of the PRD reject cap: the
+// reviser revises the PRD from the reject's findings, once for each epic.
+// The reject count starts again, so the next reject is the first of a new
+// count, and the cap after it reaches a person.
+func capReturn(c *change) *cli.Refusal {
+	if r := c.needParam("escalation"); r != nil {
+		return r
+	}
+	if c.fact(FactCapReturned) != "" || c.fact(FactResume) != PRDReview {
+		return &cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "cap_not_returnable", Item: c.item.ID, CurrentStatus: c.item.Status,
+			AllowedNext: c.table.AllowedNext(c.item.Status),
+			Hint:        fmt.Sprintf("%s holds no PRD reject cap that the loop may return; the loop returns a capped PRD once", c.item.ID)}
+	}
+	c.setFact(FactCapReturned, c.param("escalation"))
+	c.unsetFact(FactPRDRejects, FactResume, FactResumeEntry, FactEscalation)
+	return nil
+}
 
 // mark stores a parameter as a fact, or "true" when the caller sent none:
 // the fact records that the event happened.
@@ -468,8 +502,13 @@ func epicTable() *Table {
 		{Verb: "review_reject", From: []string{PRDReview}, To: PRDAmending, Command: "review submit", Lease: LeaseDrop,
 			When: "first_reject", when: firstPRDReject, set: bumpPRDRejects, Facts: []string{FactPRDRejects}},
 		{Verb: "review_reject", From: []string{PRDReview}, To: Escalated, Command: "review submit",
-			When: "second_reject", when: secondPRDReject, Lease: LeaseDrop, Says: secondRejectSays,
+			When: WhenPRDCap, when: prdCap, Lease: LeaseDrop, Says: secondRejectSays,
 			set: all(bumpPRDRejects, escalateTo(epicResumeFor)), Facts: []string{FactPRDRejects, FactResume, FactEscalation}},
+		{Verb: "review_reject", From: []string{PRDReview}, To: Escalated, Command: "review submit",
+			When: "returned_reject", when: returnedPRDReject, Lease: LeaseDrop, Says: returnedRejectSays,
+			set: all(bumpPRDRejects, escalateTo(epicResumeFor)), Facts: []string{FactPRDRejects, FactResume, FactEscalation}},
+		{Verb: VerbCapReturn, From: []string{Escalated}, To: PRDAmending, set: capReturn,
+			Facts: []string{FactCapReturned, FactPRDRejects, FactResume, FactResumeEntry, FactEscalation}},
 		{Verb: "prd_amended", From: []string{PRDAmending}, To: PRDSignoff, Lease: LeaseDrop,
 			When: "unchanged", when: amendedUnchanged(PRDSignoff), set: clearAmend, Facts: []string{FactAmendFrom, FactAmendHead}},
 		{Verb: "prd_amended", From: []string{PRDAmending}, To: PRDReview, Lease: LeaseDrop,
