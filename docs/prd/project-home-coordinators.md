@@ -112,17 +112,11 @@ US-01 starts. US-04 names the coordinator that keeps the work no project owns.
 **Estimated total:** 2,300 lines
 **Lands independently?** Yes.
 
-- US-01 merges with the four transition requirements under it and with US-03, and with no other
-  story. The first words of these requirements are "On the first start of this release", "Until
-  that session ends", "Each other project with a project config" and "The project whose repository
-  holds the old".
-- Each project gets a session. Until US-02 merges, the doorbell rings one coordinator with every entry, as it does today. That
-  coordinator serves the project whose repository holds the old `loop-coordinator` checkout.
-  First, that coordinator is the session that ran before this change. After that session ends, it
-  is the new session that starts in the same checkout. The alert of a failed start rings the loop
-  project's coordinator. When the old checkout's project has no project config, every entry rings
-  the loop project's coordinator until US-02 merges.
-- US-02 needs US-01 and merges alone after it.
+- US-01 merges with the four transition requirements under it, with US-02 and with US-03, and
+  with no other story. The first words of these requirements are "On the first start of this
+  release", "Until that session ends", "Each other project with a project config" and "The project
+  whose repository holds the old".
+- US-02 merges together with US-01.
 - US-03 merges together with US-01. Each session that starts under this release is then scoped.
 - US-04 merges together with US-02 or after it. The instance-wide work needs a ring that a project
   filter does not drop.
