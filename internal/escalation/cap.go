@@ -33,11 +33,12 @@ func OpenCap(tx *store.Tx, ev machine.AppliedEvent) error {
 }
 
 // isCap reports whether rec is the escalation that OpenCap opened, and its
-// epic still waits in the cap: the item's last move is the doc-reviewer
-// run's reject that opened it.
+// epic still waits in the cap: the item's last change of status is the
+// doc-reviewer run's reject that opened it. A note keeps the status, so it
+// never hides the cap.
 func isCap(q Querier, rec Record) (bool, error) {
 	var verb, to, run string
-	err := q.QueryRow(`SELECT verb, to_status, run_id FROM transitions WHERE project = ? AND item = ? ORDER BY seq DESC LIMIT 1`,
+	err := q.QueryRow(`SELECT verb, to_status, run_id FROM transitions WHERE project = ? AND item = ? AND from_status <> to_status ORDER BY seq DESC LIMIT 1`,
 		rec.Project, rec.Item).Scan(&verb, &to, &run)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil

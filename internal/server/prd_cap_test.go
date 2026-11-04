@@ -91,13 +91,23 @@ func TestSecondPRDRejectWaitsForTheTriagePanel(t *testing.T) {
 	}
 }
 
-// A loop route returns the PRD to the reviser once. The next reject is the
-// first of a new count, and the reject after it reaches a person with no
-// second escalation.
+// note writes a note on the epic as the run that token holds, as the
+// triage run and the coordinator do.
+func (w *humanWorld) note(token, epic, body string) {
+	w.t.Helper()
+	if env, code := w.as(token, "work", "note", epic, "--body", body); code != 0 {
+		w.t.Fatalf("note = %d %v", code, env)
+	}
+}
+
+// A loop route returns the PRD to the reviser once, even after a note on
+// the epic. The next reject is the first of a new count, and the reject
+// after it reaches a person with no second escalation.
 func TestLoopRouteReturnsTheCappedPRDToTheReviserOnce(t *testing.T) {
 	w, epic := prdAtCap(t)
 	id := fmt.Sprint(w.capEscalation(epic).ID)
 	triage := w.runToken("fix-1", "", "triage")
+	w.note(triage, epic, "reading the reject")
 	panelFile(t, triage, "derived", &escalation.Reading{Probabilities: map[string]float64{"0": 0, "1": 0, "2": 0.1, "3": 0.9}, Score: 2.9, Confidence: 0.95})
 	env, code := w.as(triage, "escalation", "route", id, "--file", "panel.json")
 	if code != 0 || env["data"].(map[string]any)["route"] != string(escalation.RouteLoop) {
@@ -122,6 +132,7 @@ func TestLoopRouteReturnsTheCappedPRDToTheReviserOnce(t *testing.T) {
 	if got := w.show(epic).Status; got != machine.Escalated {
 		t.Fatalf("the second reject after the return: %s", got)
 	}
+	w.note(triage, epic, "the cap again")
 	if n := w.count(`SELECT count(*) FROM escalations`); n != 1 {
 		t.Fatalf("%d escalations, want only the first cap's", n)
 	}
@@ -133,7 +144,8 @@ func TestLoopRouteReturnsTheCappedPRDToTheReviserOnce(t *testing.T) {
 }
 
 // A person route leaves the epic escalated, and the inbox asks the
-// operator for a brainstorm room. The answer returns the PRD to review.
+// operator for a brainstorm room, also after the triage run notes the
+// epic. The answer returns the PRD to review.
 func TestPersonRouteAsksForABrainstormRoom(t *testing.T) {
 	w, epic := prdAtCap(t)
 	id := fmt.Sprint(w.capEscalation(epic).ID)
@@ -146,6 +158,7 @@ func TestPersonRouteAsksForABrainstormRoom(t *testing.T) {
 	if it := w.show(epic); it.Status != machine.Escalated || it.Fact(machine.FactCapReturned) != "" {
 		t.Fatalf("after the person route: %s %v", it.Status, it.Facts)
 	}
+	w.note(triage, epic, "F1 routed to a person")
 	e := entryByID(w.entries("person"), "escalation/alpha/"+epic)
 	if e == nil || !strings.Contains(e["text"].(string), "brainstorm room") || !strings.Contains(e["text"].(string), capFinding) {
 		t.Fatalf("the inbox entry = %v", e)

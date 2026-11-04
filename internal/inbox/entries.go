@@ -243,12 +243,13 @@ func readDefers(ctx context.Context, tx *sql.Tx) (map[string]deferRow, error) {
 }
 
 // enteredAt is when the item last entered its status, what that move
-// says, and who made it: the run, or the actor when no run made it.
+// says, and who made it: the run, or the actor when no run made it. A note
+// keeps the status, so it is no entry into it.
 func enteredAt(ctx context.Context, tx *sql.Tx, it machine.Item) (at int64, says, by string, err error) {
 	var a sql.NullInt64
 	var s, b sql.NullString
 	err = tx.QueryRowContext(ctx, `SELECT at, says, coalesce(nullif(run_id, ''), actor) FROM transitions
-		WHERE project = ? AND item = ? AND to_status = ? ORDER BY seq DESC LIMIT 1`, it.Project, it.ID, it.Status).Scan(&a, &s, &b)
+		WHERE project = ? AND item = ? AND to_status = ? AND from_status <> to_status ORDER BY seq DESC LIMIT 1`, it.Project, it.ID, it.Status).Scan(&a, &s, &b)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, "", "", nil
 	}
