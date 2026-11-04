@@ -215,7 +215,7 @@ func TestC28TheSweepNeverWritesTheBlock(t *testing.T) {
 // reviews it.
 func TestC28WorldHoldsNoMethodThatWrites(t *testing.T) {
 	want := []string{"Body", "CheckoutDirs", "Coordinator", "Dependencies", "Doctor", "Drains", "GitHub", "Host", "Inbox", "Intervals",
-		"Inventory", "Items", "Jobs", "LastRing", "Now", "Pauses", "ProjectConfig", "Projects", "Store", "Tracked"}
+		"Inventory", "Items", "Jobs", "LastRing", "Now", "Pauses", "ProjectConfig", "Projects", "Store", "Tracked", "WorkQuery"}
 	typ := reflect.TypeFor[World]()
 	var got []string
 	for i := range typ.NumMethod() {
@@ -228,6 +228,12 @@ func TestC28WorldHoldsNoMethodThatWrites(t *testing.T) {
 	for i := range tree.NumMethod() {
 		if m := tree.Method(i).Name; m != "Paths" && m != "Read" {
 			t.Fatalf("frontend.Tree holds %s, which is no read", m)
+		}
+	}
+	query := reflect.TypeFor[WorkQuery]()
+	for i := range query.NumMethod() {
+		if m := query.Method(i).Name; m != "Admissible" && m != "Peek" && m != "Room" {
+			t.Fatalf("WorkQuery holds %s, which is no read", m)
 		}
 	}
 }
