@@ -149,6 +149,16 @@ func bumpPRDRejects(c *change) *cli.Refusal {
 	return nil
 }
 
+// resetPRDRejects starts the count again when an answer returns the PRD to
+// review or to the reviser: a person's answer buys two more unattended
+// rounds (factorio-5iq9).
+func resetPRDRejects(c *change) *cli.Refusal {
+	if c.to == PRDReview || c.to == PRDAmending {
+		c.unsetFact(FactPRDRejects)
+	}
+	return nil
+}
+
 // secondRejectSays is what the history, and so the inbox, records for the
 // second PRD reject: a person revises the PRD in a brainstorm room (AE7).
 const secondRejectSays = "The doc-reviewer rejected the PRD a second time, so no unattended stage revises it again. " +
@@ -553,7 +563,7 @@ func epicTable() *Table {
 		{Verb: "cancel", From: except(live, Decomposing, Execution), To: Canceled, Command: "work cancel", Lease: LeaseDrop,
 			set: needCopy("reason", FactCancelReason), Facts: []string{FactCancelReason}},
 		{Verb: VerbAnswer, From: []string{Escalated}, To: ToResume, ResumeTo: uniqueValues(epicResume),
-			set: answerResume, Facts: []string{FactResume, FactEscalation, FactAnswer, FactAmendment}},
+			set: all(answerResume, resetPRDRejects), Facts: []string{FactResume, FactEscalation, FactAnswer, FactAmendment, FactPRDRejects}},
 
 		// A document merged while still in review counts as sign-off and
 		// revokes the review lease, as the outran rows of
