@@ -120,6 +120,11 @@ The server made your checkout from the base branch that the brief names. The loo
   command. Run that command. Then run `git switch -C <branch> <sha>` with the two values. The
   server keeps the head in the mirror, so `git fetch <mirror> <sha>` also works. An empty `sha`
   means that the branch does not exist yet. Then start from the base.
+- **Never call a host verb.** `project list`, `project show`, `upgrade`, `rollback` and `doctor`
+  are host verbs. The server refuses each one from a run or a room. Your own project id is the
+  `project` field of `.loop/brief.json`. No run or room reads the other projects of the host. When
+  your work needs them, the item or its documents name them. When they do not, the gap is a
+  finding. Score it by section 6.
 - **Push only with `loop branch push`.** The server pushes your head commit to the item branch. Never run
   `git push`, and never force a push.
 - **Write each message and body file outside the checkout.** Make a directory with `mktemp -d`, and
