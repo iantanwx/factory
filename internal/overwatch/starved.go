@@ -23,7 +23,8 @@ import (
 // epic. An epic in execution starves when the implementer of its project
 // has a free slot and takes no ticket, and none of the epic's open tickets
 // moves. A ticket moves when no person holds it, and a live run holds its
-// lease, a stage takes it now, or it waits on a dependency that moves.
+// lease, a stage takes it now, it waits on files that a live implementer
+// run holds (rule files_in_flight), or it waits on a dependency that moves.
 func starvedPart() Part {
 	return Part{Name: "starved", Command: "loop work list --kind epic --status execution", Read: readStarved}
 }
@@ -197,6 +198,13 @@ func (j *judge) judge(it machine.Item) (verdict, error) {
 	var why []string
 	switch it.Status {
 	case machine.Todo, machine.Repair:
+		ref, err := j.w.WorkQuery().FilesWait(j.ctx, it)
+		if err != nil {
+			return verdict{}, fmt.Errorf("ask whether files in flight hold %s: %w", it.ID, err)
+		}
+		if ref != nil {
+			return verdict{moves: true, why: "admission refuses it with rule files_in_flight until a run settles: " + ref.Hint}, nil
+		}
 		why = append(why, "the implementer does not take it")
 	case machine.InProgress:
 		why = append(why, "no live run holds its lease")
