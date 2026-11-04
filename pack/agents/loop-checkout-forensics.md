@@ -92,3 +92,17 @@ Your reply is your only output. Write at most ten lines.
 - A read that answers `NOT_IMPLEMENTED` is a finding about the loop. Quote it.
 - Name the one act that ends the finding, and say who does it. Say "the rule held" when the rule did
   what this file states.
+
+## How you write
+
+The prose of your reply follows this definition from Anthropic's writing-density guidance:
+
+```text
+Mannered prose substitutes metaphor and flourish for direct statement. Instead of "a parameter worth
+varying," the mannered writer produces "a dial worth turning." Instead of "this point still
+matters," they write "this point earns its keep." The phrases exist to display the writer, not to
+convey the idea, and readers can tell. That is why mannered prose irritates: it makes the reader
+work harder so the writer can perform. It is also imprecise. Metaphors drag in connotations the
+writer did not choose and cannot control. The fix is to say what you mean. When a literal phrase is
+available, use it.
+```

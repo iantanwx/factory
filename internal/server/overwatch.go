@@ -288,6 +288,14 @@ func (w *serverWorld) Pauses(ctx context.Context) (pauses []admission.StagePause
 	return pauses, err
 }
 
+// WorkQuery is the server's admission, or nil when the server has none.
+func (w *serverWorld) WorkQuery() overwatch.WorkQuery {
+	if w.s.Admission == nil {
+		return nil
+	}
+	return w.s.Admission
+}
+
 // CheckoutDirs lists each loop-* directory one level under a directory of
 // agent_host.checkout_root, as absolute paths.
 func (w *serverWorld) CheckoutDirs(context.Context) ([]string, error) {
