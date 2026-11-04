@@ -43,6 +43,7 @@ type world struct {
 	m        *machine.Machine
 	a        *Admission
 	runs     atomic.Int64
+	tickets  atomic.Int64
 }
 
 func newWorld(t *testing.T) *world {
@@ -123,7 +124,13 @@ func (w *world) put(kind machine.Kind, status, body string) string {
 	return is.ID
 }
 
-func (w *world) ticket(status string) string { return w.put(machine.KindTicket, status, declaredBody) }
+// ticket creates a ticket in status whose body is declaredBody, with a
+// "May change" file of its own in place of app/task.go. So no two tickets
+// of one world meet in flight.
+func (w *world) ticket(status string) string {
+	file := fmt.Sprintf("app/t%d/task.go", w.tickets.Add(1))
+	return w.put(machine.KindTicket, status, strings.Replace(declaredBody, "app/task.go", file, 1))
+}
 
 func (w *world) nextRun() string { return fmt.Sprintf("run-%d", w.runs.Add(1)) }
 

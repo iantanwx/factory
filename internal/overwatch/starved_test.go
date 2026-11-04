@@ -238,3 +238,44 @@ func TestStarvedHoldsNoFindingWhileTheImplementerHoldsItsCap(t *testing.T) {
 		t.Fatalf("notes = %q, want one that says the implementer holds its cap", r.Notes)
 	}
 }
+
+// filesFixture is the starved fixture whose todo ticket factorio-t1 holds
+// body and waits on no ticket, and ticket factorio-o of no epic, whose
+// "May change" list is `internal/admission/**` and whose lease live
+// implementer run r-impl2 holds.
+func filesFixture(t *testing.T, body string) *starvedWorld {
+	t.Helper()
+	w := starvedFixture(t)
+	w.items["factorio"] = slices.DeleteFunc(w.items["factorio"], func(it machine.Item) bool { return it.ID == "factorio-t1" })
+	delete(w.deps, "factorio-t1")
+	w.ticket("factorio-t1", "factorio-e1", machine.Todo, body)
+	w.ticket("factorio-o", "", machine.InProgress, "Build it.\n\n## Files\n\n**May change:**\n- `internal/admission/**`\n")
+	w.lease(t, "factorio-o", "r-impl2", config.StageImplementer)
+	return w
+}
+
+// factorio-29yx: a todo ticket that admission refuses with rule
+// files_in_flight waits on a live run, and moves once that run settles. So
+// its epic does not starve, and the note names the other ticket and its run.
+func TestStarvedHoldsNoFindingWhileATicketWaitsOnFilesInFlight(t *testing.T) {
+	w := filesFixture(t, "Build the thing.\n\n## Files\n\n**May change:**\n- `internal/admission/policy.go`\n")
+	r := readStarvedPart(t, w)
+	if len(r.Findings) != 0 {
+		t.Fatalf("findings = %+v, want none", r.Findings)
+	}
+	if !slices.ContainsFunc(r.Notes, func(n string) bool {
+		return strings.Contains(n, "factorio-t1 todo moves") && strings.Contains(n, "factorio-o") && strings.Contains(n, "r-impl2")
+	}) {
+		t.Fatalf("notes = %q, want one that names factorio-o and run r-impl2, whose files factorio-t1 waits on", r.Notes)
+	}
+}
+
+// A ticket that a dependency holds too does not move when the run on its
+// files settles, so its epic still starves.
+func TestStarvedRingsWhileATicketWaitsOnFilesInFlightAndADependency(t *testing.T) {
+	w := filesFixture(t, dependsOnCanceled+"\n## Files\n\n**May change:**\n- `internal/admission/policy.go`\n")
+	r := readStarvedPart(t, w)
+	if len(r.Findings) != 1 || r.Findings[0].Key != starvedKey {
+		t.Fatalf("findings = %+v, notes = %q; want the one finding %s", r.Findings, r.Notes, starvedKey)
+	}
+}

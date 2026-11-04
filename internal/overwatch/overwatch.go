@@ -151,6 +151,7 @@ type WorkQuery interface {
 	Room(ctx context.Context, project, stage string) *cli.Refusal
 	Peek(ctx context.Context, project, stage string) (*admission.Candidate, *cli.Refusal)
 	Admissible(ctx context.Context, stage string, it machine.Item) (bool, error)
+	FilesWait(ctx context.Context, it machine.Item) (*cli.Refusal, error)
 }
 
 // GitHubReads are the GET reads of the GitHub parts, made with ScopeRead.

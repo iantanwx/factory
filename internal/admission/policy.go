@@ -301,10 +301,10 @@ func (a *Admission) ciWait(ctx context.Context, stage string, it machine.Item) (
 		Hint: fmt.Sprintf("%s waits for green CI at %s, the head its simplify run left, before its code review", it.ID, head)}, nil
 }
 
-// Admit admits one run: the stage pause, the dependency rule, the stage
-// mutex, the holds, the caps and the retry limit, in that order. It
-// reserves the run in the runs table, then claims the item through the
-// machine. A refused claim drops the reservation. A crash between the two leaves a run row with no lease,
+// Admit admits one run: the stage pause, the dependency rule, the
+// implementer's files in flight, the stage mutex, the holds, the caps and
+// the retry limit, in that order. It reserves the run in the runs table,
+// then claims the item through the machine. A refused claim drops the reservation. A crash between the two leaves a run row with no lease,
 // which the scheduler's reconcile settles as not-ready.
 func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusal) {
 	if r.Project == "" || r.Stage == "" || r.RunID == "" {
@@ -364,6 +364,18 @@ func (a *Admission) Admit(ctx context.Context, r Request) (Admitted, *cli.Refusa
 				return Admitted{}, asRefusal(err)
 			}
 			return Admitted{}, ref
+		}
+		if r.Stage == config.StageImplementer {
+			flights, err := a.flights(ctx, r.Project)
+			if err != nil {
+				return Admitted{}, asRefusal(err)
+			}
+			if ref, err := a.filesRefusal(ctx, it, flights); err != nil || ref != nil {
+				if err != nil {
+					return Admitted{}, asRefusal(err)
+				}
+				return Admitted{}, ref
+			}
 		}
 		status = it.Status
 		var err error
@@ -645,8 +657,12 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 		}
 		items = append(items, got...)
 	}
+	var flights []flight
 	if stage == config.StageImplementer {
 		if items, err = a.rankImplementer(ctx, project, items, a.now()); err != nil {
+			return nil, asRefusal(err)
+		}
+		if flights, err = a.flights(ctx, project); err != nil {
 			return nil, asRefusal(err)
 		}
 	} else {
@@ -657,7 +673,7 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 		waitOrder(items, entered)
 	}
 	for _, it := range items {
-		ok, err := a.Admissible(ctx, stage, it)
+		ok, err := a.admissible(ctx, stage, it, flights)
 		if err != nil {
 			return nil, asRefusal(err)
 		}
@@ -764,10 +780,26 @@ func waitOrder(items []machine.Item, entered map[string]int64) {
 // Admissible reports whether Admit would take the item now, apart from the
 // caps that Peek checked once, the drain and the stage pause.
 func (a *Admission) Admissible(ctx context.Context, stage string, it machine.Item) (bool, error) {
+	var flights []flight
+	if stage == config.StageImplementer {
+		var err error
+		if flights, err = a.flights(ctx, it.Project); err != nil {
+			return false, err
+		}
+	}
+	return a.admissible(ctx, stage, it, flights)
+}
+
+// admissible is Admissible with the implementer's tickets in flight, which
+// Peek read once.
+func (a *Admission) admissible(ctx context.Context, stage string, it machine.Item, flights []flight) (bool, error) {
 	if it.Fact(machine.FactOwner) != "" {
 		return false, nil
 	}
 	if ref, err := a.dependencyRefusal(ctx, it); err != nil || ref != nil {
+		return false, err
+	}
+	if ref, err := a.filesRefusal(ctx, it, flights); err != nil || ref != nil {
 		return false, err
 	}
 	if ref, err := a.ciWait(ctx, stage, it); err != nil || ref != nil {

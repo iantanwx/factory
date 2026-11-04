@@ -236,7 +236,7 @@ func TestRetryLimitAndInputChanges(t *testing.T) {
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			w := newWorld(t)
-			id := w.ticket(machine.Todo)
+			id := w.put(machine.KindTicket, machine.Todo, declaredBody)
 			for i := range 2 {
 				ad := w.mustAdmit(machine.StageImplementer, id)
 				if ad.Attempt != i+1 {
