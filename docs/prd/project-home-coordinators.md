@@ -219,15 +219,16 @@ holds six kinds:
   `rules` part is the exception. It is instance-wide work.
   → § US-02
 - The inbox that a project's coordinator lists holds the entries of that project only. The
-  inbox of the loop project's coordinator also holds each entry that rings the loop project's
+  inbox of the loop project's coordinator also holds more entries. Each of them rings that
   coordinator by an exception of US-02 or by a requirement of US-04.
   → § US-02
 - When a project has a coordinator but no running session, its new entries wait. When the next
   session starts, its first ring names each entry that arrived while no session ran.
   → § US-02
 - A project's coordinator may run a coordinator verb only on a record of its own project. A record
-  is an item, a room, an inbox entry, a decision, an alert or a setting. The US-03 rule that lets
-  the loop project's coordinator list and act on the entries that ring it is an exception.
+  is an item, a room, an inbox entry, a decision, an alert or a setting. This rule has one
+  exception. A later US-03 rule lets the loop project's coordinator list each entry that rings it,
+  and run a coordinator verb on that entry.
   → § US-03
 - The server refuses a coordinator verb that names another project's record. The refusal names the
   project that owns the record.
@@ -293,8 +294,12 @@ holds six kinds:
   the work that the previous session left open. That work is each question it prepared, each room it
   opened that is still open, and each entry that arrived while no session ran.
   → § US-07
-- When the `loop-coordinator` checkout of a project whose coordinator ran before is missing, the
-  server starts no session for that project. The alert of the failed start names the verb `loop coordinator restart`.
+- The server starts no session for a project when all of these hold:
+  1. the server made the project's `loop-coordinator` checkout
+  2. the project has stayed registered since then
+  3. the checkout is missing
+
+  The alert of the failed start names the verb `loop coordinator restart`.
   → § US-07
 - The host verb `loop coordinator restart --project <project>` ends the session of that project's
   coordinator when one runs, and revokes its token. It creates the `loop-coordinator` checkout
@@ -372,9 +377,10 @@ holds six kinds:
 - **A25.** When A's coordinator session ends and the harness cannot resume its conversation, the
   first message of A's next session names each question that the previous session prepared, each room
   it opened that is still open, and each entry that arrived while no session ran.
-- **A26.** When A's `loop-coordinator` checkout is missing, the server starts no session for A, and
-  an alert names `loop coordinator restart`. Then `loop coordinator restart --project A` from the
-  operator's shell creates the checkout again and starts A's coordinator in it. B's coordinator
+- **A26.** When the server made A's `loop-coordinator` checkout and the checkout is then deleted
+  while A stays registered, the server starts no session for A, and an alert names
+  `loop coordinator restart`. Then `loop coordinator restart --project A` from the operator's
+  shell creates the checkout again and starts A's coordinator in it. B's coordinator
   session keeps the same session id.
 - **A27.** When A's coordinator session runs, `loop coordinator restart --project A` ends it, and
   its token no longer works. The new session does not continue the previous conversation, and its
@@ -383,8 +389,9 @@ holds six kinds:
   coordinator changes.
 - **A29.** `loop coordinator restart` that names a project with no project config on its default
   branch refuses, and starts no session.
-- **A30.** When the loop project's `loop-coordinator` checkout is missing, the operator's shell
-  shows an alert that names the loop project and `loop coordinator restart`.
+- **A30.** When the server made the loop project's `loop-coordinator` checkout and the checkout is
+  then deleted, the operator can read an alert that names the loop project and
+  `loop coordinator restart`, from a shell that is no coordinator's session.
 
 ## Boundaries with other epics
 
