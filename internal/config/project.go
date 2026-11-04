@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -40,6 +41,7 @@ type ProjectConfig struct {
 	PolicyHooks []Command              `yaml:"policy_hooks,omitempty"`
 	Signoff     SignoffConfig          `yaml:"signoff,omitempty"`
 	Health      HealthConfig           `yaml:"health,omitempty"`
+	Prose       ProseConfig            `yaml:"prose,omitempty"`
 	// Skills are the project's userspace skill pins (ADR 0013).
 	Skills SkillPins `yaml:"skills,omitempty"`
 	// UI declares the project's user interface. Nil when it declares none.
@@ -108,6 +110,22 @@ type HealthConfig struct {
 	// operator before the sweep reminds the coordinator of it, and again
 	// once per limit while it waits.
 	OperatorReminder time.Duration `yaml:"operator_reminder,omitempty"`
+}
+
+// ProseConfig is what the prose gate skips in the project.
+type ProseConfig struct {
+	Exempt []ProseExempt `yaml:"exempt,omitempty"`
+}
+
+// ProseExempt is one file, or one marked region of a file, that neither
+// prose linter reads. A region is the lines from <!-- BEGIN:<region> -->
+// to <!-- END:<region> -->. An entry with no region is the whole file.
+type ProseExempt struct {
+	Path   string `yaml:"path"`
+	Region string `yaml:"region,omitempty"`
+	// Reason says why the project cannot rewrite the text, such as a tool
+	// that writes it again.
+	Reason string `yaml:"reason"`
 }
 
 // workflowFileRe matches the file name of a workflow under
@@ -308,6 +326,7 @@ func (c *ProjectConfig) validate() error {
 	checkSkills(ck, c.Skills)
 	checkUI(ck, c.UI)
 	checkDesign(ck, c)
+	checkProse(ck, c.Prose)
 	seen := map[string]bool{}
 	for i, r := range c.Signoff.Readers {
 		f := fmt.Sprintf("signoff.readers[%d]", i)
@@ -343,6 +362,23 @@ func checkDocReaders(ck *checker, name string, s StageConfig) {
 	case *s.DocReaders:
 		if field, h := s.otherHarness(); field != "" {
 			ck.fail(f, "is true beside stages.%s.%s: %s; the readers run on claude only, so change one of the two", name, field, h)
+		}
+	}
+}
+
+var proseRegionRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+func checkProse(ck *checker, p ProseConfig) {
+	for i, e := range p.Exempt {
+		f := fmt.Sprintf("prose.exempt[%d]", i)
+		if !repoPath(e.Path) || e.Path == "." {
+			ck.fail(f+".path", "must be a clean path inside the repository")
+		}
+		if e.Region != "" && !proseRegionRe.MatchString(e.Region) {
+			ck.fail(f+".region", "must be a marker name of letters, digits, dots, dashes and underscores, such as nextjs-agent-rules")
+		}
+		if strings.TrimSpace(e.Reason) == "" || HasControl(e.Reason) {
+			ck.fail(f+".reason", "must say why the project cannot rewrite the text of %s", cmp.Or(e.Path, "the entry"))
 		}
 	}
 }

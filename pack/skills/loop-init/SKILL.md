@@ -218,6 +218,20 @@ skill records each correction in the ledger. Make both now, so the first correct
 4. Copy `correction-ledger.md` beside this skill to `docs/solutions/correction-ledger.md`.
 5. Run `loop gates --docs`, and fix each finding.
 
+A tool can write text into an agent-facing document and write it again when the text changes,
+such as the block that Next.js writes into `AGENTS.md`. The project cannot rewrite that text. Ask
+the operator, then exempt it from the prose gate in `.loop/config.yaml` with a reason for each
+entry. An entry with a `region` exempts the lines from `<!-- BEGIN:<region> -->` to
+`<!-- END:<region> -->`. An entry with no `region` exempts the whole file.
+
+```yaml
+prose:
+  exempt:
+    - path: AGENTS.md
+      region: nextjs-agent-rules
+      reason: next dev writes this block again when its text differs
+```
+
 Keep each file that exists already.
 
 ## 7. Land it

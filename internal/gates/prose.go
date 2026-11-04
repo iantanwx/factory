@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/tools/prose"
 )
 
@@ -33,7 +35,8 @@ var proseSets = []proseSet{
 }
 
 // Prose runs the STE linter and the unslop linter, which the loop embeds,
-// over the project's agent-facing documents.
+// over the project's agent-facing documents. Each linter reads a copy of
+// the documents with the project's prose exemptions blanked out.
 func Prose(ctx context.Context, r *Repo) ([]Finding, error) {
 	py, err := exec.LookPath("python3")
 	if err != nil {
@@ -51,10 +54,18 @@ func Prose(ctx context.Context, r *Repo) ([]Finding, error) {
 	if err := os.WriteFile(unslop, prose.UnslopLint, 0o600); err != nil {
 		return nil, err
 	}
+	tree := filepath.Join(dir, "tree")
+	var exempt []config.ProseExempt
+	if r.Config != nil {
+		exempt = r.Config.Prose.Exempt
+	}
 	var findings []Finding
 	for _, set := range proseSets {
 		files, err := r.glob(set.globs)
 		if err != nil {
+			return nil, err
+		}
+		if files, err = r.copyProse(tree, files, exempt); err != nil {
 			return nil, err
 		}
 		if len(files) == 0 {
@@ -72,7 +83,7 @@ func Prose(ctx context.Context, r *Repo) ([]Finding, error) {
 			{"unslop", append([]string{"-I", unslop}, files...)},
 		} {
 			c := exec.CommandContext(ctx, py, run.args...)
-			c.Dir, c.Stdout, c.Stderr = r.Root, r.Out, r.Out
+			c.Dir, c.Stdout, c.Stderr = tree, r.Out, r.Out
 			if err := c.Run(); err != nil {
 				var exit *exec.ExitError
 				if !errors.As(err, &exit) {
@@ -83,6 +94,63 @@ func Prose(ctx context.Context, r *Repo) ([]Finding, error) {
 		}
 	}
 	return findings, nil
+}
+
+// copyProse writes each file under tree at its own relative path, with
+// each exempt region blanked, so a finding keeps its line number. It
+// returns the files that no entry exempts whole.
+func (r *Repo) copyProse(tree string, files []string, exempt []config.ProseExempt) ([]string, error) {
+	var out []string
+	for _, f := range files {
+		var regions []string
+		whole := false
+		for _, e := range exempt {
+			if e.Path == filepath.ToSlash(f) {
+				whole = whole || e.Region == ""
+				regions = append(regions, e.Region)
+			}
+		}
+		if whole {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(r.Root, f))
+		if err != nil {
+			return nil, err
+		}
+		lines := strings.SplitAfter(string(data), "\n")
+		for _, region := range regions {
+			blankRegion(lines, region)
+		}
+		dst := filepath.Join(tree, f)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(dst, []byte(strings.Join(lines, "")), 0o600); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+// blankRegion empties each line from a <!-- BEGIN:<region> --> line to the
+// next <!-- END:<region> --> line, both included. A BEGIN line with no END
+// line after it blanks nothing.
+func blankRegion(lines []string, region string) {
+	begin, end := "<!-- BEGIN:"+region+" -->", "<!-- END:"+region+" -->"
+	for i := 0; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != begin {
+			continue
+		}
+		j := slices.IndexFunc(lines[i:], func(l string) bool { return strings.TrimSpace(l) == end })
+		if j < 0 {
+			return
+		}
+		for k := i; k <= i+j; k++ {
+			lines[k] = "\n"
+		}
+		i += j
+	}
 }
 
 // glob lists the tracked and new files of the checkout that match globs,

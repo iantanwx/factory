@@ -429,3 +429,38 @@ func TestProjectConfigBaseline(t *testing.T) {
 		t.Fatalf("baselines = %v, want %s", got, want)
 	}
 }
+
+// C-bug-1: prose.exempt lists the files and the marked regions that the
+// prose gate skips. Each entry names a path and a reason. An entry with a
+// blank reason fails the parse, and the message names the entry.
+func TestCBug1ProjectConfigProseExempt(t *testing.T) {
+	cfg, err := ParseProjectConfig([]byte(validProjectConfig + "prose:\n  exempt:\n" +
+		"    - path: CLAUDE.md\n      reason: a vendor writes this file\n" +
+		"    - path: AGENTS.md\n      region: nextjs-agent-rules\n      reason: next dev writes this block again\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ProseExempt{
+		{Path: "CLAUDE.md", Reason: "a vendor writes this file"},
+		{Path: "AGENTS.md", Region: "nextjs-agent-rules", Reason: "next dev writes this block again"},
+	}
+	if got := cfg.Prose.Exempt; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("prose.exempt = %+v, want %+v", got, want)
+	}
+	refused := map[string]struct{ entry, field string }{
+		"blank reason":    {"    - path: AGENTS.md\n      region: nextjs-agent-rules\n      reason: \"  \"\n", "prose.exempt[1].reason"},
+		"no reason":       {"    - path: AGENTS.md\n", "prose.exempt[1].reason"},
+		"escaping path":   {"    - path: ../AGENTS.md\n      reason: r\n", "prose.exempt[1].path"},
+		"no path":         {"    - reason: r\n", "prose.exempt[1].path"},
+		"region with -->": {"    - path: AGENTS.md\n      region: \"a -->\"\n      reason: r\n", "prose.exempt[1].region"},
+	}
+	for name, c := range refused {
+		t.Run(name, func(t *testing.T) {
+			doc := validProjectConfig + "prose:\n  exempt:\n    - path: CLAUDE.md\n      reason: a vendor writes this file\n" + c.entry
+			_, err := ParseProjectConfig([]byte(doc))
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), c.field) {
+				t.Fatalf("err = %v, want a refusal of %s", err, c.field)
+			}
+		})
+	}
+}
