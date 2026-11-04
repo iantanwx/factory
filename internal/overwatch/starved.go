@@ -50,24 +50,27 @@ func readStarved(ctx context.Context, w World) (Reading, error) {
 		if err != nil {
 			return Reading{}, fmt.Errorf("read the tickets of %s: %w", p.ID, err)
 		}
+		byID := map[string]machine.Item{}
 		open := map[string][]machine.Item{}
 		for _, t := range tickets {
+			byID[t.ID] = t
 			if t.Status != machine.Done && t.Status != machine.Canceled {
-				open[t.Fact(machine.FactEpic)] = append(open[t.Fact(machine.FactEpic)], t)
+				epic := t.Fact(machine.FactEpic)
+				open[epic] = append(open[epic], t)
 			}
 		}
 		if !slices.ContainsFunc(epics, func(e machine.Item) bool { return len(open[e.ID]) > 0 }) {
 			continue
 		}
-		idle, err := implementerIdle(ctx, w.WorkQuery(), p.ID)
+		busy, err := implementerBusy(ctx, w.WorkQuery(), p.ID)
 		if err != nil {
 			return Reading{}, err
 		}
-		if idle != "" {
-			r.Notes = append(r.Notes, idle)
+		if busy != "" {
+			r.Notes = append(r.Notes, busy)
 			continue
 		}
-		j := &judge{ctx: ctx, w: w, project: p.ID, tickets: tickets, seen: map[string]verdict{}}
+		j := &judge{ctx: ctx, w: w, project: p.ID, tickets: byID, seen: map[string]verdict{}}
 		for _, e := range epics {
 			f, note, err := j.epic(e, open[e.ID])
 			switch {
@@ -83,10 +86,10 @@ func readStarved(ctx context.Context, w World) (Reading, error) {
 	return r, nil
 }
 
-// implementerIdle says why the implementer of project is busy: it has no
+// implementerBusy says why the implementer of project is busy: it has no
 // free slot, or it takes a ticket now. Empty when it has a free slot and
 // takes no ticket.
-func implementerIdle(ctx context.Context, q WorkQuery, project string) (string, error) {
+func implementerBusy(ctx context.Context, q WorkQuery, project string) (string, error) {
 	if q == nil {
 		return "", errors.New("the server holds no admission to ask whether the implementer takes a ticket")
 	}
@@ -119,7 +122,7 @@ type judge struct {
 	ctx     context.Context
 	w       World
 	project string
-	tickets []machine.Item
+	tickets map[string]machine.Item
 	seen    map[string]verdict
 }
 
@@ -232,11 +235,11 @@ func (j *judge) judge(it machine.Item) (verdict, error) {
 		case machine.Canceled:
 			continue
 		}
-		i := slices.IndexFunc(j.tickets, func(t machine.Item) bool { return t.ID == d.ID })
-		if i < 0 {
+		t, ok := j.tickets[d.ID]
+		if !ok {
 			continue
 		}
-		v, err := j.moves(j.tickets[i])
+		v, err := j.moves(t)
 		if err != nil {
 			return verdict{}, err
 		}
