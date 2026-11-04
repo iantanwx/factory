@@ -176,6 +176,8 @@ func TestStopWaiverNeedsAStandingOperatorAnswer(t *testing.T) {
 		t.Fatalf("standing answers after the first answer: %q", first)
 	}
 	w.refused(id, rev, "pass", rest+"- stop1 waived: the operator agreed.", "checklist_waiver", log, "stop1")
+	// A standing answer still waives no contract.
+	w.refused(id, rev, "pass", "- C1 waived: "+first[0]+" waives it.\n- D1 pass: green.\n- D2 pass: red.\n- stop1 pass: no spend.", "checklist_waiver", log, "C1")
 	mustOK(t, w.verdict(id, rev, "reject", "- C1 pass: red.\n- D1 fail: lint is red.\n- D2 pass: red.\n- stop1 waived: "+first[0]+" waives it."))
 	if got := w.show(id).Status; got != Todo {
 		t.Fatalf("a reject with a standing waiver: %s", got)
