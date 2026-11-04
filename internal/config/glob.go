@@ -63,6 +63,33 @@ func Meets(g Glob, entry string) bool {
 	return g.Reaches(entry[:max(strings.LastIndex(entry[:i], "/"), 0)])
 }
 
+// EntriesMeet reports whether two "May change" entries can name one file,
+// by the prefix rule of footprint in scripts/sdlc/ticket-files.ts (alpha):
+// they meet when the prefix of one starts with the prefix of the other.
+// The rule over-reports, and that is the safe direction: a false meeting
+// delays one ticket by one tick.
+func EntriesMeet(a, b string) bool {
+	pa, pb := entryPrefix(a), entryPrefix(b)
+	return strings.HasPrefix(pa, pb) || strings.HasPrefix(pb, pa)
+}
+
+// entryPrefix is the literal text that one entry covers. A glob stops at
+// its first glob character. A file stops at its stem, the name before its
+// first dot, so pkg/x.go covers pkg/x_test.go. A directory keeps its path,
+// and a dotfile its whole name.
+func entryPrefix(entry string) string {
+	entry = strings.TrimPrefix(entry, "./")
+	if i := strings.IndexAny(entry, "*?["); i >= 0 {
+		return entry[:i]
+	}
+	entry = strings.TrimSuffix(entry, "/")
+	dir := strings.LastIndex(entry, "/") + 1
+	if dot := strings.IndexByte(entry[dir:], '.'); dot > 0 {
+		return entry[:dir+dot]
+	}
+	return entry
+}
+
 // Match reports whether g matches the literal slash path p.
 func (g Glob) Match(p string) bool {
 	return slices.Contains(g.walk(strings.Split(p, "/")), len(g.segs))

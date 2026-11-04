@@ -92,3 +92,33 @@ func TestC5GlobReachesADirectory(t *testing.T) {
 		}
 	}
 }
+
+// factorio-29yx: two "May change" entries meet by tickertown's prefix rule.
+// Each entry is cut at its first glob character, and a file at its stem.
+// They meet when one prefix starts with the other.
+func TestEntriesMeetByTheirPrefixes(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"internal/admission/**", "internal/admission/", true},            // a glob and its directory
+		{"internal/admission/*.go", "internal/admission/policy.go", true}, // a glob and a file under it
+		{"internal/admission/", "internal/admission/policy.go", true},     // a directory and a file under it
+		{"pkg/x.go", "pkg/x_test.go", true},                               // a file and its test file
+		{"web/src/index.ts", "web/src/index.test.ts", true},               // a file and its test file, tickertown's case
+		{"./pkg/x.go", "pkg/x.go", true},                                  // a leading ./ names the same path
+		{"**/*.go", "docs/plan.md", true},                                 // a glob at the root meets every entry
+		{"internal/admission/", "internal/overwatch/", false},             // two disjoint directories
+		{"internal/admission/**", "internal/overwatch/stalls.go", false},  // a glob and a file elsewhere
+		{"pkg/x.go", "pkg/y.go", false},                                   // two files of one directory
+		{".gitignore", ".github/workflows/ci.yml", false},                 // a dotfile keeps its whole name
+	}
+	for _, c := range cases {
+		if got := EntriesMeet(c.a, c.b); got != c.want {
+			t.Errorf("EntriesMeet(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+		if got := EntriesMeet(c.b, c.a); got != c.want {
+			t.Errorf("EntriesMeet(%q, %q) = %v, want %v", c.b, c.a, got, c.want)
+		}
+	}
+}
