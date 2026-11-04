@@ -685,6 +685,34 @@ func (a *Admission) PeekAs(ctx context.Context, project, stage, run string) (*Ca
 	return nil, nil
 }
 
+// Room refuses as Admit would when the stage has no free slot in the
+// project now: the drain, the stage pause, then each cap. Nil when a run of
+// the stage may start.
+func (a *Admission) Room(ctx context.Context, project, stage string) *cli.Refusal {
+	if a.draining.Load() {
+		return drainingRefusal()
+	}
+	if paused, err := a.Paused(ctx, project, stage); err != nil || paused {
+		if err != nil {
+			return cli.InternalRefusal(err)
+		}
+		return pausedRefusal(project, stage)
+	}
+	limits, ref := a.limitsFor(ctx, project, stage)
+	if ref != nil {
+		return ref
+	}
+	err := a.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		var err error
+		ref, err = capRefusal(readTx{ctx, tx}, stage, limits, "")
+		return err
+	})
+	if err != nil {
+		return cli.InternalRefusal(err)
+	}
+	return ref
+}
+
 // enteredAt returns, for each item whose history records its entry into
 // its current status, the time of that entry in Unix milliseconds. The entry
 // is the item's last transition that changed its status. When that
@@ -749,9 +777,21 @@ func waitOrder(items []machine.Item, entered map[string]int64) {
 	})
 }
 
-// admissible reports whether Admit would take the item now, apart from the
-// caps that Peek checked once. flights are the implementer's tickets in
-// flight, which Peek read once.
+// Admissible reports whether Admit would take the item now, apart from the
+// caps that Peek checked once, the drain and the stage pause.
+func (a *Admission) Admissible(ctx context.Context, stage string, it machine.Item) (bool, error) {
+	var flights []flight
+	if stage == config.StageImplementer {
+		var err error
+		if flights, err = a.flights(ctx, it.Project); err != nil {
+			return false, err
+		}
+	}
+	return a.admissible(ctx, stage, it, flights)
+}
+
+// admissible is Admissible with the implementer's tickets in flight, which
+// Peek read once.
 func (a *Admission) admissible(ctx context.Context, stage string, it machine.Item, flights []flight) (bool, error) {
 	if it.Fact(machine.FactOwner) != "" {
 		return false, nil

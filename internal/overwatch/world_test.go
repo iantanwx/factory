@@ -113,6 +113,7 @@ func (w *fakeWorld) Pauses(ctx context.Context) (pauses []admission.StagePause, 
 	})
 	return pauses, err
 }
+func (w *fakeWorld) WorkQuery() WorkQuery { return nil }
 func (w *fakeWorld) CheckoutDirs(context.Context) ([]string, error) {
 	return agenthost.ListCheckoutDirs(w.root)
 }

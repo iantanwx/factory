@@ -360,13 +360,7 @@ func readItem(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return err
 	}
-	var owner, stage string
-	err = tx.QueryRowContext(ctx, `SELECT r.run_id, r.stage FROM leases l JOIN runs r ON r.run_id = l.owner_run_id
-		WHERE l.project = ? AND l.item = ? AND r.ended_at IS NULL`, it.Project, it.ID).Scan(&owner, &stage)
-	switch {
-	case err == nil:
-		row.lease = "run " + owner + " of " + stage
-	case !errors.Is(err, sql.ErrNoRows):
+	if row.lease, err = leaseOf(ctx, tx, it); err != nil {
 		return err
 	}
 	var started int64
@@ -391,27 +385,50 @@ func readItem(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 			row.files = append(row.files, fileRun{queueRun: q})
 		}
 	}
-	var kind, holder string
-	err = tx.QueryRowContext(ctx, `SELECT kind, holder FROM holds WHERE project = ? AND item = ? ORDER BY created_at, holder LIMIT 1`,
-		it.Project, it.ID).Scan(&kind, &holder)
-	switch {
-	case err == nil:
-		row.hold = kind + " " + holder
-	case !errors.Is(err, sql.ErrNoRows):
+	if row.hold, err = holdOf(ctx, tx, it); err != nil {
 		return err
 	}
+	row.alert, err = alertOf(ctx, tx, it)
+	return err
+}
+
+// leaseOf names the run that holds the item's lease and has not ended,
+// such as "run r-c733f4f7982a of code-reviewer". Empty when none does.
+func leaseOf(ctx context.Context, tx *sql.Tx, it machine.Item) (string, error) {
+	var owner, stage string
+	err := tx.QueryRowContext(ctx, `SELECT r.run_id, r.stage FROM leases l JOIN runs r ON r.run_id = l.owner_run_id
+		WHERE l.project = ? AND l.item = ? AND r.ended_at IS NULL`, it.Project, it.ID).Scan(&owner, &stage)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return "run " + owner + " of " + stage, err
+}
+
+// holdOf names the oldest room or escalation that holds the item, such as
+// "room room-r7". Empty when none does.
+func holdOf(ctx context.Context, tx *sql.Tx, it machine.Item) (string, error) {
+	var kind, holder string
+	err := tx.QueryRowContext(ctx, `SELECT kind, holder FROM holds WHERE project = ? AND item = ? ORDER BY created_at, holder LIMIT 1`,
+		it.Project, it.ID).Scan(&kind, &holder)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return kind + " " + holder, err
+}
+
+// alertOf names the oldest open retry_limit or run_blocked alert that names
+// the item, such as "alert/7 retry_limit". Empty when none does.
+func alertOf(ctx context.Context, tx *sql.Tx, it machine.Item) (string, error) {
 	// The scheduler keys both alerts <kind>:<project>/<item>/<stage>/<inputs>.
 	var id int64
-	err = tx.QueryRowContext(ctx, `SELECT id, kind FROM alerts WHERE state = 'open' AND kind IN (?, ?)
+	var kind string
+	err := tx.QueryRowContext(ctx, `SELECT id, kind FROM alerts WHERE state = 'open' AND kind IN (?, ?)
 		AND substr(dedupe_key, 1, length(kind) + ?) = kind || ? ORDER BY id LIMIT 1`,
 		sched.AlertRetryLimit, sched.AlertRunBlocked, len(it.Project)+len(it.ID)+3, ":"+it.Project+"/"+it.ID+"/").Scan(&id, &kind)
-	switch {
-	case err == nil:
-		row.alert = fmt.Sprintf("alert/%d %s", id, kind)
-	case !errors.Is(err, sql.ErrNoRows):
-		return err
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
 	}
-	return nil
+	return fmt.Sprintf("alert/%d %s", id, kind), err
 }
 
 // readQueue reads each run of the row's stage in its project on another
