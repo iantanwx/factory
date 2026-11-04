@@ -256,6 +256,11 @@ func ticketTable() *Table {
 			when: paramIs("qa", "on"), set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
 		{Verb: "review_pass", From: []string{InReview}, To: ReadyToMerge, When: "qa_off", Command: "review submit", Lease: LeaseDrop,
 			set: needCopy("head", FactReviewedHead), Facts: []string{FactReviewedHead}},
+		// A fired stop condition goes to a person, and never back to the
+		// implementer: only a person waives one (alpha review-agreement.ts).
+		{Verb: "review_reject", From: []string{InReview}, To: Escalated, When: "stop_fired", Command: "review submit", Lease: LeaseDrop,
+			when: stopFired, Says: stopFiredSays, set: all(escalateTo(ticketResume), recordStops),
+			Facts: []string{FactResume, FactResumeEntry, FactEscalation, FactStopsFired}},
 		{Verb: "review_reject", From: []string{InReview}, To: Todo, Command: "review submit", Lease: LeaseDrop,
 			set: reviewReject, Facts: []string{FactRejects, FactModelTier, FactEntry, FactSimplifyDue, FactReviewedHead, FactSimplifyFrom}},
 		{Verb: VerbQAPass, From: []string{InQA}, To: ReadyToMerge, Command: "qa report", Lease: LeaseDrop, guard: reviewedHeadGuard,

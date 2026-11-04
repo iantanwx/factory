@@ -38,24 +38,25 @@ func (m *Machine) Register(s *rpc.Server) error {
 // Handlers returns the handlers of the machine's CLI verbs, keyed by path.
 func (m *Machine) Handlers() map[string]rpc.Handler {
 	return map[string]rpc.Handler{
-		"work show":       m.workShow,
-		"work list":       m.workList,
-		"work note":       m.verb("note", "item"),
-		"work edit":       m.workEdit,
-		"work cancel":     m.workCancel,
-		"work block":      m.workBlock,
-		"work unblock":    m.workUnblock,
-		"work shape":      m.workShape,
-		"work ask":        m.workAsk,
-		"work duplicate":  m.workDuplicate,
-		"work supersede":  m.workSupersede,
-		"review submit":   m.reviewSubmit,
-		"review rounds":   m.reviewRounds,
-		"qa report":       m.qaReport,
-		"decision fire":   m.decisionMove("fire", "why", "why"),
-		"decision defer":  m.decisionMove("defer", "why", "why"),
-		"decision moot":   m.decisionMove("moot", "note", "note"),
-		"decision settle": m.decisionSettle,
+		"work show":        m.workShow,
+		"work list":        m.workList,
+		"work note":        m.verb("note", "item"),
+		"work edit":        m.workEdit,
+		"work cancel":      m.workCancel,
+		"work block":       m.workBlock,
+		"work unblock":     m.workUnblock,
+		"work shape":       m.workShape,
+		"work ask":         m.workAsk,
+		"work duplicate":   m.workDuplicate,
+		"work supersede":   m.workSupersede,
+		"review submit":    m.reviewSubmit,
+		"review rounds":    m.reviewRounds,
+		"review checklist": m.reviewChecklist,
+		"qa report":        m.qaReport,
+		"decision fire":    m.decisionMove("fire", "why", "why"),
+		"decision defer":   m.decisionMove("defer", "why", "why"),
+		"decision moot":    m.decisionMove("moot", "note", "note"),
+		"decision settle":  m.decisionSettle,
 	}
 }
 
@@ -223,6 +224,9 @@ func (m *Machine) reviewSubmit(ctx context.Context, call *rpc.Call) cli.Result {
 			}
 		}
 		if r := contractsNamed(it, body); r != nil {
+			return refusedAt(r, item, it)
+		}
+		if r := m.checklistHeld(ctx, it, verb, body); r != nil {
 			return refusedAt(r, item, it)
 		}
 		if body != "" && m.reviewComment != nil {

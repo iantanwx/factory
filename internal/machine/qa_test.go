@@ -129,7 +129,7 @@ func TestC8ABugsShapedTicketReachesInQA(t *testing.T) {
 	w.claim(ticket, StageImplementer, "impl")
 	w.opened(ticket, shaA)
 	rev := w.claimAs(ticket, StageCodeReviewer, "rev")
-	mustOK(t, w.call("review submit", rev, []string{ticket}, map[string]string{"verdict": "pass", "head": shaA, "body": "C-bug-1 pass."}))
+	mustOK(t, w.call("review submit", rev, []string{ticket}, map[string]string{"verdict": "pass", "head": shaA, "body": "- C-bug-1 pass: red at the base.\n- D1 pass: the gates pass."}))
 	if it := w.show(ticket); it.Status != InQA || it.Fact(FactBug) != bug {
 		t.Fatalf("the shaped ticket after its review pass: %s bug %q; want %s from %s", it.Status, it.Fact(FactBug), InQA, bug)
 	}
