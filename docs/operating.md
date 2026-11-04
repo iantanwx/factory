@@ -236,8 +236,11 @@ worktree. A session in your own clone holds none, and the server refuses
 its coordinator verbs. The coordinator may run the host verbs `upgrade`,
 `rollback`, `doctor`, `project list` and `project show` from its worktree,
 as your shell would. A run or a room may not: the server refuses each with
-rule `host_verb_from_checkout` and raises an alert. It also refuses a call
-with no token from inside any checkout. The coordinator's `upgrade`
+rule `host_verb_from_checkout` and raises an alert. A run's or a room's
+`project list` or `project show` from its own checkout is refused with no
+alert, and only an audit row records it: the refusal answers it, so it
+does not ring the coordinator. The server also refuses a call with no token from
+inside any checkout, and raises an alert. The coordinator's `upgrade`
 and `rollback` run outside its session, as a transient systemd user unit
 in your home directory, so the restart they make cannot end them. When you remove the coordinator's project, the
 server ends the session and starts the next one in a project that is

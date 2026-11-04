@@ -25,10 +25,12 @@ type AuditAlert struct {
 	Subject string // the alert subject; the dedupe key is Kind + ":" + Subject
 	Body    string
 	Detail  map[string]any
+	NoAlert bool // write the audit row only
 }
 
 // WriteAuditAlert writes the audit row and raises or counts up the alert in
-// one transaction. The inbox reads the alerts table.
+// one transaction. With NoAlert it writes the audit row only. The inbox
+// reads the alerts table.
 func WriteAuditAlert(ctx context.Context, st *store.Store, red *secrets.Redactor, a AuditAlert) error {
 	detail := a.Detail
 	if detail == nil {
@@ -51,6 +53,9 @@ func WriteAuditAlert(ctx context.Context, st *store.Store, red *secrets.Redactor
 		if _, err := tx.Exec(`INSERT INTO audit (at, actor, project, item, action, detail) VALUES (?, ?, ?, ?, ?, ?)`,
 			now, a.Actor, a.Project, a.Item, a.Kind, string(raw)); err != nil {
 			return fmt.Errorf("rpc: write the audit row: %w", err)
+		}
+		if a.NoAlert {
+			return nil
 		}
 		_, err := tx.Exec(`INSERT INTO alerts (project, kind, subject, dedupe_key, body, first_at, last_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
