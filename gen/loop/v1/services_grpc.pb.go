@@ -793,9 +793,10 @@ var RunService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ReviewService_Submit_FullMethodName  = "/loop.v1.ReviewService/Submit"
-	ReviewService_Threads_FullMethodName = "/loop.v1.ReviewService/Threads"
-	ReviewService_Rounds_FullMethodName  = "/loop.v1.ReviewService/Rounds"
+	ReviewService_Submit_FullMethodName    = "/loop.v1.ReviewService/Submit"
+	ReviewService_Threads_FullMethodName   = "/loop.v1.ReviewService/Threads"
+	ReviewService_Rounds_FullMethodName    = "/loop.v1.ReviewService/Rounds"
+	ReviewService_Checklist_FullMethodName = "/loop.v1.ReviewService/Checklist"
 )
 
 // ReviewServiceClient is the client API for ReviewService service.
@@ -805,6 +806,7 @@ type ReviewServiceClient interface {
 	Submit(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Threads(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 	Rounds(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
+	Checklist(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error)
 }
 
 type reviewServiceClient struct {
@@ -845,6 +847,16 @@ func (c *reviewServiceClient) Rounds(ctx context.Context, in *VerbRequest, opts 
 	return out, nil
 }
 
+func (c *reviewServiceClient) Checklist(ctx context.Context, in *VerbRequest, opts ...grpc.CallOption) (*Envelope, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Envelope)
+	err := c.cc.Invoke(ctx, ReviewService_Checklist_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ReviewServiceServer is the server API for ReviewService service.
 // All implementations must embed UnimplementedReviewServiceServer
 // for forward compatibility.
@@ -852,6 +864,7 @@ type ReviewServiceServer interface {
 	Submit(context.Context, *VerbRequest) (*Envelope, error)
 	Threads(context.Context, *VerbRequest) (*Envelope, error)
 	Rounds(context.Context, *VerbRequest) (*Envelope, error)
+	Checklist(context.Context, *VerbRequest) (*Envelope, error)
 	mustEmbedUnimplementedReviewServiceServer()
 }
 
@@ -870,6 +883,9 @@ func (UnimplementedReviewServiceServer) Threads(context.Context, *VerbRequest) (
 }
 func (UnimplementedReviewServiceServer) Rounds(context.Context, *VerbRequest) (*Envelope, error) {
 	return nil, status.Error(codes.Unimplemented, "method Rounds not implemented")
+}
+func (UnimplementedReviewServiceServer) Checklist(context.Context, *VerbRequest) (*Envelope, error) {
+	return nil, status.Error(codes.Unimplemented, "method Checklist not implemented")
 }
 func (UnimplementedReviewServiceServer) mustEmbedUnimplementedReviewServiceServer() {}
 func (UnimplementedReviewServiceServer) testEmbeddedByValue()                       {}
@@ -946,6 +962,24 @@ func _ReviewService_Rounds_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReviewService_Checklist_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerbRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReviewServiceServer).Checklist(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReviewService_Checklist_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReviewServiceServer).Checklist(ctx, req.(*VerbRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ReviewService_ServiceDesc is the grpc.ServiceDesc for ReviewService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -964,6 +998,10 @@ var ReviewService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Rounds",
 			Handler:    _ReviewService_Rounds_Handler,
+		},
+		{
+			MethodName: "Checklist",
+			Handler:    _ReviewService_Checklist_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -66,6 +66,7 @@ const (
 	FactADRPR           = "adr_pr"           // the number of the ADR pull request under review
 	FactADRHead         = "adr_head"         // that pull request's head when adr_opened read it
 	FactShape           = "shape"            // the body shape a ticket was checked against: ticket or bug
+	FactStopsFired      = "stops_fired"      // the stop conditions the code review that escalated the ticket found fired, comma-separated
 	FactUIStories       = "ui_stories"       // the labels of the PRD's UI: yes stories at its merge, comma-separated
 	FactDesignPath      = "design_path"      // the merged design record's path
 	FactDesignMerged    = "design_merged"    // the merge commit of the design pull request

@@ -39,6 +39,7 @@ service ReviewService {
   rpc Submit(VerbRequest) returns (Envelope);
   rpc Threads(VerbRequest) returns (Envelope);
   rpc Rounds(VerbRequest) returns (Envelope);
+  rpc Checklist(VerbRequest) returns (Envelope);
 }
 
 service QaService {
