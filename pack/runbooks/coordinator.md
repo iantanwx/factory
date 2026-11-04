@@ -60,6 +60,7 @@ waits on that record and not on you.
 | `reminders` | 2 | Remind the operator of each entry it names, then prepare a question about that entry by section 5 that quotes the key |
 | `bugs` | 9 | File the fault as a bug, or bring the reported bug to the operator |
 | `backlog` | 3 | Unblock the ticket, or bring it to the operator |
+| `starved` | 3 | Find what holds each open ticket of the epic. Free it, file the missing ticket, or bring the hold to the operator |
 | `claims` | 3 | Find why the lease outlived its run, and report the cause as a loop fault |
 | `pulls` | 3 | Find why one item and one document hold two open pull requests |
 | `worktrees` | 9 | Report the checkout that the cleanup missed as a loop fault |

@@ -18,6 +18,7 @@ import (
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/beadsx"
+	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/frontend"
 	"github.com/iantanwx/loop/internal/github"
@@ -88,13 +89,14 @@ var partDeadline = PartDeadline
 
 // PartNames is the order of every part that ports: of a report, of the ring
 // text and of the runbook's table.
-var PartNames = []string{"stalls", "questions", "decisions", "reminders", "bugs", "backlog", "claims", "pulls", "worktrees", "main",
-	"ci", "flaky", "audit", "timer-health", "inbox", "server", "rules", "ui", "qa"}
+var PartNames = []string{"stalls", "questions", "decisions", "reminders", "bugs", "backlog", "starved", "claims", "pulls", "worktrees",
+	"main", "ci", "flaky", "audit", "timer-health", "inbox", "server", "rules", "ui", "qa"}
 
 // Parts returns the shipped part list. Each part entry adds its part.
 func Parts() []Part {
-	return []Part{stallsPart, questionsPart(), decisionsPart(), remindersPart(), bugsPart(), backlogPart(), claimsPart(), pullsPart,
-		worktreesPart(), mainPart, ciPart, flakyPart, auditPart, timersPart(), inboxPart(), serverPart(), rulesPart(), uiPart(), qaPart()}
+	return []Part{stallsPart, questionsPart(), decisionsPart(), remindersPart(), bugsPart(), backlogPart(), starvedPart(), claimsPart(),
+		pullsPart, worktreesPart(), mainPart, ciPart, flakyPart, auditPart, timersPart(), inboxPart(), serverPart(), rulesPart(), uiPart(),
+		qaPart()}
 }
 
 // Intervals are the scheduler's own, from sched.Config.
@@ -126,6 +128,8 @@ type World interface {
 	Drains(ctx context.Context) ([]sched.Drain, error)
 	// Pauses are the stage pauses that hold, oldest first.
 	Pauses(ctx context.Context) ([]admission.StagePause, error)
+	// WorkQuery is the server's admission, or nil on a server with none.
+	WorkQuery() WorkQuery
 	// CheckoutDirs lists each directory named loop-* one level under a
 	// directory of agent_host.checkout_root, as absolute paths.
 	CheckoutDirs(ctx context.Context) ([]string, error)
@@ -139,6 +143,15 @@ type World interface {
 	// Tracked is the tracked files of the project's tree at
 	// origin/<its default branch>.
 	Tracked(ctx context.Context, project string) (frontend.Tree, error)
+}
+
+// WorkQuery is what the starved part asks of admission. Each read makes no
+// claim and no write.
+type WorkQuery interface {
+	Room(ctx context.Context, project, stage string) *cli.Refusal
+	Peek(ctx context.Context, project, stage string) (*admission.Candidate, *cli.Refusal)
+	Admissible(ctx context.Context, stage string, it machine.Item) (bool, error)
+	FilesWait(ctx context.Context, it machine.Item) (*cli.Refusal, error)
 }
 
 // GitHubReads are the GET reads of the GitHub parts, made with ScopeRead.

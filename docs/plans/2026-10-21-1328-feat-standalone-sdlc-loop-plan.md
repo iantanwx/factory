@@ -1004,7 +1004,7 @@ loop/
   - A doc-review pass moves the epic to `prd_signoff`. The operator's merge moves it to `spec_needed`.
   - A PRD PR merged during review counts as sign-off and revokes the review lease.
   - A closed PRD PR moves the epic to `escalated`, never to `canceled`.
-  - The first reject starts one amender run. The second reject adds an inbox entry for an intake room, and no amender run starts (AE7).
+  - The first reject starts one amender run. The second reject adds an inbox entry for an intake room, and no amender run starts (AE7). The operator's answer to that entry clears the reject count, so the next reject starts one amender run again.
   - The spec follows the same review and sign-off.
   - The merge interface never hands a document PR to a merge mechanism.
   - A decompose batch replayed after a crash creates no duplicate ticket.

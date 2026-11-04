@@ -87,9 +87,17 @@ redesign.
 Never reject on style that no linter flagged. The linter holds the style rules. A style rule that
 matters belongs in the project's standards and in its linter.
 
-One exception holds. In a doc review, a reader's prose finding may reject alone when you check it
-against the text and it holds. A reader is a subagent of the doc-reviewer, and no linter reads a
-document's prose. A code review has no such exception.
+One exception holds. In round 1 of a doc review, a reader's prose finding may reject alone when you
+check it against the text and it holds. A reader is a subagent of the doc-reviewer, and no linter
+reads a document's prose. A code review has no such exception.
+
+In round 2 and later, a prose finding does not reject alone. Name it in the comment as not
+blocking, with its proposed edit. Only a content finding rejects.
+
+The reviser applies each round's proposed edit as written. So a later round rejects no text that an
+earlier round's proposed edit wrote, unless the finding scores level 4 or higher by
+`../loop-sdlc-triage/SKILL.md`. Name that finding in the comment as not blocking, and name the round
+whose proposed edit wrote the text.
 
 ## 7. Reject what the author can repair, and score the rest
 

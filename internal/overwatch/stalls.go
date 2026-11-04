@@ -27,8 +27,10 @@ import (
 // a run on an older item of the queue held the stage mutex. A fire while
 // the server drained admitted no run, and does not count either, also
 // after the restart that ended the drain. Nor does a fire that started no
-// run while a limit of the stage was full, nor a code review that admission
-// refuses while CI at the head a simplify run left runs inside the CI
+// run while a limit of the stage was full, nor a fire at which a live
+// implementer run held a ticket whose "May change" list meets the
+// implementer ticket's own (rule files_in_flight), nor a code review that
+// admission refuses while CI at the head a simplify run left runs inside the CI
 // budget (rule simplify_head_ci). An item at a stage that a
 // pause holds, in its project or in every project, waits for the resume
 // (C25). A ticket in
@@ -89,6 +91,11 @@ type itemRow struct {
 	hold    string // the room or escalation that holds the item, such as "room room-r7"
 	alert   string // an open retry_limit or run_blocked alert that names the item, such as "alert/7 retry_limit"
 	ci      string // the CI run at the simplify head that admission waits for, inside the CI budget
+	// files is each implementer run on another ticket of the project that
+	// had not ended when an implementer row entered, and whose ticket's
+	// "May change" list meets the row's. While one is live, admission
+	// refuses the row with rule files_in_flight.
+	files []fileRun
 }
 
 // queueRun is one run of a stage on an item of its queue.
@@ -99,6 +106,13 @@ type queueRun struct {
 	// at or before the run started. Zero when no transition dates it.
 	entered time.Time
 	ended   time.Time // a zero ended: the run is live
+}
+
+// fileRun is one implementer run on another ticket, and the entry of the
+// row's list that meets the entry of that ticket's list.
+type fileRun struct {
+	queueRun
+	mine, theirs string
 }
 
 // capRun is one run that a limit of a row's stage counts.
@@ -197,6 +211,7 @@ func readStalls(ctx context.Context, w World) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("read escalations and runs: %w", err)
 	}
+	unread = append(unread, readFiles(ctx, w, rows.items)...)
 	r := classifyStalls(rows, w.Now(), drains)
 	r.Notes = append(r.Notes, unread...)
 	return r, nil
@@ -345,13 +360,7 @@ func readItem(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 	case err != nil && !errors.Is(err, sql.ErrNoRows):
 		return err
 	}
-	var owner, stage string
-	err = tx.QueryRowContext(ctx, `SELECT r.run_id, r.stage FROM leases l JOIN runs r ON r.run_id = l.owner_run_id
-		WHERE l.project = ? AND l.item = ? AND r.ended_at IS NULL`, it.Project, it.ID).Scan(&owner, &stage)
-	switch {
-	case err == nil:
-		row.lease = "run " + owner + " of " + stage
-	case !errors.Is(err, sql.ErrNoRows):
+	if row.lease, err = leaseOf(ctx, tx, it); err != nil {
 		return err
 	}
 	var started int64
@@ -367,27 +376,59 @@ func readItem(ctx context.Context, tx *sql.Tx, row *itemRow) error {
 	if err := readCapRuns(ctx, tx, row); err != nil {
 		return err
 	}
-	var kind, holder string
-	err = tx.QueryRowContext(ctx, `SELECT kind, holder FROM holds WHERE project = ? AND item = ? ORDER BY created_at, holder LIMIT 1`,
-		it.Project, it.ID).Scan(&kind, &holder)
-	switch {
-	case err == nil:
-		row.hold = kind + " " + holder
-	case !errors.Is(err, sql.ErrNoRows):
+	if row.stage == config.StageImplementer {
+		runs, err := queueRuns(ctx, tx, row, `(r.ended_at IS NULL OR r.ended_at > ?)`)
+		if err != nil {
+			return err
+		}
+		for _, q := range runs {
+			row.files = append(row.files, fileRun{queueRun: q})
+		}
+	}
+	if row.hold, err = holdOf(ctx, tx, it); err != nil {
 		return err
 	}
+	row.alert, err = alertOf(ctx, tx, it)
+	return err
+}
+
+// leaseOf names the run that holds the item's lease and has not ended,
+// such as "run r-c733f4f7982a of code-reviewer". Empty when none does.
+func leaseOf(ctx context.Context, tx *sql.Tx, it machine.Item) (string, error) {
+	var owner, stage string
+	err := tx.QueryRowContext(ctx, `SELECT r.run_id, r.stage FROM leases l JOIN runs r ON r.run_id = l.owner_run_id
+		WHERE l.project = ? AND l.item = ? AND r.ended_at IS NULL`, it.Project, it.ID).Scan(&owner, &stage)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return "run " + owner + " of " + stage, err
+}
+
+// holdOf names the oldest room or escalation that holds the item, such as
+// "room room-r7". Empty when none does.
+func holdOf(ctx context.Context, tx *sql.Tx, it machine.Item) (string, error) {
+	var kind, holder string
+	err := tx.QueryRowContext(ctx, `SELECT kind, holder FROM holds WHERE project = ? AND item = ? ORDER BY created_at, holder LIMIT 1`,
+		it.Project, it.ID).Scan(&kind, &holder)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return kind + " " + holder, err
+}
+
+// alertOf names the oldest open retry_limit or run_blocked alert that names
+// the item, such as "alert/7 retry_limit". Empty when none does.
+func alertOf(ctx context.Context, tx *sql.Tx, it machine.Item) (string, error) {
 	// The scheduler keys both alerts <kind>:<project>/<item>/<stage>/<inputs>.
 	var id int64
-	err = tx.QueryRowContext(ctx, `SELECT id, kind FROM alerts WHERE state = 'open' AND kind IN (?, ?)
+	var kind string
+	err := tx.QueryRowContext(ctx, `SELECT id, kind FROM alerts WHERE state = 'open' AND kind IN (?, ?)
 		AND substr(dedupe_key, 1, length(kind) + ?) = kind || ? ORDER BY id LIMIT 1`,
 		sched.AlertRetryLimit, sched.AlertRunBlocked, len(it.Project)+len(it.ID)+3, ":"+it.Project+"/"+it.ID+"/").Scan(&id, &kind)
-	switch {
-	case err == nil:
-		row.alert = fmt.Sprintf("alert/%d %s", id, kind)
-	case !errors.Is(err, sql.ErrNoRows):
-		return err
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
 	}
-	return nil
+	return fmt.Sprintf("alert/%d %s", id, kind), err
 }
 
 // readQueue reads each run of the row's stage in its project on another
@@ -439,6 +480,45 @@ func queueRuns(ctx context.Context, tx *sql.Tx, row *itemRow, cond string) ([]qu
 		out = append(out, q)
 	}
 	return out, errors.Join(rs.Err(), rs.Close())
+}
+
+// readFiles reads the "May change" list of each implementer row's ticket,
+// and of the ticket of each run in its files. It keeps the runs whose list
+// meets the row's, with the two entries that meet, as admission's rule
+// files_in_flight meets them. A body that does not read holds no list, and
+// returns its UNREAD line.
+func readFiles(ctx context.Context, w World, rows []itemRow) []string {
+	lists := map[string][]string{}
+	var unread []string
+	read := func(project, item string) []string {
+		key := project + "/" + item
+		if l, ok := lists[key]; ok {
+			return l
+		}
+		body, err := w.Body(ctx, project, item)
+		if err != nil {
+			unread = append(unread, fmt.Sprintf("UNREAD: %s: read the body of %s: %v", project, item, err))
+		}
+		lists[key] = admission.MayChangeEntries(body)
+		return lists[key]
+	}
+	for i := range rows {
+		row := &rows[i]
+		if len(row.files) == 0 {
+			continue
+		}
+		var kept []fileRun
+		if mine := read(row.item.Project, row.item.ID); len(mine) > 0 {
+			for _, f := range row.files {
+				var ok bool
+				if f.mine, f.theirs, ok = admission.MeetingEntries(mine, read(row.item.Project, f.item)); ok {
+					kept = append(kept, f)
+				}
+			}
+		}
+		row.files = kept
+	}
+	return unread
 }
 
 // readCapRuns reads each run on the instance of a stage that a limit of
@@ -628,6 +708,7 @@ type fireTally struct {
 	held    []heldFire    // the fires that an older item's run refused with the stage mutex
 	refused []sched.Drain // the drains that refused a fire
 	full    string        // the newest fire that a full limit refused
+	files   string        // the newest fire that rule files_in_flight refused
 }
 
 // heldFire is one fire that a run on an older item of the queue refused,
@@ -650,6 +731,9 @@ func (c fireTally) others(stage string) []string {
 	}
 	if c.full != "" {
 		out = append(out, c.full)
+	}
+	if c.files != "" {
+		out = append(out, c.files)
 	}
 	for _, d := range c.refused {
 		if d.To.IsZero() {
@@ -685,6 +769,10 @@ func queueFires(row itemRow, now time.Time, drains []sched.Drain) (c fireTally) 
 			if d.To.IsZero() {
 				break // the drain is on, and holds every later fire too
 			}
+			continue
+		}
+		if line := filesHeld(row, fire); line != "" {
+			c.files = line + " at the fire of " + stamp(fire)
 			continue
 		}
 		var took []queueRun
@@ -741,6 +829,19 @@ func mutexHolder(row itemRow, fire time.Time) (queueRun, bool) {
 		}
 	}
 	return queueRun{}, false
+}
+
+// filesHeld names the implementer run in the row's files that was live at
+// the fire: it started before the fire, and had not ended at it. Admission
+// refused the row then with rule files_in_flight. Empty when none was.
+func filesHeld(row itemRow, fire time.Time) string {
+	for _, f := range row.files {
+		if f.at.Before(fire) && (f.ended.IsZero() || f.ended.After(fire)) {
+			return fmt.Sprintf("admission refused it with rule files_in_flight: `%s` meets `%s` of %s, which implementer run %s held",
+				f.mine, f.theirs, f.item, f.run)
+		}
+	}
+	return ""
 }
 
 // capHeld checks each limit of the row's stage at the fire, as admission
