@@ -91,25 +91,43 @@ serves.
 The epic body asks "how an upgrade, a project removal and a re-registration move or close each
 coordinator", and names factorio-29766af, which moves the one coordinator today.
 
+### US-07 I get a project's coordinator back after a close or a move
+
+As the operator, I can get a project's coordinator back after I close its session by accident, or
+after I move the loop to a new machine, so that each project keeps its home coordinator and its
+work in flight.
+
+> "every project should have its own "home" coordinator."
+
+The operator added this need in a comment on PR #385 on 2026-11-04: "suppose i migrate to a new
+machine or i accidentally close it? we would need a way for the coordinator to reregister." No
+story quotes the comment, because a story quotes only the request. US-07 names it as its source.
+
 ## Scope check
 
-US-01 is the base. US-02, US-03, US-05 and US-06 each change one behaviour of a coordinator that
+US-01 is the base. US-02, US-03, US-05, US-06 and US-07 each change one behaviour of a coordinator that
 US-01 starts. US-04 names the coordinator that keeps the work no project owns.
 
-**Stories:** 6
-**Estimated total:** 1,900 lines
+**Stories:** 7
+**Estimated total:** 2,300 lines
 **Lands independently?** Yes.
 
-- US-01 merges alone, together with the two transition requirements under it. Each project gets a
-  session. Until US-02 lands, the doorbell rings one coordinator with every entry, as it does today.
-  That coordinator serves the project whose repository holds the old `loop-coordinator` checkout.
-  It is first the session that ran before this change, and then the session that starts after it.
+- US-01 merges alone, together with the four transition requirements under it. They start "On the
+  first start of this release", "Until that session ends", "Each other project with a project
+  config" and "The project whose repository holds the old". Each project gets a session. Until
+  US-02 merges, the doorbell rings one coordinator with every entry, as it does today. That
+  coordinator serves the project whose repository holds the old `loop-coordinator` checkout.
+  First, that coordinator is the session that ran before this change. After that session ends, it
+  is the new session that starts in the same checkout. The alert of a failed start rings the loop
+  project's coordinator. When the old checkout's project has no project config, every entry rings
+  the loop project's coordinator until US-02 merges.
 - US-02 needs US-01 and merges alone after it.
 - US-03 needs US-01 and merges alone.
 - US-04 merges together with US-02 or after it. The instance-wide work needs a ring that a project
   filter does not drop.
 - US-05 needs US-01 and merges alone.
 - US-06 needs US-01 and merges alone.
+- US-07 needs US-01 and merges alone.
 
 **Promises provable alone?** Yes.
 
@@ -120,6 +138,8 @@ US-01 starts. US-04 names the coordinator that keeps the work no project owns.
 - "A loop fault reaches the loop project's coordinator" needs one fault and two fake sessions.
 - "Send reaches the named coordinator" needs the send verb and two fake sessions.
 - "Removal closes one coordinator" needs the scheduler and two fixture projects.
+- "Restart creates a missing checkout again" needs the scheduler, a fake agent host and one fixture
+  project.
 
 **Verdict:** proceed.
 
@@ -128,9 +148,10 @@ US-01 starts. US-04 names the coordinator that keeps the work no project owns.
 Each project that the loop serves has a coordinator of its own, in a checkout of that project. The
 server starts that coordinator once the project's default branch holds the project config that
 loop-init lands. The operator talks about a project with that coordinator. That coordinator brings
-only that project's work. It changes only that project, except a loop fault that the loop project's
-coordinator files as a bug. The loop's own work, such as loop faults and upgrades, has its home in
-the loop project's coordinator.
+only that project's work. It changes only that project, except the work that US-03 grants the
+loop project's coordinator. The loop's own work, such as loop faults and upgrades, has its home in
+the loop project's coordinator. After the operator closes a coordinator by accident, or moves the
+loop to a new machine, the project gets its coordinator back.
 
 ## Requirements
 
@@ -168,7 +189,8 @@ holds six kinds:
   loop project's coordinator. The failure stops no other project's coordinator from starting.
   → § US-01
 - On the first start of this release, the one coordinator that ran before this change gets the
-  release message. Its session runs on until it ends. The server then revokes its token. No
+  release message. The server does not end its session. When the session ends, the server revokes
+  its token. No
   unscoped session starts after it.
   → § US-01
 - Until that session ends, it is the coordinator of the project whose repository holds the old
@@ -182,22 +204,26 @@ holds six kinds:
   when the old session ends. When its default branch holds a project config, the new coordinator
   starts in the old checkout. Otherwise, the server removes the checkout.
   → § US-01
-- A new inbox entry of a project rings only that project's coordinator. This rule has two
+- A new inbox entry of a project rings only that project's coordinator. This rule has three
   exceptions, and each one rings the loop project's coordinator:
   1. the alert of a coordinator that failed to start
   2. an entry of a registered project that has no coordinator, because its default branch holds no
      project config
+  3. a loop fault, whatever project it names
   → § US-02
 - An overwatch finding that names a project rings only that project's coordinator. A finding of the
   `rules` part is the exception. It is instance-wide work.
   → § US-02
-- The inbox that a project's coordinator lists holds the entries of that project only.
+- The inbox that a project's coordinator lists holds the entries of that project only. The
+  inbox of the loop project's coordinator also holds each entry that rings it by an exception of
+  US-02 or by US-04.
   → § US-02
-- When a project has a coordinator but no running session, its new entries wait. The first ring
-  after the next session starts names each entry that arrived while no session ran.
+- When a project has a coordinator but no running session, its new entries wait. When the next
+  session starts, its first ring names each entry that arrived while no session ran.
   → § US-02
 - A project's coordinator may run a coordinator verb only on a record of its own project. A record
-  is an item, a room, an inbox entry, a decision, an alert or a setting.
+  is an item, a room, an inbox entry, a decision, an alert or a setting. The rule below on the
+  entries that ring the loop project's coordinator is an exception.
   → § US-03
 - The server refuses a coordinator verb that names another project's record. The refusal names the
   project that owns the record.
@@ -208,6 +234,9 @@ holds six kinds:
   states this step.
   → § US-03
 - A project's coordinator changes the settings of its own project only.
+  → § US-03
+- The loop project's coordinator may list, and run a coordinator verb on, each entry that rings it
+  by an exception of US-02 or by US-04.
   → § US-03
 - When a project's coordinator runs `loop stage pause` or `loop stage resume` with no `--project`,
   the verb acts on that coordinator's project only. The loop project's coordinator is the
@@ -220,10 +249,11 @@ holds six kinds:
   coordinator.
   → § US-04
 - The server admits the host verbs `upgrade`, `rollback` and `doctor` only from the loop project's
-  coordinator, in its own checkout. It refuses them from every other coordinator. The operator's
-  shell, outside every checkout, still runs them.
+  coordinator, in its own checkout. It refuses them from every other coordinator. The operator can
+  still run them from a shell that is no coordinator's session.
   → § US-04
-- An alert or an overwatch finding that names no project rings the loop project's coordinator.
+- An inbox entry, an alert or an overwatch finding that names no project rings the loop project's
+  coordinator.
   → § US-04
 - The `rules` part of the overwatch sweep reaches the loop project's coordinator, which may read
   the default branch of each registered project to compare their rules.
@@ -249,6 +279,33 @@ holds six kinds:
 - When the operator registers a removed project again, its coordinator starts by the same rule as a new
   project's, in a new `loop-coordinator` checkout.
   → § US-06
+- When a project's coordinator session ends, the next session resumes the conversation of the last
+  session when the harness can resume it. The next session gets a new token and the runbook of the
+  release that the server runs.
+  → § US-07
+- When the harness cannot resume that conversation, the first message of the next session names
+  the work that the last session left open. That work is each question it prepared, each room it
+  opened that is still open, and each entry that arrived while no session ran.
+  → § US-07
+- When a project's `loop-coordinator` checkout is missing, the server starts no session for that
+  project. The alert of the failed start names the verb `loop coordinator restart`.
+  → § US-07
+- The host verb `loop coordinator restart --project <project>` ends the session of that project's
+  coordinator when one runs, and revokes its token. It creates the `loop-coordinator` checkout
+  again when the checkout is missing. Then it writes a new token into the checkout and starts a
+  session.
+  → § US-07
+- The session that `loop coordinator restart` starts does not resume the last conversation. Its
+  first message names the work that the last session left open, as the requirement above states.
+  → § US-07
+- The server admits `loop coordinator restart` only from a shell that is no coordinator's session.
+  It refuses the verb from every coordinator, and from the loop project's coordinator too.
+  → § US-07
+- `loop coordinator restart` refuses a project that is not registered, or whose default branch
+  holds no project config. The refusal names the project.
+  → § US-07
+- `loop coordinator restart` for one project changes no other project's coordinator.
+  → § US-07
 
 ## Acceptance criteria
 
@@ -286,16 +343,34 @@ holds six kinds:
   Each other project with a project config gets a coordinator of its own at once, and each terminal
   title names its project.
 - **A18.** When the session of the coordinator that ran before this change ends, its token no
-  longer works. The project that holds the old checkout then gets its own coordinator in that
-  checkout.
+  longer works. When the project that holds the old checkout has a project config, it then gets its
+  own coordinator in that checkout. Otherwise the checkout is gone.
 - **A19.** An entry of project A that arrives while A's coordinator has no running session rings no
-  coordinator. The first ring after A's next session starts names that entry.
+  coordinator. When A's next session starts, its first ring names that entry.
 - **A20.** When A's coordinator fails to start, an alert that names A rings the loop project's
   coordinator, and B's coordinator still starts.
 - **A21.** A new entry of a registered project with no project config on its default branch rings
   the loop project's coordinator.
-- **A22.** When A's coordinator runs `loop stage pause` on a stage with no `--project`, the stage
-  pauses in A and does not pause in B.
+- **A22.** When A's coordinator pauses a stage with `loop stage pause` and no `--project`, the
+  stage pauses in A and does not pause in B.
+- **A23.** A loop fault that a run of A reports appears in the loop project's coordinator's inbox
+  list, and its `loop fault ack` succeeds.
+- **A24.** When A's coordinator session ends and the harness can resume its conversation, A's next
+  session continues that conversation with a new token. The old token no longer works.
+- **A25.** When A's coordinator session ends and the harness cannot resume its conversation, the
+  first message of A's next session names each question that the last session prepared, each room
+  it opened that is still open, and each entry that arrived while no session ran.
+- **A26.** When A's `loop-coordinator` checkout is missing, the server starts no session for A, and
+  an alert names `loop coordinator restart`. Then `loop coordinator restart --project A` from the
+  operator's shell creates the checkout again and starts A's coordinator in it. B's coordinator
+  session keeps the same session id.
+- **A27.** When A's coordinator session runs, `loop coordinator restart --project A` ends it, and
+  its token no longer works. The new session does not continue the last conversation, and its
+  first message names the work that the last session left open.
+- **A28.** When a coordinator session runs `loop coordinator restart`, the server refuses, and no
+  coordinator changes.
+- **A29.** `loop coordinator restart` that names a project with no project config on its default
+  branch refuses, and starts no session.
 
 ## Boundaries with other epics
 
@@ -318,11 +393,12 @@ holds six kinds:
 - **The operating guide.** `docs/operating.md` § Talk to the coordinator says that one coordinator
   serves every project. It also says that a removal moves the coordinator to another project. Both
   conflict with US-01 and US-06. The spec names each sentence that must change.
-- **Checked against:** every PRD in `docs/prd/` and ADRs 0004, 0007, 0009 and 0011. No conflict
-  found. ADR 0011 names "the coordinator", and each project's coordinator now does that work for its own
-  items. Its file is `docs/adr/0011-coordinator-recovers-twice-failed-item.md`. ADR 0004 lets
-  `stage pause` with no `--project` act in every project. US-03 keeps that only for the loop
-  project's coordinator. Its file is `docs/adr/0004-operator-visibility.md`.
+- **Checked against:** every PRD in `docs/prd/` and ADRs 0004, 0007, 0009 and 0011. ADR 0004,
+  `docs/adr/0004-operator-visibility.md`, lets `stage pause` with no `--project` act in every
+  project. US-03 changes that: it keeps the every-project pause only for the loop project's
+  coordinator. The spec names the ADR 0004 text that changes. ADR 0011,
+  `docs/adr/0011-coordinator-recovers-twice-failed-item.md`, names "the coordinator", and each
+  project's coordinator now does that work for its own items.
 
 ## Out of scope
 
@@ -331,17 +407,19 @@ holds six kinds:
 - A change to what any coordinator does with an entry, a fault or a finding. The coordinator
   runbook keeps its steps. This epic changes only which coordinator receives the work.
 - A change to how the loop project's coordinator files a loop fault as a bug in another project.
-  Runbook § 9 step 3 keeps that step, and US-03 names it as the one exception to its scope.
+  Runbook § 9 step 3 keeps that step, and US-03 names it as one of its exceptions.
 - A change to `loop register` beyond starting no coordinator. Register keeps its other steps.
 - A change to loop-init. It still lands the project config on the default branch, and that landing
   is the start signal.
 - A coordinator session for a room or a run. Rooms and runs keep their own sessions.
+- A move of a conversation's history to a new machine. On a new machine the harness holds no
+  history, so the first message of the new session names the work left open.
 
 ## Open questions
 
 - Which coordinator serves the instance-wide work when the loop project is not registered on the
   host, or after the operator removes it? The epic body names factorio as the loop project. It does
-  not say what a host without it does. Blocks: A9 and A10.
+  not say what a host without it does. Blocks: A9, A10, A20 and A21.
 - Which coordinator receives `loop coordinator send` when the operator names no project? One answer
   picks the project of the clone that the shell runs in. Another refuses and lists the running
   coordinators. Both fit the request. Blocks: A11.
@@ -353,7 +431,7 @@ holds six kinds:
 - How does the server name the loop project? The epic body names factorio. Today the host config
   names the coordinator's project in `CoordinatorConfig.Project`, in
   `internal/sched/coordinator.go`. The spec chooses between the host config and the repository the
-  loop releases from. Blocks: A9.
+  loop releases from. Blocks: A9, A20 and A21.
 - Does the decision of who serves instance-wide work need an ADR? Four facts bear on it:
   1. It binds every later epic that adds a coordinator verb.
   2. It rejects one coordinator for the instance.
