@@ -165,8 +165,9 @@ again.
   ticket to a person, and not back to the implementer.
 - Only a person waives a stop condition. `loop review checklist` names each standing answer of a
   stop condition, such as `answer-14`. A standing answer is an operator answer recorded after the
-  latest review that found that stop condition fired. Mark the line `waived` only when such an
-  answer waives it. Name the answer in the evidence, and quote it.
+  latest review that found that stop condition fired. Before any review found it fired, each
+  operator answer on the ticket stands. Mark the line `waived` only when such an answer waives it.
+  Name the answer in the evidence, and quote it.
 
 A defect that the merge base already holds is outside every round, round 1 included. The diff did
 not add it, and its author cannot repair it inside the ticket. It shows at the merge base when the
