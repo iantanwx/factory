@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 )
@@ -39,6 +40,18 @@ func TestRoomPromptNamesItsRunbookAndReason(t *testing.T) {
 	}
 	if Stage("decision") != "decision-room" {
 		t.Fatal(Stage("decision"))
+	}
+}
+
+// TestEveryRoomPromptHoldsTheManneredProseDefinition proves that the
+// first user message of every kind of room holds the definition
+// (factorio-kv8f). A room's session reads this prompt, not brief.Prompt.
+func TestEveryRoomPromptHoldsTheManneredProseDefinition(t *testing.T) {
+	for _, k := range Kinds {
+		p := Prompt(&Room{ID: "room-1", Project: "alpha", Kind: k, Reason: "a reason"}, "runbook.md")
+		if !strings.Contains(p, brief.ManneredProse) {
+			t.Errorf("the %s room prompt lacks the mannered-prose definition:\n%s", k, p)
+		}
 	}
 }
 

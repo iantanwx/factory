@@ -269,6 +269,21 @@ func TestCoordinatorShipsItsReadOnlySubagents(t *testing.T) {
 	}
 }
 
+// TestEveryAgentAndRule32QuoteTheManneredProseDefinition proves that each
+// subagent of the pack, and the unslop rule a reviewer checks, quote the
+// definition each prompt gives, word for word. Line breaks do not count.
+func TestEveryAgentAndRule32QuoteTheManneredProseDefinition(t *testing.T) {
+	agents, err := fs.Glob(pack.Source(), "agents/*.md")
+	if err != nil || len(agents) == 0 {
+		t.Fatalf("agents = %v, %v", agents, err)
+	}
+	for _, name := range append(agents, "skills/loop-unslop/SKILL.md") {
+		if !strings.Contains(strings.Join(strings.Fields(read(t, name)), " "), brief.ManneredProse) {
+			t.Errorf("%s does not quote the mannered-prose definition", name)
+		}
+	}
+}
+
 // fixtureSkill is a fetched skill as upstream ships it: a front matter
 // with its upstream name, a body that names its own path, and one
 // executable file.
