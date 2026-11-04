@@ -63,8 +63,12 @@ by `../loop-sdlc-review/SKILL.md` § 4.
 Make one finding of two findings on one place, and name each reader that returned it. Rank the
 confirmed findings by `../loop-sdlc-review/SKILL.md` § 3, the worst first, in the one comment.
 Each confirmed finding names its permalink, its rule and its proposed edit, so the reviser can
-act on the comment alone. A confirmed prose finding may reject the document alone, by
-`../loop-sdlc-review/SKILL.md` § 6.
+act on the comment alone.
+
+A prose finding comes from the `unslop` or the `asd-ste100` reader. In round 1, a confirmed prose
+finding may reject the document alone. In round 2 and later, name each prose finding in the comment
+as not blocking. Only a content finding rejects. A later round rejects no text that an earlier
+round's proposed edit wrote, below level 4. `../loop-sdlc-review/SKILL.md` § 6 states each rule.
 
 ## 5. Score each question
 
