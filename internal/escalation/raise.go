@@ -225,6 +225,10 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Refuse(cli.Refusal{Code: cli.CodeTransitionNotAllowed, Rule: "already_routed", Item: rec.Item,
 			Hint: fmt.Sprintf("escalation %d is already routed: %s", id, rec.State)})
 	}
+	var capped bool
+	if err := s.Store.Read(ctx, func(tx *sql.Tx) error { capped, err = isCap(tx, rec); return err }); err != nil {
+		return cli.Internal(err)
+	}
 	d := DecideAll(panels, DefaultThresholds)
 	body := ""
 	if rel != nil && d.Route == RouteLoop {
@@ -244,6 +248,14 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 		return cli.Internal(err)
 	}
 	if d.Route == RouteLoop {
+		// The loop returns a capped PRD to the reviser, once for each epic.
+		if capped {
+			res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: machine.VerbCapReturn,
+				Params: map[string]string{"escalation": strconv.FormatInt(id, 10)}, Actor: machine.Server("escalation")})
+			if res.Refusal != nil {
+				return res
+			}
+		}
 		if body != "" {
 			res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: "edit",
 				Params: map[string]string{"body": body}, Actor: machine.Server("escalation")})
@@ -263,7 +275,8 @@ func (s *Service) route(ctx context.Context, call *rpc.Call) cli.Result {
 		if res.Refusal != nil {
 			s.log().WarnContext(ctx, "the triaged note was not written", "item", rec.Item, "code", res.Refusal.Code)
 		}
-	} else {
+	} else if !capped {
+		// A capped PRD is already escalated, and waits for a person.
 		res := s.Machine.Apply(ctx, machine.Request{Project: rec.Project, Item: rec.Item, Verb: machine.VerbEscalate,
 			Params: map[string]string{"escalation": strconv.FormatInt(id, 10)}, Actor: machine.Server("escalation")})
 		if res.Refusal != nil {

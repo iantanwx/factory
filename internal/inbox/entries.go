@@ -151,6 +151,17 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			return err
 		}
 		for _, it := range items {
+			// A PRD reject cap escalates its epic and waits for the triage
+			// panel. Its panel entry stands for it until the panel routes it.
+			if it.kind == KindEscalation {
+				rec, err := escalation.Latest(ctx, tx, it.item.Project, it.item.ID, escalation.StateAwaitingPanel)
+				if err != nil {
+					return err
+				}
+				if rec != nil {
+					continue
+				}
+			}
 			if it.kind == KindArchitecture || it.kind == KindDesign {
 				roomed, err := openRoom(ctx, tx, it.item)
 				if err != nil {
@@ -277,6 +288,11 @@ func (in *Inbox) itemEntry(ctx context.Context, tx *sql.Tx, kind string, it mach
 		if rec != nil {
 			text = append(text, fmt.Sprintf("Escalated at level %d %s, choice %s, and the triage panel routed it to a person. The finding:",
 				rec.Level, rec.LevelName, rec.Choice), AgentText(rec.RunID, rec.Finding))
+			// The move that escalated a PRD reject cap names the room that
+			// answers it.
+			if says != "" {
+				text = append(text, says)
+			}
 		} else {
 			text = append(text, "Escalated: "+orDefault(says, "the item reached escalated"))
 		}

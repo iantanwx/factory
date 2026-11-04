@@ -19,6 +19,7 @@ const (
 	FactRejects      = "rejects"       // review rejects of a ticket
 	FactModelTier    = "model_tier"    // escalated after two rejects
 	FactPRDRejects   = "prd_rejects"   // review rejects of an epic's PRD
+	FactCapReturned  = "cap_returned"  // the escalation whose loop route returned the capped PRD to the reviser
 	FactOwner        = "owner"         // the run that holds the lease
 	FactStage        = "stage"         // the stage of that lease
 	FactNote         = "note"          // the last note

@@ -464,9 +464,13 @@ func terminal(tx *store.Tx, ev machine.TerminalEvent) error {
 }
 
 // applied is the machine's Applied hook: it writes the retro signals of
-// the move, then ends the inbox defer of a fired decision's hold.
+// the move, opens the escalation of a PRD reject cap, then ends the inbox
+// defer of a fired decision's hold.
 func applied(tx *store.Tx, ev machine.AppliedEvent) error {
 	if err := retro.SignalsFor(tx, ev); err != nil {
+		return err
+	}
+	if err := escalation.OpenCap(tx, ev); err != nil {
 		return err
 	}
 	return inbox.EndHoldDefer(tx, ev)

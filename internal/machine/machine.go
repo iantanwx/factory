@@ -86,9 +86,17 @@ type AppliedEvent struct {
 	Project, Item string
 	Kind          Kind
 	Verb          string
+	When          string // the selector of the row the write matched, or empty
 	From, To      string
-	Transition    int64 // the transitions row id
+	RunID         string // the run that made the write, or empty
+	Transition    int64  // the transitions row id
+	set           map[string]string
 }
+
+// Fact is the value the write set for the named fact, or empty. The hook
+// runs in a SQLite transaction and cannot read the bead, so the event
+// carries what the write set.
+func (ev AppliedEvent) Fact(name string) string { return ev.set[factPrefix+name] }
 
 // Machine applies intent verbs to work items.
 type Machine struct {
@@ -440,6 +448,8 @@ type facts struct {
 	Command string            `json:"command,omitempty"`
 	Request string            `json:"request_id,omitempty"`
 	Says    string            `json:"says,omitempty"`
+	// When is the selector of the row the write matched, or empty.
+	When string `json:"when,omitempty"`
 	// Bug is the item's bug fact: the bug a shaped ticket came from.
 	Bug string `json:"bug,omitempty"`
 	// Fence is the bead assignee the write expects: the epoch fence.

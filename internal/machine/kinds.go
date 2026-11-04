@@ -56,6 +56,7 @@ const (
 	VerbBaseMerged         = "base_merged"    // ticket: queued -> queued at the server's merge of the base
 	VerbBuildCanceled      = "build_canceled" // bug: awaiting_build -> reported (server)
 	VerbBuildLanded        = "build_landed"   // bug: awaiting_build -> duplicate (server)
+	VerbCapReturn          = "cap_return"     // epic: escalated -> prd_amending, a triage panel's loop route of the PRD reject cap
 	VerbCIRed              = "ci_red"
 	VerbCreate             = "create"
 	VerbCreateArchitecture = "create_architecture"

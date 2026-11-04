@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -92,6 +93,13 @@ func newDocWorld(t *testing.T) (*humanWorld, *GitHub, *gt.API) {
 // from the run's checkout and finishes the run.
 func (w *humanWorld) docReview(epic, verdict string) {
 	w.t.Helper()
+	w.docReviewSays(epic, verdict, "")
+}
+
+// docReviewSays is docReview with the verdict's body, or none when body is
+// empty.
+func (w *humanWorld) docReviewSays(epic, verdict, body string) {
+	w.t.Helper()
 	ctx := context.Background()
 	st, ref := w.srv.Sched.Dispatch(ctx, "alpha", machine.StageDocReviewer)
 	if ref != nil || st == nil || st.Item != epic {
@@ -102,8 +110,11 @@ func (w *humanWorld) docReview(epic, verdict string) {
 		w.t.Fatalf("pr show = %d %v", code, pr)
 	}
 	head := pr["data"].(map[string]any)["head_sha"].(string)
-	if env, code := w.as(st.Checkout, "review", "submit", epic, "--verdict", verdict, "--head", head,
-		"--readers", "unslop,asd-ste100,content-lens"); code != 0 {
+	args := []string{"review", "submit", epic, "--verdict", verdict, "--head", head, "--readers", "unslop,asd-ste100,content-lens"}
+	if body != "" {
+		args = append(args, "--body", body)
+	}
+	if env, code := w.as(st.Checkout, args...); code != 0 {
 		w.t.Fatalf("review submit = %d %v", code, env)
 	}
 	if _, ref := w.srv.Sched.Finish(ctx, st.RunID, "done"); ref != nil {
@@ -114,7 +125,8 @@ func (w *humanWorld) docReview(epic, verdict string) {
 // A brainstorm room submits its PRD through the CLI: one epic in prd_review
 // with one PR, also on a repeat. A pass puts a sign-off entry in the inbox
 // that links the PR. AE7 over the scheduler: the first reject starts one
-// amender run, and the second waits in the inbox for a brainstorm room.
+// amender run. The second waits for the triage panel, and after the
+// panel's route to a person, in the inbox for a brainstorm room.
 func TestBrainstormRoomSubmitsAPRDThroughTheServer(t *testing.T) {
 	w, _, api := newDocWorld(t)
 	ctx := context.Background()
@@ -168,6 +180,11 @@ func TestBrainstormRoomSubmitsAPRDThroughTheServer(t *testing.T) {
 	}
 	if st, _ := w.srv.Sched.Dispatch(ctx, "alpha", machine.StageReviser); st != nil {
 		t.Fatalf("an amender run started after the second reject: %+v", st)
+	}
+	triage := w.runToken("fix-1", "", "triage")
+	panelFile(t, triage, "preference", nil)
+	if env, code := w.as(triage, "escalation", "route", fmt.Sprint(w.capEscalation(epic).ID), "--file", "panel.json"); code != 0 {
+		t.Fatalf("route = %d %v", code, env)
 	}
 	e := entryByID(w.entries("person"), "escalation/alpha/"+epic)
 	if e == nil || !strings.Contains(e["text"].(string), "brainstorm room") {

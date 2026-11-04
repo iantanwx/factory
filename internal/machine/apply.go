@@ -241,7 +241,7 @@ func (e *leaseError) Error() string { return fmt.Sprintf("machine: the lease is 
 // answer that settles the intent is the answer a retry replays (AE4).
 func (m *Machine) record(ctx context.Context, c *change, epoch int64, expectFence string) (store.Intent, error) {
 	f := facts{Set: c.set, Unset: c.unset, Epoch: c.epoch, Owner: c.owner, Kind: c.item.Kind,
-		Command: c.req.Command, Request: c.req.RequestID, Says: c.row.Says, Fence: expectFence, Bug: c.fact(FactBug)}
+		Command: c.req.Command, Request: c.req.RequestID, Says: c.row.Says, When: c.row.When, Fence: expectFence, Bug: c.fact(FactBug)}
 	raw, err := json.Marshal(f)
 	if err != nil {
 		return store.Intent{}, err
@@ -386,8 +386,8 @@ func (m *Machine) markApplied(ctx context.Context, in store.Intent, f facts) (cl
 			return err
 		}
 		if m.cfg.Applied != nil {
-			if err := m.cfg.Applied(tx, AppliedEvent{Project: in.Project, Item: in.Item, Kind: f.Kind, Verb: in.Verb,
-				From: in.ExpectedStatus, To: in.TargetStatus, Transition: in.ID}); err != nil {
+			if err := m.cfg.Applied(tx, AppliedEvent{Project: in.Project, Item: in.Item, Kind: f.Kind, Verb: in.Verb, When: f.When,
+				From: in.ExpectedStatus, To: in.TargetStatus, RunID: in.RunID, Transition: in.ID, set: f.Set}); err != nil {
 				return err
 			}
 		}
