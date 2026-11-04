@@ -126,22 +126,47 @@ each state with its picture, its target and its pixel mark, and each acceptance 
 
 ## 6. Write the comment
 
-Put the findings first, the worst first. Write one line for each contract, each done line and each
-stop condition, with pass or fail and its evidence. A fault that no line covers is a fail of its
-own, unless it shows at the merge base.
+Put the findings first, the worst first. Then write the checklist. Run
+`loop review checklist <item>`. It names each id that the verdict owes:
 
-Name each contract by its id, such as `C3` or `C-bug-1`. On a ticket with a `shape` fact, the
-server refuses a pass or a reject whose comment does not name each contract id. The refusal is
-`SHAPE_REFUSED` with rule `contract_unnamed`, and its hint names each missing id. It posts no
-comment and records nothing. Add the missing lines, and submit again.
+- each contract id, such as `C3` or `C-bug-1`
+- `D<n>` for each line of `## Done means`, in order
+- `stop<n>` for each line of `## Stop conditions`, in order
+
+Write one checklist line for each id, in this form, with the result and its evidence:
+
+```text
+- C1 pass: the proof is red at the merge base, and green at the head.
+- D2 fail: the lint gate is red at the head.
+- stop1 pass: the change calls no paid API.
+- X1 fail: the change logs the token in verbs.go:212.
+```
+
+The result is `pass`, `fail` or `waived`. A fault that no owed line covers is an extra finding
+`X<n>`, and it reads `fail`. A fault that shows at the merge base is no finding of this round.
+
+On a ticket with a `shape` fact, the server checks the checklist. Each refusal is `SHAPE_REFUSED`.
+It posts no comment and records nothing. Its hint names each fault. Repair the lines, and submit
+again.
+
+| Rule | When |
+| --- | --- |
+| `contract_unnamed` | the comment does not name a contract id |
+| `checklist_incomplete` | an owed id has no line, or its line has no evidence |
+| `checklist_waiver` | a `waived` line is not a stop condition, or names no standing answer |
+| `checklist_fail` | a pass holds a `fail` line or an `X<n>` line |
 
 - A pass holds no fail. A reject holds at least one.
 - Round 1 checks every line, because a line it skips is what round 3 raises.
 - In a later round, a line that passed keeps its pass unless the diff changed what it governs.
   Name the round and the head of that pass.
 - A fail that reverses an earlier pass names that round, the reason and the change in the diff.
-- A fired stop condition is a finding to escalate. Mark it waived only when a recorded answer of a
-  person waives it, and quote that answer.
+- A fired stop condition reads `fail`. Submit the verdict as a reject. The server then sends the
+  ticket to a person, and not back to the implementer.
+- Only a person waives a stop condition. `loop review checklist` names each standing answer of a
+  stop condition, such as `answer-14`. A standing answer is an operator answer recorded after the
+  latest review that found that stop condition fired. Mark the line `waived` only when such an
+  answer waives it. Name the answer in the evidence, and quote it.
 
 A defect that the merge base already holds is outside every round, round 1 included. The diff did
 not add it, and its author cannot repair it inside the ticket. It shows at the merge base when the

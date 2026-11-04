@@ -160,6 +160,7 @@ var surface = []Verb{
 		Flag{Name: "readers", Type: FlagString, Description: "a doc review only: the readers that returned, comma-separated; the set must be the readers the run's brief names, and the round records it"})),
 	server("review", "threads", "list the pull request's comments, each review comment with its thread's resolved, outdated and awaiting-us state", []string{"reviewer run"}, []Arg{itemArg}),
 	server("review", "rounds", "list review rounds", []string{"reviewer run"}, []Arg{itemArg}),
+	server("review", "checklist", "list each line a code verdict on the ticket owes: each contract id, D<n> for each Done means line and stop<n> for each stop condition, and for each stop condition the operator answers a waived line may name", []string{"reviewer run"}, []Arg{itemArg}),
 	client("review", "proof", "run the pull request's tests at the merge base in a throwaway worktree, remove the worktree whatever happens, and check that the reviewed checkout is still clean at its head", []string{"reviewer run"}, nil,
 		Flag{Name: "test", Type: FlagString, Required: true, Description: "the test files to bring from the head, comma-separated paths inside the checkout"},
 		Flag{Name: "bring", Type: FlagString, Description: "other files the tests need from the head, such as a fixture the pull request added; comma-separated"},

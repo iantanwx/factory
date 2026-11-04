@@ -1764,6 +1764,24 @@
         "from": [
           "in_review"
         ],
+        "to": "escalated",
+        "when": "stop_fired",
+        "command": "review submit",
+        "facts": [
+          "resume",
+          "resume_entry",
+          "escalation",
+          "stops_fired",
+          "rejected_head",
+          "review"
+        ],
+        "lease": "drop"
+      },
+      {
+        "verb": "review_reject",
+        "from": [
+          "in_review"
+        ],
         "to": "todo",
         "command": "review submit",
         "facts": [
