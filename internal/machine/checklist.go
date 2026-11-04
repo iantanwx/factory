@@ -41,15 +41,20 @@ func firedStops(it Item, review string) []string {
 	owed, _ := checklistOf(it)
 	var out []string
 	for _, c := range shape.Checks(review) {
-		if c.Result == shape.Fail && isStop(c.ID) && slices.ContainsFunc(owed, func(o shape.Owed) bool { return o.ID == c.ID }) &&
-			!slices.Contains(out, c.ID) {
+		if c.Result == shape.Fail && isStop(c.ID) && owes(owed, c.ID) && !slices.Contains(out, c.ID) {
 			out = append(out, c.ID)
 		}
 	}
 	return out
 }
 
+func owes(owed []shape.Owed, id string) bool {
+	return slices.ContainsFunc(owed, func(o shape.Owed) bool { return o.ID == id })
+}
+
 func isStop(id string) bool { return strings.HasPrefix(id, "stop") }
+
+func isExtra(id string) bool { return strings.HasPrefix(id, "X") }
 
 // stopFired selects the reject row that sends the ticket to a person.
 func stopFired(c *change) bool { return len(firedStops(c.item, c.param("body"))) > 0 }
@@ -91,7 +96,7 @@ func (m *Machine) checklistHeld(ctx context.Context, it Item, verdict, review st
 	var checks []shape.Check
 	held := map[string]bool{}
 	for _, c := range shape.Checks(review) {
-		if c.Evidence != "" && (strings.HasPrefix(c.ID, "X") || slices.ContainsFunc(owed, func(o shape.Owed) bool { return o.ID == c.ID })) {
+		if c.Evidence != "" && (isExtra(c.ID) || owes(owed, c.ID)) {
 			checks = append(checks, c)
 			held[c.ID] = true
 		}
@@ -139,7 +144,7 @@ func (m *Machine) checklistHeld(ctx context.Context, it Item, verdict, review st
 	}
 	var fails []string
 	for _, c := range checks {
-		if c.Result == shape.Fail || strings.HasPrefix(c.ID, "X") {
+		if c.Result == shape.Fail || isExtra(c.ID) {
 			fails = append(fails, c.ID)
 		}
 	}
