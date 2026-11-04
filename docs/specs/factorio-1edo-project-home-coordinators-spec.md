@@ -51,9 +51,10 @@ US-05 and US-07, each alone. Work entry 12 changes the operating guide.
 
 The old session is the one coordinator session that runs when this release first starts. Work
 entry 7 builds no part of US-07. It starts each next session fresh, as today. It writes the
-left-open list only into the first session after the old session (PRD L200-L204, US-01), and into
-the next session of a row that a rollback's hand-back marked `Revoked`. Work entry 11 adds the
-resume and the left-open list for every next session, because the PRD merges US-07 alone.
+left-open list into two sessions only. One is the first session after the old session (PRD
+L200-L204, US-01). The other is the next session of a row that a rollback's hand-back marked
+`Revoked`. Work entry 11 adds the resume and the left-open list for every next session, because
+the PRD lets US-07 merge alone.
 
 **Not in this spec:**
 
@@ -69,7 +70,7 @@ resume and the left-open list for every next session, because the PRD merges US-
 ### Answers a person already gave
 
 - **One coordinator for each registered project with a project config, and the loop project's
-  coordinator serves the instance-wide work.** The operator signed off ADR 0015 by its merge at
+  coordinator serves the instance-wide work.** The operator approved ADR 0015 by its merge at
   `a7ca870`. ADR 0015 also answers the PRD's open question on whether this needs an ADR.
 - **The old session keeps its unscoped token until it ends.** The PRD says so at L188-L196. The
   doc-reviewer's round 2 of ADR 0015 named this choice as the operator's. This spec keeps it.
@@ -118,7 +119,7 @@ resume and the left-open list for every next session, because the PRD merges US-
   the old session X's coordinator until it ends. We read L193 as a transition rule. While the old
   session lives, L193 wins over L176. L200-L204 then settles what X gets when the old session ends.
   ADR 0015 at L149-L152 makes the old session the coordinator of that project, with no exception for
-  config. The later signed-off document settles the pair. So X's entries ring the old session, and
+  config. The later approved document settles the pair. So X's entries ring the old session, and
   not the loop project's coordinator.
 
 ### Scope of a coordinator's verbs
@@ -155,9 +156,9 @@ resume and the left-open list for every next session, because the PRD merges US-
   stops no write. This answers the PRD's third open question.
 - **The server admits the loop project's coordinator's `work create --kind bug --project <B>` only
   when the body names a loop fault whose project is B.** We chose this check over admitting any bug
-  in any project, because PRD L231-L235 allows only the filing of a loop fault. The runbook keeps
-  the check of the project's policy (§ 9 step 3), because the server cannot read what a policy
-  means.
+  in any project, because PRD L231-L235 lets that coordinator file only a loop fault. The runbook
+  keeps the check of the project's policy (§ 9 step 3), because the server cannot read what a
+  policy means.
 - **`fault show` and `fault list` from a project's coordinator name only its own project's
   faults.** We chose this over open fault reads, because ADR 0015 decision 4 refuses an
   instance-wide verb to a project's coordinator. A run keeps its fault reads as today, because this
@@ -192,8 +193,8 @@ resume and the left-open list for every next session, because the PRD merges US-
   and A3 bounds the start at one tick of 15 seconds. The rule asks whether the file exists. A file
   that does not parse still starts the coordinator, and its `project_config_invalid` alert rings
   that coordinator.
-- **The list of the work that a previous session left open goes into the new session's prompt
-  file.** We chose the prompt over a message after the start. The agent host can refuse a message,
+- **The new session's prompt file holds the list of the work that a previous session left
+  open.** We chose the prompt over a message after the start. The agent host can refuse a message,
   and a refused list needs a record and a retry. The list names each unanswered question of the
   project, and each open room of the project that a coordinator opened. It also names each entry
   after the project's doorbell cursor.
@@ -210,7 +211,7 @@ resume and the left-open list for every next session, because the PRD merges US-
 - **`loop coordinator restart` runs in the scheduler under the tick's lock.** We chose this over
   a server handler that writes the row, so the tick and the verb never both start a session for
   one project.
-- **`loop coordinator restart --project X` ends the old session while it serves X.** We chose this
+- **`loop coordinator restart --project X` closes the old session while it serves X.** We chose this
   over a refusal until the old session ends. The old session is X's coordinator until it ends, and
   the restart is the operator's one way to replace a stuck coordinator. The restart then runs the
   hand-over that the session's end runs.
@@ -239,8 +240,8 @@ resume and the left-open list for every next session, because the PRD merges US-
   - a finding with no project
   - a finding of the `rules` part
   - an UNREAD line
-- **`overwatch.Split` reads each part's `Reading` before `classify` turns the findings into
-  lines.** We chose the readings over the `Report`. A `PartReport` holds only `Lines []string`
+- **`overwatch.Split` reads each part's `Reading` before `classify` converts the findings
+  to lines.** We chose the readings over the `Report`. A `PartReport` holds only `Lines []string`
   (`internal/overwatch/overwatch.go:66-72`). So a split over a report must parse the text to find
   the project. The decision above rejects that parse.
 
@@ -275,8 +276,9 @@ reads that copy.
 its own constant `LoopRepo`, and a test holds it equal to `release.ReleaseRepo`, as
 `internal/retro/route.go:18-21` does today. Two packages keep their own copy of the rule today.
 `retro.loopProject` (`internal/retro/route.go:308-315`) and the `bugs` part of overwatch
-(`internal/overwatch/bugs.go:63-67`) each match one repository. Both then call `coord.LoopProject`,
-so all three agree when two registered projects match. Then none of them names a loop project.
+(`internal/overwatch/bugs.go:63-67`) each match one repository. After this epic, both call
+`coord.LoopProject`, so all three agree when two registered projects match. In that case, none of
+them names a loop project.
 
 **Routing.** `coord.Topology.Dest(project, instanceWide)` returns the project whose coordinator
 gets an entry or a finding. Instance-wide work goes to the loop project. A project that has a
@@ -339,15 +341,19 @@ steps:
 2. For an instance-wide verb, admit only the loop project's coordinator. On a host verb, admit
    the host too.
 3. For a project-scoped verb, ask the `rpc.RecordResolver` for the project of each record that
-   the call names. The records are the item, entry, decision, room, alert, setting, run, learning,
-   fault or registration argument, the `--entry` flag and the `--project` flag. The `project`
-   argument of `settings show` and `settings set` is a setting. The `project` argument of
-   `project show` is a registration.
+   the call names. The records are these:
+   - the item, entry, decision, room, alert, setting, run, learning, fault or registration
+     argument
+   - the `--entry` flag
+   - the `--project` flag
+
+   The `project` argument of `settings show` and `settings set` is a setting. The `project`
+   argument of `project show` is a registration.
 4. Refuse a record of another project that the caller does not reach. The refusal is
    `CAPABILITY_DENIED`, rule `other_project`, and its hint names the owner.
 5. For the loop project's coordinator, check `--project` of another project B last. Admit it only
-   when the call names at least one other record, and each other record is a record of B that the
-   caller reaches. Admit `work create --kind bug` by the fault rule. Refuse a bug that names no
+   when the call names at least one other record. Each other record must be a record of B that
+   the caller reaches. Admit `work create --kind bug` by the fault rule. Refuse a bug that names no
    fault of B with `fault_bug_only`. Refuse every other call with `--project` B and no other record
    with `other_project`.
 6. Pass the caller to the handler in the context. A list verb filters its rows by
@@ -368,16 +374,16 @@ project, as ADR 0004 decision 3 says. ADR 0015 wins that conflict, and nobody ed
 these steps, in this order:
 
 1. Read the old row. Then act on the first case that holds:
-   - X is no longer registered. Close the old session, revoke its token, remove its checkout and
-     delete the old row.
+   - X is no longer registered. Close the old session and revoke its token. Then remove its
+     checkout and delete the old row.
    - The old session ended. Revoke its token, run the hand-over of PRD L200-L204, and delete the
      old row. When X has a config, the hand-over writes X's `home_coordinator` row. The row holds
      the old checkout, and the hand-over sets `Fresh` and `Made`. The server made the old
      checkout, so a missing directory is an alert.
    - The old session lives. Send it the release message once, as `tellCoordinatorRelease` does
      today.
-2. For each `home_coordinator` row whose project is no longer registered, close the session,
-   revoke the token, remove the checkout and delete the row. Work entry 9 builds this step.
+2. For each `home_coordinator` row whose project is no longer registered, close the session and
+   revoke the token. Then remove the checkout and delete the row. Work entry 9 builds this step.
 3. For each registered project with no row and no old session, fetch the default branch with
    `BaseHead`, and test for `.loop/config.yaml` at that head. When the file is there, create the
    row.
@@ -389,9 +395,10 @@ these steps, in this order:
 When one project fails, the tick raises that project's alert and continues with the next project.
 The dedupe key of `coordinator_start_failed` and of `coordinator_checkout_missing` is the kind, a
 colon and the project. Today the key of `coordinator_start_failed` is the kind alone
-(`internal/sched/coordinator.go:188-189`), so B's failed start would fold into A's open alert.
-Each start writes a brief whose `project` names the project. The brief's new `loop_project` field
-is true for the loop project's coordinator. Each start issues the token with `Project` set.
+(`internal/sched/coordinator.go:188-189`). So B's failed start would raise no alert of its own
+while A's alert is open. Each start writes a brief whose `project` names the project. The brief's
+new `loop_project` field is true for the loop project's coordinator. Each start issues the token
+with `Project` set.
 
 **The first message.** A start follows one of three cases:
 
@@ -432,22 +439,23 @@ store and the registered projects. `HandBack` does these steps:
    `HandBack` sets that token's `run_tokens.project` to `''`. The token then names no project, as
    the earlier release's own coordinator token does (`internal/sched/coordinator.go:291-292`). At
    the next upgrade to this release, that session is the old session, and its token is
-   `Unscoped`. When that project has no row, move none. The earlier release then starts its
-   coordinator there, as before this release.
+   `Unscoped`. When that project has no row, move none, so the earlier release starts its
+   coordinator there as before this release.
 3. Revoke the token of each other `home_coordinator` row, and set its `Revoked` and `Fresh`.
 4. Move the `inbox_notify` row to the lowest cursor over every destination of the topology. A
    destination with no `home_notify` row counts at the `inbox_notify` value, so the `inbox_notify`
-   row then stays where it is. Delete each `home_notify` row. Delete each `coordinator_ring` row
-   whose project is not `''`. The earlier release then rings the one coordinator once for each entry
-   after the `inbox_notify` value. At the next upgrade to this release, each cursor starts at the
-   `inbox_notify` value that the earlier release moved. So no stale cursor rings an entry again.
+   row then stays where it is. The earlier release then rings the one coordinator once for each
+   entry after the `inbox_notify` value.
+5. Delete each `home_notify` row. Delete each `coordinator_ring` row whose project is not `''`. At
+   the next upgrade to this release, each cursor starts at the `inbox_notify` value that the
+   earlier release moved. So no stale cursor rings an entry again.
 
 After the rollback, the operator sees one coordinator that the earlier release rings for every
 project. That session gets the earlier release's release message. Each other `loop coordinator
-<project>` terminal stays open. Each of its verbs refuses, because the hand-back revoked its
-token. The operator may close those terminals. At the next upgrade to this release, step 4 of the
-tick closes each live session of a `Revoked` row. It then starts that project's next session
-fresh.
+<project>` terminal stays open. The verbs of each such session refuse, because the hand-back
+revoked the session's token. The operator may close those terminals. At the next upgrade to this
+release, step 4 of the tick closes each live session of a `Revoked` row. It then starts that
+project's next session fresh.
 
 **Text.** The runbook stops calling itself the one resident agent. It names the sections that
 only the loop project's coordinator follows:
@@ -667,7 +675,7 @@ type Finding struct {
 	Key     string
 	Line    string
 	At      time.Time
-	Project string // the project the finding is about; "" for the instance
+	Project string // the project the finding is about, or "" for the instance
 }
 
 // Readings is one sweep before classify turns its findings into lines.
@@ -748,8 +756,8 @@ type Brief struct {
 The CLI changes:
 
 ```
-loop coordinator send [--project <project>] --body <text>   host; refused with no --project
-loop coordinator restart --project <project>                host only; new
+loop coordinator send [--project <project>] --body <text>   host, and refused with no --project
+loop coordinator restart --project <project>                host only, and new
 loop inbox list [--awaits <actor>]                          coordinator, and now host
 ```
 
@@ -912,6 +920,7 @@ sequenceDiagram
     T->>T: refuse an unregistered A, or A with no config
     T->>H: close the session that serves A when one runs, the old session too
     T->>T: revoke its token
+    T->>T: for the old session, write A's home_coordinator row in the old checkout, and delete the old row
     T->>H: create the loop-coordinator checkout when it is missing
     T->>H: Start fresh, with the left-open list
     T-->>O: the new run id and checkout
@@ -955,7 +964,7 @@ sequenceDiagram
     end
     R->>S: revoke each other home_coordinator token, set Revoked and Fresh
     R->>S: move inbox_notify to the lowest cursor of every destination
-    R->>S: delete the home_notify rows
+    R->>S: delete the home_notify rows, and each coordinator_ring row with a project
     R->>R: repoint current, start the service
     E->>S: read the coordinator row, keep its live session
 ```
@@ -983,22 +992,26 @@ sequenceDiagram
    - Proves: C4
    - Done when: a registry with a coordinator verb that names no scope fails `DeriveMatrix` with an
      error that names the verb.
-3. **The capability check reads the scope.** Add `Caller.Admits`, `RecordResolver`,
-   `Options.Records`, `Options.Topology` and `CallerFrom`. Run the scope check in `authorize` for a
-   coordinator token with a project. Keep the coordinator exemption in `Call.Project`. Build the
-   resolver in the server over the machine, the inbox, rooms, decisions, runs, faults and retros.
-   Add `inbox.Route`, `Entry.Dedupe` and `Entry.Run`. Fill `Entry.Run` of a fault entry from the
-   fault's run. In this work entry, `inbox.Route` routes every question by the entry it names,
-   because the `project` column of `questions` arrives in work entry 4. A question with no entry, or
-   whose entry no longer lists, routes to the loop project. The resolver reads `inbox.Route` to find
-   the entries that route to the loop project. Admit the loop project's `work create --kind bug` on
-   another project only by the fault rule. Add `Scheduler.Topology`, `Scheduler.Coordinators` and
-   `Scheduler.Session`. Until work entry 7 they read the one `coordinator` row:
-   - `Topology` has `Loop` from `LoopProject`, `Homes` empty, and `Old` the row's project.
-   - `Coordinators` holds the one row under the row's project.
-   - `Session` returns the one session for every project and for `""`.
+3. **The capability check reads the scope.** This work entry has five parts:
+   - The check. Add `Caller.Admits`, `RecordResolver`, `Options.Records`, `Options.Topology` and
+     `CallerFrom`. Run the scope check in `authorize` for a coordinator token with a project. Keep
+     the coordinator exemption in `Call.Project`. A token with no project stays unscoped, so the
+     one coordinator of today changes nothing.
+   - The resolver. Build it in the server over the machine, the inbox, rooms, decisions, runs,
+     faults and retros. The resolver reads `inbox.Route` to find the entries that route to the
+     loop project.
+   - The inbox. Add `inbox.Route`, `Entry.Dedupe` and `Entry.Run`. Fill `Entry.Run` of a fault
+     entry from the fault's run. In this work entry, `inbox.Route` routes every question by the
+     entry it names, because the `project` column of `questions` arrives in work entry 4. A
+     question with no entry, or whose entry no longer lists, routes to the loop project.
+   - The bug rule. Admit the loop project's `work create --kind bug` on another project only by
+     the fault rule.
+   - The scheduler. Add `Scheduler.Topology`, `Scheduler.Coordinators` and `Scheduler.Session`.
+     Until work entry 7 they read the one `coordinator` row:
+     - `Topology` has `Loop` from `LoopProject`, `Homes` empty, and `Old` the row's project.
+     - `Coordinators` holds the one row under the row's project.
+     - `Session` returns the one session for every project and for `""`.
 
-   A token with no project stays unscoped, so the one coordinator of today changes nothing.
    - Files: `internal/rpc/capabilities.go`, `internal/rpc/server.go`, `internal/server/scope.go`
      (new), `internal/server/server.go`, `internal/pipeline/adhoc.go`, `internal/inbox/route.go`
      (new), `internal/inbox/entries.go`, `internal/inbox/inbox.go`, `internal/sched/coordinator.go`,
@@ -1008,19 +1021,23 @@ sequenceDiagram
    - Done when: for each verb of the `project` scope list, a test calls the verb with a token of
      project A on an item of project B. The verb refuses with `other_project`, and B's item does
      not change.
-4. **List verbs filter by the caller.** Filter `work list`, `run list`, `pr pending`,
-   `merge status`, `decision list`, `fault list`, `room list`, `stage list` and `project list` by
-   `Caller.Reaches`. Filter `inbox list` and `inbox wait` by the session that `Sessions` names for
-   each entry's destination. Add the `project` column of `questions` with migration
+4. **List verbs filter by the caller.** Filter these list verbs by `Caller.Reaches`:
+   - `work list`, `run list` and `stage list`
+   - `pr pending` and `merge status`
+   - `decision list`, `fault list` and `room list`
+   - `project list`
+
+   Filter `inbox list` and `inbox wait` by the session that `Sessions` names for each entry's
+   destination. Add the `project` column of `questions` with migration
    `0023_question_project.sql`, and write it in `inbox prepare`. Read it into `Entry.Project` of a
    question, and make `inbox.Route` route a question with a project by that project. With no
    `--project`, make `stage pause` and `stage resume` act on the caller's project. For the loop
    project's coordinator and the old session, they act in every project.
    - Files: `internal/inbox/**`, `internal/store/migrations/0023_question_project.sql`,
-     `internal/machine/verbs.go`, `internal/server/runs.go`, `internal/server/stages.go`,
-     `internal/server/merge.go`, `internal/server/github.go`, `internal/server/handlers.go`,
-     `internal/room/room.go`, `internal/decision/**`, `internal/fault/**`, and the tests of each
-     package
+     `internal/machine/verbs.go`, `internal/server/inbox.go`, `internal/server/runs.go`,
+     `internal/server/stages.go`, `internal/server/merge.go`, `internal/server/github.go`,
+     `internal/server/handlers.go`, `internal/room/room.go`, `internal/decision/**`,
+     `internal/fault/**`, and the tests of each package
    - Needs: 3
    - Proves: C11, C12
    - Done when: the inbox of a coordinator of project A, over a fixture with entries of A, B, a
@@ -1069,11 +1086,17 @@ sequenceDiagram
    Land work entry 9 directly after this work entry, and work entry 8 directly after work
    entry 9. Between this work entry and work entry 11, a missing checkout fails the start and
    raises `coordinator_start_failed`, as today. That alert routes to the loop project.
+
+   Delete `Scheduler.Coordinator`. Today `coordinatorSend` and `coordinatorSession` call it
+   (`internal/server/inbox.go:149-170`), and it reads the `coordinator` row that the hand-over
+   deletes. From this work entry, both call `Session` with the loop project. So between this work
+   entry and work entry 10, `loop coordinator send` types into the loop project's session. When
+   that session does not run, the send refuses with `no_coordinator`, as today.
    - Files: `internal/sched/coordinator.go`, `internal/sched/scheduler.go`,
      `internal/sched/checkouts.go`, `internal/brief/brief.go`, `cmd/loop/serve.go`,
      `cmd/loop/release.go`, `internal/release/rollback.go`, `acceptance/world.go`,
-     `internal/server/inbox.go` for `Sessions`, `internal/cli/surface.go` for the host on
-     `inbox list`, and the tests of each package
+     `internal/server/inbox.go` for `Sessions` and the send, `internal/cli/surface.go` for the
+     host on `inbox list`, and the tests of each package
    - Needs: 6
    - Proves: C17, C18, C19, C20, C21, C22, C23, C24, C25, C26, C33, C39, C40, C41
    - Done when: `grep -n 'The coordinator itself serves every' internal/sched/coordinator.go`
@@ -1092,9 +1115,9 @@ sequenceDiagram
    - Proves: C28
    - Done when: `grep -n 'one resident agent' pack/runbooks/coordinator.md` prints nothing, and
      `make pack-check` passes.
-9. **Removal and registration again.** The tick closes the coordinator of a project that is no
-   longer registered. It closes the session, revokes the token, removes the checkout and deletes
-   the row. A registration again gets a new row, and a new checkout, by the start rule.
+9. **Removal and re-registration.** The tick closes the coordinator of a project that is no
+   longer registered. It closes the session and revokes the token. Then it removes the checkout and
+   deletes the row. A re-registration gets a new row, and a new checkout, by the start rule.
    - Files: `internal/sched/coordinator.go` and its tests
    - Needs: 7
    - Proves: C29, C30
@@ -1103,7 +1126,7 @@ sequenceDiagram
     The server refuses a call without it with `no_project`. Add the other refusals of the
     Interfaces table.
     - Files: `internal/cli/surface.go`, `internal/server/inbox.go`, and their tests
-    - Needs: 7
+    - Needs: 8
     - Proves: C31
     - Done when: a send to A types the text into A's fake session only.
 11. **Restart, resume and a missing checkout.** Add `loop coordinator restart` and
@@ -1264,8 +1287,8 @@ finding.
 
 **C17. Behaviour: one coordinator for each project with a project config.** Proves A1 and A2.
 Two registered projects have `.loop/config.yaml` at their default branch, and a third has none.
-After one tick, two sessions run. Each runs in a `loop-coordinator` checkout made from its own
-project's default branch head. The third project has no session and no row.
+After one tick, two sessions run. Each runs in a `loop-coordinator` checkout made from the head of
+the default branch of its own project. The third project has no session and no row.
 *A scheduler test with the fake agent host and three fixture clones.*
 
 **C18. Boundary: the start follows the config within one tick.** Proves A3 and PRD L176-L177. A
@@ -1348,7 +1371,7 @@ longer verifies, and its checkout is gone. B's session id stays the same. No ses
 checkout of B for A.
 *A scheduler test.*
 
-**C30. Behaviour: a registration again starts a new coordinator.** Proves A15. After C29, the
+**C30. Behaviour: a re-registration starts a new coordinator.** Proves A15. After C29, the
 operator registers A again with its config. A's new session runs in a new `loop-coordinator`
 checkout, and the removed session is not in the fake host's inventory.
 *A scheduler test.*
@@ -1441,7 +1464,7 @@ a `home_notify` row, the tick leaves it as it is.
 
 ## Observable behaviour
 
-None, because this epic draws no screen. The operator sees its effect in Orca's terminal list:
+None, because this epic has no screen. The operator sees its effect in Orca's terminal list:
 one terminal titled `loop coordinator <project>` for each project with a project config. C17, C19
 and C25 prove those titles.
 
