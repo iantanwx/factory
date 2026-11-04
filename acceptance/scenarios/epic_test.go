@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/iantanwx/loop/acceptance"
+	"github.com/iantanwx/loop/internal/escalation"
 	gt "github.com/iantanwx/loop/internal/github/githubtest"
 	"github.com/iantanwx/loop/internal/machine"
 )
@@ -131,7 +132,8 @@ func ticketBody(change string) string {
 }
 
 // F4 and AE7: a PRD from brainstorm to tickets. The doc-reviewer rejects the
-// PRD, the reviser revises it once, and the second reject waits in the
+// PRD, the reviser revises it once, and the second reject waits for the
+// triage panel. The panel routes it to a person, so it waits in the
 // operator's inbox. The answer returns it to review, a pass waits for the
 // operator's merge, and the spec follows the same review. The decomposer
 // turns the approved spec into tickets that cite story labels. The last
@@ -160,11 +162,23 @@ func TestF4AE7APRDFromBrainstormToTicketsAndDone(t *testing.T) {
 	w.Must(w.In(am.Checkout, "run", "finish", "--outcome", "done"))
 	wantStatus(w, epic, machine.PRDReview)
 
-	// The second reject waits for the operator, and no stage revises it.
+	// The second reject waits for the triage panel, and no stage revises it.
+	// The panel routes it to the operator.
 	docReview(w, epic, "reject")
 	wantStatus(w, epic, machine.Escalated)
 	if st, _ := w.TryDispatch(machine.StageReviser); st != nil {
 		t.Fatalf("a reviser run started after the second reject: %+v", st)
+	}
+	pending, err := w.Srv.Escalations.Pending(context.Background(), acceptance.Project)
+	if err != nil || len(pending) != 1 || pending[0].Item != epic {
+		t.Fatalf("the escalations that wait for a panel = %+v, %v", pending, err)
+	}
+	person := escalation.Panel{Finding: "Which of two scopes the operator wants.", Judges: []escalation.JudgeAnswer{
+		{Judge: "judge-a", Level: "preference", Choice: escalation.Inside, Reason: "two scopes fit"},
+		{Judge: "judge-b", Level: "preference", Choice: escalation.Inside, Reason: "two scopes fit"},
+	}}
+	if route := routeAs(w, strconv.FormatInt(pending[0].ID, 10), person); route != string(escalation.RoutePerson) {
+		t.Fatalf("the cap routed to %s", route)
 	}
 	entry := "escalation/" + acceptance.Project + "/" + epic
 	if e := w.Entry(entry); e == nil || !contains(asString(e["text"]), "brainstorm room") {
@@ -245,5 +259,67 @@ func TestF4AE7APRDFromBrainstormToTicketsAndDone(t *testing.T) {
 	wantStatus(w, epic, machine.Done)
 	if n := w.DoneWriters(epic); n != 1 {
 		t.Fatalf("%d writers moved %s to done", n, epic)
+	}
+}
+
+// revisePRD runs the reviser on the epic in prd_amending. Its push returns
+// the PRD to review.
+func revisePRD(w *acceptance.World, epic, line string) {
+	w.T.Helper()
+	am := w.Dispatch(machine.StageReviser)
+	if am.Item != epic {
+		w.T.Fatalf("the reviser took %s", am.Item)
+	}
+	syncItem(w, am.Checkout)
+	w.Commit(am.Checkout, "amend the PRD", map[string]string{prdPath: prdText + "\n" + line + "\n"})
+	w.Must(w.In(am.Checkout, "branch", "push"))
+	w.Must(w.In(am.Checkout, "pr", "open", "--title", "PRD: Widgets"))
+	w.Must(w.In(am.Checkout, "run", "finish", "--outcome", "done"))
+	wantStatus(w, epic, machine.PRDReview)
+}
+
+// factorio-bqbv: the PRD reject cap waits for the triage panel. A loop
+// route returns the PRD to the reviser once, and the reject count starts
+// again. The cap after that return reaches the operator with no panel.
+func TestThePRDCapReturnsToTheReviserOnceThroughTriage(t *testing.T) {
+	w := newWorld(t, acceptance.Options{})
+	co := openBrainstorm(w, "the operator wants widgets")
+	epic := submitPRD(w, co, "Widgets")
+	docReview(w, epic, "reject")
+	revisePRD(w, epic, "Revised once.")
+	docReview(w, epic, "reject")
+	wantStatus(w, epic, machine.Escalated)
+	pending, err := w.Srv.Escalations.Pending(context.Background(), acceptance.Project)
+	if err != nil || len(pending) != 1 || pending[0].Item != epic {
+		t.Fatalf("the escalations that wait for a panel = %+v, %v", pending, err)
+	}
+	if e := w.Entry("escalation/" + acceptance.Project + "/" + epic); e != nil {
+		t.Fatalf("the operator reads the cap before triage: %v", e)
+	}
+	loop := escalation.Panel{Finding: "US-01 names no screen, and the reject gives the edit.", Judges: []escalation.JudgeAnswer{
+		{Judge: "judge-a", Level: "derived", Choice: escalation.Inside, Reason: "the reject holds the edit"},
+		{Judge: "judge-b", Level: "derived", Choice: escalation.Inside, Reason: "the reject holds the edit"},
+	}, Reading: &escalation.Reading{Probabilities: map[string]float64{"0": 0, "1": 0, "2": 0.1, "3": 0.9}, Score: 2.9, Confidence: 0.95}}
+	id := strconv.FormatInt(pending[0].ID, 10)
+	if route := routeAs(w, id, loop); route != string(escalation.RouteLoop) {
+		t.Fatalf("the cap routed to %s", route)
+	}
+	wantStatus(w, epic, machine.PRDAmending)
+	if got := w.Show(epic).Fact(machine.FactCapReturned); got != id {
+		t.Fatalf("cap_returned = %q, want %s", got, id)
+	}
+	revisePRD(w, epic, "Revised after the return.")
+
+	docReview(w, epic, "reject")
+	wantStatus(w, epic, machine.PRDAmending)
+	revisePRD(w, epic, "Revised a third time.")
+	docReview(w, epic, "reject")
+	wantStatus(w, epic, machine.Escalated)
+	if pending, _ := w.Srv.Escalations.Pending(context.Background(), acceptance.Project); len(pending) != 0 {
+		t.Fatalf("the second cap waits for a panel: %+v", pending)
+	}
+	if e := w.Entry("escalation/" + acceptance.Project + "/" + epic); e == nil ||
+		!contains(asString(e["text"]), "already returned it to the reviser once") {
+		t.Fatalf("the escalation entry = %v", e)
 	}
 }
