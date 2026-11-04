@@ -270,7 +270,8 @@ func TestEpicInExecutionWithAnOpenChildRefusesDone(t *testing.T) {
 }
 
 func TestSecondPRDRejectWaitsForAPerson(t *testing.T) {
-	// AE7: the reviser revises once, and the second reject escalates.
+	// AE7: the reviser revises once, and the second reject escalates. The
+	// answer starts the count again (factorio-5iq9).
 	w := newWorld(t)
 	ep := w.create(KindEpic, "prd_submit", nil)
 	w.must(ep, "review_reject", nil)
@@ -285,8 +286,8 @@ func TestSecondPRDRejectWaitsForAPerson(t *testing.T) {
 	}
 	w.must(ep, "answer", nil)
 	w.must(ep, "review_reject", nil)
-	if w.show(ep).Status != Escalated {
-		t.Fatal("no unattended stage revises the PRD again")
+	if w.show(ep).Status != PRDAmending {
+		t.Fatal("the first reject after the answer goes to the reviser")
 	}
 }
 

@@ -69,8 +69,9 @@ so that the findings reach the final document and only one run edits it.
 The epic body states that on a reject the reviser applies one edit set in one commit, and that only
 the reviser edits. The body calls the reviser "the amender" today. The glossary already names the
 stage `reviser` (`pack/skills/loop-sdlc-glossary/SKILL.md` § Stages). The reviser starts on the
-first PRD reject only. A second reject sends the epic to the operator, and no reviser edit follows
-it (`pack/runbooks/reviser.md`). The epic body asks for no change to that.
+first PRD reject, and on the first reject after the operator answers an escalation. A second reject
+sends the epic to the operator, and no reviser edit follows it (`pack/runbooks/reviser.md`). The
+operator's answer clears the reject count. The epic body asks for no change to that.
 
 ### US-06 The subloop runs on PRDs, specs and ADRs
 
