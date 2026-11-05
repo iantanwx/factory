@@ -239,20 +239,30 @@ func readSimplifyCI(ctx context.Context, w World, p config.Project, budget time.
 		if !waits(*row) {
 			continue
 		}
-		from := row.item.Fact(machine.FactSimplifyFrom)
-		j := slices.IndexFunc(pulls, func(pr github.PR) bool { return pr.Head.Ref == github.BranchFor(row.item.ID) })
-		if j < 0 || pulls[j].Head.SHA == from {
-			continue
+		var line string
+		if row.ci, line = simplifyHeadCI(ctx, w, p, pulls, row.item, budget); line != "" {
+			unread = append(unread, line)
 		}
-		head := pulls[j].Head.SHA
-		runs, err := w.GitHub().WorkflowRuns(ctx, p, github.RunQuery{HeadSHA: head})
-		if err != nil {
-			unread = append(unread, unreadLine(p, fmt.Sprintf("CI at %s, the head of %s", head, row.item.ID), err))
-			continue
-		}
-		row.ci = ciWait(head, runs, budget, w.Now())
 	}
 	return unread
+}
+
+// simplifyHeadCI reads CI at the head of the open pull request of it among
+// pulls, when it holds a simplify_from that the head differs from, and
+// returns the run that admission waits for there by ciWait. A read that
+// fails returns its UNREAD line, and no wait.
+func simplifyHeadCI(ctx context.Context, w World, p config.Project, pulls []github.PR, it machine.Item, budget time.Duration) (wait, unread string) {
+	from := it.Fact(machine.FactSimplifyFrom)
+	j := slices.IndexFunc(pulls, func(pr github.PR) bool { return pr.Head.Ref == github.BranchFor(it.ID) })
+	if from == "" || j < 0 || pulls[j].Head.SHA == from {
+		return "", ""
+	}
+	head := pulls[j].Head.SHA
+	runs, err := w.GitHub().WorkflowRuns(ctx, p, github.RunQuery{HeadSHA: head})
+	if err != nil {
+		return "", unreadLine(p, fmt.Sprintf("CI at %s, the head of %s", head, it.ID), err)
+	}
+	return ciWait(head, runs, budget, w.Now()), ""
 }
 
 // ciWait says which run admission waits for at head: the oldest that has

@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 )
 
@@ -153,6 +154,23 @@ func readStarvedPart(t *testing.T, w World) Reading {
 	return r
 }
 
+// C-bug-2: a canceled blocker is no wait. factorio-t1's line names the open
+// pull request of canceled factorio-c as what holds it, and never says that
+// factorio-t1 waits on factorio-c.
+func TestStarvedNamesNoCanceledBlockerAsAWait(t *testing.T) {
+	r := readStarvedPart(t, starvedFixture(t))
+	if len(r.Findings) != 1 {
+		t.Fatalf("findings = %+v, notes = %q; want one finding", r.Findings, r.Notes)
+	}
+	line := r.Findings[0].Line
+	if strings.Contains(line, "waits on factorio-c") {
+		t.Errorf("line %q says factorio-t1 waits on factorio-c, which is canceled", line)
+	}
+	if !strings.Contains(line, "factorio-c canceled holds it while its pull request stays open") {
+		t.Errorf("line %q does not name the pull request of canceled factorio-c as what holds factorio-t1", line)
+	}
+}
+
 // An epic in execution whose one todo ticket waits on a canceled ticket,
 // while the implementer is idle, rings: the line names the epic, its title,
 // and the ticket with its state and what holds it.
@@ -277,5 +295,94 @@ func TestStarvedRingsWhileATicketWaitsOnFilesInFlightAndADependency(t *testing.T
 	r := readStarvedPart(t, w)
 	if len(r.Findings) != 1 || r.Findings[0].Key != starvedKey {
 		t.Fatalf("findings = %+v, notes = %q; want the one finding %s", r.Findings, r.Notes, starvedKey)
+	}
+}
+
+// ciStarvedWorld is the starved world with GitHub reads.
+type ciStarvedWorld struct {
+	*starvedWorld
+	gh *ciReads
+}
+
+func (w *ciStarvedWorld) GitHub() GitHubReads { return w.gh }
+
+// ciFixture is epic factorio-e1, whose one open root factorio-h is
+// in_review. Its simplify run left head aa2a0097 over simplify_from
+// 79ba1763, and CI run 42015677576 at aa2a0097 started at started in
+// status with conclusion. Admission reads CI there as pending, so it
+// refuses the code review with rule simplify_head_ci. The one blocker of
+// factorio-h, factorio-3ey7, is done. Backlog ticket factorio-t2 waits on
+// factorio-h. The CI budget is 10 minutes, and the clock reads 09:05.
+func ciFixture(t *testing.T, status, conclusion string, started time.Time) *ciStarvedWorld {
+	t.Helper()
+	sw := newStarvedWorld(t)
+	sw.configs["factorio"].Health.CIBudget = 10 * time.Minute
+	sw.add("factorio", machine.Item{ID: "factorio-e1", Kind: machine.KindEpic, Title: "Checkout flow", Status: machine.Execution, Updated: at(7, 0)}, "")
+	sw.ticket("factorio-3ey7", "factorio-e1", machine.Done, "")
+	sw.add("factorio", machine.Item{ID: "factorio-h", Kind: machine.KindTicket, Title: "ticket factorio-h", Status: machine.InReview, Updated: at(9, 3),
+		Facts: map[string]string{machine.FactEpic: "factorio-e1", machine.FactSimplifyFrom: "79ba1763"}}, "")
+	sw.entered(t, "factorio-h", machine.InProgress, machine.InReview, at(9, 3))
+	sw.deps["factorio-h"] = []beadsx.Dependency{{ID: "factorio-3ey7", Kind: beadsx.DepBlocks, Status: machine.Done}}
+	sw.ticket("factorio-t2", "factorio-e1", machine.Backlog, "")
+	sw.deps["factorio-t2"] = []beadsx.Dependency{{ID: "factorio-h", Kind: beadsx.DepBlocks, Status: machine.InReview}}
+	sw.adm.SetPRHeadReader(func(context.Context, string, string) (string, *cli.Refusal) { return "aa2a0097", nil })
+	sw.adm.SetCIReader(func(context.Context, string, string) (admission.CIState, error) { return admission.CIPending, nil })
+	pr := github.PR{Number: 372, State: "open"}
+	pr.Head.Ref, pr.Head.SHA = github.BranchFor("factorio-h"), "aa2a0097"
+	return &ciStarvedWorld{starvedWorld: sw, gh: &ciReads{
+		pulls: []github.PR{pr},
+		runs: []github.RunView{{ID: 42015677576, Workflow: "ci.yml", Event: "pull_request", Branch: pr.Head.Ref, HeadSHA: "aa2a0097",
+			Attempt: 1, Status: status, Conclusion: conclusion, CreatedAt: started, StartedAt: started, UpdatedAt: at(9, 4)}},
+	}}
+}
+
+// C-bug-1 (factorio-aszl): CI at the simplify head of the open root
+// factorio-h started at 09:04, inside the CI budget. The root moves when
+// CI turns green, so the epic does not starve, and a note names the root
+// and the CI run.
+func TestStarvedHoldsNoFindingWhileTheOpenRootWaitsOnCIInProgress(t *testing.T) {
+	w := ciFixture(t, "in_progress", "", at(9, 4))
+	r := readStarvedPart(t, w)
+	for _, f := range r.Findings {
+		if f.Key == starvedKey {
+			t.Errorf("finding %q: the open root factorio-h waits on CI run 42015677576 in progress, so the epic does not starve", f.Line)
+			if strings.Contains(f.Line, "waits on factorio-3ey7") {
+				t.Errorf("finding %q names done ticket factorio-3ey7 as what factorio-h waits on, not the CI wait at aa2a0097", f.Line)
+			}
+		}
+	}
+	if !slices.ContainsFunc(r.Notes, func(n string) bool {
+		return strings.Contains(n, "factorio-h in_review moves") && strings.Contains(n, "simplify_head_ci") && strings.Contains(n, "42015677576")
+	}) {
+		t.Fatalf("notes = %q, want one that names factorio-h and CI run 42015677576", r.Notes)
+	}
+}
+
+// C-bug-1: CI at the simplify head that is red or runs past the budget
+// proves no wait, so the epic still starves. C-bug-2: the line never says
+// that factorio-h waits on its done blocker factorio-3ey7.
+func TestStarvedRingsWhileCIAtTheSimplifyHeadIsRedOrPastBudget(t *testing.T) {
+	cases := []struct {
+		name               string
+		status, conclusion string
+		started            time.Time
+	}{
+		{"CI is red", "completed", "failure", at(9, 4)},
+		{"CI runs past the budget", "in_progress", "", at(8, 50)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := readStarvedPart(t, ciFixture(t, c.status, c.conclusion, c.started))
+			if len(r.Findings) != 1 || r.Findings[0].Key != starvedKey {
+				t.Fatalf("findings = %+v, notes = %q; want the one finding %s", r.Findings, r.Notes, starvedKey)
+			}
+			line := r.Findings[0].Line
+			if !strings.Contains(line, "factorio-h in_review (code-reviewer does not take it now") {
+				t.Errorf("line %q does not say that the code-reviewer does not take factorio-h", line)
+			}
+			if strings.Contains(line, "waits on factorio-3ey7") {
+				t.Errorf("line %q says factorio-h waits on factorio-3ey7, which is done", line)
+			}
+		})
 	}
 }
