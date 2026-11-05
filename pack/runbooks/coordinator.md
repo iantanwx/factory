@@ -248,6 +248,9 @@ same turn:
 Only the loop project's coordinator runs the host verbs `upgrade`, `rollback`, `doctor`,
 `doctor-github` and `doctor-env`. They act on the whole host.
 
+Only the operator's shell runs `loop coordinator restart --project <project>`. The server refuses
+it to every coordinator.
+
 When a rule in the repository picks the answer, decide, and name the rule in the report. The
 operator can then overturn it. When a project policy routes a kind of decision to a named role,
 follow that route. When two routes apply, follow the stricter one.

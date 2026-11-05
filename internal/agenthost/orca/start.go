@@ -23,6 +23,10 @@ func (h *Host) Start(ctx context.Context, spec agenthost.StartSpec) (agenthost.S
 	if err := spec.Validate(); err != nil {
 		return agenthost.Session{}, err
 	}
+	// orca agent launch takes no flag that resumes a conversation.
+	if spec.Resume {
+		return agenthost.Session{}, agenthost.ErrResumeUnsupported
+	}
 	if !agenthost.InsideRoot(h.cfg.CheckoutRoot, spec.Checkout) {
 		return agenthost.Session{}, fmt.Errorf("%w: %s", agenthost.ErrOutsideRoot, spec.Checkout)
 	}

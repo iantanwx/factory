@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"slices"
 
 	"github.com/iantanwx/loop/internal/agenthost"
@@ -343,6 +345,12 @@ func (s *Scheduler) tendOld(ctx context.Context, cc *CoordinatorConfig, old Coor
 // this release, rebinds a moved one, and starts the next one when the
 // session ended. A failed start raises an alert that names p.
 func (s *Scheduler) tendHome(ctx context.Context, cc *CoordinatorConfig, cs CoordinatorState, p config.Project, loop bool) {
+	if cs.Made && missing(cs.Checkout) {
+		s.raise(ctx, config.Alert{Project: p.ID, Kind: AlertCoordinatorCheckoutMissing, DedupeKey: AlertCoordinatorCheckoutMissing + ":" + p.ID,
+			Subject: "the coordinator checkout of " + p.ID + " is missing",
+			Body:    "The server made " + cs.Checkout + " and no longer finds it, so it starts no coordinator for " + p.ID + ". Run `loop coordinator restart --project " + p.ID + "` from the operator's shell."})
+		return
+	}
 	if cs.Revoked {
 		s.endSession(ctx, cs)
 		cs.Session, cs.Revoked = nil, false
@@ -652,8 +660,9 @@ func (s *Scheduler) tellCoordinatorRelease(ctx context.Context, cc *CoordinatorC
 
 // startCoordinator starts p's next coordinator session. It makes the
 // loop-coordinator checkout from the head of p's default branch when cs has
-// none. The token and the brief name p, and a Fresh start's prompt names
-// the work a previous session left open.
+// none. The token and the brief name p. A next session that is not Fresh
+// asks the host to resume. A Fresh start, and a start on a host that cannot
+// resume, names in its prompt the work a previous session left open.
 func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig, cs *CoordinatorState, p config.Project, loop bool) error {
 	base := p.BaseBranch()
 	if cs.Checkout == "" {
@@ -673,10 +682,10 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		}
 	}
 	var left []string
-	if cs.Fresh && s.leftOpen != nil {
+	if cs.Fresh {
 		var err error
-		if left, err = s.leftOpen(ctx, p.ID); err != nil {
-			return fmt.Errorf("sched: list the work the last coordinator left open: %w", err)
+		if left, err = s.listLeftOpen(ctx, p.ID); err != nil {
+			return err
 		}
 	}
 	model := cc.Model
@@ -687,7 +696,8 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 	b := brief.Brief{RunID: run, Project: p.ID, LoopProject: loop, Stage: CoordinatorStage, Role: CoordinatorStage,
 		Harness: string(cc.Harness), Model: model, BaseBranch: base, Secrets: brief.Secrets{Present: []string{}, Missing: []string{}},
 		LeftOpen: left}
-	res, err := brief.Inject(ctx, brief.Injection{Checkout: cs.Checkout, Harness: cc.Harness, Pack: s.coordinatorPack(), Brief: b})
+	in := brief.Injection{Checkout: cs.Checkout, Harness: cc.Harness, Pack: s.coordinatorPack(), Brief: b}
+	res, err := brief.Inject(ctx, in)
 	if err != nil {
 		return err
 	}
@@ -695,14 +705,102 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		Project: p.ID, Checkout: cs.Checkout, Release: s.cfg.Release}); err != nil {
 		return err
 	}
-	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindCoordinator, Checkout: cs.Checkout,
-		Harness: cc.Harness, Model: model, Effort: cc.Effort, PromptFile: res.Prompt, Title: "loop coordinator " + p.ID})
+	spec := agenthost.StartSpec{Kind: agenthost.KindCoordinator, Checkout: cs.Checkout, Harness: cc.Harness, Model: model,
+		Effort: cc.Effort, PromptFile: res.Prompt, Title: "loop coordinator " + p.ID, Resume: !cs.Fresh && cs.RunID != ""}
+	sess, err := s.cfg.Agents.Start(ctx, spec)
+	if errors.Is(err, agenthost.ErrResumeUnsupported) {
+		if in.Brief.LeftOpen, err = s.listLeftOpen(ctx, p.ID); err == nil {
+			_, err = brief.Inject(ctx, in)
+		}
+		if err == nil {
+			spec.Resume = false
+			sess, err = s.cfg.Agents.Start(ctx, spec)
+		}
+	}
 	if err != nil {
 		_, _ = s.cfg.Tokens.Revoke(ctx, run)
 		return fmt.Errorf("sched: start the coordinator: %w", err)
 	}
 	cs.RunID, cs.Session, cs.Release, cs.NotifiedRelease, cs.Fresh = run, &sess, s.cfg.Release, "", false
 	return nil
+}
+
+// ErrNoProjectConfig: the default branch of the project holds no
+// .loop/config.yaml, so it has no coordinator to restart.
+var ErrNoProjectConfig = errors.New("sched: the project's default branch holds no " + config.ProjectConfigPath)
+
+// RestartCoordinator replaces project's coordinator session with a fresh
+// one, under the tick's lock, so the tick never starts a second session
+// for project (spec factorio-1edo, Approach, "Restart"). It closes the
+// session that serves project and revokes its token. For the old session,
+// it then runs the hand-over. It makes the checkout again when it is
+// missing. Only the operator's shell runs it.
+func (s *Scheduler) RestartCoordinator(ctx context.Context, project string) (CoordinatorState, error) {
+	s.tickMu.Lock()
+	defer s.tickMu.Unlock()
+	cc := s.cfg.Coordinator
+	if cc == nil {
+		return CoordinatorState{}, errors.New("sched: this server starts no coordinator")
+	}
+	ps, err := s.cfg.Projects()
+	if err != nil {
+		return CoordinatorState{}, err
+	}
+	i := slices.IndexFunc(ps, func(p config.Project) bool { return p.ID == project })
+	if i < 0 {
+		return CoordinatorState{}, fmt.Errorf("%w: %s", config.ErrProjectNotFound, project)
+	}
+	if has, err := s.hasConfig(ctx, ps[i]); err != nil {
+		return CoordinatorState{}, err
+	} else if !has {
+		return CoordinatorState{}, fmt.Errorf("%w: %s", ErrNoProjectConfig, project)
+	}
+	old, homes, err := s.coordinatorRows(ctx)
+	if err != nil {
+		return CoordinatorState{}, err
+	}
+	cs, ok := homes[project]
+	switch {
+	case old != nil && old.Project == project:
+		s.endSession(ctx, *old)
+		cs = CoordinatorState{Project: project, Checkout: old.Checkout, Made: true}
+		err = s.createHome(ctx, cs, project, true)
+	case ok:
+		s.endSession(ctx, cs)
+	default:
+		cs = CoordinatorState{Project: project}
+		err = s.createHome(ctx, cs, s.topology(old, homes).Dest(project, false), false)
+	}
+	if err != nil {
+		return CoordinatorState{}, err
+	}
+	cs.Session, cs.Revoked, cs.Fresh = nil, false, true
+	if cs.Made && missing(cs.Checkout) {
+		s.removeCheckout(ctx, project, cs.Checkout)
+		cs.Checkout = ""
+	}
+	loop, _ := coord.LoopProject(ps)
+	err = s.startCoordinator(ctx, cc, &cs, ps[i], project == loop)
+	if serr := s.saveCoordinator(ctx, homeKind, cs); err == nil {
+		err = serr
+	}
+	return cs, err
+}
+
+func missing(path string) bool {
+	_, err := os.Stat(path)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
+func (s *Scheduler) listLeftOpen(ctx context.Context, project string) ([]string, error) {
+	if s.leftOpen == nil {
+		return nil, nil
+	}
+	left, err := s.leftOpen(ctx, project)
+	if err != nil {
+		return nil, fmt.Errorf("sched: list the work the last coordinator left open: %w", err)
+	}
+	return left, nil
 }
 
 // coordinatorPack is the pack the coordinator holds: no conditional skill.

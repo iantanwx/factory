@@ -98,7 +98,7 @@ func (w worktrees) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSp
 		if base == "" {
 			base = "origin/main"
 		}
-		gitT(w.t, w.repo, "worktree", "add", "-q", "-b", spec.Name, co.Path, base)
+		gitT(w.t, w.repo, "worktree", "add", "-q", "-B", spec.Name, co.Path, base)
 	}
 	return co, err
 }
@@ -109,7 +109,12 @@ func repoBaseHead(repo string) sched.BaseHeadSource {
 	return sched.OriginBaseHead(func() ([]config.Project, error) { return []config.Project{{ID: "alpha", Path: repo}}, nil })
 }
 
+// RemoveCheckout forgets the checkout in the fake. A worktree whose
+// directory is gone leaves git too, as git worktree remove --force does.
 func (w worktrees) RemoveCheckout(ctx context.Context, path string) error {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		gitT(w.t, w.repo, "worktree", "prune")
+	}
 	return w.host.RemoveCheckout(ctx, path)
 }
 

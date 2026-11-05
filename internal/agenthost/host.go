@@ -126,6 +126,9 @@ var (
 	ErrBadSpec = errors.New("invalid agent host request")
 	// ErrQuotaUnavailable: the host has no quota reading for that harness.
 	ErrQuotaUnavailable = errors.New("quota unavailable")
+	// ErrResumeUnsupported is Start's answer when the host cannot resume. It
+	// starts nothing.
+	ErrResumeUnsupported = errors.New("agenthost: this host cannot resume a conversation")
 )
 
 // RunID identifies one session: the host, the terminal and the incarnation of
@@ -206,6 +209,8 @@ type StartSpec struct {
 	// returns. A recorded mismatch returns ErrModelMismatch. No model in the
 	// window returns the running session and ErrNoModelReceipt.
 	RequireVerifiedModel bool `json:"require_verified_model,omitempty"`
+	// Resume asks the harness to continue the last conversation in Checkout.
+	Resume bool `json:"resume,omitempty"`
 }
 
 // Session is what the server persists about one started session. Every

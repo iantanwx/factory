@@ -3,8 +3,10 @@ package sched
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -322,6 +324,11 @@ func (g *gitCheckouts) RemoveCheckout(ctx context.Context, path string) error {
 	g.gitMu.Lock()
 	defer g.gitMu.Unlock()
 	link, err := os.ReadFile(filepath.Join(path, ".git"))
+	if errors.Is(err, fs.ErrNotExist) && !exists(path) {
+		// git worktree remove --force also removes a worktree whose
+		// directory is gone. git names its entry by the base of the path.
+		return os.RemoveAll(filepath.Join(g.repo, ".git", "worktrees", filepath.Base(path)))
+	}
 	if err != nil {
 		return err
 	}

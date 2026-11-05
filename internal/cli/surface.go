@@ -269,6 +269,8 @@ var surface = []Verb{
 	write(server("coordinator", "send", "type a message into the terminal of one project's coordinator, as the operator would", hostOnly, nil,
 		Flag{Name: "project", Type: FlagString, Description: "the project whose coordinator gets the message; refused when absent, and the refusal lists each running coordinator"},
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the message"})),
+	write(server("coordinator", "restart", "close one project's coordinator session, make its checkout again when it is missing, and start a fresh session with the work it left open", hostOnly, nil,
+		Flag{Name: "project", Type: FlagString, Required: true, Description: "the project whose coordinator restarts"})),
 	instanceWide(write(server("coordinator", "upgrade", "on the operator's decision, have the server run loop upgrade outside every checkout; it drains and restarts the server", coordinator,
 		[]Arg{{Name: "version", Description: "the release to install; the latest when absent"}},
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the operator's decision, in the operator's own words"}))),

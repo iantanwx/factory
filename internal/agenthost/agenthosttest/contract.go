@@ -85,6 +85,9 @@ type (
 	}
 	// CheckoutObserver says whether a checkout still exists.
 	CheckoutObserver interface{ CheckoutExists(path string) bool }
+	// ResumeRefuser makes every later start that asks to resume answer
+	// agenthost.ErrResumeUnsupported.
+	ResumeRefuser interface{ SetResumeUnsupported(on bool) }
 )
 
 // RunContract runs the agent-host contract against the hosts that f builds.
@@ -139,6 +142,7 @@ var scenarios = []scenario{
 	{name: "notify_refused_is_an_error", fakeOnly: "NotifyRefuser", run: scNotifyRefused},
 	{name: "stop_reports_exit_only_when_proven", sessions: 1, run: scStop},
 	{name: "outside_root_refused", sessions: 1, run: scOutsideRoot},
+	{name: "resume_or_refuse", fakeOnly: "ResumeRefuser", run: scResume},
 }
 
 type contract struct {
@@ -566,5 +570,25 @@ func scOutsideRoot(t *testing.T, c *contract) {
 	spec := c.spec(agenthost.KindStage, escape, c.prompt(t, c.env.Prompt))
 	if _, err := c.env.Host.Start(c.ctx, spec); !errors.Is(err, agenthost.ErrOutsideRoot) {
 		t.Fatalf("Start outside root = %v; want ErrOutsideRoot", err)
+	}
+}
+
+// scResume: a start that asks to resume continues in the checkout, or, on a
+// host that cannot resume, answers ErrResumeUnsupported and starts nothing.
+func scResume(t *testing.T, c *contract) {
+	refuser := need[ResumeRefuser](t, c.env.Driver)
+	first, path := c.startDefault(t, agenthost.KindCoordinator)
+	if err := c.env.Host.Close(c.ctx, first.ID); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	spec := c.spec(agenthost.KindCoordinator, path, c.prompt(t, c.env.Prompt))
+	spec.Resume = true
+	refuser.SetResumeUnsupported(true)
+	if s, err := c.env.Host.Start(c.ctx, spec); !errors.Is(err, agenthost.ErrResumeUnsupported) || s.ID.Valid() {
+		t.Fatalf("Start on a host that cannot resume = %+v, %v; want no session and ErrResumeUnsupported", s.ID, err)
+	}
+	refuser.SetResumeUnsupported(false)
+	if s := c.start(t, spec); s.Checkout != path || s.ID == first.ID {
+		t.Fatalf("the resumed session %+v does not run anew in %s", s, path)
 	}
 }
