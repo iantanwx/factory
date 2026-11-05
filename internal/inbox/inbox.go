@@ -95,11 +95,9 @@ type Entry struct {
 	Dedupe string `json:"-"`
 	// Run is a fault entry's run. The record resolver reads it, and JSON
 	// leaves it out.
-	Run string `json:"-"`
-	// names is the entry a question is about, and about is that entry
-	// when it lists. Route and Owner read a question by it.
-	names string
-	about *Entry
+	Run     string `json:"-"`
+	aboutID string
+	about   *Entry
 }
 
 // Config configures an Inbox.

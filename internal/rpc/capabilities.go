@@ -111,18 +111,11 @@ func (s *Server) checkScope(ctx context.Context, inv cli.Invocation, p Principal
 		return nil
 	}
 	path := inv.Verb.Path
-	switch inv.Verb.Scope {
-	case cli.ScopeInstance:
-		if c.Reach == coord.ReachLoop {
-			return nil
-		}
+	if inv.Verb.Scope == cli.ScopeInstance && c.Reach != coord.ReachLoop {
 		return denied("loop_project_only", "", fmt.Sprintf(
 			"%s acts on the whole instance, so only the loop project's coordinator calls it; %s is the coordinator of project %s", path, p.Actor(), c.Project))
-	case cli.ScopeProject:
-	default:
-		return nil
 	}
-	if s.opts.Records == nil {
+	if inv.Verb.Scope != cli.ScopeProject || s.opts.Records == nil {
 		return nil
 	}
 	recs, err := s.opts.Records(ctx, inv)
@@ -139,8 +132,6 @@ func (s *Server) checkScope(ctx context.Context, inv cli.Invocation, p Principal
 			}
 			continue
 		case bug && r.Kind == coord.KindFault:
-			// A fault the bug's body names is its evidence, not a record
-			// the call acts on.
 			faultOfOther = faultOfOther || r.Project == inv.Flags["project"]
 			continue
 		}

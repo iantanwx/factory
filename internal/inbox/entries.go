@@ -178,7 +178,7 @@ func linkQuestions(es []Entry) {
 		byID[e.ID] = e
 	}
 	for i, e := range es {
-		if about, ok := byID[e.names]; ok && e.Kind == KindQuestion && about.Kind != KindQuestion {
+		if about, ok := byID[e.aboutID]; ok && e.Kind == KindQuestion && about.Kind != KindQuestion {
 			es[i].about = &about
 		}
 	}
@@ -503,7 +503,7 @@ func (in *Inbox) questions(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 		e := Entry{ID: rowEntry(KindQuestion, id), Kind: KindQuestion, Awaits: AwaitsPerson, Title: "a question the coordinator prepared",
 			Text: AgentText(run, body), Next: "loop inbox answer " + rowEntry(KindQuestion, id) + " --body <the operator's answer>", At: at}
 		if about != "" {
-			e.Title, e.Link, e.names = "a question about "+about, about, about
+			e.Title, e.Link, e.aboutID = "a question about "+about, about, about
 		}
 		out = append(out, e)
 	}
