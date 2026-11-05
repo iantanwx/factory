@@ -111,7 +111,7 @@ func TestCoordinatorStartsFromTheRegisteredBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.tick()
-	cs := w.s.Coordinator()
+	cs := w.coordinator()
 	if cs.Session == nil {
 		t.Fatalf("no coordinator: %+v", cs)
 	}

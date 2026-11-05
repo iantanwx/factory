@@ -2,7 +2,8 @@ package server
 
 import (
 	"context"
-	"errors"
+	"database/sql"
+	"fmt"
 	"sync"
 	"time"
 
@@ -97,6 +98,7 @@ func (s *Server) composeHuman() error {
 	if err := s.Sched.RegisterJob(decision.JobName, s.Decisions.Tick); err != nil {
 		return err
 	}
+	s.Sched.SetLeftOpen(s.leftOpen)
 	harness, model := o.RoomHarness, o.RoomModel
 	if harness == "" && s.opts.Sched.Coordinator != nil {
 		harness = s.opts.Sched.Coordinator.Harness
@@ -134,27 +136,13 @@ func (s *Server) projectSource() sched.ProjectSource {
 	return s.projectLoader(refs)
 }
 
-// ringCoordinator types one line into the coordinator's session. With no
-// coordinator session it rings nobody, and the inbox stays pull-durable.
-func (s *Server) ringCoordinator(ctx context.Context, text string) error {
-	id, ok := s.coordinatorSession()
-	if !ok {
-		return inbox.ErrNobodyToRing
-	}
-	return s.opts.Agents.Notify(ctx, id, text)
-}
-
-// coordinatorSession is the stored coordinator session a ring goes to. ok
+// coordinatorSession is the session of the loop project's coordinator. ok
 // is false with no scheduler, no agent host or no session.
 func (s *Server) coordinatorSession() (agenthost.RunID, bool) {
 	if s.Sched == nil || s.opts.Agents == nil {
 		return agenthost.RunID{}, false
 	}
-	cs := s.Sched.Coordinator()
-	if cs.Session == nil {
-		return agenthost.RunID{}, false
-	}
-	return cs.Session.ID, true
+	return s.Sched.Session(s.Sched.Topology().Loop)
 }
 
 func (s *Server) session(project string) (agenthost.RunID, bool) {
@@ -164,17 +152,51 @@ func (s *Server) session(project string) (agenthost.RunID, bool) {
 	return s.Sched.Session(project)
 }
 
-// coordinatorSend types the operator's message into the coordinator's
-// terminal, so the operator talks to it from any shell on the host.
+// coordinatorSend types the operator's message into the loop project's
+// coordinator's terminal, so the operator talks to it from any shell on
+// the host.
 func (s *Server) coordinatorSend(ctx context.Context, call *rpc.Call) cli.Result {
-	err := s.ringCoordinator(ctx, call.Inv.Flags["body"])
-	if errors.Is(err, inbox.ErrNobodyToRing) {
+	id, ok := s.coordinatorSession()
+	if !ok {
 		return cli.Reject(cli.CodeNotFound, "no_coordinator", "no coordinator session runs; the scheduler starts one on its next tick")
 	}
-	if err != nil {
+	if err := s.opts.Agents.Notify(ctx, id, call.Inv.Flags["body"]); err != nil {
 		return cli.Internal(err)
 	}
-	return cli.Found(map[string]any{"sent": true, "run_id": s.Sched.Coordinator().RunID})
+	var run string
+	for _, cs := range s.Sched.Coordinators() {
+		if cs.Session != nil && cs.Session.ID == id {
+			run = cs.RunID
+		}
+	}
+	return cli.Found(map[string]any{"sent": true, "run_id": run})
+}
+
+// leftOpen lists the work a previous coordinator of project left open:
+// each question and each room that routes to project, and each other entry
+// of project after its doorbell cursor. Each line holds server text only,
+// as a ring does.
+func (s *Server) leftOpen(ctx context.Context, project string) ([]string, error) {
+	es, err := s.Inbox.Entries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var at int64
+	err = s.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT coalesce((SELECT due_at FROM schedule WHERE kind = ? AND project = ?),
+			(SELECT due_at FROM schedule WHERE kind = ?), -1)`, inbox.HomeNotifyKind, project, inbox.NotifyKind).Scan(&at)
+	})
+	if err != nil {
+		return nil, err
+	}
+	t := s.Sched.Topology()
+	var out []string
+	for _, e := range es {
+		if inbox.Route(e, t) == project && (e.Kind == inbox.KindQuestion || e.Kind == inbox.KindRoom || e.At > at) {
+			out = append(out, fmt.Sprintf("%s (%s, awaits %s)", e.ID, e.Kind, e.Awaits))
+		}
+	}
+	return out, nil
 }
 
 // startHuman starts the watch loop: each interval, and at once after an

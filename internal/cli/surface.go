@@ -272,7 +272,7 @@ var surface = []Verb{
 		[]Arg{{Name: "version", Description: "the release to install; the latest when absent"}},
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the operator's decision, in the operator's own words"}))),
 
-	inProject(server("inbox", "list", "list inbox entries", coordinator, nil,
+	inProject(server("inbox", "list", "list inbox entries", coordinatorOrHost, nil,
 		Flag{Name: "awaits", Type: FlagString, Enum: []string{"person", "coordinator"}, Description: "only entries that wait on this actor"})),
 	inProject(write(server("inbox", "answer", "answer an inbox entry", coordinator, []Arg{entryArg},
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the answer, as the operator gave it"},

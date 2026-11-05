@@ -29,14 +29,14 @@ func coordinatorPack(version string) brief.Pack {
 func TestC17TheCoordinatorHoldsNoConditionalSkill(t *testing.T) {
 	ctx := context.Background()
 	w := selectWorld(t, uiConfig)
-	w.cfg.Coordinator = &CoordinatorConfig{Project: prj, Harness: agenthost.Claude, Model: "opus"}
+	w.cfg.Coordinator = &CoordinatorConfig{Harness: agenthost.Claude, Model: "opus"}
 	w.cfg.Pack, w.cfg.Release = coordinatorPack("v1"), "v1"
 	w.rebuild()
 	if err := w.s.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
 	w.tick()
-	cs := w.s.Coordinator()
+	cs := w.coordinator()
 	if cs.Session == nil {
 		t.Fatalf("coordinator = %+v", cs)
 	}
@@ -66,7 +66,7 @@ func TestC17TheCoordinatorHoldsNoConditionalSkill(t *testing.T) {
 	w.cfg.Pack, w.cfg.Release = coordinatorPack("v2"), "v2"
 	w.rebuild()
 	w.tick()
-	if got := w.s.Coordinator(); got.NotifiedRelease != "v2" {
+	if got := w.coordinator(); got.NotifiedRelease != "v2" {
 		t.Fatalf("after the release = %+v, want the live session told about v2", got)
 	}
 	runbook, err := os.ReadFile(filepath.Join(cs.Checkout, brief.SkillRoot(agenthost.Claude), "loop-coordinator", "SKILL.md"))

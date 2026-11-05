@@ -29,7 +29,7 @@ func TestCoordinatorUpgradeKeepsALiveSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.tick()
-	first := w.s.Coordinator()
+	first := w.coordinator()
 	if first.Session == nil || first.Release != "v1" {
 		t.Fatalf("first coordinator = %+v", first)
 	}
@@ -37,7 +37,7 @@ func TestCoordinatorUpgradeKeepsALiveSession(t *testing.T) {
 	w.cfg.Release = "v2"
 	w.rebuild()
 	w.tick()
-	got := w.s.Coordinator()
+	got := w.coordinator()
 	if got.RunID != first.RunID || got.Session == nil || got.Session.ID != first.Session.ID {
 		t.Fatalf("the upgrade replaced a live coordinator: %+v; first %+v", got, first)
 	}
@@ -59,7 +59,7 @@ func TestCoordinatorUpgradeKeepsALiveSession(t *testing.T) {
 
 	w.host.Exit(first.Session.ID, 0)
 	w.tick()
-	next := w.s.Coordinator()
+	next := w.coordinator()
 	if next.Session == nil || next.RunID == first.RunID || next.Release != "v2" || next.Checkout != first.Checkout {
 		t.Fatalf("after the old session exited = %+v; first %+v", next, first)
 	}
@@ -83,12 +83,12 @@ func TestCoordinatorUpgradeRetriesARefusedMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.tick()
-	first := w.s.Coordinator()
+	first := w.coordinator()
 	if first.Session == nil {
 		t.Fatalf("first coordinator = %+v", first)
 	}
 	w.tick()
-	if got := w.s.Coordinator(); got.RunID != first.RunID {
+	if got := w.coordinator(); got.RunID != first.RunID {
 		t.Fatalf("the same release restarted the coordinator: %+v", got)
 	}
 	if notes := w.host.Notifications(first.Session.ID); len(notes) != 0 {
@@ -102,7 +102,7 @@ func TestCoordinatorUpgradeRetriesARefusedMessage(t *testing.T) {
 	}}
 	w.rebuild()
 	w.tick()
-	if got := w.s.Coordinator(); got.RunID != first.RunID || got.Session == nil || got.NotifiedRelease != "" {
+	if got := w.coordinator(); got.RunID != first.RunID || got.Session == nil || got.NotifiedRelease != "" {
 		t.Fatalf("after a refused message = %+v; first %+v", got, first)
 	}
 	if st, _ := w.host.Settle(ctx, first.Session.ID); st.Liveness != agenthost.Live {
@@ -115,7 +115,7 @@ func TestCoordinatorUpgradeRetriesARefusedMessage(t *testing.T) {
 	if len(notes) != 1 || !strings.Contains(notes[0], "v2") {
 		t.Fatalf("notifications after the refusal ended = %q, want one that names v2", notes)
 	}
-	if got := w.s.Coordinator(); got.RunID != first.RunID || got.NotifiedRelease != "v2" {
+	if got := w.coordinator(); got.RunID != first.RunID || got.NotifiedRelease != "v2" {
 		t.Fatalf("after the message = %+v", got)
 	}
 	// The message tells the session to read its runbook again, and the
@@ -144,7 +144,7 @@ func TestCoordinatorUpgradeLeavesAnUnknownSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.tick()
-	first := w.s.Coordinator()
+	first := w.coordinator()
 	if first.Session == nil || first.Release != "v1" {
 		t.Fatalf("first coordinator = %+v", first)
 	}
@@ -159,7 +159,7 @@ func TestCoordinatorUpgradeLeavesAnUnknownSession(t *testing.T) {
 	if st, _ := w.host.Settle(ctx, first.Session.ID); st.Liveness != agenthost.Unknown {
 		t.Fatalf("the session reads %s, want unknown", st.Liveness)
 	}
-	got := w.s.Coordinator()
+	got := w.coordinator()
 	if got.RunID != first.RunID || got.Session == nil || got.Session.ID != first.Session.ID || got.Release != "v1" {
 		t.Fatalf("the upgrade replaced an unknown coordinator: %+v; first %+v", got, first)
 	}

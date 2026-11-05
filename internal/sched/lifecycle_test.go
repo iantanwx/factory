@@ -612,23 +612,23 @@ func TestTheChooserSkipsAWindowAt90Percent(t *testing.T) {
 // crash.
 func TestCoordinatorRestartsAfterACrash(t *testing.T) {
 	w := newWorld(t)
-	w.cfg.Coordinator = &CoordinatorConfig{Project: prj, Harness: agenthost.Claude, Model: "opus"}
+	w.cfg.Coordinator = &CoordinatorConfig{Harness: agenthost.Claude, Model: "opus"}
 	w.rebuild()
 	if err := w.s.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	w.tick()
-	first := w.s.Coordinator()
+	first := w.coordinator()
 	if first.Session == nil || first.Session.Kind != agenthost.KindCoordinator || !w.liveToken(first.RunID) {
 		t.Fatalf("coordinator = %+v", first)
 	}
 	w.tick()
-	if got := w.s.Coordinator(); got.RunID != first.RunID {
+	if got := w.coordinator(); got.RunID != first.RunID {
 		t.Fatal("a live coordinator was restarted")
 	}
 	w.host.Exit(first.Session.ID, 1)
 	w.tick()
-	second := w.s.Coordinator()
+	second := w.coordinator()
 	if second.Session == nil || second.RunID == first.RunID || second.Checkout != first.Checkout {
 		t.Fatalf("after the crash = %+v", second)
 	}
@@ -642,7 +642,7 @@ func TestCoordinatorRestartsAfterACrash(t *testing.T) {
 	// A restart of the server keeps the coordinator it finds live.
 	w.restart()
 	w.tick()
-	if got := w.s.Coordinator(); got.RunID != second.RunID {
+	if got := w.coordinator(); got.RunID != second.RunID {
 		t.Fatal("a server restart replaced a live coordinator")
 	}
 }

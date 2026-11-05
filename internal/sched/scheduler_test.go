@@ -341,7 +341,7 @@ func TestTrackedReservedSkillDirRefusesTheCoordinator(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.tick()
-	if cs := w.s.Coordinator(); cs.Session != nil {
+	if cs := w.coordinator(); cs.Session != nil {
 		t.Fatalf("the coordinator started: %+v", cs)
 	}
 	if n := w.alerts(AlertConfigConflict); n != 1 {

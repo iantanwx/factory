@@ -21,7 +21,7 @@ func TestCoordinatorRebindsToTheOneAgentInItsCheckoutWhenTheIncarnationIsGone(t 
 		t.Fatal(err)
 	}
 	w.tick()
-	first := w.s.Coordinator()
+	first := w.coordinator()
 	if first.Session == nil {
 		t.Fatalf("first coordinator = %+v", first)
 	}
@@ -50,7 +50,7 @@ func TestCoordinatorRebindsToTheOneAgentInItsCheckoutWhenTheIncarnationIsGone(t 
 	w.tick()
 	w.tick()
 
-	got := w.s.Coordinator()
+	got := w.coordinator()
 	if got.Session == nil || got.RunID != first.RunID {
 		t.Fatalf("the coordinator after the incarnation changed = %+v; first %+v", got, first)
 	}
