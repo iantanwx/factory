@@ -55,12 +55,15 @@ func (w *humanWorld) overwatchRings() []string {
 	return out
 }
 
-func (w *humanWorld) lastRing() (overwatch.RingOutcome, bool) {
+// lastRing reads the ring record of dest. The overwatch ring records for
+// the loop project, and the human world has none, so its dest is "".
+func (w *humanWorld) lastRing(dest string) (overwatch.RingOutcome, bool) {
 	w.t.Helper()
-	o, ok, err := overwatch.LastRing(context.Background(), w.srv.Store)
+	rings, err := overwatch.LastRings(context.Background(), w.srv.Store, "")
 	if err != nil {
 		w.t.Fatal(err)
 	}
+	o, ok := rings[dest]
 	return o, ok
 }
 
@@ -139,7 +142,7 @@ func TestC7TheVerbSweepsPrintsAndRingsNobody(t *testing.T) {
 	if rings := w.overwatchRings(); len(rings) != 0 {
 		t.Fatalf("the verb rang %q", rings)
 	}
-	if _, ok := w.lastRing(); ok {
+	if _, ok := w.lastRing(""); ok {
 		t.Fatal("the verb wrote a ring row")
 	}
 }
@@ -212,7 +215,7 @@ func TestC6TheRingRecordHoldsEachOutcome(t *testing.T) {
 	if err := j.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if o, ok := w.lastRing(); !ok || o.Source != overwatch.SourceOverwatch || o.Result != overwatch.RingAccepted || o.Detail != "" ||
+	if o, ok := w.lastRing(""); !ok || o.Source != overwatch.SourceOverwatch || o.Result != overwatch.RingAccepted || o.Detail != "" ||
 		!o.At.Equal(w.clock.Now()) {
 		t.Fatalf("an accepted ring's row = %+v %v", o, ok)
 	}
@@ -222,7 +225,7 @@ func TestC6TheRingRecordHoldsEachOutcome(t *testing.T) {
 	if err := j.Tick(ctx); err == nil {
 		t.Fatal("a refused ring's tick returned no error")
 	}
-	if o, _ := w.lastRing(); o.Source != overwatch.SourceOverwatch || o.Result != overwatch.RingRefused || !strings.Contains(o.Detail, "refused") {
+	if o, _ := w.lastRing(""); o.Source != overwatch.SourceOverwatch || o.Result != overwatch.RingRefused || !strings.Contains(o.Detail, "refused") {
 		t.Fatalf("a refused ring's row = %+v", o)
 	}
 	if rings := w.overwatchRings(); len(rings) != 1 {
@@ -230,7 +233,8 @@ func TestC6TheRingRecordHoldsEachOutcome(t *testing.T) {
 	}
 	w.host.RefuseNotify(session, false)
 
-	// A new inbox entry: the notifier's ring writes source inbox.
+	// A new inbox entry of alpha: the notifier's ring writes source inbox
+	// in alpha's row.
 	if err := config.StoreAlerter(w.srv.Store).Raise(ctx, config.Alert{Project: "alpha", Kind: sched.AlertRunUnknown, DedupeKey: "u",
 		Subject: "a run's liveness is unknown"}); err != nil {
 		t.Fatal(err)
@@ -238,7 +242,7 @@ func TestC6TheRingRecordHoldsEachOutcome(t *testing.T) {
 	if err := w.srv.Notifier.Poke(ctx); err != nil {
 		t.Fatal(err)
 	}
-	inboxRing, _ := w.lastRing()
+	inboxRing, _ := w.lastRing("alpha")
 	if inboxRing.Source != overwatch.SourceInbox || inboxRing.Result != overwatch.RingAccepted {
 		t.Fatalf("the notifier's row = %+v", inboxRing)
 	}
@@ -255,7 +259,7 @@ func TestC6TheRingRecordHoldsEachOutcome(t *testing.T) {
 	if env, _, _ := call(t, w.dir, 5*time.Second, nil, "coordinator", "send", "--body", "read it again"); env["ok"] == true {
 		t.Fatalf("a refused send = %v", env)
 	}
-	if o, _ := w.lastRing(); o != inboxRing {
+	if o, _ := w.lastRing("alpha"); o != inboxRing {
 		t.Fatalf("coordinator send changed the row to %+v", o)
 	}
 }
@@ -269,7 +273,7 @@ func TestC6NoSessionRecordsNobody(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	at := time.Date(2026, 10, 24, 9, 3, 0, 0, time.UTC)
-	s := &Server{Store: st, log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	s := &Server{Store: st, log: slog.New(slog.NewTextHandler(io.Discard, nil)), Projects: &config.Projects{HostPath: filepath.Join(t.TempDir(), "host.yaml")},
 		opts: Options{Human: HumanOptions{Now: func() time.Time { return at }}}}
 	ring := s.recordedRing(overwatch.SourceOverwatch)
 	if err := ring(context.Background(), "loop overwatch: work in stalls."); !errors.Is(err, inbox.ErrNobodyToRing) {
@@ -279,9 +283,10 @@ func TestC6NoSessionRecordsNobody(t *testing.T) {
 	if err := j.Tick(context.Background()); err != nil {
 		t.Fatalf("a tick with no session = %v", err)
 	}
-	o, ok, err := overwatch.LastRing(context.Background(), st)
-	if err != nil || !ok || o != (overwatch.RingOutcome{At: at, Source: overwatch.SourceOverwatch, Result: overwatch.RingNobody}) {
-		t.Fatalf("the row = %+v %v %v", o, ok, err)
+	rings, err := overwatch.LastRings(context.Background(), st, "")
+	if o, ok := rings[""]; err != nil || len(rings) != 1 || !ok ||
+		o != (overwatch.RingOutcome{At: at, Source: overwatch.SourceOverwatch, Result: overwatch.RingNobody}) {
+		t.Fatalf("the rows = %+v %v", rings, err)
 	}
 }
 
@@ -300,7 +305,7 @@ func TestC6AFailedRowWriteLeavesTheRingAsItWas(t *testing.T) {
 		t.Fatalf("an accepted ring with a refused row = %v", err)
 	}
 	w.waitNotified("loop overwatch: work in stalls.")
-	if o, ok := w.lastRing(); ok {
+	if o, ok := w.lastRing(""); ok {
 		t.Fatalf("the refused write left a row %+v", o)
 	}
 }

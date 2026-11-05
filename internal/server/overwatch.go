@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -107,68 +108,95 @@ func (s *Server) humanClock() func() time.Time {
 	return time.Now
 }
 
-// recordedRing is the doorbell of one source. It rings the stored
-// coordinator session and writes the outcome with overwatch.RecordRing. A
-// failed row write is logged, and the ring's own result stands.
-//
-// After overwatch.RefusalLimit refused rings in a row to one session, both
-// doorbells share one backoff and one open alert that names the session
-// (F-32). Each ring the backoff holds rings no one and writes no row. A new
-// stored session, or a hold that passed, rings again, and an accepted ring
-// closes the alert.
+// recordedRing is the overwatch job's doorbell. It rings the stored
+// coordinator session, and records the ring for the loop project, the
+// destination of the instance's own work. Spec factorio-1edo work entry 6
+// rings each session with its own report.
 func (s *Server) recordedRing(source string) inbox.Doorbell {
-	now := s.humanClock()
 	return func(ctx context.Context, text string) error {
-		bg := context.WithoutCancel(ctx)
-		last, _, err := overwatch.LastRing(ctx, s.Store)
-		if err != nil {
-			s.log.WarnContext(ctx, "read the coordinator ring", "source", source, "err", err)
-		}
 		id, ok := s.coordinatorSession()
-		handle := ""
-		if ok {
-			handle = id.String()
-		}
-		at := now()
-		if last.Held(handle, at) {
-			return inbox.ErrRingHeld
-		}
-		err = inbox.ErrNobodyToRing
-		if ok {
-			err = s.opts.Agents.Notify(ctx, id, text)
-		}
-		o := overwatch.RingOutcome{At: at, Source: source, Result: overwatch.RingAccepted, Handle: handle, Alerted: last.Alerted}
-		switch {
-		case errors.Is(err, inbox.ErrNobodyToRing):
-			o.Result, o.Handle = overwatch.RingNobody, ""
-		case err != nil:
-			o.Result, o.Detail, o.Refusals = overwatch.RingRefused, err.Error(), 1
-			if s.Redactor != nil {
-				o.Detail = s.Redactor.Redact(o.Detail)
-			}
-			if last.Result == overwatch.RingRefused && last.Handle == handle {
-				o.Refusals = last.Refusals + 1
-			}
-		}
-		switch {
-		case o.Result == overwatch.RingAccepted && o.Alerted != "":
-			if s.clearRingAlert(bg, o.Alerted) {
-				o.Alerted = ""
-			}
-		case o.Result == overwatch.RingRefused && o.Refusals >= overwatch.RefusalLimit:
-			// The alert of a session the server no longer stores is moot.
-			if o.Alerted != "" && o.Alerted != handle && !s.clearRingAlert(bg, o.Alerted) {
-				break
-			}
-			if s.raiseRingAlert(bg, id, o) {
-				o.Alerted = handle
-			}
-		}
-		if werr := overwatch.RecordRing(bg, s.Store, o); werr != nil {
-			s.log.WarnContext(ctx, "record the coordinator ring", "source", source, "result", o.Result, "err", werr)
-		}
-		return err
+		return s.ring(ctx, source, id, ok, []string{s.topology().Loop}, text)
 	}
+}
+
+// inboxRing is the Notifier's doorbell. It rings the session id for the
+// entries of dests.
+func (s *Server) inboxRing(ctx context.Context, id agenthost.RunID, dests []string, text string) error {
+	return s.ring(ctx, overwatch.SourceInbox, id, s.opts.Agents != nil, dests, text)
+}
+
+// ring rings the session id, or nobody when ok is false, and writes the
+// outcome into the ring record of each destination of dests with
+// overwatch.RecordRing. A failed row write is logged, and the ring's own
+// result stands.
+//
+// The rings of one session share one backoff and one open alert that
+// names the session (F-32). They read the last ring to a destination that
+// the session serves. After overwatch.RefusalLimit refused rings in a row
+// to the session, each ring the backoff holds rings no one and writes no
+// row. A new session, or a hold that passed, rings again, and an accepted
+// ring closes the alert.
+func (s *Server) ring(ctx context.Context, source string, id agenthost.RunID, ok bool, dests []string, text string) error {
+	bg := context.WithoutCancel(ctx)
+	handle := ""
+	if ok {
+		handle = id.String()
+	}
+	rings, err := overwatch.Rings(ctx, s.Store)
+	if err != nil {
+		s.log.WarnContext(ctx, "read the coordinator rings", "source", source, "err", err)
+	}
+	var last overwatch.RingOutcome
+	for _, r := range rings {
+		if slices.Contains(dests, r.Dest) || ok && s.serves(id, r.Dest) {
+			last = r.Outcome
+		}
+	}
+	at := s.humanClock()()
+	if last.Held(handle, at) {
+		return inbox.ErrRingHeld
+	}
+	err = inbox.ErrNobodyToRing
+	if ok {
+		err = s.opts.Agents.Notify(ctx, id, text)
+	}
+	o := overwatch.RingOutcome{At: at, Source: source, Result: overwatch.RingAccepted, Handle: handle, Alerted: last.Alerted}
+	switch {
+	case errors.Is(err, inbox.ErrNobodyToRing):
+		o.Result, o.Handle = overwatch.RingNobody, ""
+	case err != nil:
+		o.Result, o.Detail, o.Refusals = overwatch.RingRefused, err.Error(), 1
+		if s.Redactor != nil {
+			o.Detail = s.Redactor.Redact(o.Detail)
+		}
+		if last.Result == overwatch.RingRefused && last.Handle == handle {
+			o.Refusals = last.Refusals + 1
+		}
+	}
+	switch {
+	case o.Result == overwatch.RingAccepted && o.Alerted != "":
+		if s.clearRingAlert(bg, o.Alerted) {
+			o.Alerted = ""
+		}
+	case o.Result == overwatch.RingRefused && o.Refusals >= overwatch.RefusalLimit:
+		// The alert of a session the server no longer stores is moot.
+		if o.Alerted != "" && o.Alerted != handle && !s.clearRingAlert(bg, o.Alerted) {
+			break
+		}
+		if s.raiseRingAlert(bg, id, o) {
+			o.Alerted = handle
+		}
+	}
+	if werr := overwatch.RecordRing(bg, s.Store, dests, o); werr != nil {
+		s.log.WarnContext(ctx, "record the coordinator ring", "source", source, "result", o.Result, "err", werr)
+	}
+	return err
+}
+
+// serves reports whether the session id serves the destination dest.
+func (s *Server) serves(id agenthost.RunID, dest string) bool {
+	got, ok := s.session(dest)
+	return ok && got == id
 }
 
 // raiseRingAlert raises, or counts up, the one open alert of a session
@@ -364,8 +392,8 @@ func (w *serverWorld) Doctor(ctx context.Context) ([]github.CheckLine, error) {
 	return lines, nil
 }
 
-func (w *serverWorld) LastRing(ctx context.Context) (overwatch.RingOutcome, bool, error) {
-	return overwatch.LastRing(ctx, w.s.Store)
+func (w *serverWorld) LastRings(ctx context.Context) (map[string]overwatch.RingOutcome, error) {
+	return overwatch.LastRings(ctx, w.s.Store, w.s.topology().Loop)
 }
 
 // Inbox is every entry of the server's inbox, as `loop inbox list` prints

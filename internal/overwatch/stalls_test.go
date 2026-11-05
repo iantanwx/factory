@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
@@ -256,7 +257,11 @@ func f4(t *testing.T) (*stallsWorld, *doorbell) {
 	w.run(t, "r-53f391c45f88", "triage", "", at(8, 44), at(8, 50))
 	w.run(t, "r-131cf44e5259", "triage", "", at(9, 0), at(9, 4))
 	d := &doorbell{}
-	n := &inbox.Notifier{Inbox: inbox.New(inbox.Config{Store: w.st, Now: w.Now}), Ring: d.ring}
+	one := func(string) (agenthost.RunID, bool) {
+		return agenthost.RunID{Host: "fake", Terminal: "t-1", Incarnation: "1"}, true
+	}
+	n := &inbox.Notifier{Inbox: inbox.New(inbox.Config{Store: w.st, Now: w.Now, Sessions: one}),
+		Ring: func(ctx context.Context, _ agenthost.RunID, _ []string, text string) error { return d.ring(ctx, text) }}
 	for range 2 {
 		if err := n.Poke(context.Background()); err != nil {
 			t.Fatal(err)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -57,7 +56,9 @@ const (
 	RingNobody   = "nobody"
 )
 
-// RingKind is the one schedule row that holds the last ring's outcome.
+// RingKind is the schedule row that holds the outcome of the last ring to
+// one destination project, keyed by the project (spec factorio-1edo,
+// Data). The row of "" holds the ring of the destination "".
 const RingKind = "coordinator_ring"
 
 // RefusalLimit is how many refused rings in a row to one stored
@@ -136,8 +137,10 @@ func (o RingOutcome) check() error {
 	return nil
 }
 
-// RecordRing writes the one coordinator_ring row.
-func RecordRing(ctx context.Context, st *store.Store, o RingOutcome) error {
+// RecordRing writes o into the coordinator_ring row of each destination
+// of dests. It writes each row anew, so Rings reads the rows in the order
+// of their writes.
+func RecordRing(ctx context.Context, st *store.Store, dests []string, o RingOutcome) error {
 	if err := o.check(); err != nil {
 		return err
 	}
@@ -147,35 +150,63 @@ func RecordRing(ctx context.Context, st *store.Store, o RingOutcome) error {
 	}
 	return st.Write(ctx, func(tx *store.Tx) error {
 		now := tx.Now().UnixMilli()
-		r, err := tx.Exec(`UPDATE schedule SET payload = ?, updated_at = ? WHERE kind = ? AND project = ''`, string(payload), now, RingKind)
-		if err != nil {
-			return err
+		for _, dest := range dests {
+			if _, err := tx.Exec(`DELETE FROM schedule WHERE kind = ? AND project = ?`, RingKind, dest); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`INSERT INTO schedule (project, kind, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+				dest, RingKind, string(payload), now, now); err != nil {
+				return err
+			}
 		}
-		if n, _ := r.RowsAffected(); n > 0 {
-			return nil
-		}
-		_, err = tx.Exec(`INSERT INTO schedule (project, kind, payload, created_at, updated_at) VALUES ('', ?, ?, ?, ?)`,
-			RingKind, string(payload), now, now)
-		return err
+		return nil
 	})
 }
 
-// LastRing reads the coordinator_ring row. ok is false when no ring was
-// recorded yet.
-func LastRing(ctx context.Context, st *store.Store) (RingOutcome, bool, error) {
-	var o RingOutcome
-	var raw string
+// DestRing is the last ring to one destination.
+type DestRing struct {
+	Dest    string
+	Outcome RingOutcome
+}
+
+// Rings reads every coordinator_ring row, the oldest write first.
+func Rings(ctx context.Context, st *store.Store) ([]DestRing, error) {
+	var out []DestRing
 	err := st.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT payload FROM schedule WHERE kind = ? AND project = ''`, RingKind).Scan(&raw)
+		rs, err := tx.QueryContext(ctx, `SELECT project, payload FROM schedule WHERE kind = ? ORDER BY id`, RingKind)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rs.Close() }()
+		for rs.Next() {
+			var r DestRing
+			var raw string
+			if err := rs.Scan(&r.Dest, &raw); err != nil {
+				return err
+			}
+			if err := json.Unmarshal([]byte(raw), &r.Outcome); err != nil {
+				return fmt.Errorf("overwatch: the %s row of %q: %w", RingKind, r.Dest, err)
+			}
+			out = append(out, r)
+		}
+		return rs.Err()
 	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return o, false, nil
-	}
+	return out, err
+}
+
+// LastRings reads the last ring to each destination. On a host with the
+// loop project loop, no entry routes to "", so the row of "" is an earlier
+// release's one ring record, and LastRings leaves it out.
+func LastRings(ctx context.Context, st *store.Store, loop string) (map[string]RingOutcome, error) {
+	rs, err := Rings(ctx, st)
 	if err != nil {
-		return o, false, err
+		return nil, err
 	}
-	if err := json.Unmarshal([]byte(raw), &o); err != nil {
-		return o, false, fmt.Errorf("overwatch: the %s row: %w", RingKind, err)
+	out := map[string]RingOutcome{}
+	for _, r := range rs {
+		if r.Dest != "" || loop == "" {
+			out[r.Dest] = r.Outcome
+		}
 	}
-	return o, true, nil
+	return out, nil
 }

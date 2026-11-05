@@ -27,14 +27,11 @@ func (d *doorbell) ring(_ context.Context, text string) error {
 // ringRows counts the coordinator_ring rows of the store.
 func ringRows(t *testing.T, w *fakeWorld) int {
 	t.Helper()
-	_, ok, err := LastRing(context.Background(), w.st)
+	rs, err := Rings(context.Background(), w.st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok {
-		return 1
-	}
-	return 0
+	return len(rs)
 }
 
 // C3: a tick whose every part reads code 0 calls the doorbell zero times

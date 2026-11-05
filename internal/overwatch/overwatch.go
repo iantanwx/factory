@@ -137,7 +137,8 @@ type World interface {
 	Coordinator() sched.CoordinatorState
 	GitHub() GitHubReads
 	Doctor(ctx context.Context) ([]github.CheckLine, error) // host lines, then GitHub.Doctor
-	LastRing(ctx context.Context) (RingOutcome, bool, error)
+	// LastRings is the last ring to each destination project.
+	LastRings(ctx context.Context) (map[string]RingOutcome, error)
 	// Inbox is every entry of the inbox, as `loop inbox list` prints it.
 	Inbox(ctx context.Context) ([]inbox.Entry, error)
 	// Tracked is the tracked files of the project's tree at

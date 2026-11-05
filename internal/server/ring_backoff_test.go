@@ -79,7 +79,7 @@ func TestCBug1AnAcceptedRingResetsTheBackoffAndClearsTheAlert(t *testing.T) {
 		t.Fatalf("alerts that name %s after three refusals = %+v, want one open row", session.Terminal, a)
 	}
 	// The alert quotes the host's own refusal, as the ring row stores it.
-	refused, _ := w.lastRing()
+	refused, _ := w.lastRing("")
 	if !strings.Contains(refused.Detail, "host refused input to "+session.String()) {
 		t.Fatalf("the stored refusal = %q, want the fake host's refusal of %s", refused.Detail, session)
 	}
@@ -108,7 +108,7 @@ func TestCBug1AnAcceptedRingResetsTheBackoffAndClearsTheAlert(t *testing.T) {
 	if err := j.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if o, _ := w.lastRing(); o.Result != overwatch.RingAccepted {
+	if o, _ := w.lastRing(""); o.Result != overwatch.RingAccepted {
 		t.Fatalf("the ring after the host took input = %+v, want accepted", o)
 	}
 	if a := w.ringAlerts(session.Terminal); len(a) != 1 || a[0].state != "closed" {
@@ -170,7 +170,7 @@ func TestCBug1TheBackoffResetsWhenTheStoredSessionChanges(t *testing.T) {
 	if got := counter.notifies.Load() - before; got != 1 {
 		t.Fatalf("Notify calls to the rebound session %s = %d, want 1: the old handle's backoff held it", moved, got)
 	}
-	if o, _ := w.lastRing(); o.Result != overwatch.RingAccepted {
+	if o, _ := w.lastRing(""); o.Result != overwatch.RingAccepted {
 		t.Fatalf("the ring to the rebound session = %+v, want accepted", o)
 	}
 	if a := w.ringAlerts(old.Terminal); len(a) != 1 || a[0].state != "closed" {

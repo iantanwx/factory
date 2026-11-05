@@ -48,10 +48,10 @@ func newReachWorld(t *testing.T) *reachWorld {
 	}
 }
 
-// record writes the one coordinator_ring row.
+// record writes the coordinator_ring row of the destination "".
 func (w *reachWorld) record(t *testing.T, o RingOutcome) {
 	t.Helper()
-	if err := RecordRing(context.Background(), w.st, o); err != nil {
+	if err := RecordRing(context.Background(), w.st, []string{""}, o); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -139,6 +139,28 @@ func TestC18AnUnreachableCoordinatorIsWork(t *testing.T) {
 	}
 }
 
+// Spec factorio-1edo work entry 5: the inbox part reads the ring record of
+// each destination. A refused ring of one destination is work under a key
+// that names it, and an accepted ring of another is a note.
+func TestC18TheRingOfEachDestinationIsRead(t *testing.T) {
+	w := newReachWorld(t)
+	ctx := context.Background()
+	if err := RecordRing(ctx, w.st, []string{"alpha"}, RingOutcome{At: ringAt, Source: SourceInbox, Result: RingAccepted}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordRing(ctx, w.st, []string{"beta"}, RingOutcome{At: ringAt, Source: SourceInbox, Result: RingRefused, Detail: "orca: notify refused"}); err != nil {
+		t.Fatal(err)
+	}
+	want := PartReport{Name: "inbox", Code: Work, Lines: []string{
+		"the last ring for beta, from inbox at 2026-10-24T08:53:00Z, was refused: orca: notify refused (overwatch:inbox:refused:beta)",
+		"the coordinator session orca/t-3/i1 of run coordinator-1 runs",
+		"the last ring for alpha, from inbox at 2026-10-24T08:53:00Z, was accepted",
+	}}
+	if got := sweepInbox(t, w); !reflect.DeepEqual(got, want) {
+		t.Fatalf("inbox =\n%#v\nwant\n%#v", got, want)
+	}
+}
+
 // C18: a fault that names a key ends that finding, as for every part.
 func TestC18AFaultThatNamesTheKeyFilesIt(t *testing.T) {
 	w := newReachWorld(t)
@@ -168,7 +190,7 @@ func TestARefusedRingAtOneTickIsWorkAtTheNext(t *testing.T) {
 	refused := func(ctx context.Context, text string) error {
 		texts = append(texts, text)
 		err := errors.New("orca: notify refused")
-		if rerr := RecordRing(ctx, w.st, RingOutcome{At: w.now, Source: SourceOverwatch, Result: RingRefused, Detail: err.Error()}); rerr != nil {
+		if rerr := RecordRing(ctx, w.st, []string{""}, RingOutcome{At: w.now, Source: SourceOverwatch, Result: RingRefused, Detail: err.Error()}); rerr != nil {
 			t.Fatal(rerr)
 		}
 		return err
