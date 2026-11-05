@@ -124,13 +124,75 @@ func (in *Inbox) projectItems(ctx context.Context, project string) ([]sourced, *
 // entry is absent until its time. A project whose beads cannot be read
 // shows as one coordinator entry, and the rest of the inbox still reads.
 func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
+	out, defers, err := in.build(ctx)
+	if err != nil {
+		return nil, err
+	}
 	now := in.cfg.Now().UnixMilli()
+	shown := out[:0]
+	for _, e := range out {
+		if d, ok := defers[e.ID]; ok {
+			if d.due > now {
+				continue
+			}
+			e.At = max(e.At, d.due)
+			e.DeferReason = d.reason
+		}
+		e.Cursor = strconv.FormatInt(e.At, 10)
+		shown = append(shown, e)
+	}
+	sort.SliceStable(shown, func(i, j int) bool {
+		if shown[i].At != shown[j].At {
+			return shown[i].At < shown[j].At
+		}
+		return shown[i].ID < shown[j].ID
+	})
+	linkQuestions(shown)
+	return shown, nil
+}
+
+// Owner names the project of the entry id: the project of the entry as
+// the inbox builds it now, deferred or not, and a question's by the entry
+// it names. An id that does not list names the project its id holds. ok
+// is false when the id names no project and no entry lists under it.
+func (in *Inbox) Owner(ctx context.Context, id string) (project string, ok bool, err error) {
+	es, _, err := in.build(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	linkQuestions(es)
+	for _, e := range es {
+		if e.ID == id {
+			return owner(e), true, nil
+		}
+	}
+	_, project, _, _, _ = parseEntry(id)
+	return project, project != "", nil
+}
+
+// linkQuestions points each question at the entry it names, when that
+// entry is in es.
+func linkQuestions(es []Entry) {
+	byID := make(map[string]Entry, len(es))
+	for _, e := range es {
+		byID[e.ID] = e
+	}
+	for i, e := range es {
+		if about, ok := byID[e.aboutID]; ok && e.Kind == KindQuestion && about.Kind != KindQuestion {
+			es[i].about = &about
+		}
+	}
+}
+
+// build reads every entry, deferred or not, in no order, and the active
+// defers.
+func (in *Inbox) build(ctx context.Context) ([]Entry, map[string]deferRow, error) {
 	var items []sourced
 	var out []Entry
 	if in.cfg.List != nil && in.cfg.Projects != nil {
 		projects, err := in.cfg.Projects()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, p := range projects {
 			got, ref := in.projectItems(ctx, p.ID)
@@ -188,7 +250,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// A panel's link may read beads, so it is set after the transaction.
 	for i := range out {
@@ -196,25 +258,7 @@ func (in *Inbox) Entries(ctx context.Context) ([]Entry, error) {
 			out[i].Link = in.cfg.Link(out[i].Project, out[i].Item)
 		}
 	}
-	shown := out[:0]
-	for _, e := range out {
-		if d, ok := defers[e.ID]; ok {
-			if d.due > now {
-				continue
-			}
-			e.At = max(e.At, d.due)
-			e.DeferReason = d.reason
-		}
-		e.Cursor = strconv.FormatInt(e.At, 10)
-		shown = append(shown, e)
-	}
-	sort.SliceStable(shown, func(i, j int) bool {
-		if shown[i].At != shown[j].At {
-			return shown[i].At < shown[j].At
-		}
-		return shown[i].ID < shown[j].ID
-	})
-	return shown, nil
+	return out, defers, nil
 }
 
 // deferRow is one active defer: when its entry returns, and why.
@@ -459,7 +503,7 @@ func (in *Inbox) questions(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 		e := Entry{ID: rowEntry(KindQuestion, id), Kind: KindQuestion, Awaits: AwaitsPerson, Title: "a question the coordinator prepared",
 			Text: AgentText(run, body), Next: "loop inbox answer " + rowEntry(KindQuestion, id) + " --body <the operator's answer>", At: at}
 		if about != "" {
-			e.Title, e.Link = "a question about "+about, about
+			e.Title, e.Link, e.aboutID = "a question about "+about, about, about
 		}
 		out = append(out, e)
 	}
@@ -502,7 +546,7 @@ func (in *Inbox) rooms(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 
 func (in *Inbox) alerts(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 	rs, err := tx.QueryContext(ctx, `SELECT id, project, kind, subject, body, count, first_at, last_at, finding, finding_run,
-		coalesce(finding_count, 0), coalesce(finding_last_at, 0) FROM alerts WHERE state = 'open' ORDER BY id`)
+		coalesce(finding_count, 0), coalesce(finding_last_at, 0), dedupe_key FROM alerts WHERE state = 'open' ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -511,11 +555,11 @@ func (in *Inbox) alerts(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 	for rs.Next() {
 		var id, first, at, foundAt int64
 		var count, foundCount int
-		var project, kind, subject, body, finding, findingRun string
-		if err := rs.Scan(&id, &project, &kind, &subject, &body, &count, &first, &at, &finding, &findingRun, &foundCount, &foundAt); err != nil {
+		var project, kind, subject, body, finding, findingRun, dedupe string
+		if err := rs.Scan(&id, &project, &kind, &subject, &body, &count, &first, &at, &finding, &findingRun, &foundCount, &foundAt, &dedupe); err != nil {
 			return nil, err
 		}
-		e := Entry{ID: rowEntry(KindAlert, id), Kind: KindAlert, Awaits: AwaitsCoordinator, Project: project, Status: kind,
+		e := Entry{ID: rowEntry(KindAlert, id), Kind: KindAlert, Awaits: AwaitsCoordinator, Project: project, Status: kind, Dedupe: dedupe,
 			Title: subject, Text: body, Next: "loop inbox answer " + rowEntry(KindAlert, id) + " --body <what was done> closes it", At: at}
 		switch {
 		case finding != "":
@@ -566,7 +610,7 @@ func (in *Inbox) faults(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 		if f.Project != "" {
 			by += " on project " + f.Project
 		}
-		out = append(out, Entry{ID: KindFault + "/" + f.ID, Kind: KindFault, Awaits: AwaitsCoordinator, Project: f.Project, Item: f.Item,
+		out = append(out, Entry{ID: KindFault + "/" + f.ID, Kind: KindFault, Awaits: AwaitsCoordinator, Project: f.Project, Item: f.Item, Run: f.RunID,
 			Status: f.Status, Title: fmt.Sprintf("loop fault %s, reported by %s %s under release %s", f.ID, by, f.RunID, f.Release),
 			Text: "The report:\n\n" + AgentText(f.RunID, f.Text),
 			Next: fmt.Sprintf("`loop fault ack %s`, then `loop fault resolve %s` with --fixed-in <release>, --duplicate-of <id>, or --not-a-fault --reason <text>",

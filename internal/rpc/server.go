@@ -23,6 +23,7 @@ import (
 
 	loopv1 "github.com/iantanwx/loop/gen/loop/v1"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -43,7 +44,8 @@ type Call struct {
 // Project is the project the call acts on: --project, or else the
 // principal's own. A principal that holds a project, and is not the
 // coordinator, cannot name another project. otherHint is the hint of that
-// refusal.
+// refusal. The coordinator stays exempt: authorize already refused a
+// scoped coordinator's --project that its reach does not admit.
 func (c *Call) Project(otherHint string) (string, *cli.Refusal) {
 	p, flag := c.Principal, c.Inv.Flags["project"]
 	switch {
@@ -93,7 +95,22 @@ type Options struct {
 	// before its handler runs. The scheduler records the run's last
 	// CLI call with it (KTD7, KTD8). Optional.
 	OnCall func(ctx context.Context, p Principal)
+	// Topology is the coordinators of the instance now. The scope check
+	// of a coordinator token reads it at each call. Nil checks no scope,
+	// so every coordinator token acts as before ADR 0015.
+	Topology func() coord.Topology
+	// Records names the project of each record a call names, for the
+	// scope check. Nil names none.
+	Records RecordResolver
+	// Routed reports whether an open entry that routes to the loop
+	// project names a record. Nil names none.
+	Routed func(ctx context.Context, r coord.Record) (bool, error)
 }
+
+// RecordResolver names the project of each record a call names. The
+// server builds it over the machine, the inbox, rooms, decisions, runs,
+// faults and retros.
+type RecordResolver func(ctx context.Context, inv cli.Invocation) ([]coord.Record, error)
 
 // Server answers every RPC through one generic handler.
 type Server struct {
@@ -364,6 +381,9 @@ func (s *Server) decide(ctx context.Context, method string, req *loopv1.VerbRequ
 	}
 	call := &Call{Inv: inv, Principal: p, Request: req}
 	ctx = withPrincipal(ctx, p)
+	if c, ok := s.caller(p); ok {
+		ctx = context.WithValue(ctx, callerKey{}, c)
+	}
 	key := req.GetIdempotencyKey()
 	if !v.Write || key == "" || p.RunID == "" {
 		return path, s.run(ctx, call), p, nil

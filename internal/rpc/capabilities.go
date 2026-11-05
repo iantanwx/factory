@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/coord"
 )
 
 // HoldsItem reports whether p holds item now. The default compares item
@@ -57,6 +58,9 @@ func (s *Server) authorize(ctx context.Context, inv cli.Invocation, p *Principal
 		}
 		return denied("principal_not_allowed", "", hint)
 	}
+	if res := s.checkScope(ctx, inv, *p); res != nil {
+		return res
+	}
 	if (p.Kind == cli.PrincipalRun || p.Kind == cli.PrincipalRoom) && m.IsItemScoped(path) {
 		item := inv.Arg("item")
 		holds, err := s.opts.HoldsItem(ctx, *p, item)
@@ -73,6 +77,93 @@ func (s *Server) authorize(ctx context.Context, inv cli.Invocation, p *Principal
 		}
 	}
 	return nil
+}
+
+type callerKey struct{}
+
+// CallerFrom returns the coordinator caller of the call in ctx, for a
+// service that filters a list. ok is false for any other principal, and
+// when the server checks no scope.
+func CallerFrom(ctx context.Context) (coord.Caller, bool) {
+	c, ok := ctx.Value(callerKey{}).(coord.Caller)
+	return c, ok
+}
+
+// caller reads a coordinator principal against the topology of now.
+func (s *Server) caller(p Principal) (coord.Caller, bool) {
+	if p.Kind != cli.PrincipalCoordinator || s.opts.Topology == nil {
+		return coord.Caller{}, false
+	}
+	return coord.CallerOf(p.Project, s.opts.Topology(), s.opts.Routed), true
+}
+
+// checkScope binds a coordinator token that names a project to the scope
+// of the verb (ADR 0015 decision 4; spec factorio-1edo, Approach,
+// "Scope"). A token with no project is the old session, and no scope
+// binds it. An instance-wide verb admits only the loop project's
+// coordinator. A project-scoped verb refuses each record the caller does
+// not reach. The loop project's coordinator names another project B with
+// --project only beside a record of B that it reaches, and files a bug in
+// B only for a fault of B.
+func (s *Server) checkScope(ctx context.Context, inv cli.Invocation, p Principal) *cli.Result {
+	c, ok := s.caller(p)
+	if !ok || c.Reach == coord.ReachUnscoped {
+		return nil
+	}
+	path := inv.Verb.Path
+	if inv.Verb.Scope == cli.ScopeInstance && c.Reach != coord.ReachLoop {
+		return denied("loop_project_only", "", fmt.Sprintf(
+			"%s acts on the whole instance, so only the loop project's coordinator calls it; %s is the coordinator of project %s", path, p.Actor(), c.Project))
+	}
+	if inv.Verb.Scope != cli.ScopeProject || s.opts.Records == nil {
+		return nil
+	}
+	recs, err := s.opts.Records(ctx, inv)
+	if err != nil {
+		return new(cli.Internal(fmt.Errorf("name the records of %s: %w", path, err)))
+	}
+	bug := path == "work create" && inv.Flags["kind"] == "bug"
+	other, named, ofOther, faultOfOther := "", 0, true, false
+	for _, r := range recs {
+		switch {
+		case r.Kind == coord.KindProject:
+			if r.Project != c.Project {
+				other = r.Project
+			}
+			continue
+		case bug && r.Kind == coord.KindFault:
+			faultOfOther = faultOfOther || r.Project == inv.Flags["project"]
+			continue
+		}
+		reaches, err := c.Reaches(ctx, r)
+		if err != nil {
+			return new(cli.Internal(fmt.Errorf("check whether %s reaches %s %s: %w", p.Actor(), r.Kind, r.ID, err)))
+		}
+		if !reaches {
+			return otherProject(r.ID, fmt.Sprintf("%s %s", r.Kind, r.ID), r.Project, c.Project)
+		}
+		named++
+		ofOther = ofOther && r.Project == inv.Flags["project"]
+	}
+	switch {
+	case other == "":
+		return nil
+	case c.Reach == coord.ReachLoop && bug && faultOfOther:
+		return nil
+	case c.Reach == coord.ReachLoop && bug:
+		return denied("fault_bug_only", "", fmt.Sprintf(
+			"the loop project's coordinator files a bug in project %s only for a loop fault of %s; name the fault, F-<n>, in --body", other, other))
+	case c.Reach == coord.ReachLoop && named > 0 && ofOther:
+		return nil
+	}
+	return otherProject("", "--project "+other, other, c.Project)
+}
+
+// otherProject is the refusal of a record of another project. Its hint
+// names the owner.
+func otherProject(item, what, owner, own string) *cli.Result {
+	return denied("other_project", item, fmt.Sprintf(
+		"%s belongs to project %s; the coordinator of project %s acts on its own project's records only", what, owner, own))
 }
 
 // checkHostCaller refuses a host verb whose caller, or any ancestor of the
