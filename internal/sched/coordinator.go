@@ -293,7 +293,7 @@ func (s *Scheduler) tendOld(ctx context.Context, cc *CoordinatorConfig, old Coor
 	s.endSession(ctx, old)
 	has, err := s.hasConfig(ctx, ps[i])
 	if err != nil {
-		s.log.WarnContext(ctx, "read the project config for the old coordinator's hand-over", "project", old.Project, "err", err)
+		s.startFailed(ctx, old.Project, err)
 		return
 	}
 	if !has {

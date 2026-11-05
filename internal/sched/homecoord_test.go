@@ -452,6 +452,32 @@ func TestC26TheOldSessionGivesItsProjectToANewCoordinator(t *testing.T) {
 		}
 	})
 
+	t.Run("it exits and its project's head cannot be read", func(t *testing.T) {
+		hw := newHomeWorld(t, []string{"alpha", "loop"}, map[string]bool{"alpha": true, "loop": true})
+		old := hw.oldSession("alpha")
+		hw.tick()
+		origin := filepath.Join(hw.fixtures["alpha"].dir, "origin.git")
+		if err := os.Rename(origin, origin+".gone"); err != nil {
+			t.Fatal(err)
+		}
+		hw.host.Exit(old.Session.ID, 0)
+		hw.tick()
+
+		n := hw.count(`SELECT count(*) FROM alerts WHERE kind = ? AND project = 'alpha' AND state = 'open'`, AlertCoordinator)
+		if n != 1 {
+			t.Fatalf("%d open %s alerts name alpha, want 1", n, AlertCoordinator)
+		}
+
+		if err := os.Rename(origin+".gone", origin); err != nil {
+			t.Fatal(err)
+		}
+		hw.tick()
+		cs, ok := hw.home("alpha")
+		if !ok || !hw.live(cs.Session) || cs.Checkout != old.Checkout || hw.oldRows() != 0 {
+			t.Fatalf("alpha's coordinator after its head came back = %+v, old rows %d", cs, hw.oldRows())
+		}
+	})
+
 	t.Run("the operator removes its project while it lives", func(t *testing.T) {
 		hw := newHomeWorld(t, []string{"alpha", "beta"}, map[string]bool{"alpha": true, "beta": true})
 		old := hw.oldSession("alpha")
