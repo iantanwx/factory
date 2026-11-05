@@ -52,11 +52,11 @@ func (j *Job) Tick(ctx context.Context) error {
 		t = j.Topology()
 	}
 	type session struct {
-		id    agenthost.RunID
-		ok    bool
-		dests []string
+		id agenthost.RunID
+		ok bool
 	}
-	var rings []*session
+	var sessions []session
+	served := map[session][]string{}
 	split := Split(rs, t)
 	for _, dest := range slices.Sorted(maps.Keys(split)) {
 		if split[dest].Code == Quiet {
@@ -66,16 +66,16 @@ func (j *Job) Tick(ctx context.Context) error {
 		if j.Sessions != nil {
 			s.id, s.ok = j.Sessions(dest)
 		}
-		i := slices.IndexFunc(rings, func(o *session) bool { return o.id == s.id && o.ok == s.ok })
-		if i < 0 {
-			i, rings = len(rings), append(rings, &s)
+		if served[s] == nil {
+			sessions = append(sessions, s)
 		}
-		rings[i].dests = append(rings[i].dests, dest)
+		served[s] = append(served[s], dest)
 	}
 	var errs []error
-	for _, s := range rings {
-		text, _ := RingText(rs.For(t, func(d string) bool { return slices.Contains(s.dests, d) }).Report())
-		if err := j.Ring(ctx, s.id, s.ok, s.dests, text); err != nil && !errors.Is(err, inbox.ErrNobodyToRing) && !errors.Is(err, inbox.ErrRingHeld) {
+	for _, s := range sessions {
+		dests := served[s]
+		text, _ := RingText(rs.For(t, func(d string) bool { return slices.Contains(dests, d) }).Report())
+		if err := j.Ring(ctx, s.id, s.ok, dests, text); err != nil && !errors.Is(err, inbox.ErrNobodyToRing) && !errors.Is(err, inbox.ErrRingHeld) {
 			errs = append(errs, fmt.Errorf("overwatch: ring the coordinator session %s: %w", s.id, err))
 		}
 	}
