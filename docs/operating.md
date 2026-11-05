@@ -214,13 +214,36 @@ gh api -X PUT repos/slothware-labs/factorio/actions/permissions/access -f access
 ## Talk to the coordinator
 
 The coordinator is the agent you talk to. It brings you each question and
-alert, opens rooms, and files the work you ask for. The server starts it
-in Orca when the first project registers, in a worktree named
-`loop-coordinator` of that project, with a terminal titled
-`loop coordinator`. Open that terminal to talk to it, or send it a
-message from any shell on the host with
-`loop coordinator send --body "<message>"`. One coordinator serves every
-project.
+alert, opens rooms, and files the work you ask for. Each project has one
+coordinator of its own. The server starts it in Orca when loop-init's
+merge lands `.loop/config.yaml` on the project's default branch, in a
+worktree named `loop-coordinator` of that project, with a terminal titled
+`loop coordinator <project>`. A project with no `.loop/config.yaml` has no
+coordinator, and its questions and alerts go to the loop project's
+coordinator. Open a coordinator's terminal to talk to it, or send it a
+message from any shell on the host:
+
+```sh
+loop coordinator send --project alpha --body "<message>"
+```
+
+`send` with no `--project` refuses, and its hint lists each project with
+a running coordinator. When a coordinator is stuck, or its worktree is
+gone, replace it from a shell on the host:
+
+```sh
+loop coordinator restart --project alpha
+```
+
+The restart closes that project's session, makes its worktree again when
+it is missing, and starts a fresh session that lists the work the old one
+left open. It leaves every other project's coordinator as it is.
+
+The loop project is the registered project whose repository is
+`slothware-labs/factorio`. Its coordinator also takes the work of the
+whole host, such as loop faults. When no registered project is the loop
+project, that work waits in the inbox. Read it with `loop inbox list` from
+a shell on the host.
 
 Every other session names its work in Orca. A stage run's terminal title
 and the first line of its first message read
@@ -231,23 +254,31 @@ slug first, then drops the item; the run id always stays. A room's title and
 first line read `loop <kind> room <item>: <reason>`, without the item when
 the room has none.
 
-Only that session holds the coordinator's token, in `.loop/token` of its
-worktree. A session in your own clone holds none, and the server refuses
-its coordinator verbs. The coordinator may run the host verbs `upgrade`,
-`rollback`, `doctor`, `project list` and `project show` from its worktree,
-as your shell would. A run or a room may not: the server refuses each with
+Only a coordinator's session holds its token, in `.loop/token` of its
+worktree. The token names its project. A session in your own clone holds
+none, and the server refuses its coordinator verbs. Only the loop
+project's coordinator may run the host verbs `upgrade`, `rollback`,
+`doctor`, `doctor-github` and `doctor-env` from its worktree, as your
+shell would. Every coordinator may run `project list` and `project show`,
+and each one sees its own project. A run or a room may not run a host
+verb: the server refuses each with
 rule `host_verb_from_checkout` and raises an alert. A run's or a room's
 `project list` or `project show` from its own checkout is refused with no
 alert, and only an audit row records it: the refusal answers it, so it
 does not ring the coordinator. The server also refuses a call with no token from
 inside any checkout, and raises an alert. The coordinator's `upgrade`
 and `rollback` run outside its session, as a transient systemd user unit
-in your home directory, so the restart they make cannot end them. When you remove the coordinator's project, the
-server ends the session and starts the next one in a project that is
-still registered. When you upgrade the loop, the server leaves a running
-session up. It sends that session one message that names the new release
-and tells it to read its runbook again. When the session ends, the server
-starts the next one under the new release, in the same worktree.
+in your home directory, so the restart they make cannot end them.
+
+When you remove a project, the server closes that project's coordinator,
+revokes its token and removes its worktree. It moves no coordinator: every
+other project keeps its own session. When you register the project again,
+it gets a new coordinator in a new worktree.
+
+When you upgrade the loop, the server leaves each running coordinator up.
+It sends each one message that names the new release and tells it to
+read its runbook again. When a session ends, the server starts the next
+one under the new release, in the same worktree.
 
 ## Checkout cleanup
 
