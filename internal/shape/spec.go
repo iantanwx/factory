@@ -48,7 +48,8 @@ var TemplateLines = []string{
 	"> **Bad.** ~~\"Is this the right approach?\"~~ Nobody can answer this. Ask about one choice.",
 }
 
-// SpecFinding is one fault of a spec file. Rule is section, empty, template or name.
+// SpecFinding is one fault of a spec file. Rule is section, empty, template,
+// name or open_questions.
 type SpecFinding struct {
 	Line    int // 0 when the fault has no line, such as a missing heading
 	Rule    string
@@ -108,6 +109,13 @@ func CheckSpec(file, text string) []SpecFinding {
 		add(0, "name", "no **Epic:** line; the filename must start with the epic id and a dash")
 	case !strings.HasPrefix(name, epic+"-"):
 		add(at, "name", "%s does not start with %q; name the file docs/specs/<epic id>-<slug>-spec.md", name, epic+"-")
+	}
+	for _, q := range Undecided(text) {
+		if q.NeedsADR {
+			add(q.Line, "open_questions", "this open question needs an ADR and holds no **Answered run that cites one, so the spec sign-off refuses it")
+		} else {
+			add(q.Line, "open_questions", "this open question holds no **Answered or **Deferred run, so the spec sign-off refuses it")
+		}
 	}
 	slices.SortStableFunc(out, func(a, b SpecFinding) int { return a.Line - b.Line })
 	return out

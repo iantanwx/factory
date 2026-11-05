@@ -406,6 +406,23 @@ func TestC18NoPackPROutsideTheLoopsProject(t *testing.T) {
 	}
 }
 
+// C1 of factorio-1edo: with two projects of the release repository the host
+// has no loop project, so a pack PR learning lands in neither of them.
+func TestC1TwoProjectsOfTheReleaseRepoAreNeitherTheLoopProject(t *testing.T) {
+	w := newWorld(t)
+	for _, p := range []string{"home", "copy"} {
+		w.exec(`INSERT INTO projects (id, repo, created_at, updated_at) VALUES (?, ?, 0, 0)`, p, release.ReleaseRepo)
+	}
+	for _, p := range []string{"home", "copy"} {
+		run, rec := "r-"+p, "rec-"+p
+		w.retroOf(p, run, rec)
+		got := w.mustRoute(p, run, panelFile(t, landing(learning("say it in the pack", retro.CaseRef("run:"+rec)), retro.PackPR, retro.Edit)))
+		if len(got.Learnings) != 1 || got.Learnings[0].Route != "escalate" || got.Learnings[0].Reason != "pack_outside" {
+			t.Fatalf("route in %s = %+v, want escalate pack_outside", p, got)
+		}
+	}
+}
+
 // C19: each retro that reaches done holds one notice with source retro and
 // ref <project>/<item>, also after a repeated route and with no learning.
 // It awaits a person, its body asks nothing, and it lists each landed
