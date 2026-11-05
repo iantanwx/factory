@@ -30,10 +30,6 @@ func Route(e Entry, t coord.Topology) string {
 // Sessions names the coordinator session that serves a project.
 type Sessions func(project string) (agenthost.RunID, bool)
 
-// served keeps the entries that ring p's own session: the session that
-// Sessions names for an entry's destination is the one that serves p's
-// project. The old session's token names no project, so its project is
-// the topology's Old. Any principal but a coordinator keeps every entry.
 func (in *Inbox) served(p rpc.Principal, es []Entry) []Entry {
 	if p.Kind != cli.PrincipalCoordinator || in.cfg.Topology == nil || in.cfg.Sessions == nil {
 		return es

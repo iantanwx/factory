@@ -226,9 +226,7 @@ func (s *Service) show(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Found(f)
 }
 
-// list is `loop fault list`: newest first, without each report's text. A
-// coordinator lists only the faults it reaches. A fault with no project is
-// the instance's, and only the loop project's coordinator reaches it.
+// list is `loop fault list`: newest first, without each report's text.
 func (s *Service) list(ctx context.Context, call *rpc.Call) cli.Result {
 	where, args := []string{"1 = 1"}, []any{}
 	for _, col := range []string{"project", "stage", "status"} {

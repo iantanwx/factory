@@ -365,9 +365,7 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 }
 
 // prepare is `loop inbox prepare`: a question the coordinator wrote for the
-// operator, with its options and their costs. It waits on a person. It
-// holds the project of the caller's token, and Route routes it by that
-// project.
+// operator, with its options and their costs. It waits on a person.
 func (in *Inbox) prepare(ctx context.Context, call *rpc.Call) cli.Result {
 	body := strings.TrimSpace(call.Inv.Flags["body"])
 	if body == "" {

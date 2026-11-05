@@ -58,8 +58,6 @@ func (s *Server) runList(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		f.Limit = n
 	}
-	// A project's coordinator lists its own project's runs, so the limit
-	// counts only those.
 	if c, ok := rpc.CallerFrom(ctx); ok && c.Reach == coord.ReachProject && f.Project == "" {
 		f.Project = c.Project
 	}

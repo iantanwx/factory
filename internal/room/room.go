@@ -853,7 +853,7 @@ func (s *Service) close(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Found(map[string]any{"room": got, "closed": true})
 }
 
-// list is `loop room list`. A coordinator lists only the rooms it reaches.
+// list is `loop room list`.
 func (s *Service) list(ctx context.Context, call *rpc.Call) cli.Result {
 	rooms, err := s.Rooms(ctx, call.Inv.Flags["all"] == "true")
 	if err != nil {

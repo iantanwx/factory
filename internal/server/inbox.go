@@ -158,8 +158,6 @@ func (s *Server) coordinatorSession() (agenthost.RunID, bool) {
 	return cs.Session.ID, true
 }
 
-// session names the coordinator session that serves project. ok is false
-// with no scheduler.
 func (s *Server) session(project string) (agenthost.RunID, bool) {
 	if s.Sched == nil {
 		return agenthost.RunID{}, false

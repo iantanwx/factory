@@ -241,7 +241,6 @@ func (g *GitHub) prPending(s *Server) rpc.Handler {
 			}
 			out = append(out, rows...)
 		}
-		// A row that holds only a project's read error names no item.
 		out, err := reachable(ctx, out, func(p github.Pending) coord.Record {
 			if p.Item == "" {
 				return coord.Record{Kind: coord.KindProject, ID: p.Project, Project: p.Project}
