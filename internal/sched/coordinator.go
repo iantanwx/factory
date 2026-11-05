@@ -13,19 +13,14 @@ import (
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/coord"
+	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// CoordinatorConfig starts the coordinator session, the resident agent
-// (R24).
+// CoordinatorConfig starts the coordinator session of each project whose
+// default branch holds a project config (R24, ADR 0015).
 type CoordinatorConfig struct {
-	// Project is the project whose repository the coordinator's checkout
-	// comes from. The coordinator itself serves every project. Empty means
-	// the first registered project, so a service that starts before any
-	// project is added starts the coordinator at the first tick after the
-	// operator adds one.
-	Project string
 	Harness agenthost.Harness
 	Model   string
 	Effort  string
@@ -39,13 +34,28 @@ const CoordinatorStage = "coordinator"
 // loop project's coordinator, as AlertCoordinator.
 const AlertCoordinatorCheckoutMissing = "coordinator_checkout_missing"
 
-// coordinatorCheckout names the coordinator's one checkout.
+// coordinatorCheckout names the checkout of each project's coordinator.
 const coordinatorCheckout = "loop-coordinator"
 
-// CoordinatorState is the coordinator session the server keeps.
+// The schedule rows of the coordinators (spec factorio-1edo, Data).
+const (
+	// oldKind is the one coordinator row of a release before ADR 0015,
+	// with project ''. Only the old session's row has it.
+	oldKind = "coordinator"
+	// homeKind is the coordinator row of one project, keyed by the project.
+	homeKind = "home_coordinator"
+	// notifyKind and homeNotifyKind are inbox.NotifyKind and
+	// inbox.HomeNotifyKind, the doorbell's cursors. sched cannot import
+	// inbox, which imports sched.
+	notifyKind     = "inbox_notify"
+	homeNotifyKind = "home_notify"
+)
+
+// CoordinatorState is one coordinator session the server keeps.
 type CoordinatorState struct {
 	RunID string `json:"run_id,omitempty"`
-	// Project is the project whose repository the checkout clones.
+	// Project is the project the coordinator serves, and whose repository
+	// the checkout clones.
 	Project  string             `json:"project,omitempty"`
 	Checkout string             `json:"checkout,omitempty"`
 	Session  *agenthost.Session `json:"session,omitempty"`
@@ -54,183 +64,405 @@ type CoordinatorState struct {
 	// NotifiedRelease is the later release that the session was told
 	// about, so each release messages a live session once.
 	NotifiedRelease string `json:"notified_release,omitempty"`
+	// Made marks a checkout the server made, so a missing directory is an
+	// alert, and not a first start.
+	Made bool `json:"made,omitempty"`
+	// Fresh makes the next session start fresh, with the work a previous
+	// session left open in its prompt. A session that starts clears it.
+	Fresh bool `json:"fresh,omitempty"`
 }
 
-// Coordinator returns the coordinator session as the store holds it.
-func (s *Scheduler) Coordinator() CoordinatorState {
-	cs, _ := s.loadCoordinator(context.Background())
-	return cs
-}
+// LeftOpen lists the work a previous coordinator of project left open,
+// one line for each piece.
+type LeftOpen func(ctx context.Context, project string) ([]string, error)
 
-// Topology is the coordinators of the instance now. The loop project is
-// the registered project of the loop's repository. Until each project has
-// its own coordinator, the one coordinator row is the old session's, so
-// no project has a home coordinator, and Old is the row's project.
+// SetLeftOpen sets the list of the left-open work. The server sets it
+// before the scheduler ticks.
+func (s *Scheduler) SetLeftOpen(f LeftOpen) { s.leftOpen = f }
+
+// Topology is the coordinators of the instance now: the loop project, each
+// project with a home_coordinator row, and the old session's project while
+// its row stands.
 func (s *Scheduler) Topology() coord.Topology {
-	t := coord.Topology{Homes: map[string]bool{}, Old: s.Coordinator().Project}
+	old, homes, err := s.coordinatorRows(context.Background())
+	if err != nil {
+		s.log.Error("read the coordinators", "err", err)
+	}
+	return s.topology(old, homes)
+}
+
+func (s *Scheduler) topology(old *CoordinatorState, homes map[string]CoordinatorState) coord.Topology {
+	t := coord.Topology{Homes: map[string]bool{}}
+	for p := range homes {
+		t.Homes[p] = true
+	}
+	if old != nil {
+		t.Old = old.Project
+	}
 	if ps, err := s.cfg.Projects(); err == nil {
 		t.Loop, _ = coord.LoopProject(ps)
 	}
 	return t
 }
 
-// Coordinators holds each coordinator by the project it serves: the one
-// coordinator row, under its project, until each project has its own.
+// Coordinators holds each coordinator by the project it serves, the old
+// session's too.
 func (s *Scheduler) Coordinators() map[string]CoordinatorState {
-	out := map[string]CoordinatorState{}
-	if cs := s.Coordinator(); cs.RunID != "" || cs.Checkout != "" {
-		out[cs.Project] = cs
+	old, homes, err := s.coordinatorRows(context.Background())
+	if err != nil {
+		s.log.Error("read the coordinators", "err", err)
 	}
-	return out
+	if old != nil {
+		homes[old.Project] = *old
+	}
+	return homes
 }
 
-// Session names the session that serves project. The one coordinator
-// serves every project, and the destination "" of a host with no loop
-// project.
+// Session names the session that serves project. Until each project's
+// ring reaches its own session, one session serves every destination: the
+// old session while it lives, then the loop project's.
 func (s *Scheduler) Session(string) (agenthost.RunID, bool) {
-	cs := s.Coordinator()
+	old, homes, err := s.coordinatorRows(context.Background())
+	if err != nil {
+		return agenthost.RunID{}, false
+	}
+	cs := homes[s.topology(old, homes).Loop]
+	if old != nil && old.Session != nil {
+		cs = *old
+	}
 	if cs.Session == nil {
 		return agenthost.RunID{}, false
 	}
 	return cs.Session.ID, true
 }
 
-func (s *Scheduler) loadCoordinator(ctx context.Context) (CoordinatorState, error) {
-	var cs CoordinatorState
-	var raw string
+// coordinatorRows reads the old row, nil when the store holds none, and
+// each home row by its project.
+func (s *Scheduler) coordinatorRows(ctx context.Context) (*CoordinatorState, map[string]CoordinatorState, error) {
+	var old *CoordinatorState
+	homes := map[string]CoordinatorState{}
 	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT payload FROM schedule WHERE kind = 'coordinator'`).Scan(&raw)
+		rs, err := tx.QueryContext(ctx, `SELECT kind, payload FROM schedule WHERE kind IN (?, ?)`, oldKind, homeKind)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rs.Close() }()
+		for rs.Next() {
+			var kind, raw string
+			var cs CoordinatorState
+			if err := rs.Scan(&kind, &raw); err != nil {
+				return err
+			}
+			if err := json.Unmarshal([]byte(raw), &cs); err != nil {
+				return err
+			}
+			if kind == oldKind {
+				old = &cs
+			} else {
+				homes[cs.Project] = cs
+			}
+		}
+		return rs.Err()
 	})
-	if errors.Is(err, sql.ErrNoRows) {
-		return cs, nil
-	}
-	if err != nil {
-		return cs, err
-	}
-	return cs, json.Unmarshal([]byte(raw), &cs)
+	return old, homes, err
 }
 
-func (s *Scheduler) saveCoordinator(ctx context.Context, cs CoordinatorState) error {
+// saveCoordinator writes cs into its row: the old row, or its project's
+// home row.
+func (s *Scheduler) saveCoordinator(ctx context.Context, kind string, cs CoordinatorState) error {
+	raw, err := json.Marshal(cs)
+	if err != nil {
+		return err
+	}
+	project := cs.Project
+	if kind == oldKind {
+		project = ""
+	}
+	return s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`UPDATE schedule SET payload = ?, updated_at = ? WHERE kind = ? AND project = ?`,
+			string(raw), tx.Now().UnixMilli(), kind, project)
+		return err
+	})
+}
+
+// createHome writes the home row of cs.Project, and its doorbell cursor in
+// the same transaction. The cursor starts at the cursor of from, the
+// destination that got the project's entries until now, so no entry rings
+// twice (C41). A cursor row that exists stays as it is. The hand-over also
+// deletes the old row.
+func (s *Scheduler) createHome(ctx context.Context, cs CoordinatorState, from string, handOver bool) error {
 	raw, err := json.Marshal(cs)
 	if err != nil {
 		return err
 	}
 	return s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		ms := tx.Now().UnixMilli()
-		res, err := tx.Exec(`UPDATE schedule SET payload = ?, updated_at = ? WHERE kind = 'coordinator'`, string(raw), ms)
-		if err != nil {
+		if _, err := tx.Exec(`INSERT INTO schedule (project, kind, payload, created_at, updated_at) SELECT ?, ?, ?, ?, ?
+			WHERE NOT EXISTS (SELECT 1 FROM schedule WHERE kind = ? AND project = ?)`,
+			cs.Project, homeKind, string(raw), ms, ms, homeKind, cs.Project); err != nil {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n > 0 {
+		if _, err := tx.Exec(`INSERT INTO schedule (project, kind, due_at, created_at, updated_at)
+			SELECT ?, ?, at, ?, ? FROM (SELECT coalesce(
+				(SELECT due_at FROM schedule WHERE kind = ? AND project = ?),
+				(SELECT due_at FROM schedule WHERE kind = ?)) AS at)
+			WHERE at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM schedule WHERE kind = ? AND project = ?)`,
+			cs.Project, homeNotifyKind, ms, ms, homeNotifyKind, from, notifyKind, homeNotifyKind, cs.Project); err != nil {
+			return err
+		}
+		if !handOver {
 			return nil
 		}
-		_, err = tx.Exec(`INSERT INTO schedule (project, kind, payload, created_at, updated_at) VALUES ('', 'coordinator', ?, ?, ?)`,
-			string(raw), ms, ms)
+		_, err := tx.Exec(`DELETE FROM schedule WHERE kind = ?`, oldKind)
 		return err
 	})
 }
 
-// ensureCoordinator starts the coordinator session when none runs: at the
-// first tick after the service starts, and after the session's process
-// exits. A session whose liveness reads unknown is left alone, unless a
-// complete inventory proves it gone, or lists it under a new handle with
-// the same incarnation and checkout (Inventory.Rebound), or, with its
-// incarnation gone, lists one agent of its harness in its checkout
-// (Inventory.ReboundToAgent). The stored session then takes that row.
-func (s *Scheduler) ensureCoordinator(ctx context.Context) {
+// ensureCoordinators keeps one coordinator session for each registered
+// project whose default branch holds a project config (spec factorio-1edo,
+// Approach, "Sessions"). The old session of an earlier release keeps its
+// project until it ends. Then its project's coordinator starts in its
+// checkout, or, with no config, its checkout goes. One project's failure
+// raises its alert, and the tick continues with the next project.
+func (s *Scheduler) ensureCoordinators(ctx context.Context) {
 	cc := s.cfg.Coordinator
 	if cc == nil || s.Draining() {
 		return
 	}
-	cs, err := s.loadCoordinator(ctx)
+	ps, err := s.cfg.Projects()
 	if err != nil {
-		s.log.ErrorContext(ctx, "read the coordinator", "err", err)
+		s.log.ErrorContext(ctx, "list the projects for the coordinators", "err", err)
 		return
 	}
-	if cs.Checkout != "" && !s.coordinatorHome(cs.Project, cc) {
-		// The checkout clones a project that is no longer registered, or
-		// that came before the state named its project. The session works
-		// in a clone that the loop no longer serves, so it ends, and the
-		// next one starts in a registered project.
-		if cs.Session != nil {
-			_ = s.cfg.Agents.Close(ctx, cs.Session.ID)
-		}
-		if cs.RunID != "" {
-			if _, err := s.cfg.Tokens.Revoke(ctx, cs.RunID); err != nil {
-				s.log.ErrorContext(ctx, "revoke the coordinator token", "err", err)
-			}
-		}
-		// A checkout left behind would refuse the next coordinator if the
-		// operator registers the project again. A terminal still open in
-		// it keeps it, and the log says so.
-		s.checkoutMu.Lock()
-		err := s.cfg.Checkouts(cs.Project).RemoveCheckout(ctx, cs.Checkout)
-		s.checkoutMu.Unlock()
-		if err != nil {
-			s.log.WarnContext(ctx, "remove the old coordinator checkout", "checkout", cs.Checkout, "err", err)
-		}
-		s.log.WarnContext(ctx, "the coordinator's project is not registered; starting another", "project", cs.Project, "checkout", cs.Checkout)
-		cs = CoordinatorState{}
+	old, homes, err := s.coordinatorRows(ctx)
+	if err == nil && old != nil {
+		s.tendOld(ctx, cc, *old, ps)
+		old, homes, err = s.coordinatorRows(ctx)
 	}
+	if err != nil {
+		s.log.ErrorContext(ctx, "read the coordinators", "err", err)
+		return
+	}
+	loop, _ := coord.LoopProject(ps)
+	for _, p := range ps {
+		cs, ok := homes[p.ID]
+		if !ok {
+			if old != nil && old.Project == p.ID {
+				continue
+			}
+			has, err := s.hasConfig(ctx, p)
+			if err != nil {
+				s.startFailed(ctx, p.ID, err)
+			}
+			if !has {
+				continue
+			}
+			cs = CoordinatorState{Project: p.ID}
+			if err := s.createHome(ctx, cs, s.topology(old, homes).Dest(p.ID, false), false); err != nil {
+				s.log.ErrorContext(ctx, "store the coordinator", "project", p.ID, "err", err)
+				continue
+			}
+			homes[p.ID] = cs
+		}
+		s.tendHome(ctx, cc, cs, p, p.ID == loop)
+	}
+}
+
+// tendOld acts on the old session: it closes it when its project is no
+// longer registered, tells it about this release while it lives, and runs
+// the hand-over once it ended.
+func (s *Scheduler) tendOld(ctx context.Context, cc *CoordinatorConfig, old CoordinatorState, ps []config.Project) {
+	i := slices.IndexFunc(ps, func(p config.Project) bool { return p.ID == old.Project })
+	if i < 0 {
+		s.endSession(ctx, old)
+		s.removeCheckout(ctx, old.Project, old.Checkout)
+		s.deleteOld(ctx)
+		s.log.WarnContext(ctx, "the old coordinator's project is not registered; closed it", "project", old.Project, "run", old.RunID)
+		return
+	}
+	switch v, moved := s.settleCoordinator(ctx, old.Session); v {
+	case sessionLive:
+		s.tellCoordinatorRelease(ctx, cc, oldKind, &old)
+		return
+	case sessionMoved:
+		s.rebind(ctx, oldKind, old, moved)
+		return
+	case sessionUnknown:
+		return
+	}
+	s.endSession(ctx, old)
+	has, err := s.hasConfig(ctx, ps[i])
+	if err != nil {
+		s.startFailed(ctx, old.Project, err)
+		return
+	}
+	if !has {
+		s.removeCheckout(ctx, old.Project, old.Checkout)
+		s.deleteOld(ctx)
+		s.log.InfoContext(ctx, "the old coordinator ended, and its project has no config", "project", old.Project, "run", old.RunID)
+		return
+	}
+	// While the old session lived, it was the destination of its project's
+	// entries, so the new cursor starts at the project's own.
+	cs := CoordinatorState{Project: old.Project, Checkout: old.Checkout, Made: true, Fresh: true}
+	if err := s.createHome(ctx, cs, old.Project, true); err != nil {
+		s.log.ErrorContext(ctx, "hand the old coordinator's project over", "project", old.Project, "err", err)
+		return
+	}
+	s.log.InfoContext(ctx, "the old coordinator ended; its project's coordinator starts in its checkout", "project", old.Project, "run", old.RunID)
+}
+
+// tendHome keeps p's coordinator session: it tells a live session about
+// this release, rebinds a moved one, and starts the next one when the
+// session ended. A failed start raises an alert that names p.
+func (s *Scheduler) tendHome(ctx context.Context, cc *CoordinatorConfig, cs CoordinatorState, p config.Project, loop bool) {
 	if cs.Session != nil {
-		st, err := s.cfg.Agents.Settle(ctx, cs.Session.ID)
-		if err == nil && st.Liveness == agenthost.Live {
-			s.tellCoordinatorRelease(ctx, cc, &cs)
+		switch v, moved := s.settleCoordinator(ctx, cs.Session); v {
+		case sessionLive:
+			s.tellCoordinatorRelease(ctx, cc, homeKind, &cs)
+			return
+		case sessionMoved:
+			s.rebind(ctx, homeKind, cs, moved)
+			return
+		case sessionUnknown:
 			return
 		}
-		if err != nil || st.Liveness != agenthost.Exited {
-			inv, ierr := s.cfg.Agents.Inventory(ctx)
-			if ierr != nil {
-				return
-			}
-			moved, ok := inv.Rebound(*cs.Session)
-			if !ok {
-				// The incarnation is gone. The one agent of the harness in
-				// the checkout is the coordinator (F-30).
-				moved, ok = inv.ReboundToAgent(*cs.Session)
-			}
-			if ok {
-				// The host moved the live session to a new handle (F-17).
-				// The doorbell rings the stored handle, so it follows.
-				s.log.WarnContext(ctx, "the coordinator session moved to a new handle; rebinding",
-					"run", cs.RunID, "from", cs.Session.ID.String(), "to", moved.ID.String())
-				cs.Session = &moved
-				if err := s.saveCoordinator(ctx, cs); err != nil {
-					s.log.ErrorContext(ctx, "store the coordinator", "err", err)
-				}
-				return
-			}
-			if inv.Lookup(*cs.Session) != agenthost.Absent {
-				return
-			}
-		}
-		_ = s.cfg.Agents.Close(ctx, cs.Session.ID)
-		if _, err := s.cfg.Tokens.Revoke(ctx, cs.RunID); err != nil {
-			s.log.ErrorContext(ctx, "revoke the coordinator token", "err", err)
-		}
+		s.endSession(ctx, cs)
 		cs.Session = nil
-		s.log.WarnContext(ctx, "the coordinator session ended; starting another", "run", cs.RunID)
-	}
-	if cs.Checkout == "" && cc.Project == "" {
-		ps, err := s.cfg.Projects()
-		if err != nil || len(ps) == 0 {
-			return
-		}
-		first := *cc
-		first.Project = ps[0].ID
-		cc = &first
+		s.log.WarnContext(ctx, "the coordinator session ended; starting another", "project", p.ID, "run", cs.RunID)
 	}
 	var reserved *brief.ReservedError
-	if err := s.startCoordinator(ctx, cc, &cs); errors.As(err, &reserved) {
-		s.raise(ctx, config.Alert{Project: cs.Project, Kind: AlertConfigConflict, DedupeKey: AlertConfigConflict + ":" + stageKey(cs.Project, CoordinatorStage),
+	if err := s.startCoordinator(ctx, cc, &cs, p, loop); errors.As(err, &reserved) {
+		s.raise(ctx, config.Alert{Project: p.ID, Kind: AlertConfigConflict, DedupeKey: AlertConfigConflict + ":" + stageKey(p.ID, CoordinatorStage),
 			Subject: "the coordinator session did not start", Body: ReservedRefusal("", reserved).Hint})
 	} else if err != nil {
-		s.raise(ctx, config.Alert{Kind: AlertCoordinator, DedupeKey: AlertCoordinator,
-			Subject: "the coordinator session did not start", Body: err.Error()})
+		s.startFailed(ctx, p.ID, err)
 	}
-	if err := s.saveCoordinator(ctx, cs); err != nil {
-		s.log.ErrorContext(ctx, "store the coordinator", "err", err)
+	if err := s.saveCoordinator(ctx, homeKind, cs); err != nil {
+		s.log.ErrorContext(ctx, "store the coordinator", "project", p.ID, "err", err)
 	}
+}
+
+// startFailed raises the alert of project's coordinator that did not
+// start. Each project holds its own open alert.
+func (s *Scheduler) startFailed(ctx context.Context, project string, err error) {
+	s.raise(ctx, config.Alert{Project: project, Kind: AlertCoordinator, DedupeKey: AlertCoordinator + ":" + project,
+		Subject: "the coordinator session of " + project + " did not start", Body: err.Error()})
+}
+
+// sessionVerdict is what the agent host says of a stored session.
+type sessionVerdict int
+
+const (
+	sessionEnded sessionVerdict = iota
+	sessionLive
+	// sessionMoved is a live session under a new handle.
+	sessionMoved
+	// sessionUnknown is a session whose liveness reads unknown, and that
+	// no complete inventory proves gone. It is left alone.
+	sessionUnknown
+)
+
+// settleCoordinator reads a stored session. A session whose liveness reads
+// unknown is left alone, unless a complete inventory proves it gone, or
+// lists it under a new handle with the same incarnation and checkout
+// (Inventory.Rebound), or, with its incarnation gone, lists one agent of
+// its harness in its checkout (Inventory.ReboundToAgent). Then the moved
+// session takes that row. No session is an ended one.
+func (s *Scheduler) settleCoordinator(ctx context.Context, sess *agenthost.Session) (sessionVerdict, agenthost.Session) {
+	if sess == nil {
+		return sessionEnded, agenthost.Session{}
+	}
+	st, err := s.cfg.Agents.Settle(ctx, sess.ID)
+	if err == nil && st.Liveness == agenthost.Live {
+		return sessionLive, agenthost.Session{}
+	}
+	if err == nil && st.Liveness == agenthost.Exited {
+		return sessionEnded, agenthost.Session{}
+	}
+	inv, err := s.cfg.Agents.Inventory(ctx)
+	if err != nil {
+		return sessionUnknown, agenthost.Session{}
+	}
+	moved, ok := inv.Rebound(*sess)
+	if !ok {
+		// The incarnation is gone. The one agent of the harness in the
+		// checkout is the coordinator (F-30).
+		moved, ok = inv.ReboundToAgent(*sess)
+	}
+	if ok {
+		return sessionMoved, moved
+	}
+	if inv.Lookup(*sess) != agenthost.Absent {
+		return sessionUnknown, agenthost.Session{}
+	}
+	return sessionEnded, agenthost.Session{}
+}
+
+// rebind stores the new handle of a moved live session (F-17). The
+// doorbell rings the stored handle, so it follows.
+func (s *Scheduler) rebind(ctx context.Context, kind string, cs CoordinatorState, moved agenthost.Session) {
+	s.log.WarnContext(ctx, "the coordinator session moved to a new handle; rebinding",
+		"project", cs.Project, "run", cs.RunID, "from", cs.Session.ID.String(), "to", moved.ID.String())
+	cs.Session = &moved
+	if err := s.saveCoordinator(ctx, kind, cs); err != nil {
+		s.log.ErrorContext(ctx, "store the coordinator", "project", cs.Project, "err", err)
+	}
+}
+
+// endSession closes a coordinator's session and revokes its token.
+func (s *Scheduler) endSession(ctx context.Context, cs CoordinatorState) {
+	if cs.Session != nil {
+		_ = s.cfg.Agents.Close(ctx, cs.Session.ID)
+	}
+	if cs.RunID == "" {
+		return
+	}
+	if _, err := s.cfg.Tokens.Revoke(ctx, cs.RunID); err != nil {
+		s.log.ErrorContext(ctx, "revoke the coordinator token", "project", cs.Project, "err", err)
+	}
+}
+
+// removeCheckout removes a coordinator checkout that no session takes. A
+// checkout left behind would refuse the next coordinator of the project. A
+// terminal still open in it keeps it, and the log says so.
+func (s *Scheduler) removeCheckout(ctx context.Context, project, path string) {
+	if path == "" {
+		return
+	}
+	s.checkoutMu.Lock()
+	err := s.cfg.Checkouts(project).RemoveCheckout(ctx, path)
+	s.checkoutMu.Unlock()
+	if err != nil {
+		s.log.WarnContext(ctx, "remove the old coordinator checkout", "checkout", path, "err", err)
+	}
+}
+
+func (s *Scheduler) deleteOld(ctx context.Context) {
+	if err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`DELETE FROM schedule WHERE kind = ?`, oldKind)
+		return err
+	}); err != nil {
+		s.log.ErrorContext(ctx, "delete the old coordinator row", "err", err)
+	}
+}
+
+// hasConfig reports whether the head the remote holds for p's default
+// branch holds .loop/config.yaml. It fetches that head on each call and
+// reads no cached config, so a config that lands starts the coordinator at
+// the next tick (C18).
+func (s *Scheduler) hasConfig(ctx context.Context, p config.Project) (bool, error) {
+	sha, err := s.cfg.BaseHead(ctx, p.ID, p.BaseBranch())
+	if err != nil {
+		return false, err
+	}
+	if _, err := gitx.Run(ctx, p.Path, "cat-file", "-e", sha+":"+config.ProjectConfigPath); err == nil {
+		return true, nil
+	}
+	if _, err := gitx.Run(ctx, p.Path, "cat-file", "-e", sha+"^{commit}"); err != nil {
+		return false, fmt.Errorf("sched: read the head %s of project %s: %w", sha, p.ID, err)
+	}
+	return false, nil
 }
 
 // tellCoordinatorRelease tells a live session that started under another
@@ -239,7 +471,7 @@ func (s *Scheduler) ensureCoordinator(ctx context.Context) {
 // The session runs on under the release that started it, and the next one
 // starts under this release once it ends. A refused message is not
 // recorded, so the next tick sends it again.
-func (s *Scheduler) tellCoordinatorRelease(ctx context.Context, cc *CoordinatorConfig, cs *CoordinatorState) {
+func (s *Scheduler) tellCoordinatorRelease(ctx context.Context, cc *CoordinatorConfig, kind string, cs *CoordinatorState) {
 	if cs.Release == s.cfg.Release || cs.NotifiedRelease == s.cfg.Release {
 		return
 	}
@@ -255,65 +487,39 @@ func (s *Scheduler) tellCoordinatorRelease(ctx context.Context, cc *CoordinatorC
 		return
 	}
 	cs.NotifiedRelease = s.cfg.Release
-	if err := s.saveCoordinator(ctx, *cs); err != nil {
+	if err := s.saveCoordinator(ctx, kind, *cs); err != nil {
 		s.log.ErrorContext(ctx, "store the coordinator", "err", err)
 	}
 	s.log.InfoContext(ctx, "told the coordinator about the new release", "run", cs.RunID, "from", cs.Release, "to", s.cfg.Release)
 }
 
-// coordinatorHome reports whether project may hold the coordinator's
-// checkout: the project that host config names for it, or else any
-// registered project. A failed read keeps the checkout.
-func (s *Scheduler) coordinatorHome(project string, cc *CoordinatorConfig) bool {
-	if cc.Project != "" {
-		return project == cc.Project
-	}
-	ps, err := s.cfg.Projects()
-	if err != nil {
-		return true
-	}
-	return slices.ContainsFunc(ps, func(p config.Project) bool { return p.ID == project })
-}
-
-// baseBranch is the recorded default branch of project. Host config can
-// name the coordinator's project before the operator registers it, and
-// that project's base is main.
-func (s *Scheduler) baseBranch(project string) (string, error) {
-	ps, err := s.cfg.Projects()
-	if err != nil {
-		return "", err
-	}
-	for _, p := range ps {
-		if p.ID == project {
-			return p.BaseBranch(), nil
-		}
-	}
-	return DefaultBaseBranch, nil
-}
-
-func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig, cs *CoordinatorState) error {
-	project := cs.Project
+// startCoordinator starts p's next coordinator session. It makes the
+// loop-coordinator checkout from the head of p's default branch when cs has
+// none. The token and the brief name p, and a Fresh start's prompt names
+// the work a previous session left open.
+func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig, cs *CoordinatorState, p config.Project, loop bool) error {
+	base := p.BaseBranch()
 	if cs.Checkout == "" {
-		project = cc.Project
-	}
-	base, err := s.baseBranch(project)
-	if err != nil {
-		return fmt.Errorf("sched: the coordinator's base branch: %w", err)
-	}
-	if cs.Checkout == "" {
-		spec, err := BaseCheckout(ctx, s.cfg.BaseHead, cc.Project, base, coordinatorCheckout)
+		spec, err := BaseCheckout(ctx, s.cfg.BaseHead, p.ID, base, coordinatorCheckout)
 		if err != nil {
 			return err
 		}
 		s.checkoutMu.Lock()
-		co, err := s.cfg.Checkouts(cc.Project).CreateCheckout(ctx, spec)
+		co, err := s.cfg.Checkouts(p.ID).CreateCheckout(ctx, spec)
 		s.checkoutMu.Unlock()
 		if err != nil {
 			return fmt.Errorf("sched: the coordinator's checkout: %w", err)
 		}
-		cs.Checkout, cs.Project = co.Path, cc.Project
-		if err := s.saveCoordinator(ctx, *cs); err != nil {
+		cs.Checkout, cs.Made = co.Path, true
+		if err := s.saveCoordinator(ctx, homeKind, *cs); err != nil {
 			return err
+		}
+	}
+	var left []string
+	if cs.Fresh && s.leftOpen != nil {
+		var err error
+		if left, err = s.leftOpen(ctx, p.ID); err != nil {
+			return fmt.Errorf("sched: list the work the last coordinator left open: %w", err)
 		}
 	}
 	model := cc.Model
@@ -321,14 +527,15 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		model = DefaultModels[cc.Harness]
 	}
 	run := "coordinator-" + s.cfg.NewRunID()
-	b := brief.Brief{RunID: run, Stage: CoordinatorStage, Role: CoordinatorStage, Harness: string(cc.Harness), Model: model,
-		BaseBranch: base, Secrets: brief.Secrets{Present: []string{}, Missing: []string{}}}
+	b := brief.Brief{RunID: run, Project: p.ID, LoopProject: loop, Stage: CoordinatorStage, Role: CoordinatorStage,
+		Harness: string(cc.Harness), Model: model, BaseBranch: base, Secrets: brief.Secrets{Present: []string{}, Missing: []string{}},
+		LeftOpen: left}
 	res, err := brief.Inject(ctx, brief.Injection{Checkout: cs.Checkout, Harness: cc.Harness, Pack: s.coordinatorPack(), Brief: b})
 	if err != nil {
 		return err
 	}
 	if _, err := s.cfg.Tokens.IssueToCheckout(ctx, rpc.IssueRequest{RunID: run, Kind: cli.PrincipalCoordinator,
-		Checkout: cs.Checkout, Release: s.cfg.Release}); err != nil {
+		Project: p.ID, Checkout: cs.Checkout, Release: s.cfg.Release}); err != nil {
 		return err
 	}
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindCoordinator, Checkout: cs.Checkout,
@@ -337,13 +544,13 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		_, _ = s.cfg.Tokens.Revoke(ctx, run)
 		return fmt.Errorf("sched: start the coordinator: %w", err)
 	}
-	cs.RunID, cs.Session, cs.Release, cs.NotifiedRelease = run, &sess, s.cfg.Release, ""
+	cs.RunID, cs.Session, cs.Release, cs.NotifiedRelease, cs.Fresh = run, &sess, s.cfg.Release, "", false
 	return nil
 }
 
 // coordinatorPack is the pack the coordinator holds: no conditional skill.
-// A condition reads one project's config, and the coordinator serves every
-// project.
+// A condition reads one project's config, and the loop project's
+// coordinator serves the instance too.
 func (s *Scheduler) coordinatorPack() brief.Pack {
 	return Select(s.cfg.Pack, nil, Scope{})
 }

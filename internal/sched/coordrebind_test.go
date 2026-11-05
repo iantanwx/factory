@@ -25,7 +25,7 @@ func TestCoordinatorRebindsAStaleHandleByIncarnation(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.tick()
-	first := w.s.Coordinator()
+	first := w.coordinator()
 	if first.Session == nil {
 		t.Fatalf("first coordinator = %+v", first)
 	}
@@ -40,7 +40,7 @@ func TestCoordinatorRebindsAStaleHandleByIncarnation(t *testing.T) {
 	}
 
 	w.tick()
-	got := w.s.Coordinator()
+	got := w.coordinator()
 	if got.Session == nil || got.RunID != first.RunID {
 		t.Fatalf("the coordinator after the handle change = %+v; first %+v", got, first)
 	}
@@ -138,7 +138,7 @@ func TestCoordinatorRebindKeepsTheStoredHandleOnADoubt(t *testing.T) {
 				t.Fatal(err)
 			}
 			w.tick()
-			first := w.s.Coordinator()
+			first := w.coordinator()
 			if first.Session == nil {
 				t.Fatalf("first coordinator = %+v", first)
 			}
@@ -153,7 +153,7 @@ func TestCoordinatorRebindKeepsTheStoredHandleOnADoubt(t *testing.T) {
 			w.tick()
 			w.tick()
 
-			got := w.s.Coordinator()
+			got := w.coordinator()
 			if got.Session == nil || got.RunID != first.RunID || got.Session.ID != first.Session.ID {
 				t.Fatalf("the coordinator after a doubt = %+v; want the stored %+v", got.Session, first.Session)
 			}
@@ -181,7 +181,7 @@ func TestCoordinatorNeverRebindsToAnotherIncarnation(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.tick()
-	first := w.s.Coordinator()
+	first := w.coordinator()
 	if first.Session == nil {
 		t.Fatalf("first coordinator = %+v", first)
 	}
@@ -194,7 +194,7 @@ func TestCoordinatorNeverRebindsToAnotherIncarnation(t *testing.T) {
 	w.tick()
 	w.tick()
 
-	got := w.s.Coordinator()
+	got := w.coordinator()
 	if got.Session == nil || got.RunID != first.RunID || got.Session.ID != first.Session.ID {
 		t.Fatalf("the coordinator after a daemon death = %+v; want the stored %+v", got.Session, first.Session)
 	}

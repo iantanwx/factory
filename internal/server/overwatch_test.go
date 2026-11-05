@@ -48,7 +48,7 @@ func workParts() []overwatch.Part {
 func (w *humanWorld) overwatchRings() []string {
 	w.t.Helper()
 	var out []string
-	for _, n := range w.host.Notifications(w.srv.Sched.Coordinator().Session.ID) {
+	for _, n := range w.host.Notifications(w.srv.Sched.Coordinators()["alpha"].Session.ID) {
 		if strings.HasPrefix(n, "loop overwatch:") {
 			out = append(out, n)
 		}
@@ -143,7 +143,7 @@ func TestC7TheVerbSweepsPrintsAndRingsNobody(t *testing.T) {
 	if rings := w.overwatchRings(); len(rings) != 0 {
 		t.Fatalf("the verb rang %q", rings)
 	}
-	if _, ok := w.lastRing(""); ok {
+	if _, ok := w.lastRing("alpha"); ok {
 		t.Fatal("the verb wrote a ring row")
 	}
 }
@@ -216,17 +216,17 @@ func TestC6TheRingRecordHoldsEachOutcome(t *testing.T) {
 	if err := j.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if o, ok := w.lastRing(""); !ok || o.Source != overwatch.SourceOverwatch || o.Result != overwatch.RingAccepted || o.Detail != "" ||
+	if o, ok := w.lastRing("alpha"); !ok || o.Source != overwatch.SourceOverwatch || o.Result != overwatch.RingAccepted || o.Detail != "" ||
 		!o.At.Equal(w.clock.Now()) {
 		t.Fatalf("an accepted ring's row = %+v %v", o, ok)
 	}
 
-	session := w.srv.Sched.Coordinator().Session.ID
+	session := w.srv.Sched.Coordinators()["alpha"].Session.ID
 	w.host.RefuseNotify(session, true)
 	if err := j.Tick(ctx); err == nil {
 		t.Fatal("a refused ring's tick returned no error")
 	}
-	if o, _ := w.lastRing(""); o.Source != overwatch.SourceOverwatch || o.Result != overwatch.RingRefused || !strings.Contains(o.Detail, "refused") {
+	if o, _ := w.lastRing("alpha"); o.Source != overwatch.SourceOverwatch || o.Result != overwatch.RingRefused || !strings.Contains(o.Detail, "refused") {
 		t.Fatalf("a refused ring's row = %+v", o)
 	}
 	if rings := w.overwatchRings(); len(rings) != 1 {
@@ -301,7 +301,7 @@ func TestC6AFailedRowWriteLeavesTheRingAsItWas(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	id := w.srv.Sched.Coordinator().Session.ID
+	id := w.srv.Sched.Coordinators()["alpha"].Session.ID
 	if err := w.srv.overwatchRing(ctx, id, true, []string{""}, "loop overwatch: work in stalls."); err != nil {
 		t.Fatalf("an accepted ring with a refused row = %v", err)
 	}

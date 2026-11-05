@@ -15,7 +15,7 @@ import (
 func (w *humanWorld) inboxRings() []string {
 	w.t.Helper()
 	var out []string
-	for _, n := range w.host.Notifications(w.srv.Sched.Coordinator().Session.ID) {
+	for _, n := range w.host.Notifications(w.srv.Sched.Coordinators()["alpha"].Session.ID) {
 		if strings.HasPrefix(n, "loop inbox:") {
 			out = append(out, n)
 		}
@@ -25,9 +25,9 @@ func (w *humanWorld) inboxRings() []string {
 
 // The done-means of spec factorio-1edo work entry 5: with one coordinator
 // for every project, a poke over entries of two projects rings that
-// session once. alpha is the old session's project, and beta routes to
-// the destination "" of a host with no loop project. The ring record of
-// each destination holds the ring, and the inbox part reads both.
+// session once. alpha is the loop project, and beta has no coordinator,
+// so its entries route to alpha too. The ring record of alpha holds the
+// ring, and the inbox part reads it.
 func TestC13APokeOverTwoProjectsRingsTheOneCoordinatorOnce(t *testing.T) {
 	w := newHumanWorld(t, "")
 	ctx := context.Background()
@@ -45,14 +45,14 @@ func TestC13APokeOverTwoProjectsRingsTheOneCoordinatorOnce(t *testing.T) {
 	if len(rings) != 1 || !strings.Contains(rings[0], "2 new") {
 		t.Fatalf("inbox rings = %q, want one ring that names both entries", rings)
 	}
-	for _, dest := range []string{"", "alpha"} {
+	for _, dest := range []string{"alpha"} {
 		if o, ok := w.lastRing(dest); !ok || o.Source != overwatch.SourceInbox || o.Result != overwatch.RingAccepted ||
-			o.Handle != w.srv.Sched.Coordinator().Session.ID.String() {
+			o.Handle != w.srv.Sched.Coordinators()["alpha"].Session.ID.String() {
 			t.Fatalf("the ring record of %q = %+v %v", dest, o, ok)
 		}
 	}
 	got, err := w.srv.overwatch.world.LastRings(ctx)
-	if err != nil || len(got) != 2 {
-		t.Fatalf("the world's LastRings = %+v %v, want the rings of \"\" and alpha", got, err)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("the world's LastRings = %+v %v, want the ring of alpha", got, err)
 	}
 }

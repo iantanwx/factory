@@ -21,6 +21,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx/fake"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -61,7 +62,15 @@ type humanWorld struct {
 
 const humanSecret = "hv-7f3c1e9a2b5d4c8e6f0a"
 
+// newHumanWorld makes alpha the loop project, so its coordinator serves
+// every destination until each project's ring reaches its own session.
 func newHumanWorld(t *testing.T, manifest string) *humanWorld {
+	t.Helper()
+	return newHumanWorldOf(t, manifest, coord.LoopRepo)
+}
+
+// newHumanWorldOf registers alpha with the repository repoName.
+func newHumanWorldOf(t *testing.T, manifest, repoName string) *humanWorld {
 	t.Helper()
 	repo := projectRepo(t, "stages:\n  code-reviewer: {}\n  implementer: {}\nmerge:\n  mechanism: direct\n")
 	pc, err := config.ParseProjectConfig([]byte("stages:\n  code-reviewer: {}\n  implementer: {}\nmerge:\n  mechanism: direct\n"))
@@ -85,16 +94,17 @@ func newHumanWorld(t *testing.T, manifest string) *humanWorld {
 		Sched: SchedOptions{
 			Checkouts:     func(string) sched.CheckoutHost { return worktrees{t: t, host: w.host, repo: repo} },
 			ProjectConfig: func(context.Context, string) (*config.ProjectSnapshot, error) { return snap, nil },
-			Coordinator:   &sched.CoordinatorConfig{Project: "alpha", Harness: agenthost.Claude},
+			Coordinator:   &sched.CoordinatorConfig{Harness: agenthost.Claude},
 			TickInterval:  time.Hour,
 			BaseHead:      repoBaseHead(repo),
 		},
 		Human: HumanOptions{Now: w.clock.Now, PollInterval: 20 * time.Millisecond, WatchInterval: time.Hour},
 	}
 	w.start()
-	if err := w.srv.Projects.Add(context.Background(), config.Project{ID: "alpha", Repo: "iantanwx/alpha", Path: repo}); err != nil {
+	if err := w.srv.Projects.Add(context.Background(), config.Project{ID: "alpha", Repo: repoName, Path: repo}); err != nil {
 		t.Fatal(err)
 	}
+	w.awaitCoordinator()
 	w.coord = t.TempDir()
 	if _, err := w.srv.Tokens.IssueToCheckout(context.Background(), rpc.IssueRequest{RunID: "coord-1", Kind: cli.PrincipalCoordinator,
 		Checkout: w.coord}); err != nil {
@@ -107,10 +117,20 @@ func (w *humanWorld) start() {
 	opts := w.opts
 	opts.Setup = append(append([]func(*Server) error{}, opts.Setup...), func(s *Server) error { w.srv = s; return nil })
 	w.run = start(w.t, w.dir, opts, true)
-	// The scheduler's first tick starts the coordinator session. Wait for
-	// it, so no test races that tick.
+	if ps, err := w.srv.Projects.List(); err == nil && len(ps) > 0 {
+		w.awaitCoordinator()
+	}
+}
+
+// awaitCoordinator ticks the scheduler, which starts alpha's coordinator
+// session, and waits for the session, so no test races a tick.
+func (w *humanWorld) awaitCoordinator() {
+	w.t.Helper()
+	if err := w.srv.Sched.Tick(context.Background()); err != nil {
+		w.t.Fatal(err)
+	}
 	deadline := time.Now().Add(10 * time.Second)
-	for w.srv.Sched.Coordinator().Session == nil {
+	for w.srv.Sched.Coordinators()["alpha"].Session == nil {
 		if time.Now().After(deadline) {
 			w.t.Fatal("the coordinator session did not start")
 		}
@@ -229,7 +249,7 @@ func (w *humanWorld) waitNotified(want string) {
 	w.t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		cs := w.srv.Sched.Coordinator()
+		cs := w.srv.Sched.Coordinators()["alpha"]
 		if cs.Session != nil {
 			for _, n := range w.host.Notifications(cs.Session.ID) {
 				if strings.Contains(n, want) {

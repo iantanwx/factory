@@ -46,7 +46,7 @@ func TestStageSessionNamesItsWork(t *testing.T) {
 // C-bug-1: the coordinator keeps the title loop coordinator.
 func TestCoordinatorKeepsItsTitle(t *testing.T) {
 	w := newWorld(t)
-	w.cfg.Coordinator = &CoordinatorConfig{Project: prj, Harness: agenthost.Claude, Model: "opus"}
+	w.cfg.Coordinator = &CoordinatorConfig{Harness: agenthost.Claude, Model: "opus"}
 	w.rebuild()
 	if err := w.s.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)

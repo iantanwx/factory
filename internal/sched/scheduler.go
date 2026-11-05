@@ -171,6 +171,9 @@ type Scheduler struct {
 	// heldDropper deletes a simplify run's held commit at its settlement.
 	// Nil deletes none.
 	heldDropper HeldDropper
+	// leftOpen lists the work a previous coordinator of a project left
+	// open, for the prompt of a fresh start. Nil lists none.
+	leftOpen LeftOpen
 
 	wg     sync.WaitGroup // dispatches and jobs in flight
 	loops  sync.WaitGroup
@@ -348,8 +351,8 @@ func (s *Scheduler) Stop(ctx context.Context) error {
 func (s *Scheduler) Wait() { s.wg.Wait() }
 
 // Tick is one pass: it watches every live run, closes the sessions of
-// finished runs, frees leases a settlement could not release, keeps the
-// coordinator session up, fires each due stage and job, and cleans
+// finished runs, frees leases a settlement could not release, keeps each
+// project's coordinator session up, fires each due stage and job, and cleans
 // checkouts and expired idempotency keys up. One step's fault does not
 // stop the others.
 func (s *Scheduler) Tick(ctx context.Context) error {
@@ -368,7 +371,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	if err := s.sweepLeases(ctx); err != nil {
 		s.log.ErrorContext(ctx, "sweep leases", "err", err)
 	}
-	s.ensureCoordinator(ctx)
+	s.ensureCoordinators(ctx)
 	if err := s.fireDue(ctx, hc); err != nil {
 		s.log.ErrorContext(ctx, "fire due stages", "err", err)
 	}

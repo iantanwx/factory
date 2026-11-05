@@ -75,7 +75,7 @@ func TestCoordinatorCheckoutStartsAtTheRemoteBaseHead(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.tick()
-	cs := w.s.Coordinator()
+	cs := w.coordinator()
 	if cs.Session == nil {
 		t.Fatalf("no coordinator: %+v; %d coordinator alerts", cs, w.alerts(AlertCoordinator))
 	}
@@ -126,7 +126,7 @@ func TestCoordinatorWithNoReadableBaseHeadFailsWithAnAlert(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.tick()
-	if cs := w.s.Coordinator(); cs.Session != nil || cs.Checkout != "" {
+	if cs := w.coordinator(); cs.Session != nil || cs.Checkout != "" {
 		t.Fatalf("a coordinator started with no readable base head: %+v", cs)
 	}
 	if n := w.alerts(AlertCoordinator); n != 1 {

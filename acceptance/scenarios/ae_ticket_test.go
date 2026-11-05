@@ -171,7 +171,9 @@ func TestAE9ALoopFaultReportReachesTheCoordinatorAndItsResolutionReachesRuns(t *
 	if r := w.Must(w.In(later.Checkout, "fault", "show", "F-1")); r.Str("status") != "open" {
 		t.Fatalf("%s", r)
 	}
-	w.Must(w.Coordinator("fault", "resolve", "F-1", "--fixed-in", "v1.4.0"))
+	// fault resolve is instance-wide, and the fixture project is not the
+	// loop project.
+	w.Must(w.OldCoordinator("fault", "resolve", "F-1", "--fixed-in", "v1.4.0"))
 	r = w.Must(w.In(later.Checkout, "fault", "show", "F-1"))
 	if r.Str("status") != "fixed" || r.Str("fixed_in") != "v1.4.0" || r.Str("installed") != cli.Version {
 		t.Fatalf("%s", r)

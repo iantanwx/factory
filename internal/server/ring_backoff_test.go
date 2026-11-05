@@ -66,7 +66,7 @@ func refusedRingWorld(t *testing.T) (*humanWorld, *countingHost, *overwatch.Job)
 func TestCBug1AnAcceptedRingResetsTheBackoffAndClearsTheAlert(t *testing.T) {
 	w, counter, j := refusedRingWorld(t)
 	ctx := context.Background()
-	session := w.srv.Sched.Coordinator().Session.ID
+	session := w.srv.Sched.Coordinators()["alpha"].Session.ID
 	w.host.RefuseNotify(session, true)
 
 	for i := 0; i < 3; i++ {
@@ -79,7 +79,7 @@ func TestCBug1AnAcceptedRingResetsTheBackoffAndClearsTheAlert(t *testing.T) {
 		t.Fatalf("alerts that name %s after three refusals = %+v, want one open row", session.Terminal, a)
 	}
 	// The alert quotes the host's own refusal, as the ring row stores it.
-	refused, _ := w.lastRing("")
+	refused, _ := w.lastRing("alpha")
 	if !strings.Contains(refused.Detail, "host refused input to "+session.String()) {
 		t.Fatalf("the stored refusal = %q, want the fake host's refusal of %s", refused.Detail, session)
 	}
@@ -108,7 +108,7 @@ func TestCBug1AnAcceptedRingResetsTheBackoffAndClearsTheAlert(t *testing.T) {
 	if err := j.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if o, _ := w.lastRing(""); o.Result != overwatch.RingAccepted {
+	if o, _ := w.lastRing("alpha"); o.Result != overwatch.RingAccepted {
 		t.Fatalf("the ring after the host took input = %+v, want accepted", o)
 	}
 	if a := w.ringAlerts(session.Terminal); len(a) != 1 || a[0].state != "closed" {
@@ -133,7 +133,7 @@ func TestCBug1AnAcceptedRingResetsTheBackoffAndClearsTheAlert(t *testing.T) {
 func TestCBug1TheBackoffResetsWhenTheStoredSessionChanges(t *testing.T) {
 	w, counter, j := refusedRingWorld(t)
 	ctx := context.Background()
-	old := w.srv.Sched.Coordinator().Session.ID
+	old := w.srv.Sched.Coordinators()["alpha"].Session.ID
 	w.host.RefuseNotify(old, true)
 	if err := config.StoreAlerter(w.srv.Store).Raise(ctx, config.Alert{Project: "alpha", Kind: sched.AlertRunUnknown, DedupeKey: "u",
 		Subject: "a run's liveness is unknown"}); err != nil {
@@ -159,7 +159,7 @@ func TestCBug1TheBackoffResetsWhenTheStoredSessionChanges(t *testing.T) {
 	if err := w.srv.Sched.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	moved := w.srv.Sched.Coordinator().Session.ID
+	moved := w.srv.Sched.Coordinators()["alpha"].Session.ID
 	if moved == old {
 		t.Fatalf("fixture: the scheduler did not rebind %s", old)
 	}
@@ -170,7 +170,7 @@ func TestCBug1TheBackoffResetsWhenTheStoredSessionChanges(t *testing.T) {
 	if got := counter.notifies.Load() - before; got != 1 {
 		t.Fatalf("Notify calls to the rebound session %s = %d, want 1: the old handle's backoff held it", moved, got)
 	}
-	if o, _ := w.lastRing(""); o.Result != overwatch.RingAccepted {
+	if o, _ := w.lastRing("alpha"); o.Result != overwatch.RingAccepted {
 		t.Fatalf("the ring to the rebound session = %+v, want accepted", o)
 	}
 	if a := w.ringAlerts(old.Terminal); len(a) != 1 || a[0].state != "closed" {

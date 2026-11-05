@@ -400,9 +400,6 @@ func (w *World) options() server.Options {
 	opts.Sched.Pack = p
 	if w.real == nil {
 		opts.Sched.Coordinator = &sched.CoordinatorConfig{Harness: agenthost.Claude}
-		if len(cfg.Projects) > 0 {
-			opts.Sched.Coordinator.Project = cfg.Projects[0].ID
-		}
 	}
 	opts.Setup = append(opts.Setup, func(s *server.Server) error {
 		if s.Sched == nil {
@@ -658,7 +655,7 @@ func (w *World) Restart() {
 func (w *World) waitCoordinator() {
 	w.T.Helper()
 	deadline := time.Now().Add(30 * time.Second)
-	for w.Srv.Sched.Coordinator().Session == nil {
+	for w.Srv.Sched.Coordinators()[Project].Session == nil {
 		if time.Now().After(deadline) {
 			w.T.Fatal("the coordinator session did not start")
 		}
@@ -668,7 +665,7 @@ func (w *World) waitCoordinator() {
 }
 
 // CoordinatorCheckout is the coordinator session's checkout.
-func (w *World) CoordinatorCheckout() string { return w.Srv.Sched.Coordinator().Checkout }
+func (w *World) CoordinatorCheckout() string { return w.Srv.Sched.Coordinators()[Project].Checkout }
 
 // ---- Checkouts ----
 
@@ -875,6 +872,20 @@ func (w *World) Coordinator(args ...string) Result {
 	return w.In(w.CoordinatorCheckout(), args...)
 }
 
+// OldCoordinator runs loop with the token of the old session of a release
+// before ADR 0015: a coordinator token that names no project. The fixture
+// project is not the loop project, so its coordinator's token reaches no
+// instance-wide verb, and this token does.
+func (w *World) OldCoordinator(args ...string) Result {
+	w.T.Helper()
+	dir := w.T.TempDir()
+	if _, err := w.Srv.Tokens.IssueToCheckout(context.Background(), rpc.IssueRequest{RunID: "coordinator-old-" + filepath.Base(dir),
+		Kind: cli.PrincipalCoordinator, Checkout: dir}); err != nil {
+		w.T.Fatal(err)
+	}
+	return w.In(dir, args...)
+}
+
 // ---- Stages, jobs and GitHub ----
 
 // CreateTicket creates a PRD-less ticket through the work-create handler,
@@ -893,7 +904,7 @@ func (w *World) CreateTicket(title, body string) string {
 	}
 	// The coordinator's run id, when a session holds one, names the actor
 	// as a call from its checkout does.
-	pr := rpc.Principal{Kind: cli.PrincipalCoordinator, RunID: w.Srv.Sched.Coordinator().RunID, Project: Project}
+	pr := rpc.Principal{Kind: cli.PrincipalCoordinator, RunID: w.Srv.Sched.Coordinators()[Project].RunID, Project: Project}
 	call := &rpc.Call{Inv: inv, Principal: pr}
 	res := w.pl.Pipeline.Handlers()["work create"](context.Background(), call)
 	cr, ok := res.Data.(pipeline.CreateResult)

@@ -40,8 +40,11 @@ const MaxAttempts = 2
 // Brief is what a run reads first. It names secrets and never holds a
 // value.
 type Brief struct {
-	RunID       string `json:"run_id"`
-	Project     string `json:"project"`
+	RunID   string `json:"run_id"`
+	Project string `json:"project"`
+	// LoopProject marks the brief of the loop project's coordinator, which
+	// serves the instance-wide work too (ADR 0015 decision 5).
+	LoopProject bool   `json:"loop_project,omitempty"`
 	Stage       string `json:"stage"`
 	Role        string `json:"role"`
 	Harness     string `json:"harness"`
@@ -87,6 +90,9 @@ type Brief struct {
 	// states its ticket cites (factorio-4lso). Nil for a ticket that holds
 	// no screens fact, and on every other stage.
 	Screens *Screens `json:"screens,omitempty"`
+	// LeftOpen is the work a previous coordinator of the project left
+	// open. The prompt names each line, and the brief files leave it out.
+	LeftOpen []string `json:"-"`
 }
 
 // Screens is the design record's view of the states one ticket cites, and
@@ -377,9 +383,13 @@ func Prompt(b Brief) string {
 	if b.Role == "coordinator" {
 		finish = ""
 	}
+	left := ""
+	if len(b.LeftOpen) > 0 {
+		left = "\n\nA previous coordinator of this project left this work open:\n\n- " + strings.Join(b.LeftOpen, "\n- ")
+	}
 	return fmt.Sprintf("You are a loop %s run. Read %s and %s in this checkout first. "+
-		"Then follow the runbook at %s.%s\n\n%s\n",
-		b.Role, BriefMD, BriefJSON, b.Runbook, finish, ManneredProse)
+		"Then follow the runbook at %s.%s%s\n\n%s\n",
+		b.Role, BriefMD, BriefJSON, b.Runbook, finish, left, ManneredProse)
 }
 
 // Injection is everything one run start writes into a checkout.
