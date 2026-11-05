@@ -398,7 +398,9 @@ answer by reading the sources is work that you did not finish.
 
 The operator decides each entry before this spec merges. Write the decision in the entry, as a bold
 run that starts `**Answered` or `**Deferred`. The run names who decided, and the date. An entry
-with no such run is undecided.
+with no such run is undecided. The `spec` gate refuses each undecided entry at its line, so the
+doc-reviewer cannot pass a spec that the sign-off refuses. A "None." line does not hide an entry
+under it.
 
 > **Good**
 >

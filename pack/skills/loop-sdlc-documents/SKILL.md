@@ -43,7 +43,9 @@ Run `loop gates --docs` before you commit a document. Each gate below names the 
 - **`spec`** reads each spec, `docs/specs/*-spec.md` and `docs/plans/*-spec.md`. The 14 headings
   of the template are there, once each and in their order. No section is empty. No line of the
   template's instruction block, placeholders or example markers is left. The filename starts with
-  the `**Epic:**` id and a dash.
+  the `**Epic:**` id and a dash. Each top-level entry under `## Open questions` holds a bold
+  `**Answered` or `**Deferred` run, and a `**Needs an ADR:**` entry an `**Answered` run that cites
+  an ADR. The spec sign-off refuses the same entries.
 - **`citations`** reads each PRD. Each top-level bullet under `## Requirements` has a `→` citation
   on a line under it, and each citation resolves. The PRD names a story label US-n. No two
   headings define one label. A label that the PRD held on the base branch is still there.

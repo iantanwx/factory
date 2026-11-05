@@ -176,3 +176,27 @@ func TestC11SpecListsMatchTheTemplate(t *testing.T) {
 		t.Errorf("template lines:\n%s\nTemplateLines:\n%s", strings.Join(lines, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+// C-bug-1: the spec gate names each open question that the sign-off refuses,
+// at its line, and no question that the sign-off accepts.
+func TestBugBwxoSpecGateNamesEachUndecidedOpenQuestion(t *testing.T) {
+	text := strings.Replace(goodSpec(t), "## Open questions\n\nNone.\n", "## Open questions\n\n"+
+		"- Which cache key wins? This blocks entry 1.\n"+
+		"- Does the engine read intraday bars? This blocks entry 2.\n"+
+		"  **Deferred (operator, 2026-11-05):** To the intraday epic.\n"+
+		"- **Needs an ADR:** Decisions, \"One Parquet file\". This blocks entry 3.\n"+
+		"  **Answered (operator, 2026-11-05):** One file for each run.\n"+
+		"- **Needs an ADR:** Decisions, \"One cache\". This blocks entry 1.\n"+
+		"  **Answered (operator, 2026-11-05):** ADR 0007 decides it.\n", 1)
+	var got []int
+	for _, f := range docshape.CheckSpec(specFile, text) {
+		if f.Rule != "open_questions" {
+			t.Fatalf("finding %v, want only open_questions findings", f)
+		}
+		got = append(got, f.Line)
+	}
+	want := []int{lineOf(t, text, "- Which cache key wins?"), lineOf(t, text, "- **Needs an ADR:** Decisions, \"One Parquet")}
+	if !slices.Equal(got, want) {
+		t.Fatalf("open question lines = %v, want %v", got, want)
+	}
+}
