@@ -113,6 +113,7 @@ type Host struct {
 	launches    []Launch
 	incomplete  bool
 	neverReady  bool
+	noResume    bool
 	dropModel   bool
 	silentModel bool
 	down        bool
@@ -249,6 +250,10 @@ func (h *Host) SetInventoryIncomplete(on bool) { h.set(func() { h.incomplete = o
 // SetNeverReady makes every later start never become ready. It serves
 // agenthosttest.ReadinessBreaker.
 func (h *Host) SetNeverReady(on bool) { h.set(func() { h.neverReady = on }) }
+
+// SetResumeUnsupported makes every later start that asks to resume answer
+// agenthost.ErrResumeUnsupported, as a host with no resume does.
+func (h *Host) SetResumeUnsupported(on bool) { h.set(func() { h.noResume = on }) }
 
 // SetDropModel makes the host drop the model argument of later starts. It
 // serves agenthosttest.ModelDropper.
@@ -444,6 +449,9 @@ func (h *Host) Start(_ context.Context, spec agenthost.StartSpec) (agenthost.Ses
 	}
 	if !h.checkouts[filepath.Clean(spec.Checkout)] {
 		return agenthost.Session{}, fmt.Errorf("%w: no checkout %s", agenthost.ErrBadSpec, spec.Checkout)
+	}
+	if spec.Resume && h.noResume {
+		return agenthost.Session{}, agenthost.ErrResumeUnsupported
 	}
 	argv, err := agenthost.HarnessArgv(spec, h.extra[spec.Harness])
 	if err != nil {
