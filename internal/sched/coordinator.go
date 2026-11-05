@@ -123,8 +123,11 @@ func (s *Scheduler) Coordinators() map[string]CoordinatorState {
 // "", so on a host with no loop project the instance-wide work waits in
 // the inbox for the host to read.
 func (s *Scheduler) Session(project string) (agenthost.RunID, bool) {
+	if project == "" {
+		return agenthost.RunID{}, false
+	}
 	old, homes, err := s.coordinatorRows(context.Background())
-	if err != nil || project == "" {
+	if err != nil {
 		return agenthost.RunID{}, false
 	}
 	cs := homes[project]
