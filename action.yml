@@ -38,6 +38,9 @@ runs:
         (cd "$ACTION_PATH" && go build -trimpath \
           -ldflags "-s -w -X github.com/iantanwx/loop/internal/cli.Version=$ACTION_REF" \
           -o "$RUNNER_TEMP/loop-bin/loop" ./cmd/loop)
-        curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" |
-          tar -xz -C "$RUNNER_TEMP/loop-bin" gitleaks
+        # github.com answers a release download with a transient 5xx at
+        # times. Retry it, and let tar read only a complete download.
+        curl -sSfL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/gitleaks.tar.gz" \
+          "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+        tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP/loop-bin" gitleaks
         echo "$RUNNER_TEMP/loop-bin" >> "$GITHUB_PATH"
