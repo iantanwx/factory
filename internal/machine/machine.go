@@ -282,6 +282,11 @@ type Item struct {
 	// that read failed. Only work show sets them.
 	RetroOnItem
 	RetroError string `json:"retro_error,omitempty"`
+	// TicketStatus is the status of the ticket a shaped bug became, and
+	// Closed is BugClosed of the bug and that status. Only work show and
+	// work list set them, and only on a shaped bug.
+	TicketStatus string `json:"ticket_status,omitempty"`
+	Closed       *bool  `json:"closed,omitempty"`
 }
 
 // RetroOnItem is the part of work show that the retro writes.

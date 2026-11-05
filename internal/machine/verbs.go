@@ -898,6 +898,13 @@ func (m *Machine) workShow(ctx context.Context, call *rpc.Call) cli.Result {
 			it.RetroOnItem = r
 		}
 	}
+	if tk := shapedInto(it); tk != "" {
+		t, r := m.Read(ctx, prj, tk)
+		if r != nil {
+			return r.Result()
+		}
+		it.setClosed(t.Status)
+	}
 	return cli.Found(it)
 }
 
@@ -915,7 +922,35 @@ func (m *Machine) workList(ctx context.Context, call *rpc.Call) cli.Result {
 		return r.Result()
 	}
 	// A decision is no work: `decision list` lists it.
-	return cli.List(slices.DeleteFunc(items, func(it Item) bool { return it.Kind == KindDecision }))
+	items = slices.DeleteFunc(items, func(it Item) bool { return it.Kind == KindDecision })
+	if slices.ContainsFunc(items, func(it Item) bool { return shapedInto(it) != "" }) {
+		tickets, r := m.List(ctx, prj, ListFilter{Kind: KindTicket})
+		if r != nil {
+			return r.Result()
+		}
+		status := make(map[string]string, len(tickets))
+		for _, t := range tickets {
+			status[t.ID] = t.Status
+		}
+		for i := range items {
+			if tk := shapedInto(items[i]); tk != "" {
+				items[i].setClosed(status[tk])
+			}
+		}
+	}
+	return cli.List(items)
+}
+
+func shapedInto(it Item) string {
+	if it.Kind != KindBug || it.Status != Shaped {
+		return ""
+	}
+	return it.Fact(FactTicket)
+}
+
+func (i *Item) setClosed(ticket string) {
+	closed := BugClosed(i.Status, ticket)
+	i.TicketStatus, i.Closed = ticket, &closed
 }
 
 // ReviewCommenter posts a review's body on the item's pull request. key is
