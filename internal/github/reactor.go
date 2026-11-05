@@ -642,10 +642,6 @@ func (r *Reactor) adrs(ctx context.Context, p config.Project, sha string) error 
 // reads the PR by number. An unknown state is no conflict: the read asks
 // GitHub to compute it, and the next tick reads it again. Ported from
 // health in scripts/sdlc/pr-health.ts (alpha).
-//
-// A PR head that stays behind the loop's push past the grace period gets
-// a new push first (Resync, F-78), so GitHub synchronizes the PR and CI
-// starts at the loop's head.
 func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 	items, ref := r.m.List(ctx, p.ID, machine.ListFilter{Kind: machine.KindTicket, Status: machine.InReview})
 	if ref != nil {
