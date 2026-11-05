@@ -340,8 +340,6 @@ func (s *Scheduler) tendOld(ctx context.Context, cc *CoordinatorConfig, old Coor
 // session ended. A failed start raises an alert that names p.
 func (s *Scheduler) tendHome(ctx context.Context, cc *CoordinatorConfig, cs CoordinatorState, p config.Project, loop bool) {
 	if cs.Revoked {
-		// A rollback's hand-back revoked the session's token, so its verbs
-		// refuse. Its next session starts fresh.
 		s.endSession(ctx, cs)
 		cs.Session, cs.Revoked = nil, false
 		s.log.WarnContext(ctx, "closed the coordinator session that a rollback revoked", "project", p.ID, "run", cs.RunID)
@@ -435,8 +433,6 @@ func HandBack(ctx context.Context, st *store.Store, ps []config.Project) error {
 	if err != nil {
 		return fmt.Errorf("sched: hand the coordinator back: %w", err)
 	}
-	// A rerun after a failed revoke finds each row Revoked, and revokes
-	// its token again.
 	tokens := &rpc.Tokens{Store: st}
 	for _, run := range revoke {
 		if _, err := tokens.Revoke(ctx, run); err != nil {
