@@ -1473,10 +1473,13 @@ and C25 prove those titles.
 None. The PRD holds six open questions. ADR 0015 answers the question on an ADR. The Decisions
 section answers four more from the sources:
 
-- the host with no loop project, which ADR 0015 decision 5 leaves to this spec
-- the name of the loop project, which ADR 0015 decision 5 leaves to this spec
-- the send with no project, from US-05
-- `project list` and `project show`, from the runbook and PRD L258-L259
+- the host with no loop project, which ADR 0015 decision 5 leaves to this spec. **Answered:**
+  Decisions, "The loop project".
+- the name of the loop project, which ADR 0015 decision 5 leaves to this spec. **Answered:**
+  Decisions, "The loop project".
+- the send with no project, from US-05. **Answered:** Decisions, "The send verb".
+- `project list` and `project show`, from the runbook and PRD L258-L259. **Answered:** Decisions,
+  "Scope of a coordinator's verbs".
 
 The PRD's last open question asks for one epic. The scope check finds one, with the seam between
 the server and the text.
