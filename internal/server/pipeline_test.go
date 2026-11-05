@@ -83,7 +83,7 @@ func newDocWorld(t *testing.T) (*humanWorld, *GitHub, *gt.API) {
 	w.awaitCoordinator()
 	w.coord = t.TempDir()
 	if _, err := w.srv.Tokens.IssueToCheckout(ctx, rpc.IssueRequest{RunID: "coord-1", Kind: cli.PrincipalCoordinator,
-		Checkout: w.coord}); err != nil {
+		Project: "alpha", Checkout: w.coord}); err != nil {
 		t.Fatal(err)
 	}
 	return w, gh, api
