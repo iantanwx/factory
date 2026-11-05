@@ -250,10 +250,11 @@ func (s *Scheduler) ensureCoordinators(ctx context.Context) {
 			if old != nil && old.Project == p.ID {
 				continue
 			}
-			if has, err := s.hasConfig(ctx, p); err != nil || !has {
-				if err != nil {
-					s.startFailed(ctx, p.ID, err)
-				}
+			has, err := s.hasConfig(ctx, p)
+			if err != nil {
+				s.startFailed(ctx, p.ID, err)
+			}
+			if !has {
 				continue
 			}
 			cs = CoordinatorState{Project: p.ID}
