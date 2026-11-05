@@ -8,8 +8,9 @@ import (
 )
 
 // The ring record of each destination is its own coordinator_ring row,
-// updated in place. On a host with a loop project, LastRings leaves out
-// the row of the destination "", which an earlier release wrote.
+// and a new ring replaces it. On a host with a loop project, LastRings
+// leaves out the row of the destination "", which an earlier release
+// wrote.
 func TestRecordRingKeepsOneRowForEachDestination(t *testing.T) {
 	w := newFakeWorld(t)
 	ctx := context.Background()

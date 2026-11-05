@@ -131,6 +131,17 @@ func (w *notifyWorld) cursor(dest string) (at int64, ok bool) {
 	return at, true
 }
 
+// setCursor writes the home_notify row of dest at at, as the tick does.
+func (w *notifyWorld) setCursor(dest string, at int64) {
+	w.t.Helper()
+	if err := w.st.Write(w.ctx, func(tx *store.Tx) error {
+		_, err := tx.Exec(`INSERT INTO schedule (project, kind, due_at, created_at, updated_at) VALUES (?, 'home_notify', ?, 0, 0)`, dest, at)
+		return err
+	}); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
 func (w *notifyWorld) wantRings(want ...rang) {
 	w.t.Helper()
 	if !slices.EqualFunc(w.rings, want, func(a, b rang) bool {
@@ -256,28 +267,57 @@ func TestC14TheFirstPokeRingsOnlyTheEntriesAfterTheOldCursor(t *testing.T) {
 
 // C14: a cursor that a poke moved stays where it is when a second poke,
 // which read the old value, tries to move it. So no entry rings again.
+// The first poke inserts a's row in one case, and moves it in the other.
 func TestC14ACursorAnotherPokeMovedStays(t *testing.T) {
+	for _, row := range []bool{false, true} {
+		t.Run(fmt.Sprintf("a's row exists %v", row), func(t *testing.T) {
+			w := newNotifyWorld(t)
+			w.topo = twoHomes
+			w.serve(map[string]string{"a": "coord-a"})
+			if row {
+				w.setCursor("a", 100)
+			}
+			first := w.alertAt("a", 150)
+			// While the first poke rings, a new entry arrives, and a second
+			// notifier rings both entries and moves the cursor to 200.
+			var second Entry
+			w.during = func() {
+				second = w.alertAt("a", 200)
+				if err := w.notifier().Poke(w.ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w.poke()
+			w.wantRings(rang{session: "coord-a", dests: []string{"a"}, text: RingText([]Entry{first})},
+				rang{session: "coord-a", dests: []string{"a"}, text: RingText([]Entry{first, second})})
+			if at, ok := w.cursor("a"); !ok || at != 200 {
+				t.Fatalf("a's cursor = %d %v, want 200, where the second poke moved it", at, ok)
+			}
+			w.poke()
+			w.wantRings()
+		})
+	}
+}
+
+// Spec § Data: when a cursor row changed since the poke read it, the poke
+// reads the rows again. Here the tick starts a's coordinator while the
+// old session rings, and writes a's row at 100. The poke reads that row
+// again and rings a's new session with the entry after it.
+func TestAPokeReadsACursorRowThatChangedAgain(t *testing.T) {
 	w := newNotifyWorld(t)
 	w.topo = twoHomes
-	w.serve(map[string]string{"a": "coord-a"})
-	first := w.alertAt("a", 100)
-	// While the first poke rings, a new entry arrives, and a second
-	// notifier rings both entries and moves the cursor to 200.
-	var second Entry
+	w.serve(map[string]string{"a": "coord-loop"})
+	e := w.alertAt("a", 150)
 	w.during = func() {
-		second = w.alertAt("a", 200)
-		if err := w.notifier().Poke(w.ctx); err != nil {
-			t.Fatal(err)
-		}
+		w.setCursor("a", 100)
+		w.serve(map[string]string{"a": "coord-a"})
 	}
 	w.poke()
-	w.wantRings(rang{session: "coord-a", dests: []string{"a"}, text: RingText([]Entry{first})},
-		rang{session: "coord-a", dests: []string{"a"}, text: RingText([]Entry{first, second})})
-	if at, ok := w.cursor("a"); !ok || at != 200 {
-		t.Fatalf("a's cursor = %d %v, want 200, where the second poke moved it", at, ok)
+	w.wantRings(rang{session: "coord-loop", dests: []string{"a"}, text: RingText([]Entry{e})},
+		rang{session: "coord-a", dests: []string{"a"}, text: RingText([]Entry{e})})
+	if at, ok := w.cursor("a"); !ok || at != 150 {
+		t.Fatalf("a's cursor = %d %v, want 150", at, ok)
 	}
-	w.poke()
-	w.wantRings()
 }
 
 // C10: for any generated inbox and topology, `inbox list` returns to a

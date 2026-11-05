@@ -62,34 +62,43 @@ type Notifier struct {
 // each destination that the session serves. It moves the cursors of each
 // accepted ring. A destination with no session keeps its cursor, and so
 // does each destination of a ring that is held, refused or finds nobody.
+// When a cursor row changed since the poke read it, the poke reads the
+// rows again and rings for that destination only.
 func (n *Notifier) Poke(ctx context.Context) error {
 	if n == nil || n.Ring == nil || n.Inbox.cfg.Sessions == nil {
 		return nil
 	}
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	c, err := n.cursors(ctx)
-	if err != nil {
-		return err
-	}
-	es, err := n.Inbox.Entries(ctx)
-	if err != nil {
-		return err
-	}
 	var errs []error
-	for _, r := range n.group(es, c) {
-		err := n.Ring(ctx, r.id, slices.Sorted(maps.Keys(r.last)), RingText(r.es))
-		if errors.Is(err, ErrNobodyToRing) || errors.Is(err, ErrRingHeld) {
-			continue
-		}
-		if err == nil {
-			err = n.move(ctx, c, r.last)
-		}
+	var only map[string]bool
+	for {
+		c, err := n.cursors(ctx)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("inbox: ring the coordinator session %s: %w", r.id, err))
+			return err
 		}
+		es, err := n.Inbox.Entries(ctx)
+		if err != nil {
+			return err
+		}
+		changed := map[string]bool{}
+		for _, r := range n.group(es, c, only) {
+			err := n.Ring(ctx, r.id, slices.Sorted(maps.Keys(r.last)), RingText(r.es))
+			if errors.Is(err, ErrNobodyToRing) || errors.Is(err, ErrRingHeld) {
+				continue
+			}
+			if err == nil {
+				err = n.move(ctx, c, r.last, changed)
+			}
+			if err != nil {
+				errs = append(errs, fmt.Errorf("inbox: ring the coordinator session %s: %w", r.id, err))
+			}
+		}
+		if len(changed) == 0 {
+			return errors.Join(errs...)
+		}
+		only = changed
 	}
-	return errors.Join(errs...)
 }
 
 // cursors are the cursor rows a poke read.
@@ -144,7 +153,8 @@ type sessionRing struct {
 
 // group sorts the entries after each destination's cursor by the session
 // that serves the destination, in the order of each session's first entry.
-func (n *Notifier) group(es []Entry, c cursors) []*sessionRing {
+// A non-nil only keeps the destinations it holds.
+func (n *Notifier) group(es []Entry, c cursors, only map[string]bool) []*sessionRing {
 	var t coord.Topology
 	if n.Inbox.cfg.Topology != nil {
 		t = n.Inbox.cfg.Topology()
@@ -153,7 +163,7 @@ func (n *Notifier) group(es []Entry, c cursors) []*sessionRing {
 	by := map[agenthost.RunID]*sessionRing{}
 	for _, e := range es {
 		dest := Route(e, t)
-		if e.At <= c.at(dest) {
+		if e.At <= c.at(dest) || only != nil && !only[dest] {
 			continue
 		}
 		id, ok := n.Inbox.cfg.Sessions(dest)
@@ -174,22 +184,28 @@ func (n *Notifier) group(es []Entry, c cursors) []*sessionRing {
 
 // move moves the cursor of each destination to its newest rung entry,
 // only from the value the poke read. A row that changed since that read
-// stays as it is, and the next poke reads it.
-func (n *Notifier) move(ctx context.Context, c cursors, to map[string]int64) error {
+// stays as it is, and move adds its destination to changed.
+func (n *Notifier) move(ctx context.Context, c cursors, to map[string]int64, changed map[string]bool) error {
 	return n.Inbox.cfg.Store.Write(ctx, func(tx *store.Tx) error {
 		now := tx.Now().UnixMilli()
 		for dest, at := range to {
+			var res sql.Result
 			var err error
 			if from, ok := c.rows[dest]; ok {
-				_, err = tx.Exec(`UPDATE schedule SET due_at = ?, updated_at = ? WHERE kind = ? AND project = ? AND due_at = ?`,
+				res, err = tx.Exec(`UPDATE schedule SET due_at = ?, updated_at = ? WHERE kind = ? AND project = ? AND due_at = ?`,
 					at, now, HomeNotifyKind, dest, from)
 			} else {
-				_, err = tx.Exec(`INSERT INTO schedule (project, kind, due_at, created_at, updated_at) SELECT ?, ?, ?, ?, ?
+				res, err = tx.Exec(`INSERT INTO schedule (project, kind, due_at, created_at, updated_at) SELECT ?, ?, ?, ?, ?
 					WHERE NOT EXISTS (SELECT 1 FROM schedule WHERE kind = ? AND project = ?)`,
 					dest, HomeNotifyKind, at, now, now, HomeNotifyKind, dest)
 			}
 			if err != nil {
 				return err
+			}
+			if moved, err := res.RowsAffected(); err != nil {
+				return err
+			} else if moved == 0 {
+				changed[dest] = true
 			}
 		}
 		return nil
