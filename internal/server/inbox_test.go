@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -357,12 +358,12 @@ func TestCoordinatorSendRingsTheCoordinator(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(t.TempDir())
-	env, code, _ := call(t, w.dir, 5*time.Second, nil, "coordinator", "send", "--body", "file three tickets for the review gaps")
+	env, code, _ := call(t, w.dir, 5*time.Second, nil, "coordinator", "send", "--project", "alpha", "--body", "file three tickets for the review gaps")
 	if code != 0 {
 		t.Fatalf("coordinator send from the host = %d %v", code, env)
 	}
 	w.waitNotified("file three tickets for the review gaps")
-	if env, _ := w.coordinator("coordinator", "send", "--body", "hello"); env["code"] != cli.CodeCapabilityDenied {
+	if env, _ := w.coordinator("coordinator", "send", "--project", "alpha", "--body", "hello"); env["code"] != cli.CodeCapabilityDenied {
 		t.Fatalf("the coordinator's own send = %v", env)
 	}
 }
@@ -456,5 +457,65 @@ func TestInboxNoteHoldsAFindingAndARepeatDoesNotRing(t *testing.T) {
 	}
 	if env, _ := w.coordinator("inbox", "note", noted, "--body", "late"); env["code"] != cli.CodeNotFound {
 		t.Fatalf("a note on a closed alert = %v", env)
+	}
+}
+
+// C31: the operator's send types its text into the session of the project
+// it names, and into no other. Each refusal names the project, and types
+// into no session.
+func TestC31SendReachesTheNamedCoordinatorOnly(t *testing.T) {
+	hw := newHomesWorld(t, homesOpts{})
+	if _, err := rpc.EnsureAdminCredential(hw.dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	send := func(args ...string) (map[string]any, int) {
+		env, code, _ := call(t, hw.dir, 5*time.Second, nil, append([]string{"coordinator", "send"}, args...)...)
+		return env, code
+	}
+	got := func(text string) []string {
+		var ps []string
+		for _, id := range homesProjects {
+			cs := hw.srv.Sched.Coordinators()[id]
+			if cs.Session != nil && slices.Contains(hw.host.Notifications(cs.Session.ID), text) {
+				ps = append(ps, id)
+			}
+		}
+		return ps
+	}
+
+	env, code := send("--project", "alpha", "--body", "file three tickets")
+	if code != 0 || env["data"].(map[string]any)["run_id"] != hw.srv.Sched.Coordinators()["alpha"].RunID {
+		t.Fatalf("send to alpha = %d %v", code, env)
+	}
+	if ps := got("file three tickets"); !slices.Equal(ps, []string{"alpha"}) {
+		t.Fatalf("the text reached %v, want alpha only", ps)
+	}
+
+	for _, c := range []struct {
+		args       []string
+		code, rule string
+		names      []string
+		absent     string
+	}{
+		{[]string{"--project", "gamma"}, cli.CodeNotFound, "no_coordinator", []string{"gamma"}, ""},
+		{[]string{"--project", "delta"}, cli.CodeNotFound, "unknown_project", []string{"delta"}, ""},
+		{nil, cli.CodeUsage, "no_project", []string{"loop", "alpha", "beta"}, "gamma"},
+	} {
+		env, _ := send(append(c.args, "--body", "refused "+c.rule)...)
+		if env["code"] != c.code || env["rule"] != c.rule {
+			t.Fatalf("send %v = %v, want %s %s", c.args, env, c.code, c.rule)
+		}
+		for _, p := range c.names {
+			if !strings.Contains(env["hint"].(string), p) {
+				t.Fatalf("the %s hint %q does not name %s", c.rule, env["hint"], p)
+			}
+		}
+		if c.absent != "" && strings.Contains(env["hint"].(string), c.absent) {
+			t.Fatalf("the %s hint %q names %s, which runs no coordinator", c.rule, env["hint"], c.absent)
+		}
+		if ps := got("refused " + c.rule); len(ps) != 0 {
+			t.Fatalf("the refused %s text reached %v", c.rule, ps)
+		}
 	}
 }
