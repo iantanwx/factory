@@ -118,16 +118,20 @@ func (s *Scheduler) Coordinators() map[string]CoordinatorState {
 	return homes
 }
 
-// Session names the session that serves project. Until each project's
-// ring reaches its own session, one session serves every destination: the
-// old session while it lives, then the loop project's.
-func (s *Scheduler) Session(string) (agenthost.RunID, bool) {
+// Session names the session that serves project: its own coordinator's,
+// or the old session's for the old session's project. No session serves
+// "", so on a host with no loop project the instance-wide work waits in
+// the inbox for the host to read.
+func (s *Scheduler) Session(project string) (agenthost.RunID, bool) {
+	if project == "" {
+		return agenthost.RunID{}, false
+	}
 	old, homes, err := s.coordinatorRows(context.Background())
 	if err != nil {
 		return agenthost.RunID{}, false
 	}
-	cs := homes[s.topology(old, homes).Loop]
-	if old != nil && old.Session != nil {
+	cs := homes[project]
+	if old != nil && old.Project == project {
 		cs = *old
 	}
 	if cs.Session == nil {
@@ -539,7 +543,7 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		return err
 	}
 	sess, err := s.cfg.Agents.Start(ctx, agenthost.StartSpec{Kind: agenthost.KindCoordinator, Checkout: cs.Checkout,
-		Harness: cc.Harness, Model: model, Effort: cc.Effort, PromptFile: res.Prompt, Title: "loop coordinator"})
+		Harness: cc.Harness, Model: model, Effort: cc.Effort, PromptFile: res.Prompt, Title: "loop coordinator " + p.ID})
 	if err != nil {
 		_, _ = s.cfg.Tokens.Revoke(ctx, run)
 		return fmt.Errorf("sched: start the coordinator: %w", err)
