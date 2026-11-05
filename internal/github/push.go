@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/iantanwx/loop/internal/captures"
 	"github.com/iantanwx/loop/internal/cli"
@@ -686,6 +687,71 @@ func (s *Service) BaseMerge(ctx context.Context, project, branch, from string) (
 		return "", false, nil
 	}
 	return sha, state == "pending", err
+}
+
+// resyncRun names a push intent of Resync in place of a run.
+const resyncRun = "server:resync"
+
+// resyncGrace is how long a PR may show an older head than the loop's
+// newest push to its branch before Resync repairs it (F-78).
+const resyncGrace = 5 * time.Minute
+
+// Resync repairs a PR head that GitHub left behind the loop's push, as
+// when it drops the push's synchronize event (F-78). When prHead differs
+// from the newest push the server made to the item's branch, that push
+// is older than resyncGrace by the service clock, and the remote branch
+// still holds it, Resync pushes a new commit on top of it with the same
+// tree, as the server's own push. It answers that commit, or "" when it
+// pushed nothing. A branch that a push the loop did not make moved gets
+// no push.
+func (s *Service) Resync(ctx context.Context, p config.Project, item, prHead string) (string, error) {
+	branch := BranchFor(item)
+	unlock := s.lock(p.ID + "\x00" + branch)
+	defer unlock()
+	var sha string
+	var at int64
+	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
+		return tx.QueryRowContext(ctx, `SELECT new_sha, settled_at FROM push_intents
+			WHERE project = ? AND branch = ? AND state = 'done' ORDER BY id DESC LIMIT 1`, p.ID, branch).Scan(&sha, &at)
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if sha == prHead || s.cfg.Now().Sub(time.UnixMilli(at)) < resyncGrace {
+		return "", nil
+	}
+	m := s.Mirror(p)
+	if err := m.Init(ctx); err != nil {
+		return "", err
+	}
+	tok, err := s.Token(ctx, p, ScopeRead)
+	if err != nil {
+		return "", err
+	}
+	if err := m.Fetch(ctx, tok, branch); err != nil {
+		return "", err
+	}
+	if m.Resolve(ctx, remoteRef(branch)) != sha {
+		return "", nil
+	}
+	tree, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"rev-parse", sha + "^{tree}"}})
+	if err != nil {
+		return "", err
+	}
+	now := s.cfg.Now().Unix()
+	obj := fmt.Sprintf("tree %s\nparent %s\nauthor %s %d +0000\ncommitter %s %d +0000\n\nchore: resync the PR head of %s at %s\n",
+		tree, sha, evidenceIdent, now, evidenceIdent, now, branch, short(sha))
+	next, err := m.git.text(ctx, gitRun{dir: m.Dir, args: []string{"hash-object", "-t", "commit", "-w", "--stdin"}, stdin: []byte(obj)})
+	if err != nil {
+		return "", err
+	}
+	if err := s.pushBranch(ctx, p, m, item, branch, sha, next, resyncRun, "resynced"); err != nil {
+		return "", err
+	}
+	return next, nil
 }
 
 // recordPush is the push intent of KTD14: the branch, the old sha and the
