@@ -12,6 +12,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -32,6 +33,11 @@ type CoordinatorConfig struct {
 
 // CoordinatorStage names the coordinator in its brief and runbook.
 const CoordinatorStage = "coordinator"
+
+// AlertCoordinatorCheckoutMissing names a project whose coordinator
+// checkout the server made and no longer finds. The inbox routes it to the
+// loop project's coordinator, as AlertCoordinator.
+const AlertCoordinatorCheckoutMissing = "coordinator_checkout_missing"
 
 // coordinatorCheckout names the coordinator's one checkout.
 const coordinatorCheckout = "loop-coordinator"
@@ -54,6 +60,39 @@ type CoordinatorState struct {
 func (s *Scheduler) Coordinator() CoordinatorState {
 	cs, _ := s.loadCoordinator(context.Background())
 	return cs
+}
+
+// Topology is the coordinators of the instance now. The loop project is
+// the registered project of the loop's repository. Until each project has
+// its own coordinator, the one coordinator row is the old session's, so
+// no project has a home coordinator, and Old is the row's project.
+func (s *Scheduler) Topology() coord.Topology {
+	t := coord.Topology{Homes: map[string]bool{}, Old: s.Coordinator().Project}
+	if ps, err := s.cfg.Projects(); err == nil {
+		t.Loop, _ = coord.LoopProject(ps)
+	}
+	return t
+}
+
+// Coordinators holds each coordinator by the project it serves: the one
+// coordinator row, under its project, until each project has its own.
+func (s *Scheduler) Coordinators() map[string]CoordinatorState {
+	out := map[string]CoordinatorState{}
+	if cs := s.Coordinator(); cs.RunID != "" || cs.Checkout != "" {
+		out[cs.Project] = cs
+	}
+	return out
+}
+
+// Session names the session that serves project. The one coordinator
+// serves every project, and the destination "" of a host with no loop
+// project.
+func (s *Scheduler) Session(string) (agenthost.RunID, bool) {
+	cs := s.Coordinator()
+	if cs.Session == nil {
+		return agenthost.RunID{}, false
+	}
+	return cs.Session.ID, true
 }
 
 func (s *Scheduler) loadCoordinator(ctx context.Context) (CoordinatorState, error) {

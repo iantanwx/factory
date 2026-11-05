@@ -90,6 +90,16 @@ type Entry struct {
 	// cursor of `inbox wait --since` is the At of the last entry seen.
 	At     int64  `json:"at"`
 	Cursor string `json:"cursor"`
+	// Dedupe is an alert's dedupe key. Route reads it, and JSON leaves it
+	// out.
+	Dedupe string `json:"-"`
+	// Run is a fault entry's run. The record resolver reads it, and JSON
+	// leaves it out.
+	Run string `json:"-"`
+	// names is the entry a question is about, and about is that entry
+	// when it lists. Route and Owner read a question by it.
+	names string
+	about *Entry
 }
 
 // Config configures an Inbox.

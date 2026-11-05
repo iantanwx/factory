@@ -20,6 +20,7 @@ import (
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/decision"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/fault"
@@ -364,6 +365,11 @@ func compose(ctx context.Context, opts Options) (*Server, error) {
 		Checkouts: opts.Checkouts,
 		Proc:      opts.Proc,
 		OnCall:    onCall,
+		Topology:  func() coord.Topology { return s.topology() },
+		Records: func(ctx context.Context, inv cli.Invocation) ([]coord.Record, error) {
+			return s.records(ctx, inv)
+		},
+		Routed: func(ctx context.Context, r coord.Record) (bool, error) { return s.routed(ctx, r) },
 	})
 	if err != nil {
 		return nil, err
