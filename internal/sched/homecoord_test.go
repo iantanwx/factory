@@ -131,6 +131,13 @@ func (hw *homeWorld) remove(id string) {
 	hw.order = slices.DeleteFunc(hw.order, func(p string) bool { return p == id })
 }
 
+// register registers project id again, with the fixture it had.
+func (hw *homeWorld) register(id string) {
+	hw.mu.Lock()
+	defer hw.mu.Unlock()
+	hw.order = append(hw.order, id)
+}
+
 // setConfig commits .loop/config.yaml to the fixture's remote default
 // branch, or a commit that deletes it.
 func (hw *homeWorld) setConfig(f *fixture, present bool) {
@@ -628,5 +635,87 @@ func TestC41ACursorStartsAtTheOldCursorWithNoRowOfItsDestination(t *testing.T) {
 	hw.tick()
 	if at, ok := hw.cursor(homeNotifyKind, "alpha"); !ok || at != 300 {
 		t.Fatalf("alpha's cursor = %d %v, want the inbox_notify value 300", at, ok)
+	}
+}
+
+// removeAlpha starts the coordinators of alpha and beta, then removes alpha
+// and ticks once. It returns alpha's and beta's coordinators before the
+// removal.
+func removeAlpha(t *testing.T) (*homeWorld, CoordinatorState, CoordinatorState) {
+	t.Helper()
+	hw := newHomeWorld(t, []string{"alpha", "beta"}, map[string]bool{"alpha": true, "beta": true})
+	hw.tick()
+	a, b := hw.mustHome("alpha"), hw.mustHome("beta")
+	if !hw.live(a.Session) || !hw.live(b.Session) {
+		t.Fatalf("fixture: coordinators %+v %+v", a, b)
+	}
+	hw.remove("alpha")
+	hw.tick()
+	return hw, a, b
+}
+
+// C29: the operator removes alpha of two projects. Within one tick, the
+// server closes alpha's session and revokes its token. Its checkout and its
+// row are gone. Beta's session id stays the same, and no session starts.
+func TestC29ARemovalClosesOneCoordinator(t *testing.T) {
+	hw, a, b := removeAlpha(t)
+
+	if hw.live(a.Session) {
+		t.Fatal("alpha's session still runs")
+	}
+	if hw.liveToken(a.RunID) {
+		t.Fatal("alpha's token still verifies")
+	}
+	if exists(a.Checkout) {
+		t.Fatalf("alpha's checkout %s stays", a.Checkout)
+	}
+	if n := hw.count(`SELECT count(*) FROM schedule WHERE kind = 'home_coordinator' AND project = 'alpha'`); n != 0 {
+		t.Fatalf("%d home_coordinator rows name alpha, want 0", n)
+	}
+	if _, ok := hw.s.Session("alpha"); ok {
+		t.Fatal("Session(alpha) names a session after the removal")
+	}
+	if got := hw.s.Topology(); got.Homes["alpha"] || !got.Homes["beta"] {
+		t.Fatalf("topology = %+v, want beta's home only", got)
+	}
+	b2 := hw.mustHome("beta")
+	if b2.RunID != b.RunID || b2.Session.ID != b.Session.ID || !hw.live(b2.Session) || !hw.liveToken(b.RunID) {
+		t.Fatalf("beta's coordinator changed: %+v, was %+v", b2, b)
+	}
+	if n := len(hw.host.Launches()); n != 2 {
+		t.Fatalf("%d sessions started, want alpha's and beta's first ones only", n)
+	}
+	if names := hw.fixtures["beta"].co.names(); len(names) != 1 {
+		t.Fatalf("beta checkouts asked = %q, want its first one only", names)
+	}
+}
+
+// C30: after C29, the operator registers alpha again with its config. The
+// next tick starts alpha's new session in a new loop-coordinator checkout,
+// and the removed session is not in the host's inventory.
+func TestC30AReRegistrationStartsANewCoordinator(t *testing.T) {
+	hw, a, b := removeAlpha(t)
+	hw.register("alpha")
+	hw.tick()
+
+	a2 := hw.mustHome("alpha")
+	if !hw.live(a2.Session) || a2.RunID == a.RunID || a2.Session.ID == a.Session.ID || !exists(a2.Checkout) {
+		t.Fatalf("alpha's coordinator after the re-registration = %+v, removed %+v", a2, a)
+	}
+	if names := hw.fixtures["alpha"].co.names(); !slices.Equal(names, []string{"loop-coordinator", "loop-coordinator"}) {
+		t.Fatalf("alpha checkouts asked = %q, want a new loop-coordinator checkout", names)
+	}
+	if got := hw.tokenProject(a2.RunID); got != "alpha" {
+		t.Fatalf("the new token names %q", got)
+	}
+	inv, err := hw.host.Inventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := inv.Lookup(*a.Session); p == agenthost.Present {
+		t.Fatalf("the removed session is in the inventory: %+v", inv.Rows)
+	}
+	if b2 := hw.mustHome("beta"); b2.Session.ID != b.Session.ID {
+		t.Fatalf("beta's session changed: %v, was %v", b2.Session.ID, b.Session.ID)
 	}
 }
