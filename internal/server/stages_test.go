@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/machine"
+	"github.com/iantanwx/loop/internal/rpc"
 )
 
 // pauseCounts counts the pause rows and the pause audit rows.
@@ -41,7 +43,7 @@ func TestC8BadPauseOrResumeChangesNothing(t *testing.T) {
 			cli.CodeNotFound, "no_pause", "alpha"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env, _ := w.coordinator(tc.args...)
+			env, _ := w.unscoped(tc.args...)
 			if env["code"] != tc.code || env["rule"] != tc.rule {
 				t.Fatalf("%v = %v, want %s %s", tc.args, env, tc.code, tc.rule)
 			}
@@ -176,7 +178,19 @@ func TestC11StageListAnswersTheProjectsRows(t *testing.T) {
 	if pauses, _ := impl["pauses"].([]any); len(pauses) != 1 || pauses[0].(map[string]any)["reason"] != "hold for the upgrade" {
 		t.Fatalf("the implementer row's pauses = %v", impl["pauses"])
 	}
-	if env, _ := w.coordinator("stage", "list", "--project", "nope"); env["code"] != cli.CodeNotFound || env["rule"] != "project_not_found" {
+	if env, _ := w.unscoped("stage", "list", "--project", "nope"); env["code"] != cli.CodeNotFound || env["rule"] != "project_not_found" {
 		t.Fatalf("stage list --project nope = %v", env)
 	}
+}
+
+// unscoped runs the CLI as the old session of an earlier release, whose
+// token names no project, so no scope refuses another project first.
+func (w *humanWorld) unscoped(args ...string) (map[string]any, int) {
+	w.t.Helper()
+	dir := w.t.TempDir()
+	if _, err := w.srv.Tokens.IssueToCheckout(context.Background(), rpc.IssueRequest{RunID: "coord-old-" + filepath.Base(dir), Kind: cli.PrincipalCoordinator,
+		Checkout: dir}); err != nil {
+		w.t.Fatal(err)
+	}
+	return w.as(dir, args...)
 }

@@ -325,17 +325,76 @@ func TestC20ASessionEndRestartsThatProjectsCoordinatorOnly(t *testing.T) {
 	}
 }
 
-// A failed start raises an alert that names its project, with a dedupe key
-// of its own, and the tick starts the other project's coordinator.
-func TestAFailedStartNamesItsProjectAndStopsNoOther(t *testing.T) {
+// C21: a failed start raises an alert that names its project, with a
+// dedupe key of its own, and the tick starts the other project's
+// coordinator. When beta's next start fails too, a second open alert
+// names beta, and alpha's alert stays open.
+func TestC21AFailedStartNamesItsProjectAndStopsNoOther(t *testing.T) {
 	hw := newHomeWorld(t, []string{"alpha", "beta"}, map[string]bool{"alpha": true, "beta": true})
 	hw.fixtures["alpha"].co.g.fail.Store(true)
 	hw.tick()
-	if cs, _ := hw.home("beta"); !hw.live(cs.Session) {
-		t.Fatalf("beta did not start in the tick of alpha's failure: %+v", cs)
+	b, _ := hw.home("beta")
+	if !hw.live(b.Session) {
+		t.Fatalf("beta did not start in the tick of alpha's failure: %+v", b)
 	}
 	if got := hw.str(`SELECT project || ' ' || dedupe_key FROM alerts WHERE kind = ?`, AlertCoordinator); got != "alpha coordinator_start_failed:alpha" {
 		t.Fatalf("alert = %q, want one that names alpha", got)
+	}
+
+	hw.host.Exit(b.Session.ID, 0)
+	hw.host.SetNeverReady(true)
+	hw.tick()
+	var open []string
+	for _, p := range []string{"alpha", "beta"} {
+		if hw.count(`SELECT count(*) FROM alerts WHERE kind = ? AND project = ? AND dedupe_key = ? AND state = 'open'`,
+			AlertCoordinator, p, AlertCoordinator+":"+p) == 1 {
+			open = append(open, p)
+		}
+	}
+	if !slices.Equal(open, []string{"alpha", "beta"}) {
+		t.Fatalf("open %s alerts name %q, want alpha and beta", AlertCoordinator, open)
+	}
+}
+
+// C19: each coordinator's terminal title names its project, so the
+// titles of two projects differ.
+func TestC19EachTitleNamesItsProject(t *testing.T) {
+	hw := newHomeWorld(t, []string{"alpha", "loop"}, map[string]bool{"alpha": true, "loop": true})
+	hw.tick()
+	titles := map[string]string{}
+	for _, l := range hw.host.Launches() {
+		titles[l.Spec.Checkout] = l.Spec.Title
+	}
+	for _, id := range []string{"alpha", "loop"} {
+		if got, want := titles[hw.mustHome(id).Checkout], "loop coordinator "+id; got != want {
+			t.Fatalf("the title of %s's coordinator = %q, want %q", id, got, want)
+		}
+	}
+}
+
+// Session names each project's own coordinator, and the old session for
+// the old session's project. It names no session for a project with no
+// coordinator, and none for "". So on a host with no loop project, the
+// instance-wide work rings no session (C40).
+func TestSessionNamesEachProjectsOwnCoordinator(t *testing.T) {
+	hw := newHomeWorld(t, []string{"alpha", "beta", "gamma"}, map[string]bool{"alpha": true, "beta": true})
+	old := hw.oldSession("alpha")
+	hw.tick()
+	want := map[string]*agenthost.Session{"alpha": old.Session, "beta": hw.mustHome("beta").Session, "gamma": nil, "": nil}
+	for p, sess := range want {
+		id, ok := hw.s.Session(p)
+		if sess == nil && ok {
+			t.Fatalf("Session(%q) = %v, want no session", p, id)
+		}
+		if sess != nil && (!ok || id != sess.ID) {
+			t.Fatalf("Session(%q) = %v %v, want %v", p, id, ok, sess.ID)
+		}
+	}
+
+	hw.host.Exit(old.Session.ID, 0)
+	hw.tick()
+	if id, ok := hw.s.Session("alpha"); !ok || id != hw.mustHome("alpha").Session.ID || id == old.Session.ID {
+		t.Fatalf("Session(alpha) after the hand-over = %v %v, want alpha's new coordinator", id, ok)
 	}
 }
 
@@ -373,10 +432,8 @@ func TestC25TheFirstStartKeepsTheOldSession(t *testing.T) {
 	if got := hw.s.Topology(); got.Old != "alpha" || !got.Homes["beta"] || got.Homes["alpha"] {
 		t.Fatalf("topology = %+v", got)
 	}
-	for _, p := range []string{"alpha", "beta", ""} {
-		if id, ok := hw.s.Session(p); !ok || id != old.Session.ID {
-			t.Fatalf("Session(%q) = %v %v, want the old session while it lives", p, id, ok)
-		}
+	if id, ok := hw.s.Session("alpha"); !ok || id != old.Session.ID {
+		t.Fatalf("Session(alpha) = %v %v, want the old session while it lives", id, ok)
 	}
 }
 
@@ -416,8 +473,8 @@ func TestC26TheOldSessionGivesItsProjectToANewCoordinator(t *testing.T) {
 				t.Fatalf("the prompt does not name %q:\n%s", want, prompt)
 			}
 		}
-		if id, ok := hw.s.Session("beta"); !ok || id != hw.mustHome("loop").Session.ID {
-			t.Fatalf("Session after the old session = %v %v, want the loop project's", id, ok)
+		if id, ok := hw.s.Session("alpha"); !ok || id != cs.Session.ID {
+			t.Fatalf("Session(alpha) after the old session = %v %v, want alpha's new coordinator", id, ok)
 		}
 	})
 

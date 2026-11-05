@@ -127,10 +127,11 @@ func asString(v any) string {
 }
 
 // AE9 (R55): an implementer run hits a fault in the loop, writes a report
-// and files it. It gets F-1, and the coordinator's inbox holds one fault
-// entry. A later run reads open. After the coordinator resolves it as
-// fixed in v1.4.0, a run reads fixed, fixed_in and the release this host
-// runs.
+// and files it. It gets F-1. The fixture project is not the loop project,
+// so the fault rings no coordinator, and the host's inbox holds one fault
+// entry (C40). A later run reads open. After the coordinator resolves it
+// as fixed in v1.4.0, a run reads fixed, fixed_in and the release this
+// host runs.
 func TestAE9ALoopFaultReportReachesTheCoordinatorAndItsResolutionReachesRuns(t *testing.T) {
 	w := newWorld(t, acceptance.Options{})
 	createTicket(w, "Add a", "Create `a.txt` holding the line `a`.")
@@ -140,13 +141,7 @@ func TestAE9ALoopFaultReportReachesTheCoordinatorAndItsResolutionReachesRuns(t *
 	if r.Str("fault") != "F-1" || r.Str("status") != "open" {
 		t.Fatalf("%s", r)
 	}
-	var faults []map[string]any
-	for _, e := range w.Entries("coordinator") {
-		if e["kind"] == "fault" {
-			faults = append(faults, e)
-		}
-	}
-	if len(faults) != 1 || faults[0]["entry"] != "fault/F-1" {
+	if faults := hostFaults(w); len(faults) != 1 || faults[0]["entry"] != "fault/F-1" {
 		t.Fatalf("fault entries = %v", faults)
 	}
 	w.Must(w.In(run.Checkout, "run", "finish", "--outcome", "blocked", "--fault", "F-1"))
@@ -178,9 +173,25 @@ func TestAE9ALoopFaultReportReachesTheCoordinatorAndItsResolutionReachesRuns(t *
 	if r.Str("status") != "fixed" || r.Str("fixed_in") != "v1.4.0" || r.Str("installed") != cli.Version {
 		t.Fatalf("%s", r)
 	}
-	if w.Entry("fault/F-1") != nil {
-		t.Fatal("a fixed fault stays in the inbox")
+	if faults := hostFaults(w); len(faults) != 0 {
+		t.Fatalf("a fixed fault stays in the inbox: %v", faults)
 	}
+}
+
+// hostFaults lists the fault entries of the host's inbox.
+func hostFaults(w *acceptance.World) []map[string]any {
+	w.T.Helper()
+	r := w.HostCLI(nil, "inbox", "list")
+	if r.Code != 0 && r.Code != 1 {
+		w.T.Fatalf("%s", r)
+	}
+	var out []map[string]any
+	for _, e := range r.List() {
+		if m := e.(map[string]any); m["kind"] == "fault" {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // Parity 4.9 and 1.23 (admission-input.ts, alpha): the PR head enters the

@@ -43,7 +43,8 @@ func TestStageSessionNamesItsWork(t *testing.T) {
 	}
 }
 
-// C-bug-1: the coordinator keeps the title loop coordinator.
+// C-bug-1: the coordinator keeps the title loop coordinator, followed by
+// its project (C19).
 func TestCoordinatorKeepsItsTitle(t *testing.T) {
 	w := newWorld(t)
 	w.cfg.Coordinator = &CoordinatorConfig{Harness: agenthost.Claude, Model: "opus"}
@@ -58,7 +59,7 @@ func TestCoordinatorKeepsItsTitle(t *testing.T) {
 			titles = append(titles, l.Spec.Title)
 		}
 	}
-	if len(titles) != 1 || titles[0] != "loop coordinator" {
-		t.Fatalf("coordinator titles = %q, want [\"loop coordinator\"]", titles)
+	if want := "loop coordinator " + prj; len(titles) != 1 || titles[0] != want {
+		t.Fatalf("coordinator titles = %q, want [%q]", titles, want)
 	}
 }

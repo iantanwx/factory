@@ -105,9 +105,12 @@ func newHumanWorldOf(t *testing.T, manifest, repoName string) *humanWorld {
 		t.Fatal(err)
 	}
 	w.awaitCoordinator()
+	// The token names alpha, as the token of each coordinator the
+	// scheduler starts does. So the session of alpha's coordinator serves
+	// the caller's inbox.
 	w.coord = t.TempDir()
 	if _, err := w.srv.Tokens.IssueToCheckout(context.Background(), rpc.IssueRequest{RunID: "coord-1", Kind: cli.PrincipalCoordinator,
-		Checkout: w.coord}); err != nil {
+		Project: "alpha", Checkout: w.coord}); err != nil {
 		t.Fatal(err)
 	}
 	return w
