@@ -253,11 +253,11 @@ func TestC6TheRingRecordHoldsEachOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(t.TempDir())
-	if env, code, _ := call(t, w.dir, 5*time.Second, nil, "coordinator", "send", "--body", "read the sweep"); code != 0 {
+	if env, code, _ := call(t, w.dir, 5*time.Second, nil, "coordinator", "send", "--project", "alpha", "--body", "read the sweep"); code != 0 {
 		t.Fatalf("coordinator send = %d %v", code, env)
 	}
 	w.host.RefuseNotify(session, true)
-	if env, _, _ := call(t, w.dir, 5*time.Second, nil, "coordinator", "send", "--body", "read it again"); env["ok"] == true {
+	if env, _, _ := call(t, w.dir, 5*time.Second, nil, "coordinator", "send", "--project", "alpha", "--body", "read it again"); env["ok"] == true {
 		t.Fatalf("a refused send = %v", env)
 	}
 	if o, _ := w.lastRing("alpha"); o != inboxRing {

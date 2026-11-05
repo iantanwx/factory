@@ -266,7 +266,8 @@ var surface = []Verb{
 		Flag{Name: "not-a-fault", Type: FlagBool, Description: "the report names no fault in the loop; needs --reason"},
 		Flag{Name: "reason", Type: FlagString, Description: "why the report is not a fault"}))),
 
-	write(server("coordinator", "send", "type a message into the coordinator's terminal, as the operator would", hostOnly, nil,
+	write(server("coordinator", "send", "type a message into the terminal of one project's coordinator, as the operator would", hostOnly, nil,
+		Flag{Name: "project", Type: FlagString, Description: "the project whose coordinator gets the message; refused when absent, and the refusal lists each running coordinator"},
 		Flag{Name: "body", Type: FlagString, Required: true, Description: "the message"})),
 	instanceWide(write(server("coordinator", "upgrade", "on the operator's decision, have the server run loop upgrade outside every checkout; it drains and restarts the server", coordinator,
 		[]Arg{{Name: "version", Description: "the release to install; the latest when absent"}},
