@@ -656,6 +656,12 @@ func (r *Reactor) pollCI(ctx context.Context, p config.Project) error {
 		if pr == nil || pr.State != "open" {
 			continue
 		}
+		if sha, err := r.s.Resync(ctx, p, it.ID, pr.Head.SHA); err != nil {
+			errs = append(errs, fmt.Errorf("%s resync: %w", it.ID, err))
+		} else if sha != "" {
+			r.log.InfoContext(ctx, "the PR head stayed behind the loop's push; the reactor pushed a new head",
+				"project", p.ID, "item", it.ID, "pr", pr.Number, "pr_head", pr.Head.SHA, "head", sha)
+		}
 		rep, err := r.s.Checks(ctx, p, pr.Head.SHA)
 		if err != nil {
 			return err
