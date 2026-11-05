@@ -11,14 +11,14 @@ import (
 	"strings"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/store"
 )
 
-// LoopRepo is release.ReleaseRepo, the repository of the loop's own
-// project. retro cannot import release, which imports the server, so
-// TestLoopRepoIsTheReleaseRepo holds this copy equal to it.
-const LoopRepo = "slothware-labs/factorio"
+// LoopRepo is coord.LoopRepo, the repository of the loop's own project.
+const LoopRepo = coord.LoopRepo
 
 // StateDone is a retro whose learnings all have their routes.
 const StateDone = "done"
@@ -304,14 +304,27 @@ func routable(r Retro, ok bool) *cli.Refusal {
 	return nil
 }
 
-// loopProject reports whether project's repository is the loop's own.
+// loopProject reports whether project is the loop project, by
+// coord.LoopProject over every registered project.
 func loopProject(tx *store.Tx, project string) (bool, error) {
-	var repo string
-	err := tx.QueryRow(`SELECT repo FROM projects WHERE id = ?`, project).Scan(&repo)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+	rows, err := tx.Query(`SELECT id, repo FROM projects`)
+	if err != nil {
+		return false, err
 	}
-	return strings.EqualFold(repo, LoopRepo), err
+	defer func() { _ = rows.Close() }()
+	var ps []config.Project
+	for rows.Next() {
+		var p config.Project
+		if err := rows.Scan(&p.ID, &p.Repo); err != nil {
+			return false, err
+		}
+		ps = append(ps, p)
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	id, ok := coord.LoopProject(ps)
+	return ok && id == project, nil
 }
 
 // routeOne checks the cases of one panel, decides its route and stores its

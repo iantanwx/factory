@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/store"
 )
@@ -23,7 +24,7 @@ type bugsWorld struct {
 func newBugsWorld(t *testing.T) *bugsWorld {
 	t.Helper()
 	w := &bugsWorld{fakeWorld: newFakeWorld(t), configs: map[string]*config.ProjectConfig{"home": reproducer(true)}}
-	w.projects = append(w.projects, config.Project{ID: "home", Repo: loopRepo})
+	w.projects = append(w.projects, config.Project{ID: "home", Repo: coord.LoopRepo})
 	return w
 }
 
@@ -164,6 +165,23 @@ func TestC20AResolvedFaultIsNeverWork(t *testing.T) {
 	}
 }
 
+// C1 of factorio-1edo: with two projects of the loop's repository the host
+// has no loop project. The bugs part names neither, so an open fault waits
+// for its ack.
+func TestC1TwoProjectsOfTheLoopRepoNameNoLoopProject(t *testing.T) {
+	w := newBugsWorld(t)
+	w.projects = append(w.projects, config.Project{ID: "copy", Repo: strings.ToUpper(coord.LoopRepo)})
+	id := w.fault(t, "a fault", "open")
+	pr := sweepBugs(t, w)
+	got := linesWith(pr.Lines, id)
+	if pr.Code != Work || len(got) != 1 || !strings.Contains(got[0], "loop fault ack") {
+		t.Fatalf("code = %d, lines %q, want 1 and one line that asks for the ack of %s", pr.Code, pr.Lines, id)
+	}
+	if got := linesWith(pr.Lines, coord.LoopRepo); len(got) != 1 || !strings.Contains(got[0], "no loop project") {
+		t.Fatalf("lines = %q, want one line that the host has no loop project", pr.Lines)
+	}
+}
+
 // C21: the loop's project is the one whose repository is the loop's, not
 // the one whose id looks like it. A closed bug of factorio files nothing.
 func TestC21ItsRepositoryNamesTheLoopsProject(t *testing.T) {
@@ -189,8 +207,8 @@ func TestC21NoLoopProjectMakesEachOpenFaultWorkUntilItsAck(t *testing.T) {
 	if pr.Code != Work || len(linesWith(pr.Lines, id)) != 1 {
 		t.Fatalf("code = %d, lines %q, want 1 and one line for %s", pr.Code, pr.Lines, id)
 	}
-	if got := linesWith(pr.Lines, loopRepo); len(got) != 1 || !strings.Contains(got[0], "no registered project") {
-		t.Fatalf("lines = %q, want one line that no registered project holds %s", pr.Lines, loopRepo)
+	if got := linesWith(pr.Lines, coord.LoopRepo); len(got) != 1 || !strings.Contains(got[0], "no loop project") {
+		t.Fatalf("lines = %q, want one line that no loop project holds %s", pr.Lines, coord.LoopRepo)
 	}
 
 	setFault(t, w.st, id, "acknowledged")

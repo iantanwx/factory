@@ -5,18 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/fault"
 	"github.com/iantanwx/loop/internal/machine"
 )
-
-// loopRepo is release.ReleaseRepo, the repository of the loop's own
-// project (spec, Decisions). overwatch cannot import release, which imports
-// the server, so TestC21TheLoopRepositoryIsTheReleaseRepository holds this
-// copy equal to it.
-const loopRepo = "slothware-labs/factorio"
 
 // bugsPart finds every filed issue that nobody filed: a loop fault that no
 // bug of the loop's project names, and a reported bug in a project whose
@@ -32,7 +26,7 @@ type bugReport struct {
 }
 
 // faultsRead is what the bugs classifier reads: the pending faults, the
-// loop's project ("" when no registered project holds loopRepo), each fault
+// loop's project ("" when coord.LoopProject names none), each fault
 // id a bug of that project names with the bug that names it, and the
 // reports that nothing takes.
 type faultsRead struct {
@@ -60,12 +54,8 @@ func readBugs(ctx context.Context, w World) (Reading, error) {
 	if err != nil {
 		return Reading{}, fmt.Errorf("read the projects: %w", err)
 	}
-	for _, p := range projects {
-		if strings.EqualFold(p.Repo, loopRepo) {
-			in.project = p.ID
-		}
-	}
-	if in.project != "" {
+	if id, ok := coord.LoopProject(projects); ok {
+		in.project = id
 		in.filed, err = faultsNamed(ctx, w, in.project)
 		if err != nil {
 			return Reading{}, err
@@ -138,7 +128,7 @@ func untakenReports(ctx context.Context, w World, project string) ([]bugReport, 
 func classifyBugs(in faultsRead) Reading {
 	var r Reading
 	if in.project == "" {
-		r.Notes = append(r.Notes, fmt.Sprintf("no registered project holds the loop's repository %s, so no bug can file a fault", loopRepo))
+		r.Notes = append(r.Notes, fmt.Sprintf("the host has no loop project: no registered project, or more than one, holds the loop's repository %s, so no bug can file a fault", coord.LoopRepo))
 	}
 	for _, f := range in.faults {
 		switch {
