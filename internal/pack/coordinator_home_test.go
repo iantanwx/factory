@@ -69,3 +69,21 @@ func TestC28CoordinatorRunbookMarksTheLoopProjectsWork(t *testing.T) {
 		}
 	}
 }
+
+// C28: the opening names only the verbs of scope instance as refused with
+// loop_project_only, by the spec's scope lists, and gives every coordinator
+// the path to report a loop fault outside § 9.
+func TestC28CoordinatorRunbookRefusesOnlyTheInstanceWideVerbs(t *testing.T) {
+	opening := flat(coordinatorOpening(t))
+	for _, want := range []string{
+		"The server refuses `fault ack`, `fault resolve`, `retro compared`, `coordinator upgrade` and the host verbs to you with `loop_project_only`.",
+		"Every coordinator reports a loop fault with `loop fault report`, by `../loop-fault/SKILL.md`, and files a bug in its own project.",
+	} {
+		if !strings.Contains(opening, want) {
+			t.Errorf("the coordinator runbook's opening does not hold %q", want)
+		}
+	}
+	if strings.Contains(opening, "refuses the verbs of § 9") {
+		t.Error("the coordinator runbook's opening still says the server refuses every verb of § 9")
+	}
+}

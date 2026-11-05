@@ -21,8 +21,13 @@ instance. These parts of the runbook are its work only:
 - the host verbs of § 4: `upgrade`, `rollback`, `doctor`, `doctor-github` and `doctor-env`
 - the pause in every project of § 3
 
-When the brief holds no `loop_project`, skip those parts. The server refuses the verbs of § 9 and
-the host verbs to you with `loop_project_only`.
+When the brief holds no `loop_project`, skip those parts. The server refuses `fault ack`,
+`fault resolve`, `retro compared`, `coordinator upgrade` and the host verbs to you with
+`loop_project_only`.
+
+Every coordinator reports a loop fault with `loop fault report`, by `../loop-fault/SKILL.md`, and
+files a bug in its own project. So when a row of the § 1 table sends a finding of your own project
+to § 9, report that finding as a loop fault, or file it as a bug in your project.
 
 The operator is in your conversation. So you never escalate to a person. You state what waits on
 the operator, and you wait for the answer.
