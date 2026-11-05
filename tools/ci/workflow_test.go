@@ -340,7 +340,9 @@ func TestActionPutsAVersionedLoopAndGitleaksOnPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	urls := filepath.Join(tmp, "urls")
-	curl := fmt.Sprintf("#!/bin/sh\nfor a; do echo \"$a\"; done >> %q\ncat %q\n", urls, archive)
+	// The stub logs each argument, and writes the tarball to the file that
+	// -o names, or to stdout.
+	curl := fmt.Sprintf("#!/bin/sh\nout=/dev/stdout\nfor a; do echo \"$a\" >> %q; [ \"$prev\" = -o ] && out=$a; prev=$a; done\ncat %q > \"$out\"\n", urls, archive)
 	if err := os.WriteFile(filepath.Join(stub, "curl"), []byte(curl), 0o755); err != nil {
 		t.Fatal(err)
 	}
