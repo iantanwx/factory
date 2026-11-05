@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/beadsx"
@@ -129,12 +130,10 @@ type judge struct {
 	project config.Project
 	tickets map[string]machine.Item
 	seen    map[string]verdict
-	// cfg and pulls are the project's config and open pull requests, read
-	// at the first ticket whose code review may wait on CI.
-	cfg    *config.ProjectConfig
-	pulls  []github.PR
-	read   bool
-	unread []string
+	budget  time.Duration
+	pulls   []github.PR
+	read    bool
+	unread  []string
 }
 
 // epic returns the finding of an epic none of whose open tickets moves, or
@@ -302,16 +301,13 @@ func (j *judge) simplifyCI(it machine.Item) (string, error) {
 		case err != nil:
 			return "", fmt.Errorf("read the config of %s: %w", j.project.ID, err)
 		default:
-			j.cfg = snap.Config
+			j.budget = snap.Config.Health.CIBudget
 			if j.pulls, err = j.w.GitHub().OpenPulls(j.ctx, j.project); err != nil {
 				j.unread = append(j.unread, unreadLine(j.project, "the open pull requests", err))
 			}
 		}
 	}
-	if j.cfg == nil {
-		return "", nil
-	}
-	wait, line := simplifyHeadCI(j.ctx, j.w, j.project, j.pulls, it, j.cfg.Health.CIBudget)
+	wait, line := simplifyHeadCI(j.ctx, j.w, j.project, j.pulls, it, j.budget)
 	if line != "" {
 		j.unread = append(j.unread, line)
 	}
