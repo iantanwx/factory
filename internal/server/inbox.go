@@ -147,9 +147,6 @@ func (s *Server) session(project string) (agenthost.RunID, bool) {
 	return s.Sched.Session(project)
 }
 
-// coordinatorSend types the operator's message into the terminal of the
-// coordinator of the project that --project names, so the operator talks
-// to it from any shell on the host.
 func (s *Server) coordinatorSend(ctx context.Context, call *rpc.Call) cli.Result {
 	project := call.Inv.Flags["project"]
 	if project == "" {
@@ -171,7 +168,6 @@ func (s *Server) coordinatorSend(ctx context.Context, call *rpc.Call) cli.Result
 	return cli.Found(map[string]any{"sent": true, "run_id": s.Sched.Coordinators()[project].RunID})
 }
 
-// runningCoordinators names each project whose coordinator session runs.
 func (s *Server) runningCoordinators() string {
 	var ps []string
 	if s.Sched != nil {
