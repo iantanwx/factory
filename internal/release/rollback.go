@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/iantanwx/loop/internal/cli"
@@ -13,6 +14,9 @@ import (
 // refuses a rollback that the release metadata or the database forbids.
 type Rollback struct {
 	Host
+	// HandBack runs after the service stops and before current moves. Nil
+	// runs nothing.
+	HandBack func(ctx context.Context) error
 }
 
 // RollbackReport is the JSON of `loop rollback`.
@@ -62,6 +66,11 @@ func (r *Rollback) Run(ctx context.Context) (RollbackReport, error) {
 	lock, err := r.stop(ctx)
 	if err != nil {
 		return rep, err
+	}
+	if r.HandBack != nil {
+		if err := r.HandBack(ctx); err != nil {
+			return rep, r.abort(ctx, lock, fmt.Errorf("release: hand the coordinator back: %w", err))
+		}
 	}
 	if err := r.Layout.SetCurrent(to); err != nil {
 		return rep, r.abort(ctx, lock, err)

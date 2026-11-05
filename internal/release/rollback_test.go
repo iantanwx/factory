@@ -3,6 +3,7 @@ package release
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -164,4 +165,54 @@ func TestRollbackWithNoEarlierVersion(t *testing.T) {
 	w := newInstance(t)
 	_, err := w.rollback().Run(context.Background())
 	wantRefusal(t, err, cli.CodeNotFound, "no_earlier_version")
+}
+
+// C39: the rollback runs the hand-back after the service stops and before
+// current moves. A failed hand-back leaves current where it was and starts
+// the service again.
+func TestRollbackRunsTheHandBackWhileTheServiceIsStopped(t *testing.T) {
+	setup := func(t *testing.T) *instanceWorld {
+		w := newInstance(t)
+		rw := newReleaseWorld(t)
+		rw.publish(w.next("v1.1.0"), []byte("binary v1.1.0"), nil, "")
+		if _, err := w.upgrader(rw).Run(context.Background(), "v1.1.0"); err != nil {
+			t.Fatal(err)
+		}
+		w.svc.events = nil
+		return w
+	}
+	t.Run("it runs", func(t *testing.T) {
+		w := setup(t)
+		var saw []string
+		rb := w.rollback()
+		rb.HandBack = func(context.Context) error {
+			cur, _ := w.layout.CurrentVersion()
+			saw = append(append(saw, w.svc.list()...), cur)
+			return nil
+		}
+		if _, err := rb.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Equal(saw, []string{"stop", "v1.1.0"}) {
+			t.Fatalf("the hand-back saw %q, want the service stopped and current at v1.1.0", saw)
+		}
+		if cur, _ := w.layout.CurrentVersion(); cur != "v1.0.0" {
+			t.Fatalf("current = %s", cur)
+		}
+	})
+	t.Run("it fails", func(t *testing.T) {
+		w := setup(t)
+		rb := w.rollback()
+		rb.HandBack = func(context.Context) error { return errors.New("the store is locked") }
+		rep, err := rb.Run(context.Background())
+		if err == nil || !strings.Contains(err.Error(), "the store is locked") || rep.Started {
+			t.Fatalf("rollback = %+v, %v; want the hand-back's error", rep, err)
+		}
+		if cur, _ := w.layout.CurrentVersion(); cur != "v1.1.0" {
+			t.Fatalf("a failed hand-back moved current to %s", cur)
+		}
+		if got := w.svc.list(); !slices.Equal(got, []string{"stop", "start"}) {
+			t.Fatalf("events = %q, want the service started again", got)
+		}
+	})
 }
