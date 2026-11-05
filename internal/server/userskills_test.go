@@ -79,7 +79,9 @@ func newPinWorld(t *testing.T, fetch userspace.Fetch) *pinWorld {
 		},
 		Agents: w.host,
 		Sched: SchedOptions{
-			Checkouts:    func(project string) sched.CheckoutHost { return worktrees{t: t, host: w.host, repo: repos[project]} },
+			Checkouts: func(project string) sched.CheckoutHost {
+				return worktrees{t: t, host: w.host, repo: repos[project], project: project}
+			},
 			Coordinator:  &sched.CoordinatorConfig{Harness: agenthost.Claude},
 			TickInterval: time.Hour,
 			BaseHead: sched.OriginBaseHead(func() ([]config.Project, error) {

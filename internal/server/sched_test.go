@@ -77,13 +77,21 @@ func projectRepo(t *testing.T, cfg string) string {
 
 // worktrees makes each fake checkout a git worktree of repo at the spec's
 // base, resolved in repo as `orca worktree create --base-branch` does.
+// Orca keeps each repository's worktrees in a directory of their own, and
+// the fake host keeps every checkout in one root. So a world of several
+// projects sets project, and it goes in front of each name: each
+// project's coordinator checkout is loop-coordinator.
 type worktrees struct {
-	t    *testing.T
-	host *agentfake.Host
-	repo string
+	t       *testing.T
+	host    *agentfake.Host
+	repo    string
+	project string
 }
 
 func (w worktrees) CreateCheckout(ctx context.Context, spec agenthost.CheckoutSpec) (agenthost.Checkout, error) {
+	if w.project != "" {
+		spec.Name = w.project + "-" + spec.Name
+	}
 	co, err := w.host.CreateCheckout(ctx, spec)
 	if err == nil {
 		base := spec.BaseBranch
