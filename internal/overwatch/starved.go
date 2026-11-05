@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/escalation"
+	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 )
 
@@ -24,7 +26,9 @@ import (
 // has a free slot and takes no ticket, and none of the epic's open tickets
 // moves. A ticket moves when no person holds it, and a live run holds its
 // lease, a stage takes it now, it waits on files that a live implementer
-// run holds (rule files_in_flight), or it waits on a dependency that moves.
+// run holds (rule files_in_flight), its code review waits on CI at the
+// head its simplify run left (rule simplify_head_ci, read as the stalls
+// part reads it), or it waits on a dependency that moves.
 func starvedPart() Part {
 	return Part{Name: "starved", Command: "loop work list --kind epic --status execution", Read: readStarved}
 }
@@ -71,7 +75,7 @@ func readStarved(ctx context.Context, w World) (Reading, error) {
 			r.Notes = append(r.Notes, busy)
 			continue
 		}
-		j := &judge{ctx: ctx, w: w, project: p.ID, tickets: byID, seen: map[string]verdict{}}
+		j := &judge{ctx: ctx, w: w, project: p, tickets: byID, seen: map[string]verdict{}}
 		for _, e := range epics {
 			f, note, err := j.epic(e, open[e.ID])
 			switch {
@@ -83,6 +87,7 @@ func readStarved(ctx context.Context, w World) (Reading, error) {
 				r.Notes = append(r.Notes, note)
 			}
 		}
+		r.Notes = append(r.Notes, j.unread...)
 	}
 	return r, nil
 }
@@ -122,9 +127,13 @@ type verdict struct {
 type judge struct {
 	ctx     context.Context
 	w       World
-	project string
+	project config.Project
 	tickets map[string]machine.Item
 	seen    map[string]verdict
+	budget  time.Duration
+	pulls   []github.PR
+	read    bool
+	unread  []string
 }
 
 // epic returns the finding of an epic none of whose open tickets moves, or
@@ -140,13 +149,13 @@ func (j *judge) epic(e machine.Item, open []machine.Item) (*Finding, string, err
 			return nil, "", err
 		}
 		if v.moves {
-			return nil, fmt.Sprintf("epic %s of %s does not starve: %s %s moves, since %s", e.ID, j.project, t.ID, t.Status, v.why), nil
+			return nil, fmt.Sprintf("epic %s of %s does not starve: %s %s moves, since %s", e.ID, j.project.ID, t.ID, t.Status, v.why), nil
 		}
 		held = append(held, fmt.Sprintf("%s %s (%s)", t.ID, t.Status, v.why))
 	}
-	key := Key("starved", j.project, e.ID)
-	return &Finding{Key: key, Project: j.project, Line: fmt.Sprintf("epic %s (%q) of %s starves: the implementer has a free slot and takes no ticket, and none of its open tickets moves: %s (%s)",
-		e.ID, e.Title, j.project, strings.Join(held, "; "), key)}, "", nil
+	key := Key("starved", j.project.ID, e.ID)
+	return &Finding{Key: key, Project: j.project.ID, Line: fmt.Sprintf("epic %s (%q) of %s starves: the implementer has a free slot and takes no ticket, and none of its open tickets moves: %s (%s)",
+		e.ID, e.Title, j.project.ID, strings.Join(held, "; "), key)}, "", nil
 }
 
 // moves judges one ticket. A ticket on a loop of dependencies that reaches
@@ -220,29 +229,40 @@ func (j *judge) judge(it machine.Item) (verdict, error) {
 		if ok {
 			return verdict{moves: true, why: stage + " takes it now"}, nil
 		}
+		if stage == config.StageCodeReviewer {
+			wait, err := j.simplifyCI(it)
+			if err != nil {
+				return verdict{}, err
+			}
+			if wait != "" {
+				return verdict{moves: true, why: wait}, nil
+			}
+		}
 		why = append(why, stage+" does not take it now")
 	}
 	if alert != "" {
 		why = append(why, alert+" is open on it")
 	}
-	deps, err := j.w.Dependencies(j.ctx, j.project, it.ID)
+	deps, err := j.w.Dependencies(j.ctx, j.project.ID, it.ID)
 	if err != nil {
 		return verdict{}, fmt.Errorf("read the dependencies of %s: %w", it.ID, err)
 	}
 	var waits []string
-	done := 0
+	blockers, done := 0, 0
 	for _, d := range deps {
 		if d.Kind != beadsx.DepBlocks {
 			continue
 		}
-		waits = append(waits, d.ID+" "+d.Status)
+		blockers++
 		switch d.Status {
 		case machine.Done:
 			done++
 			continue
 		case machine.Canceled:
+			why = append(why, d.ID+" "+d.Status+" holds it while its pull request stays open")
 			continue
 		}
+		waits = append(waits, d.ID+" "+d.Status)
 		t, ok := j.tickets[d.ID]
 		if !ok {
 			continue
@@ -256,14 +276,42 @@ func (j *judge) judge(it machine.Item) (verdict, error) {
 		}
 	}
 	switch {
-	case it.Status == machine.Backlog && len(waits) > 0 && done == len(waits):
+	case it.Status == machine.Backlog && blockers > 0 && done == blockers:
 		return verdict{moves: true, why: "every blocker is done, so dependency-advance frees it"}, nil
 	case len(waits) > 0:
 		why = append(why, "it waits on "+strings.Join(waits, ", "))
-	case it.Status == machine.Backlog:
+	case it.Status == machine.Backlog && blockers == 0:
 		why = append(why, "it waits in backlog with no blocks edge")
 	}
 	return verdict{why: strings.Join(why, ", ")}, nil
+}
+
+// simplifyCI names the CI run at the head its simplify run left that
+// admission waits for before it takes the code review of it. Empty when
+// none does: CI there is red, green, past budget, not started or unread.
+func (j *judge) simplifyCI(it machine.Item) (string, error) {
+	if j.w.GitHub() == nil || it.Fact(machine.FactSimplifyFrom) == "" {
+		return "", nil
+	}
+	if !j.read {
+		j.read = true
+		snap, err := j.w.ProjectConfig(j.ctx, j.project.ID)
+		switch {
+		case errors.Is(err, config.ErrConfigMissing):
+		case err != nil:
+			return "", fmt.Errorf("read the config of %s: %w", j.project.ID, err)
+		default:
+			j.budget = snap.Config.Health.CIBudget
+			if j.pulls, err = j.w.GitHub().OpenPulls(j.ctx, j.project); err != nil {
+				j.unread = append(j.unread, unreadLine(j.project, "the open pull requests", err))
+			}
+		}
+	}
+	wait, line := simplifyHeadCI(j.ctx, j.w, j.project, j.pulls, it, j.budget)
+	if line != "" {
+		j.unread = append(j.unread, line)
+	}
+	return wait, nil
 }
 
 // personOf names the oldest escalation of the item that waits for a person.
