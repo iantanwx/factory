@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -16,10 +17,13 @@ import (
 	"time"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/pack"
 	"github.com/iantanwx/loop/internal/release"
+	"github.com/iantanwx/loop/internal/sched"
 	"github.com/iantanwx/loop/internal/server"
+	"github.com/iantanwx/loop/internal/store"
 )
 
 // registerRelease plugs in the client-side host verbs: install,
@@ -377,11 +381,30 @@ func (h *hostVerbs) rollback(ctx context.Context, inv cli.Invocation) cli.Result
 	if err != nil {
 		return fail(err)
 	}
-	rep, err := (&release.Rollback{Host: host}).Run(ctx)
+	rb := &release.Rollback{Host: host, HandBack: func(ctx context.Context) error { return handBack(ctx, host.Layout) }}
+	rep, err := rb.Run(ctx)
 	if err != nil {
 		return fail(err)
 	}
 	return cli.Found(rep)
+}
+
+// handBack leaves the release below this one the one coordinator row it
+// reads (sched.HandBack). An instance with no database has no coordinator.
+func handBack(ctx context.Context, l release.Layout) error {
+	if _, err := os.Stat(l.DB()); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	ps, err := (&config.Projects{HostPath: l.HostConfig()}).List()
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	st, err := store.Open(ctx, l.DB())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+	return sched.HandBack(ctx, st, ps)
 }
 
 // coordinator reports whether the caller works in the coordinator's

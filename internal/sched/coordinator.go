@@ -49,6 +49,9 @@ const (
 	// inbox, which imports sched.
 	notifyKind     = "inbox_notify"
 	homeNotifyKind = "home_notify"
+	// ringKind is overwatch.RingKind, the last ring to each destination.
+	// sched cannot import overwatch, which imports sched.
+	ringKind = "coordinator_ring"
 )
 
 // CoordinatorState is one coordinator session the server keeps.
@@ -70,6 +73,9 @@ type CoordinatorState struct {
 	// Fresh makes the next session start fresh, with the work a previous
 	// session left open in its prompt. A session that starts clears it.
 	Fresh bool `json:"fresh,omitempty"`
+	// Revoked marks a session whose token a rollback's hand-back revoked.
+	// The tick closes that session and starts the next one fresh.
+	Revoked bool `json:"revoked,omitempty"`
 }
 
 // LeftOpen lists the work a previous coordinator of project left open,
@@ -92,6 +98,11 @@ func (s *Scheduler) Topology() coord.Topology {
 }
 
 func (s *Scheduler) topology(old *CoordinatorState, homes map[string]CoordinatorState) coord.Topology {
+	ps, _ := s.cfg.Projects()
+	return topologyOf(old, homes, ps)
+}
+
+func topologyOf(old *CoordinatorState, homes map[string]CoordinatorState, ps []config.Project) coord.Topology {
 	t := coord.Topology{Homes: map[string]bool{}}
 	for p := range homes {
 		t.Homes[p] = true
@@ -99,9 +110,7 @@ func (s *Scheduler) topology(old *CoordinatorState, homes map[string]Coordinator
 	if old != nil {
 		t.Old = old.Project
 	}
-	if ps, err := s.cfg.Projects(); err == nil {
-		t.Loop, _ = coord.LoopProject(ps)
-	}
+	t.Loop, _ = coord.LoopProject(ps)
 	return t
 }
 
@@ -144,31 +153,41 @@ func (s *Scheduler) Session(project string) (agenthost.RunID, bool) {
 // each home row by its project.
 func (s *Scheduler) coordinatorRows(ctx context.Context) (*CoordinatorState, map[string]CoordinatorState, error) {
 	var old *CoordinatorState
-	homes := map[string]CoordinatorState{}
+	var homes map[string]CoordinatorState
 	err := s.cfg.Store.Read(ctx, func(tx *sql.Tx) error {
-		rs, err := tx.QueryContext(ctx, `SELECT kind, payload FROM schedule WHERE kind IN (?, ?)`, oldKind, homeKind)
+		rs, err := tx.QueryContext(ctx, coordinatorRowsQuery, oldKind, homeKind)
 		if err != nil {
 			return err
 		}
-		defer func() { _ = rs.Close() }()
-		for rs.Next() {
-			var kind, raw string
-			var cs CoordinatorState
-			if err := rs.Scan(&kind, &raw); err != nil {
-				return err
-			}
-			if err := json.Unmarshal([]byte(raw), &cs); err != nil {
-				return err
-			}
-			if kind == oldKind {
-				old = &cs
-			} else {
-				homes[cs.Project] = cs
-			}
-		}
-		return rs.Err()
+		old, homes, err = scanCoordinators(rs)
+		return err
 	})
 	return old, homes, err
+}
+
+const coordinatorRowsQuery = `SELECT kind, payload FROM schedule WHERE kind IN (?, ?)`
+
+// scanCoordinators reads the rows of coordinatorRowsQuery, and closes them.
+func scanCoordinators(rs *sql.Rows) (*CoordinatorState, map[string]CoordinatorState, error) {
+	defer func() { _ = rs.Close() }()
+	var old *CoordinatorState
+	homes := map[string]CoordinatorState{}
+	for rs.Next() {
+		var kind, raw string
+		var cs CoordinatorState
+		if err := rs.Scan(&kind, &raw); err != nil {
+			return nil, nil, err
+		}
+		if err := json.Unmarshal([]byte(raw), &cs); err != nil {
+			return nil, nil, err
+		}
+		if kind == oldKind {
+			old = &cs
+		} else {
+			homes[cs.Project] = cs
+		}
+	}
+	return old, homes, rs.Err()
 }
 
 // saveCoordinator writes cs into its row: the old row, or its project's
@@ -320,6 +339,13 @@ func (s *Scheduler) tendOld(ctx context.Context, cc *CoordinatorConfig, old Coor
 // this release, rebinds a moved one, and starts the next one when the
 // session ended. A failed start raises an alert that names p.
 func (s *Scheduler) tendHome(ctx context.Context, cc *CoordinatorConfig, cs CoordinatorState, p config.Project, loop bool) {
+	if cs.Revoked {
+		// A rollback's hand-back revoked the session's token, so its verbs
+		// refuse. Its next session starts fresh.
+		s.endSession(ctx, cs)
+		cs.Session, cs.Revoked = nil, false
+		s.log.WarnContext(ctx, "closed the coordinator session that a rollback revoked", "project", p.ID, "run", cs.RunID)
+	}
 	if cs.Session != nil {
 		switch v, moved := s.settleCoordinator(ctx, cs.Session); v {
 		case sessionLive:
@@ -345,6 +371,123 @@ func (s *Scheduler) tendHome(ctx context.Context, cc *CoordinatorConfig, cs Coor
 	if err := s.saveCoordinator(ctx, homeKind, cs); err != nil {
 		s.log.ErrorContext(ctx, "store the coordinator", "project", p.ID, "err", err)
 	}
+}
+
+// HandBack leaves one coordinator for the release before ADR 0015, in loop
+// rollback while the service is stopped (spec factorio-1edo, Approach,
+// "Rollback"). That release reads only the coordinator row. A coordinator
+// row that stands stays. Otherwise the home row of the first registered
+// project becomes the coordinator row, and its token names no project. The
+// token of each other home row is revoked, and the row is Revoked and
+// Fresh. inbox_notify moves to the lowest cursor of the topology, so the
+// earlier release rings each entry that a destination has not rung for.
+func HandBack(ctx context.Context, st *store.Store, ps []config.Project) error {
+	var revoke []string
+	err := st.Write(ctx, func(tx *store.Tx) error {
+		rs, err := tx.Query(coordinatorRowsQuery, oldKind, homeKind)
+		if err != nil {
+			return err
+		}
+		old, homes, err := scanCoordinators(rs)
+		if err != nil {
+			return err
+		}
+		if err := lowestCursor(tx, topologyOf(old, homes, ps)); err != nil {
+			return err
+		}
+		ms := tx.Now().UnixMilli()
+		var first string
+		if len(ps) > 0 {
+			first = ps[0].ID
+		}
+		// The earlier release names the first registered project as its
+		// coordinator's, so it keeps this session.
+		if cs, ok := homes[first]; ok && old == nil {
+			if _, err := tx.Exec(`INSERT INTO schedule (project, kind, payload, created_at, updated_at)
+				SELECT '', ?, payload, ?, ? FROM schedule WHERE kind = ? AND project = ?`, oldKind, ms, ms, homeKind, cs.Project); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM schedule WHERE kind = ? AND project = ?`, homeKind, cs.Project); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE run_tokens SET project = '' WHERE run_id = ?`, cs.RunID); err != nil {
+				return err
+			}
+			delete(homes, cs.Project)
+		}
+		for _, cs := range homes {
+			cs.Revoked, cs.Fresh = true, true
+			raw, err := json.Marshal(cs)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE schedule SET payload = ?, updated_at = ? WHERE kind = ? AND project = ?`,
+				string(raw), ms, homeKind, cs.Project); err != nil {
+				return err
+			}
+			if cs.RunID != "" {
+				revoke = append(revoke, cs.RunID)
+			}
+		}
+		_, err = tx.Exec(`DELETE FROM schedule WHERE kind = ? OR (kind = ? AND project != '')`, homeNotifyKind, ringKind)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("sched: hand the coordinator back: %w", err)
+	}
+	// A rerun after a failed revoke finds each row Revoked, and revokes
+	// its token again.
+	tokens := &rpc.Tokens{Store: st}
+	for _, run := range revoke {
+		if _, err := tokens.Revoke(ctx, run); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// lowestCursor moves inbox_notify to the lowest cursor over every
+// destination of t. A destination with no home_notify row is at the
+// inbox_notify value, so then the value stays. With no inbox_notify row, it
+// writes none.
+func lowestCursor(tx *store.Tx, t coord.Topology) error {
+	var old sql.NullInt64
+	if err := tx.QueryRow(`SELECT due_at FROM schedule WHERE kind = ?`, notifyKind).Scan(&old); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	dests := []string{t.Loop}
+	for p := range t.Homes {
+		dests = append(dests, p)
+	}
+	if t.Old != "" {
+		dests = append(dests, t.Old)
+	}
+	var lowest sql.NullInt64
+	for _, d := range dests {
+		var at sql.NullInt64
+		if err := tx.QueryRow(`SELECT due_at FROM schedule WHERE kind = ? AND project = ?`, homeNotifyKind, d).Scan(&at); errors.Is(err, sql.ErrNoRows) {
+			at = old
+		} else if err != nil {
+			return err
+		}
+		if !at.Valid {
+			return nil
+		}
+		if !lowest.Valid || at.Int64 < lowest.Int64 {
+			lowest = at
+		}
+	}
+	if lowest == old {
+		return nil
+	}
+	ms := tx.Now().UnixMilli()
+	if old.Valid {
+		_, err := tx.Exec(`UPDATE schedule SET due_at = ?, updated_at = ? WHERE kind = ?`, lowest.Int64, ms, notifyKind)
+		return err
+	}
+	_, err := tx.Exec(`INSERT INTO schedule (project, kind, due_at, created_at, updated_at) VALUES ('', ?, ?, ?, ?)`,
+		notifyKind, lowest.Int64, ms, ms)
+	return err
 }
 
 // startFailed raises the alert of project's coordinator that did not
