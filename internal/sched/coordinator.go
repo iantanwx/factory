@@ -245,7 +245,8 @@ func (s *Scheduler) createHome(ctx context.Context, cs CoordinatorState, from st
 // project whose default branch holds a project config (spec factorio-1edo,
 // Approach, "Sessions"). The old session of an earlier release keeps its
 // project until it ends. Then its project's coordinator starts in its
-// checkout, or, with no config, its checkout goes. One project's failure
+// checkout, or, with no config, its checkout goes. The coordinator of a
+// project that is no longer registered closes. One project's failure
 // raises its alert, and the tick continues with the next project.
 func (s *Scheduler) ensureCoordinators(ctx context.Context) {
 	cc := s.cfg.Coordinator
@@ -265,6 +266,12 @@ func (s *Scheduler) ensureCoordinators(ctx context.Context) {
 	if err != nil {
 		s.log.ErrorContext(ctx, "read the coordinators", "err", err)
 		return
+	}
+	for project, cs := range homes {
+		if !slices.ContainsFunc(ps, func(p config.Project) bool { return p.ID == project }) {
+			s.closeRemoved(ctx, homeKind, cs)
+			delete(homes, project)
+		}
 	}
 	loop, _ := coord.LoopProject(ps)
 	for _, p := range ps {
@@ -297,10 +304,7 @@ func (s *Scheduler) ensureCoordinators(ctx context.Context) {
 func (s *Scheduler) tendOld(ctx context.Context, cc *CoordinatorConfig, old CoordinatorState, ps []config.Project) {
 	i := slices.IndexFunc(ps, func(p config.Project) bool { return p.ID == old.Project })
 	if i < 0 {
-		s.endSession(ctx, old)
-		s.removeCheckout(ctx, old.Project, old.Checkout)
-		s.deleteOld(ctx)
-		s.log.WarnContext(ctx, "the old coordinator's project is not registered; closed it", "project", old.Project, "run", old.RunID)
+		s.closeRemoved(ctx, oldKind, old)
 		return
 	}
 	switch v, moved := s.settleCoordinator(ctx, old.Session); v {
@@ -321,7 +325,7 @@ func (s *Scheduler) tendOld(ctx context.Context, cc *CoordinatorConfig, old Coor
 	}
 	if !has {
 		s.removeCheckout(ctx, old.Project, old.Checkout)
-		s.deleteOld(ctx)
+		s.deleteCoordinator(ctx, oldKind, old.Project)
 		s.log.InfoContext(ctx, "the old coordinator ended, and its project has no config", "project", old.Project, "run", old.RunID)
 		return
 	}
@@ -581,12 +585,26 @@ func (s *Scheduler) removeCheckout(ctx context.Context, project, path string) {
 	}
 }
 
-func (s *Scheduler) deleteOld(ctx context.Context) {
+// closeRemoved closes the coordinator of a project that is no longer
+// registered: it closes the session, revokes the token, removes the
+// checkout and deletes the row of kind.
+func (s *Scheduler) closeRemoved(ctx context.Context, kind string, cs CoordinatorState) {
+	s.endSession(ctx, cs)
+	s.removeCheckout(ctx, cs.Project, cs.Checkout)
+	s.deleteCoordinator(ctx, kind, cs.Project)
+	s.log.WarnContext(ctx, "the coordinator's project is not registered; closed it", "kind", kind, "project", cs.Project, "run", cs.RunID)
+}
+
+// deleteCoordinator deletes the old row, or project's home row.
+func (s *Scheduler) deleteCoordinator(ctx context.Context, kind, project string) {
+	if kind == oldKind {
+		project = ""
+	}
 	if err := s.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-		_, err := tx.Exec(`DELETE FROM schedule WHERE kind = ?`, oldKind)
+		_, err := tx.Exec(`DELETE FROM schedule WHERE kind = ? AND project = ?`, kind, project)
 		return err
 	}); err != nil {
-		s.log.ErrorContext(ctx, "delete the old coordinator row", "err", err)
+		s.log.ErrorContext(ctx, "delete the coordinator row", "kind", kind, "project", project, "err", err)
 	}
 }
 
