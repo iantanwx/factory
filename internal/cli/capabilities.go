@@ -43,6 +43,14 @@ var callerKinds = map[string][]string{
 // hostVerbLabels are the caller labels of a host verb.
 var hostVerbLabels = []string{"host", "host coordinator"}
 
+// verbScopes are the scopes a coordinator verb may name (ADR 0015
+// decision 4).
+var verbScopes = []VerbScope{ScopeProject, ScopeInstance}
+
+func coordinatorLabel(c string) bool {
+	return c == "coordinator" || c == "host coordinator"
+}
+
 // CapabilityMatrix is the deny-by-default access table (KTD12). Verbs maps
 // each verb path to the principal kinds that may call it. A verb absent
 // from Verbs admits nobody. ItemScoped lists the verbs whose item argument
@@ -73,7 +81,8 @@ func (m *CapabilityMatrix) IsHostVerb(path string) bool {
 
 // DeriveMatrix builds the matrix from each verb's callers. It refuses a
 // caller label that names no principal kind, so a new label cannot open a
-// verb by accident.
+// verb by accident. It refuses a coordinator verb that names no scope,
+// project or instance (ADR 0015 decision 4).
 func DeriveMatrix(r *Registry) (CapabilityMatrix, error) {
 	m := CapabilityMatrix{
 		Principals: slices.Clone(PrincipalKinds),
@@ -82,6 +91,9 @@ func DeriveMatrix(r *Registry) (CapabilityMatrix, error) {
 		HostVerbs:  []string{},
 	}
 	for _, v := range r.verbs {
+		if slices.ContainsFunc(v.Callers, coordinatorLabel) && !slices.Contains(verbScopes, v.Scope) {
+			return CapabilityMatrix{}, fmt.Errorf("verb %q: a coordinator verb must name its scope: project or instance", v.Path)
+		}
 		var kinds []string
 		for _, c := range v.Callers {
 			ks, ok := callerKinds[c]
