@@ -3,6 +3,8 @@ package overwatch
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/iantanwx/loop/internal/agenthost"
@@ -28,17 +30,17 @@ func readInbox(ctx context.Context, w World) (Reading, error) {
 			return Reading{}, err
 		}
 	}
-	ring, rang, err := w.LastRing(ctx)
+	rings, err := w.LastRings(ctx)
 	if err != nil {
 		return Reading{}, err
 	}
-	return classifyInbox(cs, inv, ring, rang), nil
+	return classifyInbox(cs, inv, rings), nil
 }
 
 // classifyInbox is the inbox part's rule. A session is live when the
-// inventory lists its exact identity as connected. rang is false when the
-// store holds no ring yet.
-func classifyInbox(cs sched.CoordinatorState, inv agenthost.Inventory, ring RingOutcome, rang bool) Reading {
+// inventory lists its exact identity as connected. Each destination's last
+// ring that was refused is work.
+func classifyInbox(cs sched.CoordinatorState, inv agenthost.Inventory, rings map[string]RingOutcome) Reading {
 	var r Reading
 	noSession := Key("inbox", "no-session")
 	switch {
@@ -51,19 +53,25 @@ func classifyInbox(cs sched.CoordinatorState, inv agenthost.Inventory, ring Ring
 	default:
 		r.Notes = append(r.Notes, fmt.Sprintf("the coordinator session %s of run %s runs", cs.Session.ID, cs.RunID))
 	}
-	if !rang {
+	if len(rings) == 0 {
 		r.Notes = append(r.Notes, "the store holds no coordinator ring yet")
 		return r
 	}
-	last := fmt.Sprintf("the last ring, from %s at %s,", ring.Source, ring.At.UTC().Format(time.RFC3339))
-	switch ring.Result {
-	case RingRefused:
-		refused := Key("inbox", "refused")
-		r.Findings = append(r.Findings, Finding{Key: refused, Line: fmt.Sprintf("%s was refused: %s (%s)", last, ring.Detail, refused)})
-	case RingNobody:
-		r.Notes = append(r.Notes, last+" found no coordinator session")
-	default:
-		r.Notes = append(r.Notes, last+" was "+ring.Result)
+	for _, dest := range slices.Sorted(maps.Keys(rings)) {
+		ring := rings[dest]
+		last, refused := "the last ring", Key("inbox", "refused", dest)
+		if dest != "" {
+			last += " for " + dest
+		}
+		last += fmt.Sprintf(", from %s at %s,", ring.Source, ring.At.UTC().Format(time.RFC3339))
+		switch ring.Result {
+		case RingRefused:
+			r.Findings = append(r.Findings, Finding{Key: refused, Line: fmt.Sprintf("%s was refused: %s (%s)", last, ring.Detail, refused)})
+		case RingNobody:
+			r.Notes = append(r.Notes, last+" found no coordinator session")
+		default:
+			r.Notes = append(r.Notes, last+" was "+ring.Result)
+		}
 	}
 	return r
 }

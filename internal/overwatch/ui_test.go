@@ -215,7 +215,7 @@ func TestC28TheSweepNeverWritesTheBlock(t *testing.T) {
 // reviews it.
 func TestC28WorldHoldsNoMethodThatWrites(t *testing.T) {
 	want := []string{"Body", "CheckoutDirs", "Coordinator", "Dependencies", "Doctor", "Drains", "GitHub", "Host", "Inbox", "Intervals",
-		"Inventory", "Items", "Jobs", "LastRing", "Now", "Pauses", "ProjectConfig", "Projects", "Store", "Tracked", "WorkQuery"}
+		"Inventory", "Items", "Jobs", "LastRings", "Now", "Pauses", "ProjectConfig", "Projects", "Store", "Tracked", "WorkQuery"}
 	typ := reflect.TypeFor[World]()
 	var got []string
 	for i := range typ.NumMethod() {

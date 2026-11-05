@@ -13,7 +13,6 @@ import (
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/inbox"
 	"github.com/iantanwx/loop/internal/machine"
-	"github.com/iantanwx/loop/internal/overwatch"
 	"github.com/iantanwx/loop/internal/pipeline"
 	"github.com/iantanwx/loop/internal/room"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -76,9 +75,9 @@ func (s *Server) composeHuman() error {
 		default:
 		}
 	}
-	// Each ring of the doorbell writes the ring record that the sweep's
-	// inbox part reads (ADR 0009).
-	s.Notifier = &inbox.Notifier{Inbox: s.Inbox, Ring: s.recordedRing(overwatch.SourceInbox)}
+	// Each ring of the doorbell writes the ring record of each destination
+	// it names, which the sweep's inbox part reads (ADR 0009).
+	s.Notifier = &inbox.Notifier{Inbox: s.Inbox, Ring: s.inboxRing}
 	// A new fault is an inbox entry, so it rings the coordinator (KTD31).
 	s.Faults.Changed = changed
 	s.Escalations = &escalation.Service{Store: s.Store, Machine: s.Machine, Redactor: s.Redactor, Changed: changed, Logger: s.log}

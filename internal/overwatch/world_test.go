@@ -124,8 +124,8 @@ func (w *fakeWorld) Coordinator() sched.CoordinatorState                    { re
 func (w *fakeWorld) GitHub() GitHubReads                                    { return nil }
 func (w *fakeWorld) Doctor(context.Context) ([]github.CheckLine, error)     { return nil, errFake }
 func (w *fakeWorld) Tracked(context.Context, string) (frontend.Tree, error) { return nil, errFake }
-func (w *fakeWorld) LastRing(ctx context.Context) (RingOutcome, bool, error) {
-	return LastRing(ctx, w.st)
+func (w *fakeWorld) LastRings(ctx context.Context) (map[string]RingOutcome, error) {
+	return LastRings(ctx, w.st, "")
 }
 
 // Inbox builds the inbox from the fake's projects, items and store, as the
