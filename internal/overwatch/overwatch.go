@@ -2,8 +2,9 @@
 // sweep reads the records once and runs every part at once. Each part reads
 // the loop's state through one World and returns its findings and notes. A
 // finding is work until an open record names its key. The native job
-// `overwatch` rings the coordinator when a sweep holds work or a failed
-// read, and `loop overwatch sweep` prints the same report.
+// `overwatch` rings each coordinator whose projects hold work, and the loop
+// project's coordinator when a read failed. `loop overwatch sweep` prints
+// the same report.
 package overwatch
 
 import (
@@ -20,6 +21,7 @@ import (
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/frontend"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/inbox"
@@ -44,9 +46,10 @@ const (
 // Finding is one thing the coordinator acts on. It is work until a record
 // names Key.
 type Finding struct {
-	Key  string    // overwatch:<part>:<subject>, or a fault id for the bugs part
-	Line string    // quotes Key
-	At   time.Time // when a flaky finding's run started, and zero for the other parts
+	Key     string    // overwatch:<part>:<subject>, or a fault id for the bugs part
+	Line    string    // quotes Key
+	At      time.Time // when a flaky finding's run started, and zero for the other parts
+	Project string    // the project the finding is about, or "" for the instance
 }
 
 // Reading is a part's findings and its notes. A note that starts UNREAD
@@ -134,7 +137,8 @@ type World interface {
 	// directory of agent_host.checkout_root, as absolute paths.
 	CheckoutDirs(ctx context.Context) ([]string, error)
 	Inventory(ctx context.Context) (agenthost.Inventory, error)
-	Coordinator() sched.CoordinatorState
+	// Coordinators holds each coordinator by the project it serves.
+	Coordinators() map[string]sched.CoordinatorState
 	GitHub() GitHubReads
 	Doctor(ctx context.Context) ([]github.CheckLine, error) // host lines, then GitHub.Doctor
 	// LastRings is the last ring to each destination project.
@@ -201,20 +205,34 @@ func keyRune(r rune) bool {
 	return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._/@:-", r)
 }
 
-// partResult is one part's reading, or the UNREAD reason that replaces it.
-type partResult struct {
-	reading Reading
-	unread  string
+// Readings is one sweep before classify turns its findings into lines.
+type Readings struct {
+	At            time.Time
+	Parts         []PartReading
+	Records       Records
+	RecordsUnread string // the UNREAD reason of the records read; empty when it worked
 }
 
-// Sweep reads the records and runs every part at once, each under
-// PartDeadline. An error, a panic or a passed deadline becomes code 2 and
-// one UNREAD line for that part only. The report holds one PartReport for
-// each part given, in PartNames order. A sweep of no part reads no record:
-// no finding needs one, so it holds code 0.
+// PartReading is one part's reading, or the UNREAD reason that replaces
+// it.
+type PartReading struct {
+	Part    Part
+	Reading Reading
+	Unread  string
+}
+
+// Sweep reads every part, and returns the report of the whole sweep.
 func Sweep(ctx context.Context, w World, parts []Part) Report {
+	return ReadAll(ctx, w, parts).Report()
+}
+
+// ReadAll reads the records and runs every part at once, each under
+// PartDeadline. An error, a panic or a passed deadline becomes one UNREAD
+// reason for that part only. A sweep of no part reads no record: no
+// finding needs one.
+func ReadAll(ctx context.Context, w World, parts []Part) Readings {
 	if len(parts) == 0 {
-		return Report{At: w.Now(), Parts: []PartReport{}}
+		return Readings{At: w.Now()}
 	}
 	var (
 		wg      sync.WaitGroup
@@ -227,28 +245,92 @@ func Sweep(ctx context.Context, w World, parts []Part) Report {
 		res := bounded(ctx, func(ctx context.Context) (Records, error) { return ReadRecords(ctx, w) })
 		recs, recsErr = res.value, res.unread
 	}()
-	results := make([]partResult, len(parts))
+	results := make([]PartReading, len(parts))
 	for i, p := range parts {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			res := bounded(ctx, func(ctx context.Context) (Reading, error) { return p.Read(ctx, w) })
-			results[i] = partResult{reading: res.value, unread: res.unread}
+			results[i] = PartReading{Part: p, Reading: res.value, Unread: res.unread}
 		}()
 	}
 	wg.Wait()
+	return Readings{At: w.Now(), Parts: results, Records: recs, RecordsUnread: recsErr}
+}
 
-	r := Report{At: w.Now(), Records: recsErr, Parts: make([]PartReport, 0, len(parts))}
-	if recsErr != "" {
-		r.Code = Unread
+// Report classifies the readings. It holds one PartReport for each part,
+// in PartNames order.
+func (r Readings) Report() Report {
+	out := Report{At: r.At, Records: r.RecordsUnread, Parts: make([]PartReport, 0, len(r.Parts))}
+	if r.RecordsUnread != "" {
+		out.Code = Unread
 	}
-	for i, p := range parts {
-		pr := classify(p, results[i], recs, recsErr == "")
-		r.Code = max(r.Code, pr.Code)
-		r.Parts = append(r.Parts, pr)
+	for _, p := range r.Parts {
+		pr := classify(p, r.Records, r.RecordsUnread == "")
+		out.Code = max(out.Code, pr.Code)
+		out.Parts = append(out.Parts, pr)
 	}
-	slices.SortStableFunc(r.Parts, func(a, b PartReport) int { return cmp.Compare(order(a.Name), order(b.Name)) })
-	return r
+	slices.SortStableFunc(out.Parts, func(a, b PartReport) int { return cmp.Compare(order(a.Name), order(b.Name)) })
+	return out
+}
+
+// Route names the project whose coordinator gets f, a finding of part
+// (spec factorio-1edo, Decisions, "Overwatch"). A rules finding compares a
+// rule across the projects, so it is the instance's, and so is a finding
+// with no project.
+func Route(part string, f Finding, t coord.Topology) string {
+	return t.Dest(f.Project, part == "rules" || f.Project == "")
+}
+
+// For keeps the findings that route to a destination that keep holds.
+// Notes hold no work, and a failed read names no project, so both go to
+// the loop project, and For keeps them when keep holds it.
+func (r Readings) For(t coord.Topology, keep func(dest string) bool) Readings {
+	loop := keep(t.Dest("", true))
+	out := Readings{At: r.At, Records: r.Records, Parts: make([]PartReading, 0, len(r.Parts))}
+	if loop {
+		out.RecordsUnread = r.RecordsUnread
+	}
+	for _, p := range r.Parts {
+		kept := PartReading{Part: p.Part}
+		if loop {
+			kept.Unread, kept.Reading.Notes = p.Unread, p.Reading.Notes
+		}
+		for _, f := range p.Reading.Findings {
+			if keep(Route(p.Part.Name, f, t)) {
+				kept.Reading.Findings = append(kept.Reading.Findings, f)
+			}
+		}
+		out.Parts = append(out.Parts, kept)
+	}
+	return out
+}
+
+// Split returns the report of each destination project: the loop
+// project's, and the report of each project that a finding routes to.
+func Split(r Readings, t coord.Topology) map[string]Report {
+	dests := map[string]bool{t.Dest("", true): true}
+	for _, p := range r.Parts {
+		for _, f := range p.Reading.Findings {
+			dests[Route(p.Part.Name, f, t)] = true
+		}
+	}
+	out := make(map[string]Report, len(dests))
+	for dest := range dests {
+		out[dest] = r.For(t, func(d string) bool { return d == dest }).Report()
+	}
+	return out
+}
+
+// Served keeps what `loop overwatch sweep` shows the coordinator of home:
+// home's findings, and those of each destination that home's session
+// serves.
+func (r Readings) Served(t coord.Topology, sessions inbox.Sessions, home string) Readings {
+	mine, ok := sessions(home)
+	return r.For(t, func(dest string) bool {
+		id, served := sessions(dest)
+		return dest == home || ok && served && id == mine
+	})
 }
 
 // order is a part's place in PartNames. A name outside it sorts last.
@@ -259,16 +341,16 @@ func order(name string) int {
 	return len(PartNames)
 }
 
-// classify turns one part's result into its report. A finding that recs
+// classify turns one part's reading into its report. A finding that recs
 // names is filed when the records read worked.
-func classify(p Part, res partResult, recs Records, recsOK bool) PartReport {
-	pr := PartReport{Name: p.Name, Command: p.Command, Lines: []string{}}
-	if res.unread != "" {
-		pr.Code, pr.Lines = Unread, []string{res.unread}
+func classify(p PartReading, recs Records, recsOK bool) PartReport {
+	pr := PartReport{Name: p.Part.Name, Command: p.Part.Command, Lines: []string{}}
+	if p.Unread != "" {
+		pr.Code, pr.Lines = Unread, []string{p.Unread}
 		return pr
 	}
 	var filed []string
-	for _, f := range res.reading.Findings {
+	for _, f := range p.Reading.Findings {
 		if rec, ok := recs.Files(f); recsOK && ok {
 			filed = append(filed, fmt.Sprintf("%s (filed in %s)", f.Line, rec))
 			continue
@@ -276,8 +358,8 @@ func classify(p Part, res partResult, recs Records, recsOK bool) PartReport {
 		pr.Code = Work
 		pr.Lines = append(pr.Lines, f.Line)
 	}
-	pr.Lines = append(append(pr.Lines, filed...), res.reading.Notes...)
-	if slices.ContainsFunc(res.reading.Notes, func(n string) bool { return strings.HasPrefix(n, "UNREAD") }) {
+	pr.Lines = append(append(pr.Lines, filed...), p.Reading.Notes...)
+	if slices.ContainsFunc(p.Reading.Notes, func(n string) bool { return strings.HasPrefix(n, "UNREAD") }) {
 		pr.Code = Unread
 	}
 	return pr

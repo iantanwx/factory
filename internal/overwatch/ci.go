@@ -80,7 +80,7 @@ func classifyCI(p config.Project, event string, budget time.Duration, runs []git
 	case budget == 0:
 		return Reading{Notes: []string{line + ". Project config names no health.ci_budget, so no run is work"}}
 	case took[0] > budget:
-		return Reading{Findings: []Finding{{Key: key, Line: fmt.Sprintf("%s, over the budget of %s. %s", line, budget, key)}}}
+		return Reading{Findings: []Finding{{Key: key, Project: p.ID, Line: fmt.Sprintf("%s, over the budget of %s. %s", line, budget, key)}}}
 	}
 	return Reading{Notes: []string{fmt.Sprintf("%s, inside the budget of %s", line, budget)}}
 }

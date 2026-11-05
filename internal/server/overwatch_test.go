@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/beadsx"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
@@ -275,11 +276,10 @@ func TestC6NoSessionRecordsNobody(t *testing.T) {
 	at := time.Date(2026, 10, 24, 9, 3, 0, 0, time.UTC)
 	s := &Server{Store: st, log: slog.New(slog.NewTextHandler(io.Discard, nil)), Projects: &config.Projects{HostPath: filepath.Join(t.TempDir(), "host.yaml")},
 		opts: Options{Human: HumanOptions{Now: func() time.Time { return at }}}}
-	ring := s.recordedRing(overwatch.SourceOverwatch)
-	if err := ring(context.Background(), "loop overwatch: work in stalls."); !errors.Is(err, inbox.ErrNobodyToRing) {
+	if err := s.overwatchRing(context.Background(), agenthost.RunID{}, false, []string{""}, "loop overwatch: work in stalls."); !errors.Is(err, inbox.ErrNobodyToRing) {
 		t.Fatalf("the ring = %v, want nobody to ring", err)
 	}
-	j := &overwatch.Job{World: fixedWorld{st: st, at: at}, Parts: workParts(), Ring: ring}
+	j := &overwatch.Job{World: fixedWorld{st: st, at: at}, Parts: workParts(), Topology: s.topology, Sessions: s.session, Ring: s.overwatchRing}
 	if err := j.Tick(context.Background()); err != nil {
 		t.Fatalf("a tick with no session = %v", err)
 	}
@@ -301,7 +301,8 @@ func TestC6AFailedRowWriteLeavesTheRingAsItWas(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.srv.recordedRing(overwatch.SourceOverwatch)(ctx, "loop overwatch: work in stalls."); err != nil {
+	id := w.srv.Sched.Coordinator().Session.ID
+	if err := w.srv.overwatchRing(ctx, id, true, []string{""}, "loop overwatch: work in stalls."); err != nil {
 		t.Fatalf("an accepted ring with a refused row = %v", err)
 	}
 	w.waitNotified("loop overwatch: work in stalls.")

@@ -84,16 +84,26 @@ func (s *Server) overwatchPartList() []overwatch.Part {
 }
 
 // overwatchJob is the job over the server's world and part list. It rings
-// through recordedRing("overwatch").
+// the session that serves each destination through overwatchRing.
 func (s *Server) overwatchJob() *overwatch.Job {
-	return &overwatch.Job{World: s.overwatch.world, Parts: s.overwatchPartList(), Ring: s.recordedRing(overwatch.SourceOverwatch)}
+	return &overwatch.Job{World: s.overwatch.world, Parts: s.overwatchPartList(), Topology: s.topology, Sessions: s.session, Ring: s.overwatchRing}
 }
 
 // overwatchSweep is `loop overwatch sweep`: a fresh sweep of the job's world
 // and parts. It exits 0 with the report as data, the sweep's code in
-// data.code, and it never rings.
-func (s *Server) overwatchSweep(ctx context.Context, _ *rpc.Call) cli.Result {
-	return cli.Found(overwatch.Sweep(ctx, s.overwatch.world, s.overwatchPartList()))
+// data.code, and it never rings. A coordinator reads the findings that
+// route to its session, and the host reads every finding (C16).
+func (s *Server) overwatchSweep(ctx context.Context, call *rpc.Call) cli.Result {
+	rs := overwatch.ReadAll(ctx, s.overwatch.world, s.overwatchPartList())
+	if p := call.Principal; p.Kind == cli.PrincipalCoordinator {
+		t := s.topology()
+		home := p.Project
+		if home == "" {
+			home = t.Old
+		}
+		rs = rs.Served(t, s.session, home)
+	}
+	return cli.Found(rs.Report())
 }
 
 // humanClock is the clock of the inbox, the decision timers and the ring
@@ -108,15 +118,10 @@ func (s *Server) humanClock() func() time.Time {
 	return time.Now
 }
 
-// recordedRing is the overwatch job's doorbell. It rings the stored
-// coordinator session, and records the ring for the loop project, the
-// destination of the instance's own work. Spec factorio-1edo work entry 6
-// rings each session with its own report.
-func (s *Server) recordedRing(source string) inbox.Doorbell {
-	return func(ctx context.Context, text string) error {
-		id, ok := s.coordinatorSession()
-		return s.ring(ctx, source, id, ok, []string{s.topology().Loop}, text)
-	}
+// overwatchRing is the overwatch job's doorbell. It rings the session id
+// for the reports of dests, and records the ring of each destination.
+func (s *Server) overwatchRing(ctx context.Context, id agenthost.RunID, ok bool, dests []string, text string) error {
+	return s.ring(ctx, overwatch.SourceOverwatch, id, ok && s.opts.Agents != nil, dests, text)
 }
 
 // inboxRing is the Notifier's doorbell. It rings the session id for the
@@ -344,11 +349,11 @@ func (w *serverWorld) Inventory(ctx context.Context) (agenthost.Inventory, error
 	return w.s.opts.Agents.Inventory(ctx)
 }
 
-func (w *serverWorld) Coordinator() sched.CoordinatorState {
+func (w *serverWorld) Coordinators() map[string]sched.CoordinatorState {
 	if w.s.Sched == nil {
-		return sched.CoordinatorState{}
+		return nil
 	}
-	return w.s.Sched.Coordinator()
+	return w.s.Sched.Coordinators()
 }
 
 // GitHub is the GitHub service's reads, or nil on a server with no GitHub

@@ -68,10 +68,10 @@ func classifyClaims(leases []heldLease) Reading {
 		key := Key("claims", l.item)
 		switch {
 		case !l.hasRun:
-			r.Findings = append(r.Findings, Finding{Key: key,
+			r.Findings = append(r.Findings, Finding{Key: key, Project: l.project,
 				Line: fmt.Sprintf("%s of %s: its lease names run %s, which has no run row (%s)", l.item, l.project, l.run, key)})
 		case !l.ended.IsZero():
-			r.Findings = append(r.Findings, Finding{Key: key,
+			r.Findings = append(r.Findings, Finding{Key: key, Project: l.project,
 				Line: fmt.Sprintf("%s of %s: its lease names run %s, which ended at %s (%s)", l.item, l.project, l.run,
 					l.ended.Format(time.RFC3339), key)})
 		default:

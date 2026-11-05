@@ -23,7 +23,9 @@ type reachWorld struct {
 	doctorErr error
 }
 
-func (w *reachWorld) Coordinator() sched.CoordinatorState { return w.coord }
+func (w *reachWorld) Coordinators() map[string]sched.CoordinatorState {
+	return map[string]sched.CoordinatorState{w.coord.Project: w.coord}
+}
 func (w *reachWorld) Inventory(context.Context) (agenthost.Inventory, error) {
 	return w.inv, w.invErr
 }
@@ -187,7 +189,7 @@ func TestARefusedRingAtOneTickIsWorkAtTheNext(t *testing.T) {
 	w := newReachWorld(t)
 	stalls := Key("stalls", "factorio-x1y@in_progress")
 	var texts []string
-	refused := func(ctx context.Context, text string) error {
+	refused := func(ctx context.Context, _ agenthost.RunID, _ bool, _ []string, text string) error {
 		texts = append(texts, text)
 		err := errors.New("orca: notify refused")
 		if rerr := RecordRing(ctx, w.st, []string{""}, RingOutcome{At: w.now, Source: SourceOverwatch, Result: RingRefused, Detail: err.Error()}); rerr != nil {

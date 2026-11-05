@@ -60,16 +60,20 @@ func worktreesPart() Part {
 			common, project, err := sched.WorktreeOf(ctx, d, projects)
 			return err == nil && common != "" && project == ""
 		})
-		return classifyWorktrees(w.Now(), quiet+w.Intervals().Cleanup, rows, dirs, w.Coordinator().Checkout), nil
+		var coordinators []string
+		for _, cs := range w.Coordinators() {
+			coordinators = append(coordinators, cs.Checkout)
+		}
+		return classifyWorktrees(w.Now(), quiet+w.Intervals().Cleanup, rows, dirs, coordinators), nil
 	}}
 }
 
 // checkoutRow is one checkouts row that is not deleted, and when its run
 // ended or its room closed.
 type checkoutRow struct {
-	path, run, state string
-	ended            time.Time // zero while the run or the room lives
-	exists           bool
+	project, path, run, state string
+	ended                     time.Time // zero while the run or the room lives
+	exists                    bool
 }
 
 // readCheckouts reads every checkouts row that is not deleted, and
@@ -78,7 +82,7 @@ type checkoutRow struct {
 func readCheckouts(ctx context.Context, w World) ([]checkoutRow, error) {
 	var rows []checkoutRow
 	err := w.Store().Read(ctx, func(tx *sql.Tx) error {
-		rs, err := tx.QueryContext(ctx, `SELECT c.path, coalesce(c.run_id, ''), c.state,
+		rs, err := tx.QueryContext(ctx, `SELECT c.project, c.path, coalesce(c.run_id, ''), c.state,
 			coalesce((SELECT r.ended_at FROM runs r WHERE r.run_id = c.run_id),
 				(SELECT max(m.closed_at) FROM rooms m WHERE m.checkout_id = c.id))
 			FROM checkouts c WHERE c.state <> 'deleted' ORDER BY c.path`)
@@ -91,7 +95,7 @@ func readCheckouts(ctx context.Context, w World) ([]checkoutRow, error) {
 				r     checkoutRow
 				ended sql.NullInt64
 			)
-			if err := rs.Scan(&r.path, &r.run, &r.state, &ended); err != nil {
+			if err := rs.Scan(&r.project, &r.path, &r.run, &r.state, &ended); err != nil {
 				return err
 			}
 			if ended.Valid {
@@ -124,19 +128,21 @@ func readCheckouts(ctx context.Context, w World) ([]checkoutRow, error) {
 // classifyWorktrees is the worktrees part's rule. span is the agent host's
 // quiet period plus the cleanup interval: a checkout whose run ended
 // inside it is still the cleanup's to delete.
-func classifyWorktrees(now time.Time, span time.Duration, rows []checkoutRow, dirs []string, coordinator string) Reading {
+func classifyWorktrees(now time.Time, span time.Duration, rows []checkoutRow, dirs []string, coordinators []string) Reading {
 	isCoordinator := func(path string) bool {
-		return filepath.Base(path) == coordinatorCheckoutName || coordinator != "" && filepath.Clean(path) == filepath.Clean(coordinator)
+		return filepath.Base(path) == coordinatorCheckoutName || slices.ContainsFunc(coordinators, func(c string) bool {
+			return c != "" && filepath.Clean(path) == filepath.Clean(c)
+		})
 	}
 	var r Reading
 	seen := map[string]bool{}
-	add := func(name, line string) {
+	add := func(project, name, line string) {
 		key := Key("worktrees", name)
 		if seen[key] {
 			return
 		}
 		seen[key] = true
-		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s)", line, key)})
+		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s)", line, key), Project: project})
 	}
 	named := map[string]bool{}
 	for _, c := range rows {
@@ -147,9 +153,9 @@ func classifyWorktrees(now time.Time, span time.Duration, rows []checkoutRow, di
 		name := filepath.Base(c.path)
 		switch {
 		case !c.exists:
-			add(name, fmt.Sprintf("checkout %s of %s: its row is %s, and its path %s does not exist", name, c.run, c.state, c.path))
+			add(c.project, name, fmt.Sprintf("checkout %s of %s: its row is %s, and its path %s does not exist", name, c.run, c.state, c.path))
 		case !c.ended.IsZero() && now.Sub(c.ended) > span:
-			add(name, fmt.Sprintf("checkout %s of %s: its row is %s, and its run ended at %s, more than %s ago",
+			add(c.project, name, fmt.Sprintf("checkout %s of %s: its row is %s, and its run ended at %s, more than %s ago",
 				name, c.run, c.state, c.ended.Format(time.RFC3339), span))
 		}
 	}
@@ -158,7 +164,7 @@ func classifyWorktrees(now time.Time, span time.Duration, rows []checkoutRow, di
 		if !strings.HasPrefix(name, checkoutPrefix) || isCoordinator(d) || named[filepath.Clean(d)] {
 			continue
 		}
-		add(name, fmt.Sprintf("directory %s: no checkout row names it", d))
+		add("", name, fmt.Sprintf("directory %s: no checkout row names it", d))
 	}
 	r.Notes = append(r.Notes, fmt.Sprintf("checkout rows read: %d; loop directories read: %d", len(rows), len(dirs)))
 	return r

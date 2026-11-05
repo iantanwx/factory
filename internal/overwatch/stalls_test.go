@@ -261,7 +261,9 @@ func f4(t *testing.T) (*stallsWorld, *doorbell) {
 		return agenthost.RunID{Host: "fake", Terminal: "t-1", Incarnation: "1"}, true
 	}
 	n := &inbox.Notifier{Inbox: inbox.New(inbox.Config{Store: w.st, Now: w.Now, Sessions: one}),
-		Ring: func(ctx context.Context, _ agenthost.RunID, _ []string, text string) error { return d.ring(ctx, text) }}
+		Ring: func(ctx context.Context, id agenthost.RunID, dests []string, text string) error {
+			return d.ring(ctx, id, true, dests, text)
+		}}
 	for range 2 {
 		if err := n.Poke(context.Background()); err != nil {
 			t.Fatal(err)

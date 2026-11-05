@@ -620,12 +620,12 @@ func classifyStalls(rows stallRows, now time.Time, drains []sched.Drain) Reading
 		head := fmt.Sprintf("escalation %d (panel/%d) of %s on %s waits in %s", p.id, p.id, p.project, p.item, escalation.StateAwaitingPanel)
 		switch n := fires(p.triage, p.raised, now); {
 		case p.passed != "":
-			r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s, and triage run %s ended at %s, after its raise at %s (%s)",
+			r.Findings = append(r.Findings, Finding{Key: key, Project: p.project, Line: fmt.Sprintf("%s, and triage run %s ended at %s, after its raise at %s (%s)",
 				head, p.passed, stamp(p.passedAt), stamp(p.raised), key)})
 		case p.live != "":
 			r.Notes = append(r.Notes, fmt.Sprintf("%s: triage run %s runs now", head, p.live))
 		case n >= stallFires:
-			r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s: the triage stage fired twice since its raise at %s, and no triage run ended (%s)",
+			r.Findings = append(r.Findings, Finding{Key: key, Project: p.project, Line: fmt.Sprintf("%s: the triage stage fired twice since its raise at %s, and no triage run ended (%s)",
 				head, stamp(p.raised), key)})
 		default:
 			r.Notes = append(r.Notes, fmt.Sprintf("%s: %s of the triage stage since its raise at %s", head, fireCount(n), stamp(p.raised)))
@@ -671,7 +671,7 @@ func classifyStalls(rows stallRows, now time.Time, drains []sched.Drain) Reading
 			r.Notes = append(r.Notes, head+": "+why)
 			continue
 		}
-		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s of %s) stalls in %s: two fires of %s since it entered at %s count against it: neither started a run on it, and neither took only older items of its queue%s (%s)",
+		r.Findings = append(r.Findings, Finding{Key: key, Project: it.Project, Line: fmt.Sprintf("%s (%s of %s) stalls in %s: two fires of %s since it entered at %s count against it: neither started a run on it, and neither took only older items of its queue%s (%s)",
 			it.ID, it.Kind, it.Project, it.Status, row.stage, stamp(row.entered), tookOlder, key)})
 	}
 	for _, row := range rows.lost {
@@ -680,7 +680,7 @@ func classifyStalls(rows stallRows, now time.Time, drains []sched.Drain) Reading
 		}
 		it := row.item
 		key := Key("stalls", it.ID+"@"+it.Status)
-		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s of %s) is lost in %s: no lease holds it, and no live run names it (%s)",
+		r.Findings = append(r.Findings, Finding{Key: key, Project: it.Project, Line: fmt.Sprintf("%s (%s of %s) is lost in %s: no lease holds it, and no live run names it (%s)",
 			it.ID, it.Kind, it.Project, it.Status, key)})
 	}
 	return r
