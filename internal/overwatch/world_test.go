@@ -120,7 +120,7 @@ func (w *fakeWorld) CheckoutDirs(context.Context) ([]string, error) {
 func (w *fakeWorld) Inventory(context.Context) (agenthost.Inventory, error) {
 	return agenthost.Inventory{}, errFake
 }
-func (w *fakeWorld) Coordinator() sched.CoordinatorState                    { return sched.CoordinatorState{} }
+func (w *fakeWorld) Coordinators() map[string]sched.CoordinatorState        { return nil }
 func (w *fakeWorld) GitHub() GitHubReads                                    { return nil }
 func (w *fakeWorld) Doctor(context.Context) ([]github.CheckLine, error)     { return nil, errFake }
 func (w *fakeWorld) Tracked(context.Context, string) (frontend.Tree, error) { return nil, errFake }

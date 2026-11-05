@@ -40,6 +40,7 @@ func readBacklog(ctx context.Context, w World) (Reading, error) {
 		for _, t := range tickets {
 			f, note := classifyBacklog(t.ID, edges)
 			if f != nil {
+				f.Project = p.ID
 				r.Findings = append(r.Findings, *f)
 			} else {
 				r.Notes = append(r.Notes, note)

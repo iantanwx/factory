@@ -19,7 +19,7 @@ type doorbell struct {
 	err   error
 }
 
-func (d *doorbell) ring(_ context.Context, text string) error {
+func (d *doorbell) ring(_ context.Context, _ agenthost.RunID, _ bool, _ []string, text string) error {
 	d.texts = append(d.texts, text)
 	return d.err
 }

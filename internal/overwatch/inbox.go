@@ -19,12 +19,12 @@ func inboxPart() Part {
 	return Part{Name: "inbox", Read: readInbox}
 }
 
-// readInbox reads the coordinator the scheduler holds, the inventory when
+// readInbox reads the coordinators the scheduler holds, the inventory when
 // it holds a session, and the ring record.
 func readInbox(ctx context.Context, w World) (Reading, error) {
-	cs := w.Coordinator()
+	coords := w.Coordinators()
 	var inv agenthost.Inventory
-	if cs.Session != nil {
+	if slices.ContainsFunc(slices.Collect(maps.Values(coords)), func(cs sched.CoordinatorState) bool { return cs.Session != nil }) {
 		var err error
 		if inv, err = w.Inventory(ctx); err != nil {
 			return Reading{}, err
@@ -34,24 +34,32 @@ func readInbox(ctx context.Context, w World) (Reading, error) {
 	if err != nil {
 		return Reading{}, err
 	}
-	return classifyInbox(cs, inv, rings), nil
+	return classifyInbox(coords, inv, rings), nil
 }
 
 // classifyInbox is the inbox part's rule. A session is live when the
-// inventory lists its exact identity as connected. Each destination's last
-// ring that was refused is work.
-func classifyInbox(cs sched.CoordinatorState, inv agenthost.Inventory, rings map[string]RingOutcome) Reading {
+// inventory lists its exact identity as connected. Each coordinator with
+// no live session is work, and so is each destination's last ring that was
+// refused. A ring cannot reach the session these findings are about, so
+// each finding names no project, and it rings the loop project's
+// coordinator.
+func classifyInbox(coords map[string]sched.CoordinatorState, inv agenthost.Inventory, rings map[string]RingOutcome) Reading {
 	var r Reading
 	noSession := Key("inbox", "no-session")
-	switch {
-	case cs.Session == nil:
-		r.Findings = append(r.Findings, Finding{Key: noSession,
-			Line: fmt.Sprintf("the scheduler holds no coordinator session, so no ring reaches the coordinator (%s)", noSession)})
-	case !connected(inv, cs.Session.ID):
-		r.Findings = append(r.Findings, Finding{Key: noSession,
-			Line: fmt.Sprintf("the agent host lists no live session %s for the coordinator run %s (%s)", cs.Session.ID, cs.RunID, noSession)})
-	default:
-		r.Notes = append(r.Notes, fmt.Sprintf("the coordinator session %s of run %s runs", cs.Session.ID, cs.RunID))
+	if len(coords) == 0 {
+		coords = map[string]sched.CoordinatorState{"": {}}
+	}
+	for _, project := range slices.Sorted(maps.Keys(coords)) {
+		switch cs := coords[project]; {
+		case cs.Session == nil:
+			r.Findings = append(r.Findings, Finding{Key: noSession,
+				Line: fmt.Sprintf("the scheduler holds no coordinator session, so no ring reaches the coordinator (%s)", noSession)})
+		case !connected(inv, cs.Session.ID):
+			r.Findings = append(r.Findings, Finding{Key: noSession,
+				Line: fmt.Sprintf("the agent host lists no live session %s for the coordinator run %s (%s)", cs.Session.ID, cs.RunID, noSession)})
+		default:
+			r.Notes = append(r.Notes, fmt.Sprintf("the coordinator session %s of run %s runs", cs.Session.ID, cs.RunID))
+		}
 	}
 	if len(rings) == 0 {
 		r.Notes = append(r.Notes, "the store holds no coordinator ring yet")

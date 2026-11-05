@@ -145,7 +145,7 @@ func (j *judge) epic(e machine.Item, open []machine.Item) (*Finding, string, err
 		held = append(held, fmt.Sprintf("%s %s (%s)", t.ID, t.Status, v.why))
 	}
 	key := Key("starved", j.project, e.ID)
-	return &Finding{Key: key, Line: fmt.Sprintf("epic %s (%q) of %s starves: the implementer has a free slot and takes no ticket, and none of its open tickets moves: %s (%s)",
+	return &Finding{Key: key, Project: j.project, Line: fmt.Sprintf("epic %s (%q) of %s starves: the implementer has a free slot and takes no ticket, and none of its open tickets moves: %s (%s)",
 		e.ID, e.Title, j.project, strings.Join(held, "; "), key)}, "", nil
 }
 

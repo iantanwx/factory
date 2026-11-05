@@ -139,13 +139,13 @@ func classifyBugs(in faultsRead) Reading {
 		case in.filed[f.ID] != "":
 			r.Notes = append(r.Notes, fmt.Sprintf("%s is filed in %s", f.ID, in.filed[f.ID]))
 		default:
-			r.Findings = append(r.Findings, Finding{Key: f.ID,
+			r.Findings = append(r.Findings, Finding{Key: f.ID, Project: in.project,
 				Line: fmt.Sprintf("%s is %s and no bug names it: file a bug in %s whose body names %s", f.ID, f.Status, in.project, f.ID)})
 		}
 	}
 	for _, b := range in.reports {
 		key := Key("bugs", b.id)
-		r.Findings = append(r.Findings, Finding{Key: key,
+		r.Findings = append(r.Findings, Finding{Key: key, Project: b.project,
 			Line: fmt.Sprintf("%s waits in reported, and %s disables the reproducer stage, so no stage takes it (%s)", b.id, b.project, key)})
 	}
 	return r

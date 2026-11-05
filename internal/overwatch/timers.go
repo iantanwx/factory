@@ -35,9 +35,9 @@ func timersPart() Part {
 // cronTimer is one cron row of schedule. since is its last fire, or when
 // the row was made when it never fired.
 type cronTimer struct {
-	name, expr string
-	since      time.Time
-	fired      bool
+	project, name, expr string
+	since               time.Time
+	fired               bool
 }
 
 // firedTimers names each timer the scheduler fires, by the selection that
@@ -99,7 +99,7 @@ func readTimerRows(ctx context.Context, w World, fires map[string]bool) ([]cronT
 			if err := rs.Scan(&project, &stage, &r.expr, &since, &r.fired); err != nil {
 				return err
 			}
-			r.name, r.since = timerName(project, stage), time.UnixMilli(since).UTC()
+			r.project, r.name, r.since = project, timerName(project, stage), time.UnixMilli(since).UTC()
 			if fires[r.name] {
 				rows = append(rows, r)
 			}
@@ -129,17 +129,17 @@ func readTimerRows(ctx context.Context, w World, fires map[string]bool) ([]cronT
 // of zero means that no scheduler runs, so the tick is not judged.
 func classifyTimers(now time.Time, liveness time.Duration, rows []cronTimer, tick *time.Time) Reading {
 	var r Reading
-	add := func(name, line string) {
+	add := func(project, name, line string) {
 		key := Key("timer-health", name)
-		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s)", line, key)})
+		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf("%s (%s)", line, key), Project: project})
 	}
 	switch {
 	case liveness <= 0:
 		r.Notes = append(r.Notes, "no scheduler runs, so no liveness tick is judged")
 	case tick == nil:
-		add(livenessSchedule, "the store holds no liveness tick")
+		add("", livenessSchedule, "the store holds no liveness tick")
 	case now.Sub(*tick) > 2*liveness:
-		add(livenessSchedule, fmt.Sprintf("the liveness tick is from %s, older than two intervals of %s", tick.Format(time.RFC3339), liveness))
+		add("", livenessSchedule, fmt.Sprintf("the liveness tick is from %s, older than two intervals of %s", tick.Format(time.RFC3339), liveness))
 	}
 	for _, t := range rows {
 		last := "last fired at " + t.since.Format(time.RFC3339)
@@ -148,11 +148,11 @@ func classifyTimers(now time.Time, liveness time.Duration, rows []cronTimer, tic
 		}
 		second, err := secondFire(t.expr, t.since)
 		if err != nil {
-			add(t.name, fmt.Sprintf("schedule %s %s, and its cron cannot fire: %v", t.name, last, err))
+			add(t.project, t.name, fmt.Sprintf("schedule %s %s, and its cron cannot fire: %v", t.name, last, err))
 			continue
 		}
 		if now.After(second) {
-			add(t.name, fmt.Sprintf("schedule %s (cron %q) %s, and missed its fires up to %s", t.name, t.expr, last, second.Format(time.RFC3339)))
+			add(t.project, t.name, fmt.Sprintf("schedule %s (cron %q) %s, and missed its fires up to %s", t.name, t.expr, last, second.Format(time.RFC3339)))
 		}
 	}
 	r.Notes = append(r.Notes, fmt.Sprintf("cron rows the scheduler fires: %d", len(rows)))

@@ -90,7 +90,7 @@ func classifyRules(p config.Project, rules []landedRule, done []machine.Item) Re
 		}
 		id := fmt.Sprintf("L-%d", l.id)
 		key := Key("rules", p.ID, id)
-		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf(
+		r.Findings = append(r.Findings, Finding{Key: key, Project: p.ID, Line: fmt.Sprintf(
 			"learning %s of %s landed a %s rule in %s, which is done, and no comparison read it yet. Compare it with the other projects by section 9, then run `loop retro compared %s`: %s",
 			id, p.ID, l.target, l.ticket, id, key)})
 	}

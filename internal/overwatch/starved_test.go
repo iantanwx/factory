@@ -163,8 +163,8 @@ func TestStarvedRingsForAnEpicWhoseOpenTicketsNothingMoves(t *testing.T) {
 		t.Fatalf("findings = %+v, notes = %q; want one finding", r.Findings, r.Notes)
 	}
 	f := r.Findings[0]
-	if f.Key != starvedKey {
-		t.Fatalf("key = %q, want %q", f.Key, starvedKey)
+	if f.Key != starvedKey || f.Project != "factorio" {
+		t.Fatalf("key = %q of %q, want %q of factorio", f.Key, f.Project, starvedKey)
 	}
 	for _, want := range []string{"factorio-e1", `"Checkout flow"`, "factorio-t1 todo", "factorio-c canceled", "(" + starvedKey + ")"} {
 		if !strings.Contains(f.Line, want) {

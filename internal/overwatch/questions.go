@@ -138,7 +138,7 @@ func classifyQuestions(escs []personEscalation, qs []preparedQuestion, escalated
 			line = fmt.Sprintf("escalation %d on %s waits for a person, and the operator answered question %d about %s: relay it with `loop inbox answer %s`, or prepare a new question (%s)",
 				e.ID, e.Item, answered[len(answered)-1], entry, entry, key)
 		}
-		r.Findings = append(r.Findings, Finding{Key: key, Line: line})
+		r.Findings = append(r.Findings, Finding{Key: key, Line: line, Project: e.Project})
 	}
 	return r
 }

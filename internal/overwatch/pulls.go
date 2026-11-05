@@ -80,7 +80,7 @@ func classifyPulls(p config.Project, prs []github.PR) Reading {
 			refs[i] = fmt.Sprintf("#%d", n)
 		}
 		key := Key("pulls", p.ID, s.item, s.doc)
-		r.Findings = append(r.Findings, Finding{Key: key,
+		r.Findings = append(r.Findings, Finding{Key: key, Project: p.ID,
 			Line: fmt.Sprintf("%s: %s has %d open pull requests for its %s, %s. Close all but one. %s",
 				p.ID, s.item, len(nums), s.doc, joinAnd(refs), key)})
 	}

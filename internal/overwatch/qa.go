@@ -48,7 +48,7 @@ func readQA(ctx context.Context, w World) (Reading, error) {
 			continue
 		}
 		key := Key("qa", p.ID)
-		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf(
+		r.Findings = append(r.Findings, Finding{Key: key, Project: p.ID, Line: fmt.Sprintf(
 			"%s: the qa stage is on, and %s tracks no %s, so each QA run posts neutral. Run loop-verify-create in the project, or turn the stage off. %s",
 			p.ID, ref, verifySkill, key)})
 	}

@@ -62,7 +62,7 @@ func classifyUI(p config.Project, ref string, d frontend.Detection) Reading {
 		paths = append(paths, g.String())
 	}
 	key := Key("ui", p.ID)
-	return Reading{Findings: []Finding{{Key: key, Line: fmt.Sprintf(
+	return Reading{Findings: []Finding{{Key: key, Project: p.ID, Line: fmt.Sprintf(
 		"%s: %s shows a frontend, and the project config declares no ui block: %s. The proposed block is kind %s, paths %s. %s",
 		p.ID, ref, joinAnd(sigs), d.Proposed.Kind, strings.Join(paths, ", "), key)}}}
 }

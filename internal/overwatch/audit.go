@@ -78,10 +78,10 @@ func classifyAudit(p config.Project, wf string, runs []github.RunView, now time.
 	age := now.Sub(run.CreatedAt).Truncate(time.Minute)
 	switch {
 	case redRun(run.Conclusion):
-		return Reading{Findings: []Finding{{Key: key,
+		return Reading{Findings: []Finding{{Key: key, Project: p.ID,
 			Line: fmt.Sprintf("%s: the newest %s run %d on %s concluded %s. Read its log. %s", p.ID, wf, run.ID, base, run.Conclusion, key)}}}
 	case age > AuditStale:
-		return Reading{Findings: []Finding{{Key: key,
+		return Reading{Findings: []Finding{{Key: key, Project: p.ID,
 			Line: fmt.Sprintf("%s: the newest %s run %d on %s started %s ago, past %s, so its schedule stopped. %s",
 				p.ID, wf, run.ID, base, age, AuditStale, key)}}}
 	}

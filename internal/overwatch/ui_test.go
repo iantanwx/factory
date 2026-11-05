@@ -214,7 +214,7 @@ func TestC28TheSweepNeverWritesTheBlock(t *testing.T) {
 // reads, so a method that writes a file or a ref fails here until a person
 // reviews it.
 func TestC28WorldHoldsNoMethodThatWrites(t *testing.T) {
-	want := []string{"Body", "CheckoutDirs", "Coordinator", "Dependencies", "Doctor", "Drains", "GitHub", "Host", "Inbox", "Intervals",
+	want := []string{"Body", "CheckoutDirs", "Coordinators", "Dependencies", "Doctor", "Drains", "GitHub", "Host", "Inbox", "Intervals",
 		"Inventory", "Items", "Jobs", "LastRings", "Now", "Pauses", "ProjectConfig", "Projects", "Store", "Tracked", "WorkQuery"}
 	typ := reflect.TypeFor[World]()
 	var got []string

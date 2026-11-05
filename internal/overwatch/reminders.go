@@ -108,7 +108,7 @@ func classifyReminders(project string, limit time.Duration, entries []inbox.Entr
 			continue
 		}
 		key := Key("reminders", e.ID, strconv.Itoa(int(age/limit)))
-		r.Findings = append(r.Findings, Finding{Key: key, Line: fmt.Sprintf(
+		r.Findings = append(r.Findings, Finding{Key: key, Project: project, Line: fmt.Sprintf(
 			"%s has waited on the operator for %s, past the reminder limit of %s of project %s: remind the operator (%s)",
 			e.ID, short(age), short(limit), project, key)})
 	}

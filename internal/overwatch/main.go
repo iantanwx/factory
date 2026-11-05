@@ -77,7 +77,7 @@ func classifyMain(p config.Project, runs []github.RunView) Reading {
 			continue
 		}
 		key := Key("main", p.ID, Slug(wf)+"@"+short12(head))
-		r.Findings = append(r.Findings, Finding{Key: key,
+		r.Findings = append(r.Findings, Finding{Key: key, Project: p.ID,
 			Line: fmt.Sprintf("%s: %s concluded %s at %s's head %s (run %d). The base branch is red. %s",
 				p.ID, wf, run.Conclusion, base, short12(head), run.ID, key)})
 	}

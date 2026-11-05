@@ -57,8 +57,10 @@ func (w *schedWorld) ProjectConfig(_ context.Context, project string) (*config.P
 	}
 	return &config.ProjectSnapshot{Config: c}, nil
 }
-func (w *schedWorld) Jobs() sched.Jobs                    { return w.jobs }
-func (w *schedWorld) Coordinator() sched.CoordinatorState { return w.coord }
+func (w *schedWorld) Jobs() sched.Jobs { return w.jobs }
+func (w *schedWorld) Coordinators() map[string]sched.CoordinatorState {
+	return map[string]sched.CoordinatorState{w.coord.Project: w.coord}
+}
 func (w *schedWorld) CheckoutDirs(context.Context) ([]string, error) {
 	return agenthost.ListCheckoutDirs(w.root)
 }
