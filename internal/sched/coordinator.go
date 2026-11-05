@@ -343,9 +343,7 @@ func (s *Scheduler) tendOld(ctx context.Context, cc *CoordinatorConfig, old Coor
 
 // tendHome keeps p's coordinator session: it tells a live session about
 // this release, rebinds a moved one, and starts the next one when the
-// session ended. A failed start raises an alert that names p. A checkout
-// the server made and no longer finds starts nothing, and raises an alert
-// that names the restart.
+// session ended. A failed start raises an alert that names p.
 func (s *Scheduler) tendHome(ctx context.Context, cc *CoordinatorConfig, cs CoordinatorState, p config.Project, loop bool) {
 	if cs.Made && missing(cs.Checkout) {
 		s.raise(ctx, config.Alert{Project: p.ID, Kind: AlertCoordinatorCheckoutMissing, DedupeKey: AlertCoordinatorCheckoutMissing + ":" + p.ID,
@@ -698,7 +696,8 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 	b := brief.Brief{RunID: run, Project: p.ID, LoopProject: loop, Stage: CoordinatorStage, Role: CoordinatorStage,
 		Harness: string(cc.Harness), Model: model, BaseBranch: base, Secrets: brief.Secrets{Present: []string{}, Missing: []string{}},
 		LeftOpen: left}
-	res, err := brief.Inject(ctx, brief.Injection{Checkout: cs.Checkout, Harness: cc.Harness, Pack: s.coordinatorPack(), Brief: b})
+	in := brief.Injection{Checkout: cs.Checkout, Harness: cc.Harness, Pack: s.coordinatorPack(), Brief: b}
+	res, err := brief.Inject(ctx, in)
 	if err != nil {
 		return err
 	}
@@ -706,18 +705,16 @@ func (s *Scheduler) startCoordinator(ctx context.Context, cc *CoordinatorConfig,
 		Project: p.ID, Checkout: cs.Checkout, Release: s.cfg.Release}); err != nil {
 		return err
 	}
-	// A next session that is not Fresh continues the last conversation.
 	spec := agenthost.StartSpec{Kind: agenthost.KindCoordinator, Checkout: cs.Checkout, Harness: cc.Harness, Model: model,
 		Effort: cc.Effort, PromptFile: res.Prompt, Title: "loop coordinator " + p.ID, Resume: !cs.Fresh && cs.RunID != ""}
 	sess, err := s.cfg.Agents.Start(ctx, spec)
 	if errors.Is(err, agenthost.ErrResumeUnsupported) {
-		// The host cannot resume, so the session starts fresh, with the
-		// work the last one left open in its prompt.
-		if b.LeftOpen, err = s.listLeftOpen(ctx, p.ID); err == nil {
-			if _, err = brief.Inject(ctx, brief.Injection{Checkout: cs.Checkout, Harness: cc.Harness, Pack: s.coordinatorPack(), Brief: b}); err == nil {
-				spec.Resume = false
-				sess, err = s.cfg.Agents.Start(ctx, spec)
-			}
+		if in.Brief.LeftOpen, err = s.listLeftOpen(ctx, p.ID); err == nil {
+			_, err = brief.Inject(ctx, in)
+		}
+		if err == nil {
+			spec.Resume = false
+			sess, err = s.cfg.Agents.Start(ctx, spec)
 		}
 	}
 	if err != nil {
@@ -790,13 +787,11 @@ func (s *Scheduler) RestartCoordinator(ctx context.Context, project string) (Coo
 	return cs, err
 }
 
-// missing reports whether no directory stands at path.
 func missing(path string) bool {
 	_, err := os.Stat(path)
 	return errors.Is(err, fs.ErrNotExist)
 }
 
-// listLeftOpen lists the work a previous coordinator of project left open.
 func (s *Scheduler) listLeftOpen(ctx context.Context, project string) ([]string, error) {
 	if s.leftOpen == nil {
 		return nil, nil
