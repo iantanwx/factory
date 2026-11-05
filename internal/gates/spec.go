@@ -20,7 +20,8 @@ func specGlobs() []string {
 
 // Spec checks the shape of each spec, as docshape.CheckSpec reads it: the
 // template's headings once each and in order, no empty section, no line of
-// the template left, and a filename that starts with the epic id. It reads
+// the template left, a filename that starts with the epic id, and no open
+// question that the spec sign-off refuses as undecided. It reads
 // every spec, as the adr gate reads every ADR. It cannot check what a
 // section says; the doc-reviewer reads that.
 func Spec(_ context.Context, r *Repo) ([]Finding, error) {

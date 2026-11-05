@@ -517,7 +517,8 @@ the project's control and one CI workflow.
 
 ## Open questions
 
-- **Q1. Split the base audit into its own epic?** Answered by the operator on 2026-10-27: split.
+- **Q1. Split the base audit into its own epic?** **Answered (operator,
+  2026-10-27):** Split.
   This spec holds the ratchet gates, work entries 1 to 6. The base audit, with its former work
   entries 7 and 8 and contracts C19 to C27 and C31, belongs to the architecture epic factorio-fgza
   (Base audit, ADR 0003 § Decision, G5).

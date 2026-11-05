@@ -1133,3 +1133,6 @@ the coordinator's inbox, and the lane's log lives under `<instance>/orca-accepta
    line, so the new epic needs an intake room. Keeping one epic is also workable: the
    entries above stand as written, and the decomposer cuts them in this order. This blocks the
    sign-off of the scope, and it blocks entries 6 to 9.
+   **Answered (operator, 2026-10-27):** One epic. The operator signed off this spec with all nine
+   entries in PR #52, and `docs/evidence/orca-acceptance.md` records the native job's first green
+   run under factorio-9ac.
