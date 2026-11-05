@@ -11,7 +11,9 @@ import (
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/rpc"
+	"github.com/iantanwx/loop/internal/sched"
 )
 
 // wireStages registers the stage verbs.
@@ -41,14 +43,33 @@ func (s *Server) stageList(ctx context.Context, call *rpc.Call) cli.Result {
 	if err != nil {
 		return cli.Internal(err)
 	}
+	if rows, err = reachable(ctx, rows, func(r sched.StageRow) coord.Record {
+		return coord.Record{Kind: coord.KindProject, ID: r.Project, Project: r.Project}
+	}); err != nil {
+		return cli.Internal(err)
+	}
 	return cli.List(rows)
+}
+
+// pauseProject is the project of a pause or a resume: --project, or else
+// the caller's own project for a project's coordinator. The loop
+// project's coordinator, the old session and the host pause every project
+// with no --project (ADR 0015 decision 4).
+func pauseProject(ctx context.Context, call *rpc.Call) string {
+	if p := call.Inv.Flags["project"]; p != "" {
+		return p
+	}
+	if c, ok := rpc.CallerFrom(ctx); ok && c.Reach == coord.ReachProject {
+		return c.Project
+	}
+	return ""
 }
 
 // stagePause is `loop stage pause <stage> [--project] --reason`. It holds
 // a run stage or an agent job in one project, or in every project. A
 // native job passes no admission, so it does not pause.
 func (s *Server) stagePause(ctx context.Context, call *rpc.Call) cli.Result {
-	stage, project := call.Inv.Arg("stage"), call.Inv.Flags["project"]
+	stage, project := call.Inv.Arg("stage"), pauseProject(ctx, call)
 	reason := strings.TrimSpace(call.Inv.Flags["reason"])
 	if reason == "" {
 		return cli.Reject(cli.CodeUsage, "no_reason", "--reason says why the stage pauses; the inbox quotes it until `loop stage resume`")
@@ -84,7 +105,7 @@ func (s *Server) stagePause(ctx context.Context, call *rpc.Call) cli.Result {
 // pause of its own scope only, so a project resume leaves a pause of every
 // project in place.
 func (s *Server) stageResume(ctx context.Context, call *rpc.Call) cli.Result {
-	stage, project := call.Inv.Arg("stage"), call.Inv.Flags["project"]
+	stage, project := call.Inv.Arg("stage"), pauseProject(ctx, call)
 	p, err := admission.Resume(ctx, s.Store, project, stage, call.Principal.Actor())
 	if errors.Is(err, admission.ErrNotPaused) {
 		return s.noPause(ctx, project, stage)

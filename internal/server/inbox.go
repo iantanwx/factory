@@ -67,7 +67,8 @@ func (s *Server) composeHuman() error {
 		link, itemLink = pipeline.Link(s.Machine, s.Projects), pipeline.ItemLink(s.Projects)
 	}
 	s.Inbox = inbox.New(inbox.Config{Store: s.Store, Machine: s.Machine, Projects: s.Projects.List, Redactor: s.Redactor,
-		Link: link, ItemLink: itemLink, Now: now, PollInterval: o.PollInterval, Logger: s.log})
+		Link: link, ItemLink: itemLink, Now: now, PollInterval: o.PollInterval, Logger: s.log,
+		Topology: s.topology, Sessions: s.session})
 	changed := func() {
 		s.Inbox.Changed()
 		select {
@@ -155,6 +156,13 @@ func (s *Server) coordinatorSession() (agenthost.RunID, bool) {
 		return agenthost.RunID{}, false
 	}
 	return cs.Session.ID, true
+}
+
+func (s *Server) session(project string) (agenthost.RunID, bool) {
+	if s.Sched == nil {
+		return agenthost.RunID{}, false
+	}
+	return s.Sched.Session(project)
 }
 
 // coordinatorSend types the operator's message into the coordinator's

@@ -7,6 +7,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/merge"
 	"github.com/iantanwx/loop/internal/merge/direct"
 	"github.com/iantanwx/loop/internal/merge/ghqueue"
@@ -94,6 +95,11 @@ func mergeStatus(s *Server) rpc.Handler {
 	return func(ctx context.Context, call *rpc.Call) cli.Result {
 		out, err := merge.Status(ctx, s.Store, call.Inv.Flags["project"], call.Inv.Flags["all"] == "true")
 		if err != nil {
+			return cli.Internal(err)
+		}
+		if out, err = reachable(ctx, out, func(t merge.Tracked) coord.Record {
+			return coord.Record{Kind: coord.KindItem, ID: t.Item, Project: t.Project}
+		}); err != nil {
 			return cli.Internal(err)
 		}
 		return cli.List(out)

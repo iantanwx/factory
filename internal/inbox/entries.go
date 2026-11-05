@@ -488,7 +488,7 @@ func questionCommands(qs []string) string {
 }
 
 func (in *Inbox) questions(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
-	rs, err := tx.QueryContext(ctx, `SELECT id, entry, body, run_id, created_at FROM questions WHERE answered_at IS NULL ORDER BY id`)
+	rs, err := tx.QueryContext(ctx, `SELECT id, project, entry, body, run_id, created_at FROM questions WHERE answered_at IS NULL ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -496,11 +496,11 @@ func (in *Inbox) questions(ctx context.Context, tx *sql.Tx) ([]Entry, error) {
 	var out []Entry
 	for rs.Next() {
 		var id, at int64
-		var about, body, run string
-		if err := rs.Scan(&id, &about, &body, &run, &at); err != nil {
+		var project, about, body, run string
+		if err := rs.Scan(&id, &project, &about, &body, &run, &at); err != nil {
 			return nil, err
 		}
-		e := Entry{ID: rowEntry(KindQuestion, id), Kind: KindQuestion, Awaits: AwaitsPerson, Title: "a question the coordinator prepared",
+		e := Entry{ID: rowEntry(KindQuestion, id), Kind: KindQuestion, Awaits: AwaitsPerson, Project: project, Title: "a question the coordinator prepared",
 			Text: AgentText(run, body), Next: "loop inbox answer " + rowEntry(KindQuestion, id) + " --body <the operator's answer>", At: at}
 		if about != "" {
 			e.Title, e.Link, e.aboutID = "a question about "+about, about, about

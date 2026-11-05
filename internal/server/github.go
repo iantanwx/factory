@@ -11,6 +11,7 @@ import (
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/github"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/retro"
@@ -239,6 +240,15 @@ func (g *GitHub) prPending(s *Server) rpc.Handler {
 				rows = []github.Pending{{Project: p.ID, Error: err.Error()}}
 			}
 			out = append(out, rows...)
+		}
+		out, err := reachable(ctx, out, func(p github.Pending) coord.Record {
+			if p.Item == "" {
+				return coord.Record{Kind: coord.KindProject, ID: p.Project, Project: p.Project}
+			}
+			return coord.Record{Kind: coord.KindItem, ID: p.Item, Project: p.Project}
+		})
+		if err != nil {
+			return cli.Internal(err)
 		}
 		slices.SortStableFunc(out, func(a, b github.Pending) int { return a.Since.Compare(b.Since) })
 		return cli.List(out)

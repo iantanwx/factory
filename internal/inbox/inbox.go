@@ -22,6 +22,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/machine"
 	"github.com/iantanwx/loop/internal/retro"
 	"github.com/iantanwx/loop/internal/rpc"
@@ -120,6 +121,12 @@ type Config struct {
 	// GitHub merges a document on a sign-off answer. SetGitHub sets it
 	// after the GitHub setup. A sign-off answer refuses while it is nil.
 	GitHub DocGitHub
+	// Topology and Sessions name the coordinator session that each entry
+	// rings. `inbox list` and `inbox wait` show a coordinator only the
+	// entries that ring its own session. Every entry shows when either is
+	// nil.
+	Topology func() coord.Topology
+	Sessions Sessions
 	// Now is the inbox clock. time.Now when nil.
 	Now          func() time.Time
 	PollInterval time.Duration

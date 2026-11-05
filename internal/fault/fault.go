@@ -22,6 +22,7 @@ import (
 
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
 	"github.com/iantanwx/loop/internal/store"
@@ -242,8 +243,20 @@ func (s *Service) list(ctx context.Context, call *rpc.Call) cli.Result {
 	if err != nil {
 		return cli.Internal(err)
 	}
+	c, scoped := rpc.CallerFrom(ctx)
 	out := make([]Fault, 0, len(fs))
 	for _, f := range fs {
+		if scoped && c.Reach != coord.ReachUnscoped {
+			keep := c.Reach == coord.ReachLoop
+			if f.Project != "" {
+				if keep, err = c.Reaches(ctx, coord.Record{Kind: coord.KindFault, ID: f.ID, Project: f.Project}); err != nil {
+					return cli.Internal(err)
+				}
+			}
+			if !keep {
+				continue
+			}
+		}
 		f.Text = ""
 		f.Installed = s.release()
 		out = append(out, f)
