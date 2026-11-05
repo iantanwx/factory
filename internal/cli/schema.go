@@ -79,9 +79,21 @@ type Verb struct {
 	// Write marks a verb that changes state. A write from a run, a room or
 	// the coordinator carries an idempotency key (KTD13).
 	Write bool `json:"write"`
+	// Scope is required on a verb whose callers name "coordinator" or
+	// "host coordinator" (ADR 0015 decision 4).
+	Scope VerbScope `json:"scope,omitempty"`
 
 	handler Handler
 }
+
+// VerbScope names what a coordinator verb reaches: the records of the
+// caller's own project, or the whole instance.
+type VerbScope string
+
+const (
+	ScopeProject  VerbScope = "project"
+	ScopeInstance VerbScope = "instance"
+)
 
 // Invocation is one parsed call. Args and Flags hold canonical strings, the
 // same shape the VerbRequest carries to the server.
