@@ -64,6 +64,7 @@ func (s *Server) wire() error {
 		"secret set":          s.secretSet,
 		"secret import":       s.secretImport,
 		"coordinator send":    s.coordinatorSend,
+		"coordinator restart": s.coordinatorRestart,
 		"coordinator upgrade": s.coordinatorUpgrade,
 		"doctor-env":          s.doctorEnv,
 	} {

@@ -159,6 +159,7 @@ var fakeOnly = map[string]string{
 	"recorded_mismatch_refuses_start":    "ModelDropper",
 	"missing_receipt_starts_session":     "ModelSilencer",
 	"notify_refused_is_an_error":         "NotifyRefuser",
+	"resume_or_refuse":                   "ResumeRefuser",
 }
 
 // C3: every real test declares its sessions.

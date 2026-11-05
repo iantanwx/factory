@@ -133,6 +133,20 @@ func TestStartRefusesOutsideRootWithoutCallingOrca(t *testing.T) {
 	}
 }
 
+// C27: orca agent launch takes no flag that resumes a conversation, so a
+// start that asks to resume answers ErrResumeUnsupported and calls no orca.
+func TestStartCannotResume(t *testing.T) {
+	w := newWorld(t)
+	spec := w.spec(agenthost.Claude)
+	spec.Resume = true
+	if _, err := w.host.Start(context.Background(), spec); !errors.Is(err, agenthost.ErrResumeUnsupported) {
+		t.Fatalf("Start = %v; want ErrResumeUnsupported", err)
+	}
+	if len(w.sim.allArgs()) != 0 {
+		t.Fatal("a start that asked to resume reached orca")
+	}
+}
+
 func assistant(dir, model string, at time.Time) map[string]any {
 	return map[string]any{"type": "assistant", "cwd": dir, "timestamp": ts(at),
 		"message": map[string]any{"model": model, "content": []any{map[string]any{"type": "text"}}}}
