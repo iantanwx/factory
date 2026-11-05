@@ -59,9 +59,9 @@ func classifyInbox(cs sched.CoordinatorState, inv agenthost.Inventory, rings map
 	}
 	for _, dest := range slices.Sorted(maps.Keys(rings)) {
 		ring := rings[dest]
-		last, refused := "the last ring", Key("inbox", "refused")
+		last, refused := "the last ring", Key("inbox", "refused", dest)
 		if dest != "" {
-			last, refused = "the last ring for "+dest, Key("inbox", "refused", dest)
+			last += " for " + dest
 		}
 		last += fmt.Sprintf(", from %s at %s,", ring.Source, ring.At.UTC().Format(time.RFC3339))
 		switch ring.Result {
