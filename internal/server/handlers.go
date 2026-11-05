@@ -16,10 +16,37 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/gitx"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/secrets"
 )
+
+// reachable keeps the rows that the call's coordinator reaches (spec
+// factorio-1edo, Approach, "Scope"). A row with no project is the
+// instance's, and only the loop project's coordinator reaches it. Every
+// other caller, the old session too, keeps every row.
+func reachable[T any](ctx context.Context, rows []T, record func(T) coord.Record) ([]T, error) {
+	c, ok := rpc.CallerFrom(ctx)
+	if !ok || c.Reach == coord.ReachUnscoped {
+		return rows, nil
+	}
+	out := make([]T, 0, len(rows))
+	for _, row := range rows {
+		r := record(row)
+		keep := c.Reach == coord.ReachLoop
+		if r.Project != "" {
+			var err error
+			if keep, err = c.Reaches(ctx, r); err != nil {
+				return nil, err
+			}
+		}
+		if keep {
+			out = append(out, row)
+		}
+	}
+	return out, nil
+}
 
 // ManifestReader reads a project's secret manifest from its default branch.
 type ManifestReader func(ctx context.Context, p config.Project, branch string) (*config.Manifest, error)
@@ -92,10 +119,15 @@ func (s *Server) projectAdd(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Found(view(p))
 }
 
-func (s *Server) projectList(context.Context, *rpc.Call) cli.Result {
+func (s *Server) projectList(ctx context.Context, _ *rpc.Call) cli.Result {
 	ps, err := s.Projects.List()
 	if err != nil {
 		return projectFault(err)
+	}
+	if ps, err = reachable(ctx, ps, func(p config.Project) coord.Record {
+		return coord.Record{Kind: coord.KindRegistration, ID: p.ID, Project: p.ID}
+	}); err != nil {
+		return cli.Internal(err)
 	}
 	out := make([]projectView, 0, len(ps))
 	for _, p := range ps {

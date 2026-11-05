@@ -30,6 +30,7 @@ import (
 	"github.com/iantanwx/loop/internal/brief"
 	"github.com/iantanwx/loop/internal/cli"
 	"github.com/iantanwx/loop/internal/config"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/hexid"
 	"github.com/iantanwx/loop/internal/machine"
@@ -852,11 +853,24 @@ func (s *Service) close(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.Found(map[string]any{"room": got, "closed": true})
 }
 
-// list is `loop room list`.
+// list is `loop room list`. A coordinator lists only the rooms it reaches.
 func (s *Service) list(ctx context.Context, call *rpc.Call) cli.Result {
 	rooms, err := s.Rooms(ctx, call.Inv.Flags["all"] == "true")
 	if err != nil {
 		return cli.Internal(err)
+	}
+	if c, ok := rpc.CallerFrom(ctx); ok {
+		out := rooms[:0]
+		for _, r := range rooms {
+			keep, err := c.Reaches(ctx, coord.Record{Kind: coord.KindRoom, ID: r.ID, Project: r.Project})
+			if err != nil {
+				return cli.Internal(err)
+			}
+			if keep {
+				out = append(out, r)
+			}
+		}
+		rooms = out
 	}
 	return cli.List(rooms)
 }

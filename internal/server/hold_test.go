@@ -233,6 +233,9 @@ func rewindSchema(tx *store.Tx, version int) error {
 	if _, err := tx.Exec(`ALTER TABLE runs DROP COLUMN design_skill`); err != nil { // 0022
 		return err
 	}
+	if _, err := tx.Exec(`ALTER TABLE questions DROP COLUMN project`); err != nil { // 0023
+		return err
+	}
 	_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, version))
 	return err
 }

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/coord"
 	"github.com/iantanwx/loop/internal/rpc"
 	"github.com/iantanwx/loop/internal/sched"
 )
@@ -57,8 +58,18 @@ func (s *Server) runList(ctx context.Context, call *rpc.Call) cli.Result {
 		}
 		f.Limit = n
 	}
+	// A project's coordinator lists its own project's runs, so the limit
+	// counts only those.
+	if c, ok := rpc.CallerFrom(ctx); ok && c.Reach == coord.ReachProject && f.Project == "" {
+		f.Project = c.Project
+	}
 	out, err := sched.ListRuns(ctx, s.Store, f)
 	if err != nil {
+		return cli.Internal(err)
+	}
+	if out, err = reachable(ctx, out, func(r sched.RunView) coord.Record {
+		return coord.Record{Kind: coord.KindRun, ID: r.RunID, Project: r.Project}
+	}); err != nil {
 		return cli.Internal(err)
 	}
 	return cli.List(out)

@@ -37,7 +37,7 @@ func (in *Inbox) list(ctx context.Context, call *rpc.Call) cli.Result {
 	if err != nil {
 		return cli.Internal(err)
 	}
-	return cli.List(filter(es, call.Inv.Flags["awaits"]))
+	return cli.List(filter(in.served(call.Principal, es), call.Inv.Flags["awaits"]))
 }
 
 // Since returns the entries newer than the cursor. An empty cursor returns
@@ -80,6 +80,7 @@ func (in *Inbox) waitVerb(ctx context.Context, call *rpc.Call) cli.Result {
 		if err != nil {
 			return cli.Reject(cli.CodeUsage, "bad_cursor", err.Error())
 		}
+		es = in.served(call.Principal, es)
 		if len(es) > 0 {
 			return cli.Found(map[string]any{"entries": es, "cursor": es[len(es)-1].Cursor})
 		}
@@ -364,7 +365,9 @@ func (in *Inbox) deferVerb(ctx context.Context, call *rpc.Call) cli.Result {
 }
 
 // prepare is `loop inbox prepare`: a question the coordinator wrote for the
-// operator, with its options and their costs. It waits on a person.
+// operator, with its options and their costs. It waits on a person. It
+// holds the project of the caller's token, and Route routes it by that
+// project.
 func (in *Inbox) prepare(ctx context.Context, call *rpc.Call) cli.Result {
 	body := strings.TrimSpace(call.Inv.Flags["body"])
 	if body == "" {
@@ -381,8 +384,8 @@ func (in *Inbox) prepare(ctx context.Context, call *rpc.Call) cli.Result {
 	}
 	var id int64
 	if err := in.cfg.Store.Write(ctx, func(tx *store.Tx) error {
-		r, err := tx.Exec(`INSERT INTO questions (entry, body, run_id, created_at) VALUES (?, ?, ?, ?)`,
-			about, body, call.Principal.RunID, in.cfg.Now().UnixMilli())
+		r, err := tx.Exec(`INSERT INTO questions (project, entry, body, run_id, created_at) VALUES (?, ?, ?, ?, ?)`,
+			call.Principal.Project, about, body, call.Principal.RunID, in.cfg.Now().UnixMilli())
 		if err != nil {
 			return err
 		}
