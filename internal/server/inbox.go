@@ -3,13 +3,17 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/iantanwx/loop/internal/admission"
 	"github.com/iantanwx/loop/internal/agenthost"
 	"github.com/iantanwx/loop/internal/cli"
+	"github.com/iantanwx/loop/internal/config"
 	"github.com/iantanwx/loop/internal/decision"
 	"github.com/iantanwx/loop/internal/escalation"
 	"github.com/iantanwx/loop/internal/inbox"
@@ -136,15 +140,6 @@ func (s *Server) projectSource() sched.ProjectSource {
 	return s.projectLoader(refs)
 }
 
-// coordinatorSession is the session of the loop project's coordinator. ok
-// is false with no scheduler, no agent host or no session.
-func (s *Server) coordinatorSession() (agenthost.RunID, bool) {
-	if s.Sched == nil || s.opts.Agents == nil {
-		return agenthost.RunID{}, false
-	}
-	return s.Sched.Session(s.Sched.Topology().Loop)
-}
-
 func (s *Server) session(project string) (agenthost.RunID, bool) {
 	if s.Sched == nil {
 		return agenthost.RunID{}, false
@@ -152,24 +147,41 @@ func (s *Server) session(project string) (agenthost.RunID, bool) {
 	return s.Sched.Session(project)
 }
 
-// coordinatorSend types the operator's message into the loop project's
-// coordinator's terminal, so the operator talks to it from any shell on
-// the host.
 func (s *Server) coordinatorSend(ctx context.Context, call *rpc.Call) cli.Result {
-	id, ok := s.coordinatorSession()
-	if !ok {
-		return cli.Reject(cli.CodeNotFound, "no_coordinator", "no coordinator session runs; the scheduler starts one on its next tick")
+	project := call.Inv.Flags["project"]
+	if project == "" {
+		return cli.Reject(cli.CodeUsage, "no_project", "name the coordinator's project with --project; "+s.runningCoordinators())
+	}
+	if _, err := s.Projects.Show(project); err != nil {
+		if errors.Is(err, config.ErrProjectNotFound) {
+			return cli.Reject(cli.CodeNotFound, "unknown_project", fmt.Sprintf("project %s is not registered", project))
+		}
+		return cli.Internal(err)
+	}
+	id, ok := s.session(project)
+	if !ok || s.opts.Agents == nil {
+		return cli.Reject(cli.CodeNotFound, "no_coordinator", fmt.Sprintf("no coordinator session runs for project %s", project))
 	}
 	if err := s.opts.Agents.Notify(ctx, id, call.Inv.Flags["body"]); err != nil {
 		return cli.Internal(err)
 	}
-	var run string
-	for _, cs := range s.Sched.Coordinators() {
-		if cs.Session != nil && cs.Session.ID == id {
-			run = cs.RunID
+	return cli.Found(map[string]any{"sent": true, "run_id": s.Sched.Coordinators()[project].RunID})
+}
+
+func (s *Server) runningCoordinators() string {
+	var ps []string
+	if s.Sched != nil {
+		for p, cs := range s.Sched.Coordinators() {
+			if cs.Session != nil {
+				ps = append(ps, p)
+			}
 		}
 	}
-	return cli.Found(map[string]any{"sent": true, "run_id": run})
+	if len(ps) == 0 {
+		return "no coordinator session runs now"
+	}
+	slices.Sort(ps)
+	return "a coordinator session runs for " + strings.Join(ps, ", ")
 }
 
 // leftOpen lists the work a previous coordinator of project left open:
