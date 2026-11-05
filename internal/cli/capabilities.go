@@ -47,7 +47,6 @@ var hostVerbLabels = []string{"host", "host coordinator"}
 // decision 4).
 var verbScopes = []VerbScope{ScopeProject, ScopeInstance}
 
-// coordinatorLabel reports whether a caller label admits the coordinator.
 func coordinatorLabel(c string) bool {
 	return c == "coordinator" || c == "host coordinator"
 }
