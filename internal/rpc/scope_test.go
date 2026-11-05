@@ -86,6 +86,26 @@ func TestC6AnInstanceWideVerbOnlyFromTheLoopProjectsCoordinator(t *testing.T) {
 			wantRefusal(t, env, code, 2, cli.CodeNotImplemented, "")
 		}
 	}
+	// The binary's doctor sends the authorization probe itself before it
+	// reads the host (cmd/loop/release.go, prepare), so the harness client
+	// does not gate it.
+	doctor, _ := cli.Surface().Verb("doctor")
+	probe := *doctor
+	probe.RPC = cli.AuthorizeMethod
+	authorize := func(cwd string) cli.Result {
+		h.proc.setCwd(cwd)
+		return h.client(cwd).Remote(context.Background(), cli.Invocation{
+			Verb: &probe, Flags: map[string]string{cli.ExtraAuthorize: "true"}, RequestID: "doctor-" + filepath.Base(cwd),
+		})
+	}
+	if res := authorize(alpha); res.Refusal == nil || res.Refusal.Code != cli.CodeCapabilityDenied || res.Refusal.Rule != "loop_project_only" {
+		t.Fatalf("doctor probe from alpha = %+v, want loop_project_only", res)
+	}
+	for _, who := range []string{loop, old} {
+		if res := authorize(who); res.Refusal != nil {
+			t.Fatalf("doctor probe from %s = %+v", who, res.Refusal)
+		}
+	}
 }
 
 // C5 and C8, spec work entry 3: the scope check refuses a record of
