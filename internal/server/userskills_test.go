@@ -80,7 +80,7 @@ func newPinWorld(t *testing.T, fetch userspace.Fetch) *pinWorld {
 		Agents: w.host,
 		Sched: SchedOptions{
 			Checkouts:    func(project string) sched.CheckoutHost { return worktrees{t: t, host: w.host, repo: repos[project]} },
-			Coordinator:  &sched.CoordinatorConfig{Project: "alpha", Harness: agenthost.Claude},
+			Coordinator:  &sched.CoordinatorConfig{Harness: agenthost.Claude},
 			TickInterval: time.Hour,
 			BaseHead: sched.OriginBaseHead(func() ([]config.Project, error) {
 				return []config.Project{{ID: "alpha", Path: alpha}, {ID: "beta", Path: beta}}, nil
@@ -284,17 +284,14 @@ func TestC14APinReachesOnlyItsOwnProject(t *testing.T) {
 	pw.hold("alpha")
 	pw.hold("beta")
 
-	// The coordinator session started before alpha was registered. End it,
-	// so the next tick injects a new one while alpha pins neon and the
-	// store holds it.
-	old := pw.srv.Sched.Coordinator()
-	pw.host.Exit(old.Session.ID, 0)
+	// The next tick starts alpha's coordinator while alpha pins neon and
+	// the store holds it.
 	if err := pw.srv.Sched.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	coord := pw.srv.Sched.Coordinator()
-	if coord.Project != "alpha" || coord.Checkout == "" || coord.RunID == old.RunID {
-		t.Fatalf("coordinator = %+v, want a new session in a checkout of alpha", coord)
+	coord := pw.srv.Sched.Coordinators()["alpha"]
+	if coord.Project != "alpha" || coord.Checkout == "" || coord.Session == nil {
+		t.Fatalf("coordinator = %+v, want a session in a checkout of alpha", coord)
 	}
 	if _, ok := pw.store.Held("alpha", pw.pin); !ok {
 		t.Fatal("the store lacks neon for alpha when the coordinator starts")

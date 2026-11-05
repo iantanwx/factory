@@ -89,8 +89,8 @@ func fetchedSkills(instance string) fs.FS {
 //   - with beads.bd and beads.dolt set, the Dolt supervisor and one beads
 //     workspace for each project (KTD3), so the machine and admission run;
 //   - with agent_host.kind set too, the agent host and the scheduler,
-//     and the coordinator session on the first registered project, which
-//     starts once a project exists;
+//     and a coordinator session for each project whose default branch
+//     holds a project config;
 //   - with credentials.github_app.app_id set, the GitHub actor and reactor:
 //     its verbs, its start-up reconcile, the base reader of
 //     admission, the manifest reader of secret import, the project config
@@ -214,9 +214,6 @@ func productionOptions(ctx context.Context, dir string, w wiring) (server.Option
 	opts.Sched.Coordinator = &sched.CoordinatorConfig{Harness: agenthost.Claude}
 	if cfg.AgentHost.Kind == "orca" {
 		opts.Setup = append(opts.Setup, orcaLane(dir, cfg))
-	}
-	if len(cfg.Projects) > 0 {
-		opts.Sched.Coordinator.Project = cfg.Projects[0].ID
 	}
 	if gh != nil {
 		opts.Setup = append(opts.Setup, func(s *server.Server) error {

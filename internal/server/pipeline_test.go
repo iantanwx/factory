@@ -64,7 +64,7 @@ func newDocWorld(t *testing.T) (*humanWorld, *GitHub, *gt.API) {
 		Sched: SchedOptions{
 			Checkouts:     func(string) sched.CheckoutHost { return worktrees{t: t, host: w.host, repo: repo} },
 			ProjectConfig: func(context.Context, string) (*config.ProjectSnapshot, error) { return snap, nil },
-			Coordinator:   &sched.CoordinatorConfig{Project: "alpha", Harness: agenthost.Claude},
+			Coordinator:   &sched.CoordinatorConfig{Harness: agenthost.Claude},
 			TickInterval:  time.Hour,
 			BaseHead:      repoBaseHead(repo),
 		},
@@ -80,6 +80,7 @@ func newDocWorld(t *testing.T) (*humanWorld, *GitHub, *gt.API) {
 	if err := w.srv.Projects.Add(ctx, config.Project{ID: "alpha", Repo: gt.Repo, Path: repo}); err != nil {
 		t.Fatal(err)
 	}
+	w.awaitCoordinator()
 	w.coord = t.TempDir()
 	if _, err := w.srv.Tokens.IssueToCheckout(ctx, rpc.IssueRequest{RunID: "coord-1", Kind: cli.PrincipalCoordinator,
 		Checkout: w.coord}); err != nil {

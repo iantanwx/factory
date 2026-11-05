@@ -35,7 +35,7 @@ func TestCBug1ARefusedRingAlertsOnceAndBacksOff(t *testing.T) {
 	w.srv.setOverwatchParts(workParts())
 	j := w.srv.overwatchJob()
 
-	session := w.srv.Sched.Coordinator().Session.ID
+	session := w.srv.Sched.Coordinators()["alpha"].Session.ID
 	w.host.RefuseNotify(session, true)
 	if err := config.StoreAlerter(w.srv.Store).Raise(ctx, config.Alert{Project: "alpha", Kind: sched.AlertRunUnknown, DedupeKey: "u",
 		Subject: "a run's liveness is unknown"}); err != nil {

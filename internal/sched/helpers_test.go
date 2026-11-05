@@ -438,3 +438,6 @@ func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+// coordinator is the coordinator of the project prj.
+func (w *world) coordinator() CoordinatorState { return w.s.Coordinators()[prj] }

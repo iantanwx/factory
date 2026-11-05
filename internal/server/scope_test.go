@@ -70,7 +70,7 @@ func newScopeWorld(t *testing.T) *scopeWorld {
 		Sched: SchedOptions{
 			Checkouts:     func(string) sched.CheckoutHost { return worktrees{t: t, host: w.host, repo: repo} },
 			ProjectConfig: func(context.Context, string) (*config.ProjectSnapshot, error) { return snap, nil },
-			Coordinator:   &sched.CoordinatorConfig{Project: "alpha", Harness: agenthost.Claude},
+			Coordinator:   &sched.CoordinatorConfig{Harness: agenthost.Claude},
 			TickInterval:  time.Hour,
 			BaseHead:      repoBaseHead(repo),
 		},
@@ -96,6 +96,7 @@ func newScopeWorld(t *testing.T) *scopeWorld {
 			t.Fatal(err)
 		}
 	}
+	w.awaitCoordinator()
 	w.coord, w.alpha, w.lp = t.TempDir(), t.TempDir(), t.TempDir()
 	for _, r := range []rpc.IssueRequest{
 		{RunID: "coord-old", Kind: cli.PrincipalCoordinator, Checkout: w.coord},
