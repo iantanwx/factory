@@ -585,9 +585,6 @@ func (s *Scheduler) removeCheckout(ctx context.Context, project, path string) {
 	}
 }
 
-// closeRemoved closes the coordinator of a project that is no longer
-// registered: it closes the session, revokes the token, removes the
-// checkout and deletes the row of kind.
 func (s *Scheduler) closeRemoved(ctx context.Context, kind string, cs CoordinatorState) {
 	s.endSession(ctx, cs)
 	s.removeCheckout(ctx, cs.Project, cs.Checkout)
@@ -595,7 +592,6 @@ func (s *Scheduler) closeRemoved(ctx context.Context, kind string, cs Coordinato
 	s.log.WarnContext(ctx, "the coordinator's project is not registered; closed it", "kind", kind, "project", cs.Project, "run", cs.RunID)
 }
 
-// deleteCoordinator deletes the old row, or project's home row.
 func (s *Scheduler) deleteCoordinator(ctx context.Context, kind, project string) {
 	if kind == oldKind {
 		project = ""
