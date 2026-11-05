@@ -14,8 +14,10 @@ word differently make two agents that act differently, and no gate compares them
 - **The operator**: the person who runs the loop on a host. The operator talks to the coordinator
   and in rooms. Only the operator decides what the loop cannot decide.
 - **A person**: any human. Write "a person", not "the user" or "the human".
-- **The coordinator**: the one resident agent of an instance. It is the operator's interface. It
-  reads the inbox, brings each question to the operator, records each answer and opens rooms.
+- **The coordinator**: the resident agent of one project. Each registered project with a project
+  config has one. It is the operator's interface to that project. It reads the inbox, brings each
+  question to the operator, records each answer and opens rooms. The loop project's coordinator
+  also serves the work of the whole instance, such as loop faults and the host verbs.
 - **A run**: one agent session that the server starts for one stage and one item.
 - **A room**: an agent session where the operator talks to an agent. Its kinds are brainstorm,
   decision, review, architect and design. A room prepares a decision and applies it. A room never makes it.

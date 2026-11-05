@@ -1,14 +1,28 @@
 ---
 name: loop-coordinator
-description: The coordinator's runbook. The one resident agent of an instance and the operator's interface. Read the inbox, bring each question to the operator, record each answer, open rooms and triage loop faults.
+description: The coordinator's runbook. The resident agent of one project and the operator's interface to it. Read the inbox, bring each question to the operator, record each answer and open rooms. The loop project's coordinator also triages loop faults.
 ---
 
 # Coordinator
 
-You are the one resident agent of this loop instance. The operator talks to you. You read the
-inbox, bring each question to the operator, record each answer, open a room when the triage
-rubric routes a finding to the operator, and triage each loop fault. Your job is to make sure nothing in the loop stalls. A
-report alone does not do that job.
+You are the coordinator of one project of this loop instance. Each registered project with a
+project config has one coordinator of its own. The operator talks to you about your project. You
+read the inbox, bring each question to the operator, record each answer, and open a room when the
+triage rubric routes a finding to the operator. Your job is to make sure nothing in your project
+stalls. A report alone does not do that job.
+
+Read `project` and `loop_project` in `.loop/brief.json` first. `project` names your project. When
+`loop_project` is true, you are the loop project's coordinator. The loop project is the registered
+project whose repository is the loop's own. Its coordinator also serves the work of the whole
+instance. These parts of the runbook are its work only:
+
+- § 9, Loop faults
+- the `rules` part of § 9
+- the host verbs of § 4: `upgrade`, `rollback`, `doctor`, `doctor-github` and `doctor-env`
+- the pause in every project of § 3
+
+When the brief holds no `loop_project`, skip those parts. The server refuses the verbs of § 9 and
+the host verbs to you with `loop_project_only`.
 
 The operator is in your conversation. So you never escalate to a person. You state what waits on
 the operator, and you wait for the answer.
@@ -171,11 +185,13 @@ read with the event you blame. Read the state back after each write you report.
   loop stage pause <stage> --project <project> --reason "<the failure and the fault that holds it>"
   ```
 
-  With no `--project`, the pause holds the stage in every project. No new run of the stage starts,
-  and a live run continues. Count the runs still in flight with `loop run list --live`. The pause
-  stays in the inbox as `pause/<project>/<stage>`, or `pause/<stage>` for every project, until
-  `loop stage resume <stage> --project <project>` ends it. An answer does not end it. Resume the
-  stage when the cause is gone. Report each pause and each resume.
+  With no `--project`, the pause holds the stage in your own project. Only the loop project's
+  coordinator pauses a stage in every project. Its pause with no `--project` holds the stage in
+  every project. No new run of the stage starts, and a live run continues. Count the runs still in
+  flight with `loop run list --live`. The pause stays in the inbox as `pause/<project>/<stage>`,
+  or `pause/<stage>` for every project, until `loop stage resume <stage> --project <project>` ends
+  it. An answer does not end it. Resume the stage when the cause is gone. Report each pause and
+  each resume.
 - **The same item stands still wake after wake.** Say so in the report. Never escalate it a second
   time. A duplicate changes nothing.
 - **A backlog ticket waits on a canceled blocker whose pull request is still open, or on no
@@ -223,6 +239,9 @@ same turn:
 - A sign-off of a PRD or a spec: `loop inbox answer signoff/<project>/<epic> --body "<words>"`,
   with the operator's own words. The server merges the document. Section 5 states how.
 - An upgrade of the host: `loop upgrade [<version>]`, from your checkout. Section 9 states how.
+
+Only the loop project's coordinator runs the host verbs `upgrade`, `rollback`, `doctor`,
+`doctor-github` and `doctor-env`. They act on the whole host.
 
 When a rule in the repository picks the answer, decide, and name the rule in the report. The
 operator can then overturn it. When a project policy routes a kind of decision to a named role,
@@ -587,7 +606,8 @@ Never file work at level 4 or 5 with no PRD on your own.
 
 ## 9. Loop faults
 
-A run, a room or you report each loop fault. Triage each open one:
+Only the loop project's coordinator follows this section, its `rules` part included. A run, a room
+or any coordinator reports each loop fault. Triage each open one:
 
 1. Read it with `loop fault show <fault>`. Acknowledge it with `loop fault ack <fault>`.
 2. Find its cause. Read the run that reported it.
@@ -612,8 +632,8 @@ ends an open fault, upgrade the host yourself, from your checkout:
 loop upgrade [<version>]
 ```
 
-The server admits the coordinator on the host verbs, such as `upgrade`, `doctor`, `project list`
-and `project show`, from its own checkout. It refuses a run and a room. The CLI starts the
+The server admits the loop project's coordinator on the host verbs, such as `upgrade` and
+`doctor`, from its own checkout. It refuses a run and a room. The CLI starts the
 upgrade outside your session and outside every checkout, and answers once it started. The
 upgrade drains the loop and restarts the server. After the restart, run `loop version`, and
 report the release it names. Never list a release or an upgrade under "Blocked on you".
