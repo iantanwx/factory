@@ -941,8 +941,6 @@ func (m *Machine) workList(ctx context.Context, call *rpc.Call) cli.Result {
 	return cli.List(items)
 }
 
-// shapedInto names the ticket a shaped bug became, or empty for any other
-// item.
 func shapedInto(it Item) string {
 	if it.Kind != KindBug || it.Status != Shaped {
 		return ""
@@ -950,8 +948,6 @@ func shapedInto(it Item) string {
 	return it.Fact(FactTicket)
 }
 
-// setClosed sets the ticket status of a shaped bug and whether the bug
-// closed, by BugClosed.
 func (i *Item) setClosed(ticket string) {
 	closed := BugClosed(i.Status, ticket)
 	i.TicketStatus, i.Closed = ticket, &closed
