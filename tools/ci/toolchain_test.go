@@ -10,9 +10,9 @@ import (
 )
 
 // The newest releases that carry every fix the audit gate reports as
-// called by this module's code, at govulncheck's database of 2026-10-28.
+// called by this module's code, at govulncheck's database of 2026-11-11.
 const (
-	patchedGo   = "go1.26.10"
+	patchedGo   = "go1.26.11"
 	patchedXNet = "v0.60.0"
 )
 
